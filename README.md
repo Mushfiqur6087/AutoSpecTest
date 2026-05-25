@@ -1,55 +1,75 @@
 # AutoSpecTest
 
-Convert natural-language functional specifications into structured, machine-readable UI Abstract Syntax Trees (UI-AST). The UI-AST captures every interactive element — forms, buttons, tabs, wizards, data tables, conditional logic, and state-bound actions — in a deterministic JSON schema ready for test generation or automated validation.
+Convert natural-language functional specifications into structured, machine-readable UI Abstract Syntax Trees (UI-AST), enumerate every executable workflow path, and generate comprehensive positive, negative, and edge test cases — fully automatically.
 
 ---
 
 ## How it works
 
-A functional spec markdown file goes in; two JSON files come out.
+A functional spec markdown file goes in; structured JSON and markdown reports come out.
 
 ```
 spec.md (## Module sections)
     │
     ▼
-┌──────────────────────────────────────────────────────────┐
-│  AutoSpecTest Pipeline                                   │
-│                                                          │
-│  ┌─────────────────────────────────────────────────┐     │
-│  │  [1/3] generate_and_critique (parallel)         │     │
-│  │                                                 │     │
-│  │  For each module (concurrent):                  │     │
-│  │    attempt 1: UIASTAgent → SemanticCritic       │     │
-│  │      verdict=yes  ───────────────────► done     │     │
-│  │      verdict=retry → fixes[] fed back           │     │
-│  │    attempt 2: UIASTAgent(fixes) → Critic        │     │
-│  │      verdict=yes  ───────────────────► done     │     │
-│  │      verdict=retry → fixes[] fed back           │     │
-│  │    attempt 3: UIASTAgent(fixes) → ship as-is   │     │
-│  └─────────────────────────────────────────────────┘     │
-│                          ↓                               │
-│  ┌─────────────────────────────────────────────────┐     │
-│  │  [2/3] generate_tests (parallel, 3 calls each)  │     │
-│  │                                                 │     │
-│  │  For each module (concurrent):                  │     │
-│  │    TestPositiveAgent  ┐                         │     │
-│  │    TestNegativeAgent  ├─ parallel → merge       │     │
-│  │    TestEdgeAgent      ┘                         │     │
-│  └─────────────────────────────────────────────────┘     │
-│                          ↓                               │
-│  ┌──────────────────────────┐                            │
-│  │  [3/3] finalize          │ → ui-ast.json              │
-│  │                          │ → semantic-critique.json   │
-│  │                          │ → test-cases.json          │
-│  └──────────────────────────┘                            │
-└──────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│  AutoSpecTest Pipeline                                      │
+│                                                             │
+│  ┌──────────────────────────────────────────────────────┐   │
+│  │  [1/3] generate_and_critique  (parallel per module)  │   │
+│  │                                                      │   │
+│  │  For each module (concurrent):                       │   │
+│  │    attempt 1: UIASTAgent → SemanticCriticAgent       │   │
+│  │      verdict=yes  ──────────────────────► done       │   │
+│  │      verdict=retry → fixes[] fed back                │   │
+│  │    attempt 2: UIASTAgent(fixes) → Critic             │   │
+│  │      verdict=yes  ──────────────────────► done       │   │
+│  │      verdict=retry → fixes[] fed back                │   │
+│  │    attempt 3: UIASTAgent(fixes) → ship as-is         │   │
+│  └──────────────────────────────────────────────────────┘   │
+│                           ↓                                 │
+│  ┌──────────────────────────────────────────────────────┐   │
+│  │  [1.5/3] extract_workflows  (parallel per module)    │   │
+│  │                                                      │   │
+│  │  For each module (concurrent):                       │   │
+│  │    attempt 1: WorkflowExtractorAgent                 │   │
+│  │               → WorkflowCriticAgent                  │   │
+│  │      verdict=yes  ──────────────────────► done       │   │
+│  │      verdict=retry → fixes[] fed back                │   │
+│  │    attempt 2/3: same retry loop (max 3)              │   │
+│  └──────────────────────────────────────────────────────┘   │
+│                           ↓                                 │
+│  ┌──────────────────────────────────────────────────────┐   │
+│  │  [2/3] generate_tests  (parallel per module)         │   │
+│  │                                                      │   │
+│  │  For each module (concurrent):                       │   │
+│  │    TestPositiveAgent  ┐                              │   │
+│  │    TestNegativeAgent  ├── parallel → merge           │   │
+│  │    TestEdgeAgent      ┘                              │   │
+│  │    (each receives the approved workflow list)        │   │
+│  └──────────────────────────────────────────────────────┘   │
+│                           ↓                                 │
+│  ┌──────────────────────┐                                   │
+│  │  [3/3] finalize      │ → ui-ast.json                    │
+│  │                      │ → semantic-critique.json          │
+│  │                      │ → workflows.json                  │
+│  │                      │ → workflow-critique.json          │
+│  │                      │ → test-cases.json                 │
+│  │                      │ → {project}-{model}-critique.md   │
+│  │                      │ → {project}-{model}-workflow-     │
+│  │                      │       critique.md                 │
+│  │                      │ → {project}-{model}-tests.md      │
+│  └──────────────────────┘                                   │
+└─────────────────────────────────────────────────────────────┘
 ```
 
 **Stage 1 — UIASTAgent + SemanticCriticAgent** — For each module, the generator emits a UI component tree and the critic audits it with a binary `yes/retry` verdict. On retry, the critic's `fixes[]` array is fed directly back to the generator. Maximum 3 attempts per module.
 
-**Stage 2 — Three test agents** — For each module, three agents run in parallel against the approved AST: positive tests (happy paths, state transitions, lifecycle flows), negative tests (validation failures, constraint violations, precondition violations), and edge/boundary tests (threshold boundaries, unusual interaction paths). Results are merged into a single per-module test suite with sequential TC IDs.
+**Stage 1.5 — WorkflowExtractorAgent + WorkflowCriticAgent** — For each module, the extractor enumerates every distinct executable path through the module (one workflow per submit action, per state × action pair, per table row/bulk action, per conditional branch). The critic then audits the list for missing paths, phantom workflows, and wrong terminal actions — with the same 3-attempt retry loop. The approved workflow list is passed directly into Stage 2.
 
-Modules run concurrently across all stages.
+**Stage 2 — Three test agents** — For each module, three agents run in parallel against both the approved AST and the workflow list: positive tests (must cover every workflow), negative tests (workflow-aware failure injection), and edge/boundary tests (workflow-aware boundary scoping). Each test case carries a `wf_ref` linking it back to the workflow it covers. Results are merged into a single per-module test suite with sequential TC IDs.
+
+All modules run concurrently across all stages.
 
 ---
 
@@ -58,7 +78,7 @@ Modules run concurrently across all stages.
 **Requirements:** Python 3.9+
 
 ```bash
-git clone https://github.com/your-org/AutoSpecTest
+git clone https://github.com/Mushfiqur6087/AutoSpecTest
 cd AutoSpecTest
 python -m venv .venv
 source .venv/bin/activate
@@ -73,16 +93,24 @@ After installation, the `autospectest` command is available in the venv.
 
 ```bash
 autospectest --generate \
-  --input dataset/raw_specifications/my-app-spec.md \
+  --input dataset/my-app-spec.md \
   --api-key "sk-..." \
   --model "openai/gpt-4o" \
   --output outputs/my-run
 ```
 
-This writes three files to `outputs/my-run/`:
-- `ui-ast.json` — the generated UI-AST
-- `semantic-critique.json` — the critic's final verdict and audit for each module
-- `test-cases.json` — merged positive/negative/edge test cases for each module
+This writes the following files to `outputs/my-run/`:
+
+| File | Contents |
+|------|----------|
+| `ui-ast.json` | Generated UI-AST for every module |
+| `semantic-critique.json` | Critic verdict and audit for every module (Stage 1) |
+| `workflows.json` | Enumerated workflow list for every module (Stage 1.5) |
+| `workflow-critique.json` | Workflow critic verdict and audit for every module (Stage 1.5) |
+| `test-cases.json` | Merged positive/negative/edge test cases with `wf_ref` per TC |
+| `{project}-{model}-critique.md` | Human-readable semantic critique report |
+| `{project}-{model}-workflow-critique.md` | Human-readable workflow critique report |
+| `{project}-{model}-tests.md` | Human-readable test case table with WF Ref column |
 
 ---
 
@@ -217,6 +245,50 @@ Parameters unsupported by a given model (e.g. `temperature` on o-series models) 
 
 ---
 
+### `workflows.json`
+
+```json
+{
+  "project_name": "My Application",
+  "generated_at": "2026-05-03T12:00:00Z",
+  "modules": [
+    {
+      "module_id": 1,
+      "module_title": "Clients",
+      "workflows": [
+        {
+          "wf_id": "WF-001",
+          "name": "View client row action",
+          "actor": "<role>",
+          "conditional_branch": null,
+          "terminal_action": "View",
+          "on_success": "Client detail page opens"
+        },
+        {
+          "wf_id": "WF-002",
+          "name": "Deactivate Active client",
+          "actor": "<role>",
+          "conditional_branch": "entity_state == Active",
+          "terminal_action": "Deactivate",
+          "on_success": "Status badge updates to Inactive"
+        }
+      ],
+      "attempts": 1
+    }
+  ]
+}
+```
+
+Each workflow represents one distinct, complete interaction path. `conditional_branch` is `null` for unconditional paths; otherwise it describes the condition that must be true to reach that terminal action.
+
+---
+
+### `workflow-critique.json`
+
+Same structure as `semantic-critique.json`. The `critique` object contains `verdict`, `summary`, `missing` (missing workflow paths), `phantoms` (invented workflows not traceable to the AST), and `fixes`.
+
+---
+
 ### `test-cases.json`
 
 ```json
@@ -230,29 +302,32 @@ Parameters unsupported by a given model (e.g. `temperature` on o-series models) 
       "test_cases": [
         {
           "tc_id": "TC-001",
+          "wf_ref": "WF-001",
           "category": "positive",
-          "test_case": "View client with all fields filled",
+          "test_case": "View client detail page",
           "preconditions": ["User logged in", "At least one client exists"],
-          "steps": ["Navigate to Clients page", "Click View on any row"],
+          "steps": ["1. Navigate to Clients page", "2. Click View on any row"],
           "expected_result": "Client detail page opens showing all client information",
           "priority": "high"
         },
         {
           "tc_id": "TC-010",
+          "wf_ref": "WF-002",
           "category": "negative",
           "test_case": "Attempt Deactivate on already Inactive client",
           "preconditions": ["User logged in", "Client in Inactive status"],
-          "steps": ["Open client detail page", "Observe action bar"],
-          "expected_result": "Deactivate action is not available",
+          "steps": ["1. Open client detail page", "2. Observe action bar"],
+          "expected_result": "Deactivate action is not available in the action bar",
           "priority": "high"
         },
         {
           "tc_id": "TC-015",
+          "wf_ref": null,
           "category": "edge",
           "subcategory": "interaction_edge",
           "test_case": "Double-click Export button on bulk selection",
           "preconditions": ["User logged in", "Multiple clients exist"],
-          "steps": ["Select 3 clients via checkbox", "Double-click Export"],
+          "steps": ["1. Select 3 clients via checkbox", "2. Double-click Export"],
           "expected_result": "Export triggered once, not twice",
           "priority": "low"
         }
@@ -283,7 +358,42 @@ Parameters unsupported by a given model (e.g. `temperature` on o-series models) 
 }
 ```
 
-Each test case has `category` (`positive | negative | edge`) set automatically during merge. Edge test cases also carry `subcategory` (`boundary | input_edge | interaction_edge | state_edge | data_edge`). TC IDs are renumbered sequentially across all categories within each module.
+Each test case carries:
+- **`wf_ref`** — which workflow this TC covers (`null` for navigation-only or generic tests)
+- **`category`** — `positive | negative | edge` (set automatically during merge)
+- **`subcategory`** — edge tests only: `boundary | input_edge | interaction_edge | state_edge | data_edge`
+
+TC IDs are renumbered sequentially across all categories within each module.
+
+---
+
+## Workflow extraction
+
+The workflow extractor enumerates distinct paths based on AST node type:
+
+| AST node type | What is enumerated |
+|---|---|
+| `form` with no conditionals | One workflow per `submit_actions[]` entry |
+| `form` with `visible_when` fields | One workflow per unique conditional branch × submit action |
+| `wizard` | One workflow per distinct step sequence or `submit_actions[]` entry |
+| `state_bound_action_bar` | One workflow per state × available action (state × action = one workflow) |
+| `data_table` | One workflow per `row_actions[]` entry + one per `bulk_actions[]` entry |
+| `tab_container` | One workflow per tab containing a form with a submit action |
+| `repeating_group` | Not a standalone source — part of the form workflow that activates it |
+
+The `WorkflowCriticAgent` checks for: missing form submit paths, missing state × action pairs, missing table row/bulk actions, phantom workflows, wrong terminal action names, bad conditional field references, and zero-workflow failures.
+
+---
+
+## Test agent workflow obligations
+
+Each Stage 2 agent receives the approved workflow list as a compact `<workflows>` block appended to its prompt.
+
+**TestPositiveAgent** — must collectively cover every workflow: at least one TC per `wf_id` that activates its `conditional_branch` and asserts its `on_success`.
+
+**TestNegativeAgent** — for each workflow with a form interaction, identifies the most critical blocking failure for that workflow's branch. Adds one negative TC only when it catches a bug not covered by any other workflow's negative test.
+
+**TestEdgeAgent** — for each workflow where `conditional_branch` activates a numeric or date field with a boundary, generates or confirms a boundary edge TC for it.
 
 ---
 
@@ -325,14 +435,19 @@ autospectest --generate --input spec.md --api-key "..." --model openai/gpt-4o \
   --output outputs/debug-run --debug
 ```
 
-With `--debug`, two log files are written to `outputs/debug-run/debug/`:
+With `--debug`, per-module log files are written to `outputs/debug-run/debug/<Module_Name>/`:
 
 | File | Contents |
 |------|----------|
 | `01_ui_ast.log` | System prompt, user prompt, and raw LLM response for every UIASTAgent call |
 | `02_semantic_critic.log` | Same for every SemanticCriticAgent call |
+| `02b_workflow_extractor.log` | Same for every WorkflowExtractorAgent call |
+| `02c_workflow_critic.log` | Same for every WorkflowCriticAgent call |
+| `03_test_positive.log` | Same for every TestPositiveAgent call |
+| `04_test_negative.log` | Same for every TestNegativeAgent call |
+| `05_test_edge.log` | Same for every TestEdgeAgent call |
 
-Useful for diagnosing why the critic keeps retrying or why a particular field is missing.
+Useful for diagnosing why a critic keeps retrying, why a workflow is missing, or why a test case lacks a `wf_ref`.
 
 ---
 
@@ -347,7 +462,7 @@ docker run --rm \
   -v $(pwd)/dataset:/app/dataset \
   autospectest \
   --generate \
-  --input dataset/raw_specifications/my-spec.md \
+  --input dataset/my-spec.md \
   --api-key "sk-..." \
   --model openai/gpt-4o
 ```
@@ -358,14 +473,18 @@ The Docker image installs dependencies in a separate layer so source-only change
 
 ## Dataset and baselines
 
-- `dataset/raw_specifications/` — Input markdown specs
-- `dataset/ground_truth/` — Reference UI-AST outputs for evaluation
+- `dataset/` — Input markdown specs
 - `baselines/` — Single-prompt and few-shot reference implementations for ablation studies; see `baselines/README.md`
 
 ---
 
 ## Concurrency tuning
 
-`--max-concurrency` controls how many LLM calls can be in-flight simultaneously across all modules. The default of 10 is safe for most providers. Lower it if you hit rate limits; raise it for providers with high per-minute token quotas.
+`--max-concurrency` controls how many LLM calls can be in-flight simultaneously across all modules and stages. The default of 10 is safe for most providers. Lower it if you hit rate limits; raise it for providers with high per-minute token quotas.
 
-The retry loop means a single module can make up to 6 LLM calls (3 generator + 3 critic). With 10 modules and `--max-concurrency 10`, peak concurrency is bounded at 10 regardless of how many modules are retrying simultaneously.
+With the workflow stage added, a single module can now make up to **10 LLM calls** at peak:
+- Stage 1: up to 3 UIASTAgent + 3 SemanticCriticAgent calls (if all retries are used)
+- Stage 1.5: up to 3 WorkflowExtractorAgent + 3 WorkflowCriticAgent calls
+- Stage 2: 3 test agent calls (positive, negative, edge) in parallel
+
+With `--max-concurrency 10` and 5 modules, peak concurrency is bounded at 10 regardless of how many modules are retrying simultaneously.

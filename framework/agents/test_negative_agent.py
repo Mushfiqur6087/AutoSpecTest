@@ -24,14 +24,14 @@ class TestNegativeAgent(BaseAgent):
         return self.call_llm_json(
             self._build_prompt(module_title, ast, description, workflows),
             temperature=0.3,
-            max_tokens=6144,
+            max_tokens=16384,
         )
 
     async def arun(self, module_title: str, ast: Dict[str, Any], description: str, workflows: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
         return await self.acall_llm_json(
             self._build_prompt(module_title, ast, description, workflows),
             temperature=0.3,
-            max_tokens=6144,
+            max_tokens=16384,
         )
 
     @staticmethod

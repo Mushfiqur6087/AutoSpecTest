@@ -29,7 +29,7 @@ class WorkflowExtractorAgent(BaseAgent):
         return self.call_llm_json(
             self._build_prompt(module_title, ast, description, fixes),
             temperature=0.2,
-            max_tokens=4096,
+            max_tokens=8192,
         )
 
     async def arun(
@@ -42,7 +42,7 @@ class WorkflowExtractorAgent(BaseAgent):
         return await self.acall_llm_json(
             self._build_prompt(module_title, ast, description, fixes),
             temperature=0.2,
-            max_tokens=4096,
+            max_tokens=8192,
         )
 
     @staticmethod
