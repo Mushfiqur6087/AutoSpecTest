@@ -11,6 +11,8 @@ from autospectest.framework.agents.test_edge_agent import TestEdgeAgent
 from autospectest.framework.agents.test_negative_agent import TestNegativeAgent
 from autospectest.framework.agents.test_positive_agent import TestPositiveAgent
 from autospectest.framework.agents.ui_ast_agent import UIASTAgent
+from autospectest.framework.agents.workflow_critic_agent import WorkflowCriticAgent
+from autospectest.framework.agents.workflow_extractor_agent import WorkflowExtractorAgent
 from autospectest.framework.orchestrator.state import PipelineState
 
 MAX_ATTEMPTS = 3
@@ -125,13 +127,109 @@ async def generate_and_critique_node(state: PipelineState) -> Dict[str, Any]:
     }
 
 
-async def generate_tests_node(state: PipelineState) -> Dict[str, Any]:
+async def extract_workflows_node(state: PipelineState) -> Dict[str, Any]:
     t0 = time.time()
     modules = state["functional_desc"].get("modules", [])
     ui_ast_results = state.get("ui_ast_results", [])
 
     ast_by_id = {r["module_id"]: r.get("ast", {}) for r in ui_ast_results}
     desc_by_id = {m["id"]: m["description"] for m in modules}
+
+    # Only extract workflows for modules that have a valid AST
+    runnable = [m for m in modules if ast_by_id.get(m["id"])]
+
+    print(f"\n[1.5/3] Extracting & critiquing workflows ({len(runnable)} module(s))...")
+
+    async def _extract_module(module: Dict[str, Any]) -> Dict[str, Any]:
+        module_dir = _module_debug_dir(state, module["title"])
+        extractor = WorkflowExtractorAgent(**_agent_kwargs(state, "02b_workflow_extractor.log", module_dir))
+        critic = WorkflowCriticAgent(**_agent_kwargs(state, "02c_workflow_critic.log", module_dir))
+        desc = desc_by_id.get(module["id"], "")
+        ast = ast_by_id[module["id"]]
+        fixes: List[str] = []
+        workflows: List[Dict[str, Any]] = []
+        critique: Dict[str, Any] = {}
+
+        for attempt in range(MAX_ATTEMPTS):
+            label = f"attempt {attempt + 1}/{MAX_ATTEMPTS}"
+
+            result = await extractor.arun(module["title"], ast, desc, fixes=fixes if fixes else None)
+            workflows = result.get("workflows", [])
+
+            critique = await critic.arun(desc, ast, workflows)
+            verdict = critique.get("verdict", "retry")
+
+            if verdict == "yes":
+                print(f"  OK {module['title']} | {label} | {len(workflows)} workflow(s)")
+                return {"workflows": workflows, "critique": critique, "attempts": attempt + 1}
+
+            fixes = critique.get("fixes", [])
+            missing = len(critique.get("missing", []))
+            phantoms = len(critique.get("phantoms", []))
+
+            if attempt < MAX_ATTEMPTS - 1:
+                print(
+                    f"  ~~ {module['title']} | {label} | verdict=retry"
+                    f" | missing={missing} phantoms={phantoms} | retrying..."
+                )
+            else:
+                print(
+                    f"  !! {module['title']} | max attempts reached"
+                    f" | missing={missing} phantoms={phantoms} | shipping final attempt"
+                )
+
+        return {"workflows": workflows, "critique": critique, "attempts": MAX_ATTEMPTS, "forced_ship": True}
+
+    raw = await asyncio.gather(*[_extract_module(m) for m in runnable], return_exceptions=True)
+
+    workflow_results = []
+    workflow_critique_results = []
+
+    for module, r in zip(runnable, raw):
+        if isinstance(r, Exception):
+            print(f"  !! Workflow extraction failed for {module['title']}: {r}")
+            workflow_results.append({
+                "module_id": module["id"],
+                "module_title": module["title"],
+                "workflows": [],
+                "error": str(r),
+            })
+            workflow_critique_results.append({
+                "module_id": module["id"],
+                "module_title": module["title"],
+                "critique": None,
+                "error": str(r),
+            })
+        else:
+            workflow_results.append({
+                "module_id": module["id"],
+                "module_title": module["title"],
+                "workflows": r["workflows"],
+                "attempts": r["attempts"],
+            })
+            workflow_critique_results.append({
+                "module_id": module["id"],
+                "module_title": module["title"],
+                "critique": r["critique"],
+                "forced_ship": r.get("forced_ship", False),
+            })
+
+    print(f"  Done in {time.time() - t0:.1f}s")
+    return {
+        "workflow_results": workflow_results,
+        "workflow_critique_results": workflow_critique_results,
+    }
+
+
+async def generate_tests_node(state: PipelineState) -> Dict[str, Any]:
+    t0 = time.time()
+    modules = state["functional_desc"].get("modules", [])
+    ui_ast_results = state.get("ui_ast_results", [])
+    workflow_results = state.get("workflow_results") or []
+
+    ast_by_id = {r["module_id"]: r.get("ast", {}) for r in ui_ast_results}
+    desc_by_id = {m["id"]: m["description"] for m in modules}
+    workflows_by_id = {r["module_id"]: r.get("workflows", []) for r in workflow_results}
 
     test_types = state.get("test_types") or {"positive", "negative", "edge"}
 
@@ -149,13 +247,14 @@ async def generate_tests_node(state: PipelineState) -> Dict[str, Any]:
         title = module["title"]
         ast = ast_by_id[module["id"]]
         desc = desc_by_id.get(module["id"], "")
+        workflows = workflows_by_id.get(module["id"], [])
         module_dir = _module_debug_dir(state, title)
 
         async def _run_if(agent_cls, log_file, type_name):
             if type_name not in test_types:
                 return None
             agent = agent_cls(**_agent_kwargs(state, log_file, module_dir))
-            return await agent.arun(title, ast, desc)
+            return await agent.arun(title, ast, desc, workflows=workflows)
 
         pos, neg, edge = await asyncio.gather(
             _run_if(TestPositiveAgent, "03_test_positive.log", "positive"),
@@ -301,6 +400,36 @@ def finalize_node(state: PipelineState) -> Dict[str, Any]:
             f.write(_render_test_cases_md(tests_output))
         print(f"  Saved test cases (md): {tests_md_path}")
 
+    workflow_results = state.get("workflow_results")
+    if workflow_results is not None:
+        workflows_output = {
+            "project_name": functional_desc.get("project_name", ""),
+            "generated_at": datetime.utcnow().isoformat() + "Z",
+            "modules": workflow_results,
+        }
+        workflows_path = os.path.join(output_dir, "workflows.json")
+        with open(workflows_path, "w", encoding="utf-8") as f:
+            json.dump(workflows_output, f, indent=2)
+        total_wf = sum(len(r.get("workflows", [])) for r in workflow_results)
+        print(f"  Saved workflows to:    {workflows_path}  ({total_wf} total)")
+
+    workflow_critique_results = state.get("workflow_critique_results")
+    if workflow_critique_results is not None:
+        wf_critique_output = {
+            "project_name": functional_desc.get("project_name", ""),
+            "generated_at": datetime.utcnow().isoformat() + "Z",
+            "modules": workflow_critique_results,
+        }
+        wf_critique_path = os.path.join(output_dir, "workflow-critique.json")
+        with open(wf_critique_path, "w", encoding="utf-8") as f:
+            json.dump(wf_critique_output, f, indent=2)
+        print(f"  Saved wf-critique to:  {wf_critique_path}")
+
+        wf_critique_md_path = os.path.join(output_dir, f"{project_slug}-{model_slug}-workflow-critique.md")
+        with open(wf_critique_md_path, "w", encoding="utf-8") as f:
+            f.write(_render_workflow_critique_md(wf_critique_output))
+        print(f"  Saved wf-critique(md): {wf_critique_md_path}")
+
     print(f"  Done in {time.time() - t0:.1f}s")
     return {"output": output}
 
@@ -385,6 +514,74 @@ def _render_critique_md(data: dict) -> str:
     return "\n".join(lines)
 
 
+def _render_workflow_critique_md(data: dict) -> str:
+    lines = []
+    lines.append(f"# Workflow Critique — {data.get('project_name', '')}")
+    lines.append("")
+    lines.append(f"Generated: {data.get('generated_at', '')}")
+    lines.append("")
+
+    for module in data.get("modules", []):
+        title = module.get("module_title", "Unknown")
+        lines.append(f"## {title}")
+        lines.append("")
+
+        error = module.get("error")
+        if error:
+            lines.append(f"> **Error:** {error}")
+            lines.append("")
+            continue
+
+        critique = module.get("critique") or {}
+        forced = module.get("forced_ship", False)
+
+        verdict = critique.get("verdict", "—")
+        verdict_label = "yes" if verdict == "yes" else "retry (forced ship)" if forced else "retry"
+        lines.append(f"**Verdict:** {verdict_label}  ")
+        lines.append(f"**Forced ship:** {'yes' if forced else 'no'}  ")
+        lines.append("")
+
+        summary = critique.get("summary", "")
+        if summary:
+            lines.append(f"{summary}")
+            lines.append("")
+
+        missing = critique.get("missing", [])
+        if missing:
+            lines.append("**Missing workflows:**")
+            lines.append("")
+            for item in missing:
+                lines.append(f"- {item}")
+            lines.append("")
+        else:
+            lines.append("**Missing workflows:** none")
+            lines.append("")
+
+        phantoms = critique.get("phantoms", [])
+        if phantoms:
+            lines.append("**Phantom workflows:**")
+            lines.append("")
+            for item in phantoms:
+                lines.append(f"- {item}")
+            lines.append("")
+        else:
+            lines.append("**Phantom workflows:** none")
+            lines.append("")
+
+        fixes = critique.get("fixes", [])
+        if fixes:
+            lines.append("**Fixes applied:**")
+            lines.append("")
+            for fix in fixes:
+                lines.append(f"- {fix}")
+            lines.append("")
+
+        lines.append("---")
+        lines.append("")
+
+    return "\n".join(lines)
+
+
 def _render_test_cases_md(data: dict) -> str:
     lines = []
     lines.append(f"# Test Cases — {data.get('project_name', '')}")
@@ -449,11 +646,12 @@ def _render_test_cases_md(data: dict) -> str:
 
             lines.append(f"### {cat_label}")
             lines.append("")
-            lines.append("| TC ID | Test Case | Preconditions | Steps | Expected Result | Priority |")
-            lines.append("|-------|-----------|---------------|-------|-----------------|----------|")
+            lines.append("| TC ID | WF Ref | Test Case | Preconditions | Steps | Expected Result | Priority |")
+            lines.append("|-------|--------|-----------|---------------|-------|-----------------|----------|")
 
             for tc in cases:
                 tc_id = tc.get("tc_id", "")
+                wf_ref = tc.get("wf_ref") or ""
                 name = _md_escape(tc.get("test_case", ""))
                 preconds = tc.get("preconditions", [])
                 preconds_str = _md_escape(", ".join(preconds) if isinstance(preconds, list) else str(preconds))
@@ -470,7 +668,7 @@ def _render_test_cases_md(data: dict) -> str:
                 subcategory = tc.get("subcategory", "")
                 tc_id_cell = f"{tc_id} ({subcategory})" if subcategory else tc_id
 
-                lines.append(f"| {tc_id_cell} | {name} | {preconds_str} | {steps_str} | {expected} | {priority} |")
+                lines.append(f"| {tc_id_cell} | {wf_ref} | {name} | {preconds_str} | {steps_str} | {expected} | {priority} |")
 
             lines.append("")
 

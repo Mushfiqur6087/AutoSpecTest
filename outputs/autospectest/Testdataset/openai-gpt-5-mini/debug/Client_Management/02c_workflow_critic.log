@@ -1,0 +1,716 @@
+================================================================================
+DEBUG SESSION STARTED: 2026-05-25T11:31:51.688631
+Model: openai/gpt-5-mini
+================================================================================
+
+
+------------------------------------------------------------
+[11:33:18] Workflow-Critic - SYSTEM PROMPT
+------------------------------------------------------------
+You are a Workflow Critic. You receive (1) a raw functional description, (2) a UI-AST JSON, and (3) a generated workflow list for one module.
+
+Your single job: decide whether this workflow list is complete and correct, or whether it must be regenerated. Be strict — when in doubt, retry.
+
+You DO NOT modify the workflow list. You DO NOT generate new workflows. You ONLY audit.
+
+---
+
+**INPUT:**
+
+<description>
+{Raw functional description text}
+</description>
+
+<ast>
+{Generated UI-AST JSON}
+</ast>
+
+<workflows>
+{Generated workflow list JSON}
+</workflows>
+
+---
+
+**WHAT A WORKFLOW IS:**
+
+A workflow is one complete, executable interaction path through the module — from entry to one terminal action. Two workflows are distinct if they require different user actions to reach the terminal (different conditional branch, different state, different terminal button).
+
+---
+
+**METHOD — Six Checks:**
+
+**Check 1 — Missing form workflows.**
+Walk every `form` node in the AST. For each entry in `submit_actions[]`, there must be at least one workflow with a matching `terminal_action`. If the form has `visible_when` or `required_when` fields, there must be one workflow per unique condition combination × submit action. Flag any missing combinations.
+
+**Check 2 — Missing state-machine workflows.**
+Walk every `state_bound_action_bar` node. For each state key in `states{}`, for each entry in `available_actions[]`, there must be one workflow with `terminal_action` matching that action and `conditional_branch` containing `entity_state == <state>`. Flag any missing state × action pairs.
+
+**Check 3 — Missing data table workflows.**
+Walk every `data_table` node. For each entry in `row_actions[]` and `bulk_actions[]`, there must be one workflow with `terminal_action` matching that action. Flag any missing entries. This includes read-only actions like View/Details.
+
+**Check 4 — Phantom workflows.**
+A workflow is a phantom if its `terminal_action` cannot be found in any AST node's `submit_actions[]`, `available_actions[]`, `row_actions[]`, `bulk_actions[]`, or as an explicit action verb in the description text. Flag it.
+
+**Check 5 — Wrong conditional branch.**
+If a workflow has a non-null `conditional_branch`, verify the condition references a real field name that appears in the AST under `visible_when`, `required_when`, or a real state key in `state_bound_action_bar`. Flag any condition that references a field or state that does not exist.
+
+**Check 6 — Empty or generic on_success.**
+If a workflow's `on_success` is empty, null, "success", "done", or any single-word generic string, and the AST has a concrete `on_success` value for that action, flag it. The `on_success` must reflect what the AST or description says actually happens.
+
+**Check 7 — Zero workflows when module clearly has actions.**
+If the workflow list is empty (total = 0) but the AST contains any `form`, `wizard`, `state_bound_action_bar`, or `data_table` component, that is a critical failure — flag it.
+
+---
+
+**VERDICT RULES:**
+
+```
+yes   →  Missing items: 0
+          AND Phantoms: 0
+          AND No wrong conditional branches
+          AND No empty on_success when AST has concrete value
+          (Minor: up to 2 missing non-critical row actions are acceptable for yes)
+
+retry →  Any form submit_action has no matching workflow, OR
+          Any state × action pair has no workflow, OR
+          Any phantom workflow (terminal_action not in AST), OR
+          Wrong conditional branch field name, OR
+          Total = 0 and module has interactive components
+```
+
+There is no third option. When in doubt, retry. A single regeneration is cheap.
+
+---
+
+**OUTPUT FORMAT — JSON only, no prose, no markdown fencing:**
+
+{
+  "verdict": "yes | retry",
+  "summary": "<one sentence explaining the decision>",
+  "missing": [
+    "<description of missing workflow — name the AST path and terminal action, e.g., 'No workflow for state_bound_action_bar: state=Active, action=Close Client'>"
+  ],
+  "phantoms": [
+    "<description of phantom — e.g., 'WF-003 terminal_action=Approve not found in any AST node'>"
+  ],
+  "fixes": [
+    "<actionable instruction for regeneration — only populated when verdict is retry>",
+    "<each fix names the missing path or the phantom to remove>"
+  ]
+}
+
+If verdict is "yes", `fixes` must be an empty array.
+
+Output ONLY the JSON object. No explanation, no markdown fencing, no preamble.
+
+
+------------------------------------------------------------
+[11:33:18] Workflow-Critic - USER PROMPT
+------------------------------------------------------------
+<description>
+
+The Clients page displays a data table of all clients with columns for Name (clickable link), Account No., External ID, Status (Pending as yellow chip, Active as green chip, Closed as gray chip, Rejected as red chip, Withdrawn as orange chip), Office, and Staff. A search field allows searching by name, account number, external ID, or mobile number, and a filter bar supports filtering by status. Two buttons at the top-right provide "Import Client" (opens the Bulk Import page) and "Create Client." The Bulk Import page allows downloading a client Excel template, uploading a completed file, and displays an import history table with columns for Name, Import Time, End Time, Completed, Total Records, Success Count, Failure Count, and Download.
+
+The Create Client form is a multi-step wizard. Step 1 (General Details) contains Office (required), Legal Form, First Name (required), Middle Name, Last Name (required), Date of Birth, Gender, Staff, Mobile Number, Email Address, Client Type, Client Classification, External ID (must be unique), Submitted On (required), Is Staff checkbox, Active checkbox, and Open Savings Account option. Step 2 covers Address Details. Step 3 covers Family Members. Step 4 covers Identifiers (Document Type and Document Key). Clicking "Submit" creates the client in Pending status.
+
+The Client Detail page displays the client name, account number, status badge, activation date, and office. Action buttons change based on status: Pending offers Activate (requires Activation Date, which must not be before submission date), Edit, Reject (with reason), and Withdraw (with reason); Active offers Edit, Transfer Client (destination office required — same office is blocked), Close (closure reason required — cannot close with active accounts), Add Charge, New Loan, New Savings, and New Share Account; Closed offers Reactivate; Rejected and Withdrawn have no actions. Tabs on the detail page show General, Accounts (sub-tabs for Loans, Savings, Shares, Fixed Deposits, Recurring Deposits), Identifiers (Document Type and Key with add/remove — duplicates are prevented), Family Members, Notes, and Documents.
+
+---
+
+</description>
+
+<ast>
+{
+  "module_name": "Client Management",
+  "components": {
+    "Clients_Page": {
+      "type": "page",
+      "components": {
+        "Global_Search": {
+          "type": "search",
+          "search_fields": [
+            "Name",
+            "Account No.",
+            "External ID",
+            "Mobile Number"
+          ]
+        },
+        "Status_Filter": {
+          "type": "dropdown",
+          "element_name": "Status Filter",
+          "options": [
+            "Pending",
+            "Active",
+            "Closed",
+            "Rejected",
+            "Withdrawn"
+          ]
+        },
+        "Action_Buttons": {
+          "type": "container",
+          "buttons": [
+            {
+              "element_name": "Import Client",
+              "type": "button",
+              "on_click": "navigates to Bulk_Import_Page"
+            },
+            {
+              "element_name": "Create Client",
+              "type": "button",
+              "on_click": "opens Create_Client_Wizard"
+            }
+          ]
+        },
+        "Clients_Table": {
+          "type": "data_table",
+          "columns": [
+            "Name",
+            "Account No.",
+            "External ID",
+            "Status",
+            "Office",
+            "Staff"
+          ],
+          "row_actions": [
+            {
+              "action_name": "Open Client",
+              "action_type": "link",
+              "on_click": "navigates to Client_Detail_Page"
+            }
+          ],
+          "bulk_actions": []
+        }
+      }
+    },
+    "Bulk_Import_Page": {
+      "type": "page",
+      "components": {
+        "Download_Template": {
+          "type": "button",
+          "element_name": "Download Client Excel Template",
+          "on_click": "downloads client excel template"
+        },
+        "Upload_File": {
+          "type": "file_upload",
+          "element_name": "Upload Completed File",
+          "constraints": []
+        },
+        "Import_History_Table": {
+          "type": "data_table",
+          "columns": [
+            "Name",
+            "Import Time",
+            "End Time",
+            "Completed",
+            "Total Records",
+            "Success Count",
+            "Failure Count",
+            "Download"
+          ],
+          "row_actions": [
+            {
+              "action_name": "Download",
+              "action_type": "link",
+              "on_click": "downloads import result file"
+            }
+          ],
+          "bulk_actions": []
+        }
+      }
+    },
+    "Create_Client_Wizard": {
+      "type": "wizard",
+      "submit_actions": [
+        {
+          "element_name": "Submit",
+          "on_success": "creates client in Pending status"
+        }
+      ],
+      "steps": [
+        {
+          "step_index": 1,
+          "step_name": "General Details",
+          "fields": {
+            "Office": {
+              "type": "unspecified",
+              "required": true
+            },
+            "Legal Form": {
+              "type": "unspecified",
+              "required": false
+            },
+            "First Name": {
+              "type": "unspecified",
+              "required": true
+            },
+            "Middle Name": {
+              "type": "unspecified",
+              "required": false
+            },
+            "Last Name": {
+              "type": "unspecified",
+              "required": true
+            },
+            "Date of Birth": {
+              "type": "date",
+              "required": false
+            },
+            "Gender": {
+              "type": "dropdown",
+              "required": false
+            },
+            "Staff": {
+              "type": "unspecified",
+              "required": false
+            },
+            "Mobile Number": {
+              "type": "unspecified",
+              "required": false
+            },
+            "Email Address": {
+              "type": "email",
+              "required": false
+            },
+            "Client Type": {
+              "type": "unspecified",
+              "required": false
+            },
+            "Client Classification": {
+              "type": "unspecified",
+              "required": false
+            },
+            "External ID": {
+              "type": "unspecified",
+              "required": false,
+              "constraints": [
+                "must be unique across clients"
+              ]
+            },
+            "Submitted On": {
+              "type": "date",
+              "required": true
+            },
+            "Is Staff": {
+              "type": "checkbox",
+              "required": false
+            },
+            "Active": {
+              "type": "checkbox",
+              "required": false
+            },
+            "Open Savings Account": {
+              "type": "checkbox",
+              "required": false
+            }
+          }
+        },
+        {
+          "step_index": 2,
+          "step_name": "Address Details",
+          "fields": {}
+        },
+        {
+          "step_index": 3,
+          "step_name": "Family Members",
+          "fields": {
+            "Family Members": {
+              "type": "repeating_group",
+              "item_fields": {}
+            }
+          }
+        },
+        {
+          "step_index": 4,
+          "step_name": "Identifiers",
+          "fields": {
+            "Identifiers": {
+              "type": "repeating_group",
+              "item_fields": {
+                "Document Type": {
+                  "type": "unspecified",
+                  "required": false
+                },
+                "Document Key": {
+                  "type": "unspecified",
+                  "required": false
+                }
+              },
+              "constraints": [
+                "duplicate (Document Type, Document Key) pairs prevented"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "Client_Detail_Page": {
+      "type": "page",
+      "components": {
+        "Action_Bar": {
+          "type": "state_bound_action_bar",
+          "states": {
+            "Pending": {
+              "available_actions": [
+                {
+                  "action_name": "Activate",
+                  "fields": {
+                    "Activation Date": {
+                      "type": "date",
+                      "required": true,
+                      "constraints": [
+                        "must not be before Submitted On"
+                      ]
+                    }
+                  },
+                  "on_success": "status changes to Active"
+                },
+                {
+                  "action_name": "Edit",
+                  "type": "button"
+                },
+                {
+                  "action_name": "Reject",
+                  "fields": {
+                    "Reason": {
+                      "type": "unspecified",
+                      "required": true
+                    }
+                  },
+                  "on_success": "status changes to Rejected"
+                },
+                {
+                  "action_name": "Withdraw",
+                  "fields": {
+                    "Reason": {
+                      "type": "unspecified",
+                      "required": true
+                    }
+                  },
+                  "on_success": "status changes to Withdrawn"
+                }
+              ]
+            },
+            "Active": {
+              "available_actions": [
+                {
+                  "action_name": "Edit",
+                  "type": "button"
+                },
+                {
+                  "action_name": "Transfer Client",
+                  "fields": {
+                    "Destination Office": {
+                      "type": "unspecified",
+                      "required": true,
+                      "constraints": [
+                        "destination office must be different from current office"
+                      ]
+                    }
+                  }
+                },
+                {
+                  "action_name": "Close",
+                  "fields": {
+                    "Closure Reason": {
+                      "type": "unspecified",
+                      "required": true
+                    }
+                  },
+                  "preconditions": [
+                    "cannot close with active accounts"
+                  ]
+                },
+                {
+                  "action_name": "Add Charge",
+                  "type": "button"
+                },
+                {
+                  "action_name": "New Loan",
+                  "type": "button"
+                },
+                {
+                  "action_name": "New Savings",
+                  "type": "button"
+                },
+                {
+                  "action_name": "New Share Account",
+                  "type": "button"
+                }
+              ]
+            },
+            "Closed": {
+              "available_actions": [
+                {
+                  "action_name": "Reactivate",
+                  "type": "button",
+                  "on_success": "status changes to Active"
+                }
+              ]
+            },
+            "Rejected": {
+              "available_actions": []
+            },
+            "Withdrawn": {
+              "available_actions": []
+            }
+          }
+        },
+        "Detail_Tabs": {
+          "type": "tab_container",
+          "tabs": [
+            {
+              "tab_name": "General",
+              "fields": {}
+            },
+            {
+              "tab_name": "Accounts",
+              "tabs": [
+                {
+                  "tab_name": "Loans",
+                  "fields": {}
+                },
+                {
+                  "tab_name": "Savings",
+                  "fields": {}
+                },
+                {
+                  "tab_name": "Shares",
+                  "fields": {}
+                },
+                {
+                  "tab_name": "Fixed Deposits",
+                  "fields": {}
+                },
+                {
+                  "tab_name": "Recurring Deposits",
+                  "fields": {}
+                }
+              ]
+            },
+            {
+              "tab_name": "Identifiers",
+              "fields": {
+                "Identifiers": {
+                  "type": "repeating_group",
+                  "item_fields": {
+                    "Document Type": {
+                      "type": "unspecified",
+                      "required": false
+                    },
+                    "Document Key": {
+                      "type": "unspecified",
+                      "required": false
+                    }
+                  },
+                  "constraints": [
+                    "duplicate (Document Type, Document Key) pairs prevented"
+                  ],
+                  "min": 0
+                }
+              }
+            },
+            {
+              "tab_name": "Family Members",
+              "fields": {
+                "Family Members": {
+                  "type": "repeating_group",
+                  "item_fields": {}
+                }
+              }
+            },
+            {
+              "tab_name": "Notes",
+              "fields": {}
+            },
+            {
+              "tab_name": "Documents",
+              "fields": {}
+            }
+          ]
+        }
+      }
+    }
+  }
+}
+</ast>
+
+<workflows>
+[
+  {
+    "wf_id": "WF-001",
+    "name": "Open Bulk Import page via Import Client button",
+    "actor": "<role>",
+    "conditional_branch": null,
+    "terminal_action": "Import Client",
+    "on_success": "navigates to Bulk_Import_Page"
+  },
+  {
+    "wf_id": "WF-002",
+    "name": "Open Create Client wizard via Create Client button",
+    "actor": "<role>",
+    "conditional_branch": null,
+    "terminal_action": "Create Client",
+    "on_success": "opens Create_Client_Wizard"
+  },
+  {
+    "wf_id": "WF-003",
+    "name": "Open client from clients table row",
+    "actor": "<role>",
+    "conditional_branch": null,
+    "terminal_action": "Open Client",
+    "on_success": "navigates to Client_Detail_Page"
+  },
+  {
+    "wf_id": "WF-004",
+    "name": "Download client Excel template from Bulk Import page",
+    "actor": "<role>",
+    "conditional_branch": null,
+    "terminal_action": "Download Client Excel Template",
+    "on_success": "downloads client excel template"
+  },
+  {
+    "wf_id": "WF-005",
+    "name": "Upload completed import file",
+    "actor": "<role>",
+    "conditional_branch": null,
+    "terminal_action": "Upload Completed File",
+    "on_success": "file uploaded; import initiated and import history updated"
+  },
+  {
+    "wf_id": "WF-006",
+    "name": "Download import result from import history row",
+    "actor": "<role>",
+    "conditional_branch": null,
+    "terminal_action": "Download",
+    "on_success": "downloads import result file"
+  },
+  {
+    "wf_id": "WF-007",
+    "name": "Submit Create Client wizard",
+    "actor": "<role>",
+    "conditional_branch": null,
+    "terminal_action": "Submit",
+    "on_success": "creates client in Pending status"
+  },
+  {
+    "wf_id": "WF-008",
+    "name": "Activate client from Pending state",
+    "actor": "<role>",
+    "conditional_branch": "entity_state == Pending",
+    "terminal_action": "Activate",
+    "on_success": "status changes to Active"
+  },
+  {
+    "wf_id": "WF-009",
+    "name": "Edit client from Pending state",
+    "actor": "<role>",
+    "conditional_branch": "entity_state == Pending",
+    "terminal_action": "Edit",
+    "on_success": "opens client edit form"
+  },
+  {
+    "wf_id": "WF-010",
+    "name": "Reject client from Pending state",
+    "actor": "<role>",
+    "conditional_branch": "entity_state == Pending",
+    "terminal_action": "Reject",
+    "on_success": "status changes to Rejected"
+  },
+  {
+    "wf_id": "WF-011",
+    "name": "Withdraw client from Pending state",
+    "actor": "<role>",
+    "conditional_branch": "entity_state == Pending",
+    "terminal_action": "Withdraw",
+    "on_success": "status changes to Withdrawn"
+  },
+  {
+    "wf_id": "WF-012",
+    "name": "Edit client from Active state",
+    "actor": "<role>",
+    "conditional_branch": "entity_state == Active",
+    "terminal_action": "Edit",
+    "on_success": "opens client edit form"
+  },
+  {
+    "wf_id": "WF-013",
+    "name": "Transfer client from Active state",
+    "actor": "<role>",
+    "conditional_branch": "entity_state == Active",
+    "terminal_action": "Transfer Client",
+    "on_success": "client transferred to Destination Office"
+  },
+  {
+    "wf_id": "WF-014",
+    "name": "Close client from Active state",
+    "actor": "<role>",
+    "conditional_branch": "entity_state == Active",
+    "terminal_action": "Close",
+    "on_success": "status changes to Closed"
+  },
+  {
+    "wf_id": "WF-015",
+    "name": "Add charge to client from Active state",
+    "actor": "<role>",
+    "conditional_branch": "entity_state == Active",
+    "terminal_action": "Add Charge",
+    "on_success": "opens Add Charge dialog"
+  },
+  {
+    "wf_id": "WF-016",
+    "name": "Create new loan for client from Active state",
+    "actor": "<role>",
+    "conditional_branch": "entity_state == Active",
+    "terminal_action": "New Loan",
+    "on_success": "opens New Loan form"
+  },
+  {
+    "wf_id": "WF-017",
+    "name": "Create new savings for client from Active state",
+    "actor": "<role>",
+    "conditional_branch": "entity_state == Active",
+    "terminal_action": "New Savings",
+    "on_success": "opens New Savings form"
+  },
+  {
+    "wf_id": "WF-018",
+    "name": "Create new share account for client from Active state",
+    "actor": "<role>",
+    "conditional_branch": "entity_state == Active",
+    "terminal_action": "New Share Account",
+    "on_success": "opens New Share Account form"
+  },
+  {
+    "wf_id": "WF-019",
+    "name": "Reactivate client from Closed state",
+    "actor": "<role>",
+    "conditional_branch": "entity_state == Closed",
+    "terminal_action": "Reactivate",
+    "on_success": "status changes to Active"
+  }
+]
+</workflows>
+
+IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
+
+------------------------------------------------------------
+[11:33:32] Workflow-Critic - LLM RESPONSE
+------------------------------------------------------------
+{
+  "verdict": "yes",
+  "summary": "The workflow list covers all form submit actions, all state × action pairs, and all data table actions; no phantom workflows or incorrect conditional branches were found.",
+  "missing": [],
+  "phantoms": [],
+  "fixes": []
+}
+
+------------------------------------------------------------
+[11:33:32] Workflow-Critic - PARSED JSON
+------------------------------------------------------------
+{
+  "verdict": "yes",
+  "summary": "The workflow list covers all form submit actions, all state \u00d7 action pairs, and all data table actions; no phantom workflows or incorrect conditional branches were found.",
+  "missing": [],
+  "phantoms": [],
+  "fixes": []
+}
