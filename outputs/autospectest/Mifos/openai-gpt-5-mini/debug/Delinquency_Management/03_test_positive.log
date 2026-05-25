@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-21T22:29:06.535254
+DEBUG SESSION STARTED: 2026-05-25T14:24:50.729137
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[22:29:06] Test-Positive - SYSTEM PROMPT
+[14:24:50] Test-Positive - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Expert UI Test Case Generator. You receive (1) a UI-AST JSON for one specific module and (2) the original functional description for that module.
 
@@ -24,6 +24,10 @@ Your job is to produce ONLY positive/functional UI test cases — tests where va
 <description>
 {Original functional description text for this module}
 </description>
+
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
 
 ---
 
@@ -146,6 +150,13 @@ Because you are testing a module in isolation, establish the required entry stat
 **1. Forms & Wizards (`form`, `wizard`):**
 - Generate ONE happy path per distinct success outcome.
 - *Conditional UI Check:* If a toggle/dropdown reveals new mandatory fields (`visible_when`), generate a separate test for that conditional branch.
+- **Wizard step coverage (CRITICAL):** If a wizard has multiple steps and any step beyond Step 1 contains its own named field group (e.g., "Address Details", "Family Members", "Identifiers"), generate ONE dedicated positive TC per such step. The TC must:
+  - Navigate to that specific step (include the preceding steps as preconditions or brief navigation steps)
+  - Fill the fields described for that step (not just pass through)
+  - Assert the step's content is visible/saved on the detail page after final submission
+  - **Do NOT collapse all wizard steps into one happy-path TC** — if Steps 2, 3, and 4 each have their own named section in the spec, they each need their own TC.
+- **Wizard in-step identifiers/duplicates:** If a wizard step allows adding identifiers, documents, or similar entries that have a uniqueness constraint, include a TC for that wizard step that also verifies the constraint (e.g., attempting to add a duplicate Document Type+Key pair inside the wizard). This is a different code path from adding the same post-creation on the detail page.
+- **Action dialogs:** If a `state_bound_action_bar` action opens a dialog with its own `fields{}` (e.g., Activate requires Activation Date, Reject requires Reason), generate ONE positive TC per such action-dialog — distinct from the state-transition TC. The TC fills the dialog field and completes the action.
 
 **2. State Machines (`state_bound_action_bar`):**
 - For each unique action available in a specific state, generate ONE test performing that action.
@@ -200,6 +211,19 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 
 ---
 
+**WORKFLOW COVERAGE OBLIGATION (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- Your test cases must **collectively cover every workflow** listed.
+- For each `wf_id`, at least one TC must:
+  - Activate the `conditional_branch` (if not null) — i.e. the test must set up the condition described.
+  - Assert the `on_success` as its `expected_result` (verbatim or as the primary basis for the expected result).
+- Add `"wf_ref": "WF-NNN"` to each TC to identify which workflow it covers.
+- If one TC naturally covers multiple workflows (e.g., the base path overlaps), pick the most specific `wf_ref`.
+- If a TC does not map to any workflow (e.g., a navigation-only test), set `"wf_ref": null`.
+
+---
+
 **OUTPUT — JSON only, no prose, no markdown fencing:**
 
 {
@@ -208,6 +232,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
   "test_cases": [
     {
       "tc_id": "P-001",
+      "wf_ref": "WF-001",
       "test_case": "Short descriptive name",
       "preconditions": ["User logged in as <Role>", "<Prerequisite state>"],
       "steps": ["1. Step one", "2. Step two"],
@@ -224,7 +249,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 }
 
 ------------------------------------------------------------
-[22:29:06] Test-Positive - USER PROMPT
+[14:24:50] Test-Positive - USER PROMPT
 ------------------------------------------------------------
 <module_name>Delinquency Management</module_name>
 
@@ -233,29 +258,19 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
   "module_name": "Delinquency Management",
   "components": {
     "Delinquency_Ranges_Page": {
-      "type": "page",
-      "create_action": {
-        "element_name": "Create Delinquency Range",
-        "opens": "Create_Delinquency_Range_Form"
-      },
-      "data_table": {
-        "type": "data_table",
-        "columns": [
-          "Classification",
-          "Minimum Age Days",
-          "Maximum Age Days"
-        ],
-        "link_columns": [
-          "Classification"
-        ],
-        "row_actions": [
-          {
-            "action_name": "Open Classification",
-            "type": "link",
-            "description": "navigates to Delinquency Range detail"
-          }
-        ]
-      }
+      "type": "data_table",
+      "columns": [
+        {
+          "column_name": "Classification",
+          "link_navigates_to": "Delinquency_Range_Detail"
+        },
+        {
+          "column_name": "Minimum Age Days"
+        },
+        {
+          "column_name": "Maximum Age Days"
+        }
+      ]
     },
     "Create_Delinquency_Range_Form": {
       "type": "form",
@@ -272,7 +287,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
           "type": "number",
           "required": false,
           "constraints": [
-            "if blank, applies to all days beyond the Minimum_Age_Days"
+            "if blank, applies to all days beyond the minimum"
           ]
         }
       },
@@ -283,29 +298,21 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
         }
       ]
     },
+    "Delinquency_Range_Detail": {
+      "type": "detail_page",
+      "fields": {}
+    },
     "Delinquency_Buckets_Page": {
-      "type": "page",
-      "create_action": {
-        "element_name": "Create Delinquency Bucket",
-        "opens": "Create_Delinquency_Bucket_Form"
-      },
-      "data_table": {
-        "type": "data_table",
-        "columns": [
-          "Bucket Name",
-          "Associated Ranges"
-        ],
-        "link_columns": [
-          "Bucket Name"
-        ],
-        "row_actions": [
-          {
-            "action_name": "Open Bucket",
-            "type": "link",
-            "description": "navigates to Delinquency Bucket detail"
-          }
-        ]
-      }
+      "type": "data_table",
+      "columns": [
+        {
+          "column_name": "Bucket Name",
+          "link_navigates_to": "Delinquency_Bucket_Detail"
+        },
+        {
+          "column_name": "Associated Ranges"
+        }
+      ]
     },
     "Create_Delinquency_Bucket_Form": {
       "type": "form",
@@ -314,7 +321,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
           "type": "unspecified",
           "required": true
         },
-        "Ranges": {
+        "Bucket_Ranges": {
           "type": "repeating_group",
           "item_fields": {
             "Minimum_Age_Days": {
@@ -325,18 +332,59 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
               "type": "number",
               "required": false,
               "constraints": [
-                "if blank for the last range, applies to all days beyond the minimum"
+                "if blank, applies to all days beyond the minimum"
               ]
             }
+          },
+          "add_action": {
+            "element_name": "Add Range"
           }
+        },
+        "Linked_Loan_Products": {
+          "type": "dropdown",
+          "multi": true,
+          "required": false
         }
       },
       "submit_actions": [
         {
           "element_name": "Create",
-          "on_success": "creates delinquency bucket"
+          "on_success": "creates delinquency bucket; when a linked loan becomes overdue the system automatically classifies it into the appropriate range based on days past due for portfolio-at-risk reporting, provisioning calculations, and collection workflow triggers"
         }
       ]
+    },
+    "Delinquency_Bucket_Detail": {
+      "type": "detail_page",
+      "fields": {
+        "Bucket_Name": {
+          "type": "unspecified",
+          "required": true
+        },
+        "Bucket_Ranges": {
+          "type": "repeating_group",
+          "item_fields": {
+            "Minimum_Age_Days": {
+              "type": "number",
+              "required": true
+            },
+            "Maximum_Age_Days": {
+              "type": "number",
+              "required": false,
+              "constraints": [
+                "if blank, applies to all days beyond the minimum"
+              ]
+            }
+          },
+          "add_action": {
+            "element_name": "Add Range"
+          }
+        },
+        "Linked_Loan_Products": {
+          "type": "dropdown",
+          "multi": true,
+          "required": false
+        }
+      }
     }
   }
 }
@@ -351,10 +399,17 @@ The Delinquency pages cover two sub-pages: Delinquency Ranges and Delinquency Bu
 
 </description>
 
+<workflows>
+WF-001 | Open delinquency range detail from Ranges table | actor: <role> | branch: none | terminal: Classification (link) | on_success: navigates to Delinquency_Range_Detail
+WF-002 | Create a delinquency range | actor: <role> | branch: none | terminal: Create | on_success: creates delinquency range
+WF-003 | Open delinquency bucket detail from Buckets table | actor: <role> | branch: none | terminal: Bucket Name (link) | on_success: navigates to Delinquency_Bucket_Detail
+WF-004 | Create a delinquency bucket (with one or more ranges) | actor: <role> | branch: none | terminal: Create | on_success: creates delinquency bucket; when a linked loan becomes overdue the system automatically classifies it into the appropriate range based on days past due for portfolio-at-risk reporting, provisioning calculations, and collection workflow triggers
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[22:32:37] Test-Positive - LLM RESPONSE
+[14:28:22] Test-Positive - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Delinquency Management",
@@ -362,115 +417,84 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Create Delinquency Range with Maximum Age Days provided",
+      "wf_ref": "WF-001",
+      "test_case": "Open delinquency range detail from Ranges table",
       "preconditions": [
-        "User logged in as <Admin>"
+        "User logged in as <role>",
+        "A delinquency range exists in the Delinquency Ranges table with Classification <existing classification>"
       ],
       "steps": [
-        "1. Navigate to the Delinquency Ranges page",
-        "2. Click the 'Create Delinquency Range' button to open the Create Delinquency Range form",
-        "3. Enter <Classification> in the Classification field",
-        "4. Enter <Minimum_Age_Days> in the Minimum Age Days field",
-        "5. Enter <Maximum_Age_Days> in the Maximum Age Days field",
-        "6. Click the 'Create' button"
+        "1. Navigate to the Delinquency Management > Delinquency Ranges page",
+        "2. Click the <existing classification> link in the Classification column of the Delinquency Ranges table"
       ],
-      "expected_result": "New row appears in the Delinquency Ranges table with Classification <Classification>, Minimum Age Days <Minimum_Age_Days>, and Maximum Age Days <Maximum_Age_Days>.",
+      "expected_result": "Delinquency Range detail page is displayed for <existing classification>; the page shows the Classification, Minimum Age Days and Maximum Age Days values for that range",
       "priority": "high"
     },
     {
       "tc_id": "P-002",
-      "test_case": "Create Delinquency Range with Maximum Age Days left blank (applies beyond minimum)",
+      "wf_ref": "WF-002",
+      "test_case": "Create a delinquency range with no Maximum Age Days (applies beyond minimum)",
       "preconditions": [
-        "User logged in as <Admin>"
+        "User logged in as <role>",
+        "Tester is on the Delinquency Ranges page"
       ],
       "steps": [
-        "1. Navigate to the Delinquency Ranges page",
-        "2. Click the 'Create Delinquency Range' button to open the Create Delinquency Range form",
-        "3. Enter <Classification> in the Classification field",
-        "4. Enter <Minimum_Age_Days> in the Minimum Age Days field",
-        "5. Leave the Maximum Age Days field blank",
-        "6. Click the 'Create' button"
+        "1. Click the button to open the Create Delinquency Range form",
+        "2. Enter <classification> in the Classification field",
+        "3. Enter <minimum age days> in the Minimum Age Days field",
+        "4. Leave the Maximum Age Days field blank",
+        "5. Click the Create button on the form"
       ],
-      "expected_result": "New row appears in the Delinquency Ranges table with Classification <Classification> and Minimum Age Days <Minimum_Age_Days>; the Maximum Age Days cell for that row is empty.",
+      "expected_result": "A new row appears in the Delinquency Ranges table with Classification = <classification> and Minimum Age Days = <minimum age days>; the Maximum Age Days cell is blank indicating it applies to all days beyond the minimum",
       "priority": "high"
     },
     {
       "tc_id": "P-003",
-      "test_case": "Open Delinquency Range detail from Classification link",
+      "wf_ref": "WF-003",
+      "test_case": "Open delinquency bucket detail from Buckets table",
       "preconditions": [
-        "User logged in as <Admin>",
-        "At least one Delinquency Range exists with Classification <Classification>"
+        "User logged in as <role>",
+        "A delinquency bucket exists in the Delinquency Buckets table with Bucket Name <existing bucket name>"
       ],
       "steps": [
-        "1. Navigate to the Delinquency Ranges page",
-        "2. Click the Classification link for the row with Classification <Classification>"
+        "1. Navigate to the Delinquency Management > Delinquency Buckets page",
+        "2. Click the <existing bucket name> link in the Bucket Name column of the Delinquency Buckets table"
       ],
-      "expected_result": "Delinquency Range detail page is displayed for <Classification>.",
-      "priority": "medium"
+      "expected_result": "Delinquency Bucket detail page is displayed for <existing bucket name>; the page shows the Bucket Name and the list of associated Bucket Ranges",
+      "priority": "high"
     },
     {
       "tc_id": "P-004",
-      "test_case": "Create Delinquency Bucket with multiple ranges using Add Row",
+      "wf_ref": "WF-004",
+      "test_case": "Create a delinquency bucket with multiple ranges and link loan products",
       "preconditions": [
-        "User logged in as <Admin>"
+        "User logged in as <role>",
+        "Tester is on the Delinquency Buckets page"
       ],
       "steps": [
-        "1. Navigate to the Delinquency Buckets page",
-        "2. Click the 'Create Delinquency Bucket' button to open the Create Delinquency Bucket form",
-        "3. Enter <Bucket_Name> in the Bucket Name field",
-        "4. Click 'Add Row' to add the first range row",
-        "5. In the first range row enter <Range1_Minimum_Age_Days> in its Minimum Age Days field and enter <Range1_Maximum_Age_Days> in its Maximum Age Days field",
-        "6. Click 'Add Row' to add the second range row",
-        "7. In the second range row enter <Range2_Minimum_Age_Days> in its Minimum Age Days field and enter <Range2_Maximum_Age_Days> in its Maximum Age Days field",
-        "8. Click 'Add Row' to add the third range row",
-        "9. In the third range row enter <Range3_Minimum_Age_Days> in its Minimum Age Days field and enter <Range3_Maximum_Age_Days> in its Maximum Age Days field",
-        "10. Click the 'Create' button"
+        "1. Click the button to open the Create Delinquency Bucket form",
+        "2. Enter <bucket name> in the Bucket Name field",
+        "3. Click Add Range to add the first range",
+        "4. In the first range row, enter <minimum age days 1> in Minimum Age Days and enter <maximum age days 1> in Maximum Age Days",
+        "5. Click Add Range to add a second range",
+        "6. In the second range row, enter <minimum age days 2> in Minimum Age Days and leave Maximum Age Days blank to indicate it applies beyond the minimum",
+        "7. Select one or more <linked loan products> from the Linked Loan Products multi-select dropdown",
+        "8. Click the Create button on the form"
       ],
-      "expected_result": "New row appears in the Delinquency Buckets table with Bucket Name <Bucket_Name> and Associated Ranges listing the added ranges: <Range1_Minimum_Age_Days>-<Range1_Maximum_Age_Days>, <Range2_Minimum_Age_Days>-<Range2_Maximum_Age_Days>, <Range3_Minimum_Age_Days>-<Range3_Maximum_Age_DAYS>.",
+      "expected_result": "A new row appears in the Delinquency Buckets table with Bucket Name = <bucket name> and the associated ranges listed as entered; the created bucket's detail displays the added ranges and the linked loan products",
       "priority": "high"
-    },
-    {
-      "tc_id": "P-005",
-      "test_case": "Create Delinquency Bucket where last range has no Maximum Age Days",
-      "preconditions": [
-        "User logged in as <Admin>"
-      ],
-      "steps": [
-        "1. Navigate to the Delinquency Buckets page",
-        "2. Click the 'Create Delinquency Bucket' button to open the Create Delinquency Bucket form",
-        "3. Enter <Bucket_Name> in the Bucket Name field",
-        "4. Click 'Add Row' to add the first range row and enter <Range1_Minimum_Age_Days> and <Range1_Maximum_Age_Days>",
-        "5. Click 'Add Row' to add the second range row and enter <Range2_Minimum_Age_Days> and leave its Maximum Age Days blank",
-        "6. Click the 'Create' button"
-      ],
-      "expected_result": "New row appears in the Delinquency Buckets table with Bucket Name <Bucket_Name>; the Associated Ranges column lists the added ranges and the last listed range shows no Maximum Age Days.",
-      "priority": "high"
-    },
-    {
-      "tc_id": "P-006",
-      "test_case": "Open Delinquency Bucket detail from Bucket Name link",
-      "preconditions": [
-        "User logged in as <Admin>",
-        "At least one Delinquency Bucket exists with Bucket Name <Bucket_Name>"
-      ],
-      "steps": [
-        "1. Navigate to the Delinquency Buckets page",
-        "2. Click the Bucket Name link for the row with Bucket Name <Bucket_Name>"
-      ],
-      "expected_result": "Delinquency Bucket detail page is displayed for <Bucket_Name>.",
-      "priority": "medium"
     }
   ],
   "summary": {
-    "total": 6,
+    "total": 4,
     "high_priority": 4,
-    "medium_priority": 2,
+    "medium_priority": 0,
     "low_priority": 0
   }
 }
 
 ------------------------------------------------------------
-[22:32:37] Test-Positive - PARSED JSON
+[14:28:22] Test-Positive - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Delinquency Management",
@@ -478,109 +502,78 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Create Delinquency Range with Maximum Age Days provided",
+      "wf_ref": "WF-001",
+      "test_case": "Open delinquency range detail from Ranges table",
       "preconditions": [
-        "User logged in as <Admin>"
+        "User logged in as <role>",
+        "A delinquency range exists in the Delinquency Ranges table with Classification <existing classification>"
       ],
       "steps": [
-        "1. Navigate to the Delinquency Ranges page",
-        "2. Click the 'Create Delinquency Range' button to open the Create Delinquency Range form",
-        "3. Enter <Classification> in the Classification field",
-        "4. Enter <Minimum_Age_Days> in the Minimum Age Days field",
-        "5. Enter <Maximum_Age_Days> in the Maximum Age Days field",
-        "6. Click the 'Create' button"
+        "1. Navigate to the Delinquency Management > Delinquency Ranges page",
+        "2. Click the <existing classification> link in the Classification column of the Delinquency Ranges table"
       ],
-      "expected_result": "New row appears in the Delinquency Ranges table with Classification <Classification>, Minimum Age Days <Minimum_Age_Days>, and Maximum Age Days <Maximum_Age_Days>.",
+      "expected_result": "Delinquency Range detail page is displayed for <existing classification>; the page shows the Classification, Minimum Age Days and Maximum Age Days values for that range",
       "priority": "high"
     },
     {
       "tc_id": "P-002",
-      "test_case": "Create Delinquency Range with Maximum Age Days left blank (applies beyond minimum)",
+      "wf_ref": "WF-002",
+      "test_case": "Create a delinquency range with no Maximum Age Days (applies beyond minimum)",
       "preconditions": [
-        "User logged in as <Admin>"
+        "User logged in as <role>",
+        "Tester is on the Delinquency Ranges page"
       ],
       "steps": [
-        "1. Navigate to the Delinquency Ranges page",
-        "2. Click the 'Create Delinquency Range' button to open the Create Delinquency Range form",
-        "3. Enter <Classification> in the Classification field",
-        "4. Enter <Minimum_Age_Days> in the Minimum Age Days field",
-        "5. Leave the Maximum Age Days field blank",
-        "6. Click the 'Create' button"
+        "1. Click the button to open the Create Delinquency Range form",
+        "2. Enter <classification> in the Classification field",
+        "3. Enter <minimum age days> in the Minimum Age Days field",
+        "4. Leave the Maximum Age Days field blank",
+        "5. Click the Create button on the form"
       ],
-      "expected_result": "New row appears in the Delinquency Ranges table with Classification <Classification> and Minimum Age Days <Minimum_Age_Days>; the Maximum Age Days cell for that row is empty.",
+      "expected_result": "A new row appears in the Delinquency Ranges table with Classification = <classification> and Minimum Age Days = <minimum age days>; the Maximum Age Days cell is blank indicating it applies to all days beyond the minimum",
       "priority": "high"
     },
     {
       "tc_id": "P-003",
-      "test_case": "Open Delinquency Range detail from Classification link",
+      "wf_ref": "WF-003",
+      "test_case": "Open delinquency bucket detail from Buckets table",
       "preconditions": [
-        "User logged in as <Admin>",
-        "At least one Delinquency Range exists with Classification <Classification>"
+        "User logged in as <role>",
+        "A delinquency bucket exists in the Delinquency Buckets table with Bucket Name <existing bucket name>"
       ],
       "steps": [
-        "1. Navigate to the Delinquency Ranges page",
-        "2. Click the Classification link for the row with Classification <Classification>"
+        "1. Navigate to the Delinquency Management > Delinquency Buckets page",
+        "2. Click the <existing bucket name> link in the Bucket Name column of the Delinquency Buckets table"
       ],
-      "expected_result": "Delinquency Range detail page is displayed for <Classification>.",
-      "priority": "medium"
+      "expected_result": "Delinquency Bucket detail page is displayed for <existing bucket name>; the page shows the Bucket Name and the list of associated Bucket Ranges",
+      "priority": "high"
     },
     {
       "tc_id": "P-004",
-      "test_case": "Create Delinquency Bucket with multiple ranges using Add Row",
+      "wf_ref": "WF-004",
+      "test_case": "Create a delinquency bucket with multiple ranges and link loan products",
       "preconditions": [
-        "User logged in as <Admin>"
+        "User logged in as <role>",
+        "Tester is on the Delinquency Buckets page"
       ],
       "steps": [
-        "1. Navigate to the Delinquency Buckets page",
-        "2. Click the 'Create Delinquency Bucket' button to open the Create Delinquency Bucket form",
-        "3. Enter <Bucket_Name> in the Bucket Name field",
-        "4. Click 'Add Row' to add the first range row",
-        "5. In the first range row enter <Range1_Minimum_Age_Days> in its Minimum Age Days field and enter <Range1_Maximum_Age_Days> in its Maximum Age Days field",
-        "6. Click 'Add Row' to add the second range row",
-        "7. In the second range row enter <Range2_Minimum_Age_Days> in its Minimum Age Days field and enter <Range2_Maximum_Age_Days> in its Maximum Age Days field",
-        "8. Click 'Add Row' to add the third range row",
-        "9. In the third range row enter <Range3_Minimum_Age_Days> in its Minimum Age Days field and enter <Range3_Maximum_Age_Days> in its Maximum Age Days field",
-        "10. Click the 'Create' button"
+        "1. Click the button to open the Create Delinquency Bucket form",
+        "2. Enter <bucket name> in the Bucket Name field",
+        "3. Click Add Range to add the first range",
+        "4. In the first range row, enter <minimum age days 1> in Minimum Age Days and enter <maximum age days 1> in Maximum Age Days",
+        "5. Click Add Range to add a second range",
+        "6. In the second range row, enter <minimum age days 2> in Minimum Age Days and leave Maximum Age Days blank to indicate it applies beyond the minimum",
+        "7. Select one or more <linked loan products> from the Linked Loan Products multi-select dropdown",
+        "8. Click the Create button on the form"
       ],
-      "expected_result": "New row appears in the Delinquency Buckets table with Bucket Name <Bucket_Name> and Associated Ranges listing the added ranges: <Range1_Minimum_Age_Days>-<Range1_Maximum_Age_Days>, <Range2_Minimum_Age_Days>-<Range2_Maximum_Age_Days>, <Range3_Minimum_Age_Days>-<Range3_Maximum_Age_DAYS>.",
+      "expected_result": "A new row appears in the Delinquency Buckets table with Bucket Name = <bucket name> and the associated ranges listed as entered; the created bucket's detail displays the added ranges and the linked loan products",
       "priority": "high"
-    },
-    {
-      "tc_id": "P-005",
-      "test_case": "Create Delinquency Bucket where last range has no Maximum Age Days",
-      "preconditions": [
-        "User logged in as <Admin>"
-      ],
-      "steps": [
-        "1. Navigate to the Delinquency Buckets page",
-        "2. Click the 'Create Delinquency Bucket' button to open the Create Delinquency Bucket form",
-        "3. Enter <Bucket_Name> in the Bucket Name field",
-        "4. Click 'Add Row' to add the first range row and enter <Range1_Minimum_Age_Days> and <Range1_Maximum_Age_Days>",
-        "5. Click 'Add Row' to add the second range row and enter <Range2_Minimum_Age_Days> and leave its Maximum Age Days blank",
-        "6. Click the 'Create' button"
-      ],
-      "expected_result": "New row appears in the Delinquency Buckets table with Bucket Name <Bucket_Name>; the Associated Ranges column lists the added ranges and the last listed range shows no Maximum Age Days.",
-      "priority": "high"
-    },
-    {
-      "tc_id": "P-006",
-      "test_case": "Open Delinquency Bucket detail from Bucket Name link",
-      "preconditions": [
-        "User logged in as <Admin>",
-        "At least one Delinquency Bucket exists with Bucket Name <Bucket_Name>"
-      ],
-      "steps": [
-        "1. Navigate to the Delinquency Buckets page",
-        "2. Click the Bucket Name link for the row with Bucket Name <Bucket_Name>"
-      ],
-      "expected_result": "Delinquency Bucket detail page is displayed for <Bucket_Name>.",
-      "priority": "medium"
     }
   ],
   "summary": {
-    "total": 6,
+    "total": 4,
     "high_priority": 4,
-    "medium_priority": 2,
+    "medium_priority": 0,
     "low_priority": 0
   }
 }

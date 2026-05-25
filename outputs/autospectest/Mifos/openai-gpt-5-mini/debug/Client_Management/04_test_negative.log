@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-21T22:29:06.518455
+DEBUG SESSION STARTED: 2026-05-25T14:24:50.718109
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[22:29:06] Test-Negative - SYSTEM PROMPT
+[14:24:50] Test-Negative - SYSTEM PROMPT
 ------------------------------------------------------------
 You are a Negative Test Case Generator. You receive (1) a UI-AST JSON for one module and (2) the original functional description. Your job is to produce ONLY negative test cases — tests where invalid input is provided or business rules are violated, and the system correctly rejects or blocks the action.
 
@@ -22,6 +22,10 @@ You are a Negative Test Case Generator. You receive (1) a UI-AST JSON for one mo
 <description>
 {Original functional description text for this module}
 </description>
+
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
 
 ---
 
@@ -111,6 +115,9 @@ Group required fields by type: `text/unspecified`, `email`, `password`, `number`
 
 Do NOT generate a separate blank-field test for every required field. If 5 text fields are all required, one representative covers them all.
 
+**Action dialog required fields — NOT subject to cross-form deduplication:**
+If a `state_bound_action_bar` action opens a dialog with its own required `fields{}` (e.g., Activate requires Activation Date, Reject requires a Reason, Withdraw requires a Reason, Close requires a Closure Reason), each such dialog is its own testing scope. Generate ONE "leave the required dialog field blank and submit" test per distinct action dialog. These are HIGH priority — they block state transitions and are common defect sites. Do not suppress them because the main wizard already has a blank-field test.
+
 **2. Format violations:**
 
 For fields with type-specific format rules (from AST type or description):
@@ -143,6 +150,10 @@ For each unique `constraints[]` entry in the AST, and for cross-field rules desc
 
 One test per unique constraint. Do not duplicate the same mechanism.
 
+**Constraint timing tests:** If the spec states an action is blocked by a pre-existing system state (e.g., "cannot close with active accounts", "cannot transfer to the same office"), generate TWO tests:
+1. The standard constraint violation test (user opens the dialog, fills required fields, submits → blocked).
+2. A constraint-timing test: user opens the dialog WITHOUT filling required fields → assert whether the block is shown immediately on dialog open (before the user fills anything) OR only on submit. This distinguishes whether the UI enforces the constraint eagerly or lazily. Steps: open the dialog, observe the state → assert what is visible before any interaction. If the spec is silent on timing, generate only the first test.
+
 **5. Precondition violations (auth, role, and state):**
 
 For each `preconditions[]` entry on any action — and for auth/role rules described in the spec:
@@ -154,18 +165,18 @@ For each `preconditions[]` entry on any action — and for auth/role rules descr
 **6. State-machine violations:**
 
 From `state_bound_action_bar` nodes:
-- For each state where an action is NOT listed in `available_actions`, generate one test attempting that action from that state. Example: attempting "Approve" on an entity already in "Active" state.
+- **Every defined state must have at least one wrong-state test.** For each state, identify at least one action that is NOT in its `available_actions` list and generate a test attempting that action from that state.
 - If a state has an empty `available_actions` array, generate one test verifying no action buttons are visible in that state.
-
-One test per unique wrong-state scenario — do not enumerate every action × every invalid state.
+- **Do not stop after 1–2 representative examples** when the module defines 4+ distinct states. The states Active, Pending, Closed, Rejected, and Withdrawn each have different action sets — each must be independently verified.
+- One test per state is sufficient — pick the most distinct unavailable action for that state. Do not enumerate every action × every state (that would be exponential).
 
 ---
 
 **DEDUPLICATION GATE (run before outputting):**
 
-1. **Required field dedup:** Multiple required text fields → ONE representative test, not one per field.
+1. **Required field dedup:** Multiple required text fields in the **same form or dialog** → ONE representative test, not one per field.
 2. **Sub-rule dedup:** A field with multiple validation sub-rules (e.g., password: length + uppercase + lowercase + number + special char) → ONE representative violation test, not one per sub-rule.
-3. **Cross-form dedup:** If two forms in the same module share the same validation mechanism (e.g., both have a required text field) → test it on the primary form only.
+3. **Cross-form dedup:** If two **main forms** in the same module share the same validation mechanism → test it on the primary form only. **Exception: action dialogs are never suppressed by cross-form dedup** — each action dialog with a required field gets its own blank-field test regardless.
 4. **Uniqueness check:** Before outputting, ask for each TC: "Does this test catch a bug that NO other test in this module would catch?" If no → remove it.
 
 ---
@@ -174,9 +185,11 @@ One test per unique wrong-state scenario — do not enumerate every action × ev
 
 - Simple module (login, single form, display page): **2–4 tests**
 - Medium module (standard CRUD form, form with constraints): **4–8 tests**
-- Complex module (state machine, multi-form, wizard with many constraints): **8–12 tests**
+- Complex module (state machine, multi-form, wizard with many constraints): **10–16 tests**
 
-If you exceed these ranges, you are generating redundant tests. Apply the deduplication gate again before outputting.
+For modules with a `state_bound_action_bar` defining 4+ states, the state-machine violation tests alone will produce 4–5 tests. This is expected and correct — do not suppress them to hit a lower target.
+
+If you exceed the upper range, apply the deduplication gate again before outputting.
 
 ---
 
@@ -184,6 +197,17 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
 
 - **High:** State precondition violations, constraint violations that could corrupt data, unauthenticated access, required field representatives
 - **Medium:** Format violations, cross-field validation, numeric bounds, wrong-role access, wrong-state action attempts
+
+---
+
+**WORKFLOW-AWARE FAILURE INJECTION (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- For each workflow that contains a form interaction (terminal action is a submit/save/create/approve button):
+  - Identify the most **critical blocking failure** for that workflow's `conditional_branch`.
+  - If that failure mode is NOT already covered by another workflow's negative test, generate one negative TC for it.
+- **Do NOT generate one negative TC per workflow mechanically.** Apply the existing deduplication gate first — only add a TC if it catches a bug that no other test would catch.
+- Add `"wf_ref": "WF-NNN"` to each TC that maps to a workflow. Set `"wf_ref": null` for generic validation tests.
 
 ---
 
@@ -195,6 +219,7 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
   "test_cases": [
     {
       "tc_id": "N-001",
+      "wf_ref": null,
       "test_case": "Short descriptive name",
       "preconditions": ["precondition 1"],
       "steps": ["1. Step one", "2. Step two"],
@@ -212,7 +237,7 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
 
 
 ------------------------------------------------------------
-[22:29:06] Test-Negative - USER PROMPT
+[14:24:50] Test-Negative - USER PROMPT
 ------------------------------------------------------------
 <module_name>Client Management</module_name>
 
@@ -221,100 +246,93 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
   "module_name": "Client Management",
   "components": {
     "Clients_Page": {
-      "type": "view",
+      "type": "data_table",
+      "description": "Clients listing with search and filters",
       "search": {
         "type": "search",
         "element_name": "Client_Search",
-        "searchable_fields": [
+        "search_targets": [
           "Name",
-          "Account_No",
-          "External_ID",
-          "Mobile_Number"
+          "Account No.",
+          "External ID",
+          "Mobile Number"
         ]
       },
-      "filter_bar": {
-        "type": "filter_bar",
-        "filters": {
-          "Status": {
-            "type": "dropdown",
-            "element_name": "Status_Filter",
-            "options": [
-              "Pending",
-              "Active",
-              "Closed",
-              "Rejected",
-              "Withdrawn"
-            ],
-            "required": false
-          }
+      "filters": {
+        "Status_Filter": {
+          "type": "dropdown",
+          "options": [
+            "Pending",
+            "Active",
+            "Closed",
+            "Rejected",
+            "Withdrawn"
+          ]
         }
       },
       "top_actions": [
         {
           "element_name": "Import Client",
-          "type": "button",
-          "on_click": "navigates to Bulk Import page"
+          "type": "link",
+          "target": "Bulk_Import_Page"
         },
         {
           "element_name": "Create Client",
           "type": "button",
-          "on_click": "opens Create Client wizard"
+          "target": "Create_Client_Wizard"
         }
       ],
-      "clients_table": {
-        "type": "data_table",
-        "element_name": "Clients_Table",
-        "columns": [
-          "Name",
-          "Account_No",
-          "External_ID",
-          "Status",
-          "Office",
-          "Staff"
-        ],
-        "row_actions": [
-          {
-            "action_name": "Open",
-            "element_type": "link",
-            "trigger_column": "Name",
-            "on_click": "navigates to Client Detail page"
-          }
-        ]
-      }
+      "columns": [
+        "Name",
+        "Account No.",
+        "External ID",
+        "Status",
+        "Office",
+        "Staff"
+      ],
+      "row_actions": [
+        {
+          "action_name": "Open Client Detail",
+          "action_type": "link",
+          "mapped_column": "Name",
+          "target": "Client_Detail_Page"
+        }
+      ]
     },
     "Bulk_Import_Page": {
-      "type": "page",
+      "type": "form",
       "fields": {
-        "Download_Template": {
+        "Download_Client_Template": {
           "type": "button",
-          "element_name": "Download_Client_Template",
-          "on_click": "downloads client Excel template"
+          "element_name": "Download Client Excel Template"
         },
         "Upload_File": {
           "type": "file_upload",
-          "element_name": "Upload_Client_File",
-          "required": false,
-          "on_success": "queues import job and records import history"
+          "element_name": "Upload Completed File"
         }
       },
-      "import_history_table": {
+      "submit_actions": [
+        {
+          "element_name": "Upload",
+          "on_success": "starts import job"
+        }
+      ],
+      "Import_History_Table": {
         "type": "data_table",
-        "element_name": "Import_History",
         "columns": [
           "Name",
-          "Import_Time",
-          "End_Time",
+          "Import Time",
+          "End Time",
           "Completed",
-          "Total_Records",
-          "Success_Count",
-          "Failure_Count",
+          "Total Records",
+          "Success Count",
+          "Failure Count",
           "Download"
         ],
         "row_actions": [
           {
             "action_name": "Download",
-            "element_type": "link",
-            "on_click": "downloads import result or error file"
+            "mapped_column": "Download"
           }
         ]
       }
@@ -333,75 +351,72 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
           "step_name": "General Details",
           "fields": {
             "Office": {
-              "type": "unspecified",
+              "type": "dropdown",
               "required": true
             },
-            "Legal_Form": {
+            "Legal Form": {
               "type": "unspecified",
               "required": false
             },
-            "First_Name": {
+            "First Name": {
               "type": "unspecified",
               "required": true
             },
-            "Middle_Name": {
+            "Middle Name": {
               "type": "unspecified",
               "required": false
             },
-            "Last_Name": {
+            "Last Name": {
               "type": "unspecified",
               "required": true
             },
-            "Date_of_Birth": {
+            "Date of Birth": {
               "type": "date",
               "required": false
             },
             "Gender": {
-              "type": "unspecified",
+              "type": "dropdown",
               "required": false
             },
             "Staff": {
-              "type": "unspecified",
+              "type": "dropdown",
               "required": false
             },
-            "Mobile_Number": {
-              "type": "unspecified",
+            "Mobile Number": {
+              "type": "number",
               "required": false
             },
-            "Email_Address": {
+            "Email Address": {
               "type": "email",
               "required": false
             },
-            "Client_Type": {
-              "type": "unspecified",
+            "Client Type": {
+              "type": "dropdown",
               "required": false
             },
-            "Client_Classification": {
-              "type": "unspecified",
+            "Client Classification": {
+              "type": "dropdown",
               "required": false
             },
-            "External_ID": {
+            "External ID": {
               "type": "unspecified",
               "required": false,
               "constraints": [
-                "must be unique across clients"
+                "must be unique"
               ]
             },
-            "Submitted_On": {
+            "Submitted On": {
               "type": "date",
               "required": true
             },
-            "Is_Staff": {
-              "type": "checkbox",
-              "required": false
+            "Is Staff": {
+              "type": "checkbox"
             },
             "Active": {
-              "type": "checkbox",
-              "required": false
+              "type": "checkbox"
             },
-            "Open_Savings_Account": {
-              "type": "checkbox",
-              "required": false
+            "Open Savings Account": {
+              "type": "checkbox"
             }
           }
         },
@@ -421,19 +436,18 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
           "fields": {
             "Identifiers": {
               "type": "repeating_group",
-              "element_name": "Create_Identifiers",
               "item_fields": {
-                "Document_Type": {
+                "Document Type": {
                   "type": "unspecified",
                   "required": false
                 },
-                "Document_Key": {
+                "Document Key": {
                   "type": "unspecified",
                   "required": false
                 }
               },
               "constraints": [
-                "duplicates not allowed"
+                "duplicates prevented"
               ]
             }
           }
@@ -441,172 +455,176 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
       ]
     },
     "Client_Detail_Page": {
-      "type": "detail_view",
-      "action_bar": {
-        "type": "state_bound_action_bar",
-        "states": {
-          "Pending": {
-            "available_actions": [
-              {
-                "action_name": "Activate",
-                "fields": {
-                  "Activation_Date": {
-                    "type": "date",
-                    "required": true,
-                    "constraints": [
-                      "must not be before Submitted_On"
-                    ]
-                  }
-                }
-              },
-              {
-                "action_name": "Edit"
-              },
-              {
-                "action_name": "Reject",
-                "fields": {
-                  "Reason": {
-                    "type": "unspecified",
-                    "required": true
-                  }
-                }
-              },
-              {
-                "action_name": "Withdraw",
-                "fields": {
-                  "Reason": {
-                    "type": "unspecified",
-                    "required": true
-                  }
-                }
-              }
-            ]
-          },
-          "Active": {
-            "available_actions": [
-              {
-                "action_name": "Edit"
-              },
-              {
-                "action_name": "Transfer Client",
-                "fields": {
-                  "Destination_Office": {
-                    "type": "unspecified",
-                    "required": true,
-                    "constraints": [
-                      "must be different from current office"
-                    ]
-                  }
-                }
-              },
-              {
-                "action_name": "Close",
-                "fields": {
-                  "Closure_Reason": {
-                    "type": "unspecified",
-                    "required": true
-                  }
+      "type": "page",
+      "tabs": [
+        {
+          "tab_name": "General",
+          "fields": {}
+        },
+        {
+          "tab_name": "Accounts",
+          "tabs": [
+            {
+              "tab_name": "Loans",
+              "fields": {}
+            },
+            {
+              "tab_name": "Savings",
+              "fields": {}
+            },
+            {
+              "tab_name": "Shares",
+              "fields": {}
+            },
+            {
+              "tab_name": "Fixed Deposits",
+              "fields": {}
+            },
+            {
+              "tab_name": "Recurring Deposits",
+              "fields": {}
+            }
+          ]
+        },
+        {
+          "tab_name": "Identifiers",
+          "fields": {
+            "Identifiers": {
+              "type": "repeating_group",
+              "item_fields": {
+                "Document Type": {
+                  "type": "unspecified",
+                  "required": false
                 },
-                "preconditions": [
-                  "no active accounts"
-                ]
+                "Document Key": {
+                  "type": "unspecified",
+                  "required": false
+                }
               },
-              {
-                "action_name": "Add Charge"
-              },
-              {
-                "action_name": "New Loan"
-              },
-              {
-                "action_name": "New Savings"
-              },
-              {
-                "action_name": "New Share Account"
-              }
-            ]
-          },
-          "Closed": {
-            "available_actions": [
-              {
-                "action_name": "Reactivate"
-              }
-            ]
-          },
-          "Rejected": {
-            "available_actions": []
-          },
-          "Withdrawn": {
-            "available_actions": []
+              "constraints": [
+                "duplicates prevented"
+              ],
+              "item_actions": [
+                {
+                  "action_name": "Add"
+                },
+                {
+                  "action_name": "Remove"
+                }
+              ]
+            }
           }
+        },
+        {
+          "tab_name": "Family Members",
+          "fields": {}
+        },
+        {
+          "tab_name": "Notes",
+          "fields": {}
+        },
+        {
+          "tab_name": "Documents",
+          "fields": {}
         }
-      },
-      "tabs": {
-        "type": "tab_container",
-        "tabs": [
-          {
-            "tab_name": "General",
-            "fields": {}
-          },
-          {
-            "tab_name": "Accounts",
-            "tabs": [
-              {
-                "tab_name": "Loans",
-                "fields": {}
-              },
-              {
-                "tab_name": "Savings",
-                "fields": {}
-              },
-              {
-                "tab_name": "Shares",
-                "fields": {}
-              },
-              {
-                "tab_name": "Fixed Deposits",
-                "fields": {}
-              },
-              {
-                "tab_name": "Recurring Deposits",
-                "fields": {}
+      ]
+    },
+    "Client_Detail_Actions": {
+      "type": "state_bound_action_bar",
+      "states": {
+        "Pending": {
+          "available_actions": [
+            {
+              "action_name": "Activate",
+              "fields": {
+                "Activation Date": {
+                  "type": "date",
+                  "required": true,
+                  "constraints": [
+                    "must not be before Submitted On"
+                  ]
+                }
               }
-            ]
-          },
-          {
-            "tab_name": "Identifiers",
-            "fields": {
-              "Identifiers": {
-                "type": "repeating_group",
-                "element_name": "Detail_Identifiers",
-                "item_fields": {
-                  "Document_Type": {
-                    "type": "unspecified",
-                    "required": false
-                  },
-                  "Document_Key": {
-                    "type": "unspecified",
-                    "required": false
-                  }
-                },
-                "constraints": [
-                  "duplicates not allowed"
-                ]
+            },
+            {
+              "action_name": "Edit"
+            },
+            {
+              "action_name": "Reject",
+              "fields": {
+                "Reason": {
+                  "type": "unspecified",
+                  "required": true
+                }
+              }
+            },
+            {
+              "action_name": "Withdraw",
+              "fields": {
+                "Reason": {
+                  "type": "unspecified",
+                  "required": true
+                }
               }
             }
-          },
-          {
-            "tab_name": "Family Members",
-            "fields": {}
-          },
-          {
-            "tab_name": "Notes",
-            "fields": {}
-          },
-          {
-            "tab_name": "Documents",
-            "fields": {}
-          }
-        ]
+          ]
+        },
+        "Active": {
+          "available_actions": [
+            {
+              "action_name": "Edit"
+            },
+            {
+              "action_name": "Transfer Client",
+              "fields": {
+                "Destination Office": {
+                  "type": "dropdown",
+                  "required": true
+                }
+              },
+              "constraints": [
+                "Destination Office must be different from current Office"
+              ]
+            },
+            {
+              "action_name": "Close",
+              "fields": {
+                "Closure Reason": {
+                  "type": "unspecified",
+                  "required": true
+                }
+              },
+              "constraints": [
+                "cannot close with active accounts"
+              ]
+            },
+            {
+              "action_name": "Add Charge"
+            },
+            {
+              "action_name": "New Loan"
+            },
+            {
+              "action_name": "New Savings"
+            },
+            {
+              "action_name": "New Share Account"
+            }
+          ]
+        },
+        "Closed": {
+          "available_actions": [
+            {
+              "action_name": "Reactivate"
+            }
+          ]
+        },
+        "Rejected": {
+          "available_actions": []
+        },
+        "Withdrawn": {
+          "available_actions": []
+        }
       }
     }
   }
@@ -626,10 +644,36 @@ The Client Detail page displays the client name, account number, status badge, a
 
 </description>
 
+<workflows>
+WF-001 | Open Create Client wizard | actor: <role> | branch: none | terminal: Create Client | on_success: opens Create Client wizard
+WF-002 | Open Bulk Import page | actor: <role> | branch: none | terminal: Import Client | on_success: opens Bulk Import page
+WF-003 | Search clients | actor: <role> | branch: none | terminal: Client_Search | on_success: filters client list by search query (Name, Account No., External ID, or Mobile Number)
+WF-004 | Filter clients by Status | actor: <role> | branch: none | terminal: Status_Filter | on_success: filters client list by selected status
+WF-005 | Open Client Detail from listing | actor: <role> | branch: none | terminal: Open Client Detail | on_success: navigates to Client Detail page for selected client
+WF-006 | Download client Excel template (Bulk Import) | actor: <role> | branch: none | terminal: Download Client Excel Template | on_success: downloads client Excel template
+WF-007 | Upload file to start import | actor: <role> | branch: none | terminal: Upload | on_success: starts import job
+WF-008 | Download import result from Import History | actor: <role> | branch: none | terminal: Download | on_success: downloads import results for the selected import entry
+WF-009 | Submit Create Client wizard | actor: <role> | branch: none | terminal: Submit | on_success: creates client in Pending status
+WF-010 | Activate client (Pending) | actor: <role> | branch: entity_state == Pending | terminal: Activate | on_success: client status changes to Active
+WF-011 | Edit client (Pending) | actor: <role> | branch: entity_state == Pending | terminal: Edit | on_success: client updated
+WF-012 | Reject client (Pending) | actor: <role> | branch: entity_state == Pending | terminal: Reject | on_success: client status set to Rejected
+WF-013 | Withdraw client (Pending) | actor: <role> | branch: entity_state == Pending | terminal: Withdraw | on_success: client status set to Withdrawn
+WF-014 | Edit client (Active) | actor: <role> | branch: entity_state == Active | terminal: Edit | on_success: client updated
+WF-015 | Transfer client (Active) | actor: <role> | branch: entity_state == Active | terminal: Transfer Client | on_success: client transferred to Destination Office
+WF-016 | Close client (Active) | actor: <role> | branch: entity_state == Active | terminal: Close | on_success: client status set to Closed
+WF-017 | Add charge to client (Active) | actor: <role> | branch: entity_state == Active | terminal: Add Charge | on_success: charge added for client
+WF-018 | Create new loan for client (Active) | actor: <role> | branch: entity_state == Active | terminal: New Loan | on_success: initiates new loan flow for client
+WF-019 | Create new savings for client (Active) | actor: <role> | branch: entity_state == Active | terminal: New Savings | on_success: initiates new savings flow for client
+WF-020 | Create new share account for client (Active) | actor: <role> | branch: entity_state == Active | terminal: New Share Account | on_success: initiates new share account flow for client
+WF-021 | Reactivate client (Closed) | actor: <role> | branch: entity_state == Closed | terminal: Reactivate | on_success: client status set to Active
+WF-022 | Add identifier (Client Detail Identifiers) | actor: <role> | branch: none | terminal: Add | on_success: identifier added (duplicates prevented)
+WF-023 | Remove identifier (Client Detail Identifiers) | actor: <role> | branch: none | terminal: Remove | on_success: identifier removed
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[22:30:34] Test-Negative - LLM RESPONSE
+[14:26:49] Test-Negative - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Client Management",
@@ -637,148 +681,284 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "N-001",
-      "test_case": "Leave required text field (Office) blank in Create Client wizard",
-      "preconditions": [
-        "User is authenticated and on the Clients page",
-        "Create Client wizard is opened"
-      ],
+      "wf_ref": "WF-009",
+      "test_case": "Create Client — leave required dropdown (Office) blank and submit",
+      "preconditions": ["User is on the Create Client wizard (Step 1: General Details)"],
       "steps": [
-        "1. In Step 1 (General Details) clear the Office field",
-        "2. Enter <valid First Name> into the First Name field",
-        "3. Enter <valid Last Name> into the Last Name field",
-        "4. Enter <valid date> into the Submitted On field",
-        "5. Click Submit"
+        "1. Ensure the Create Client wizard is open on Step 1 (General Details)",
+        "2. Leave the Office field blank",
+        "3. Fill all other required fields with valid values (e.g., <valid First Name>, <valid Last Name>, <valid Submitted On>)",
+        "4. Click Submit"
       ],
-      "expected_result": "Inline validation error appears on the Office field indicating it is required; the form does not submit and no client is created",
+      "expected_result": "Inline validation error appears on the Office field indicating it is required; form does not submit; no client is created; user remains on the wizard",
       "priority": "high"
     },
     {
       "tc_id": "N-002",
-      "test_case": "Leave required date field (Submitted On) blank in Create Client wizard",
-      "preconditions": [
-        "User is authenticated and on the Clients page",
-        "Create Client wizard is opened"
-      ],
+      "wf_ref": "WF-009",
+      "test_case": "Create Client — leave required text field (First Name) blank and submit",
+      "preconditions": ["User is on the Create Client wizard (Step 1: General Details)"],
       "steps": [
-        "1. In Step 1 (General Details) enter <valid Office> into the Office field",
-        "2. Enter <valid First Name> into the First Name field",
-        "3. Enter <valid Last Name> into the Last Name field",
-        "4. Leave the Submitted On field blank",
-        "5. Click Submit"
+        "1. Ensure the Create Client wizard is open on Step 1 (General Details)",
+        "2. Leave the First Name field blank",
+        "3. Fill all other required fields with valid values (e.g., <valid Office>, <valid Last Name>, <valid Submitted On>)",
+        "4. Click Submit"
       ],
-      "expected_result": "Inline validation error appears on the Submitted On field indicating it is required; the form does not submit and no client is created",
+      "expected_result": "Inline validation error appears on the First Name field indicating it is required; form does not submit; no client is created; user remains on the wizard",
       "priority": "high"
     },
     {
       "tc_id": "N-003",
-      "test_case": "Submit Create Client wizard with ALL required fields empty",
-      "preconditions": [
-        "User is authenticated and on the Clients page",
-        "Create Client wizard is opened"
-      ],
+      "wf_ref": "WF-009",
+      "test_case": "Create Client — leave required date field (Submitted On) blank and submit",
+      "preconditions": ["User is on the Create Client wizard (Step 1: General Details)"],
       "steps": [
-        "1. In Step 1 (General Details) leave the Office field blank",
-        "2. Leave the First Name field blank",
-        "3. Leave the Last Name field blank",
-        "4. Leave the Submitted On field blank",
-        "5. Click Submit"
+        "1. Ensure the Create Client wizard is open on Step 1 (General Details)",
+        "2. Leave the Submitted On field blank",
+        "3. Fill all other required fields with valid values (e.g., <valid Office>, <valid First Name>, <valid Last Name>)",
+        "4. Click Submit"
       ],
-      "expected_result": "Inline validation errors appear on Office, First Name, Last Name, and Submitted On indicating each is required; the form does not submit and no client is created",
+      "expected_result": "Inline validation error appears on the Submitted On field indicating it is required; form does not submit; no client is created; user remains on the wizard",
       "priority": "high"
     },
     {
       "tc_id": "N-004",
-      "test_case": "Submit Create Client with External ID that already exists (uniqueness violation)",
-      "preconditions": [
-        "A client with <existing External_ID> already exists in the system",
-        "User is authenticated and on the Clients page",
-        "Create Client wizard is opened"
-      ],
+      "wf_ref": "WF-009",
+      "test_case": "Create Client — submit with ALL required fields empty",
+      "preconditions": ["User is on the Create Client wizard (Step 1: General Details)"],
       "steps": [
-        "1. In Step 1 (General Details) enter <valid Office> into the Office field",
-        "2. Enter <valid First Name> into the First Name field",
-        "3. Enter <valid Last Name> into the Last Name field",
-        "4. Enter <valid date> into the Submitted On field",
-        "5. Enter <External_ID already present in system> into the External ID field",
-        "6. Click Submit"
+        "1. Ensure the Create Client wizard is open on Step 1 (General Details)",
+        "2. Leave all required fields empty (Office, First Name, Last Name, Submitted On)",
+        "3. Click Submit"
       ],
-      "expected_result": "External ID field displays an inline validation error: 'must be unique across clients'; the form does not submit and no client is created",
+      "expected_result": "Inline validation errors appear on Office, First Name, Last Name, and Submitted On indicating they are required; form does not submit; no client is created; user remains on the wizard",
       "priority": "high"
     },
     {
       "tc_id": "N-005",
-      "test_case": "Activate client with Activation Date before Submitted On (date constraint violation)",
-      "preconditions": [
-        "A client exists in Pending status with Submitted_On = <submitted date>",
-        "User is authenticated and on that client's Client Detail page"
-      ],
+      "wf_ref": "WF-009",
+      "test_case": "Create Client — invalid Email Address format is rejected",
+      "preconditions": ["User is on the Create Client wizard (Step 1: General Details)"],
       "steps": [
-        "1. Click the Activate action in the action bar",
-        "2. Enter <date before Submitted_On> into the Activation Date field",
-        "3. Click Confirm/Activate"
+        "1. Open the Create Client wizard to Step 1 (General Details)",
+        "2. Enter <invalid email format> in the Email Address field",
+        "3. Fill all required fields with valid values",
+        "4. Click Submit"
       ],
-      "expected_result": "Activation Date field displays an inline validation error: 'must not be before Submitted_On'; activation is blocked and client remains in Pending status",
-      "priority": "high"
+      "expected_result": "Email Address field displays an inline error indicating the email format is invalid (e.g., 'Must be a valid email address'); form does not submit; no client is created; user remains on the wizard",
+      "priority": "medium"
     },
     {
       "tc_id": "N-006",
-      "test_case": "Attempt to Close client when precondition 'no active accounts' is not met",
-      "preconditions": [
-        "A client exists in Active status and has one or more active accounts",
-        "User is authenticated and on that client's Client Detail page"
-      ],
+      "wf_ref": "WF-009",
+      "test_case": "Create Client — submit with duplicate External ID (must be unique)",
+      "preconditions": ["An existing client already has External ID = <existing External ID>", "User is on the Create Client wizard (Step 1: General Details)"],
       "steps": [
-        "1. Click the Close action in the action bar",
-        "2. Enter <closure reason> into the Closure Reason field",
-        "3. Click Confirm/Close"
+        "1. Open the Create Client wizard to Step 1 (General Details)",
+        "2. Enter <existing External ID> into the External ID field",
+        "3. Fill all required fields with valid values",
+        "4. Click Submit"
       ],
-      "expected_result": "Close action is blocked; the Close dialog displays a visible error banner indicating the client cannot be closed because active accounts exist; the client remains in Active status and no Close occurs",
+      "expected_result": "Form submission is blocked; External ID field displays an inline error indicating the value must be unique (e.g., 'External ID must be unique'); no client is created; user remains on the wizard",
       "priority": "high"
     },
     {
       "tc_id": "N-007",
-      "test_case": "Transfer Client using Destination Office equal to current office (must be different constraint)",
-      "preconditions": [
-        "A client exists in Active status with current Office = <current office>",
-        "User is authenticated and on that client's Client Detail page"
-      ],
+      "wf_ref": "WF-022",
+      "test_case": "Identifiers — adding duplicate identifier entries is prevented",
+      "preconditions": ["User is on Create Client Step 4 (Identifiers) or Client Detail Identifiers tab"],
       "steps": [
-        "1. Click the Transfer Client action in the action bar",
-        "2. Select <current office> in the Destination Office field",
-        "3. Click Confirm/Transfer"
+        "1. Open the Identifiers section (repeating group)",
+        "2. Add an identifier with Document Type = <X> and Document Key = <Y>",
+        "3. Attempt to add another identifier with Document Type = <X> and Document Key = <Y> (duplicate)",
+        "4. Click Save/Add to persist the identifier"
       ],
-      "expected_result": "Destination Office field displays an inline validation error: 'must be different from current office'; transfer is blocked and the client's Office remains unchanged",
-      "priority": "medium"
+      "expected_result": "UI prevents adding the duplicate identifier; an inline error appears on the second identifier row indicating duplicates are not allowed (e.g., 'Duplicate identifier not allowed'); duplicate entry is not saved",
+      "priority": "high"
     },
     {
       "tc_id": "N-008",
-      "test_case": "Enter invalid email format in Email Address field on Create Client wizard",
-      "preconditions": [
-        "User is authenticated and on the Clients page",
-        "Create Client wizard is opened"
-      ],
+      "wf_ref": "WF-010",
+      "test_case": "Activate (Pending) — leave Activation Date blank and submit",
+      "preconditions": ["Client exists in Pending state and user is on the Client Detail page"],
       "steps": [
-        "1. In Step 1 (General Details) enter <valid Office> into the Office field",
-        "2. Enter <valid First Name> into the First Name field",
-        "3. Enter <valid Last Name> into the Last Name field",
-        "4. Enter <valid date> into the Submitted On field",
-        "5. Enter <invalid email format> into the Email Address field",
-        "6. Click Submit"
+        "1. Open the Client Detail page for a client in Pending status",
+        "2. Click the Activate action",
+        "3. Leave the Activation Date field blank in the Activate dialog",
+        "4. Click Confirm/Submit in the Activate dialog"
       ],
-      "expected_result": "Email Address field displays an inline validation error indicating invalid email format; the form does not submit and no client is created",
-      "priority": "medium"
+      "expected_result": "Inline validation error appears on the Activation Date field indicating it is required; activation is blocked; client remains in Pending status; dialog remains open or shows error",
+      "priority": "high"
+    },
+    {
+      "tc_id": "N-009",
+      "wf_ref": "WF-010",
+      "test_case": "Activate (Pending) — Activation Date before Submitted On is rejected",
+      "preconditions": ["Client exists in Pending state with Submitted On = <submitted date> and user is on the Client Detail page"],
+      "steps": [
+        "1. Open the Client Detail page for the Pending client",
+        "2. Click the Activate action",
+        "3. Enter <Activation Date earlier than Submitted On> into the Activation Date field",
+        "4. Click Confirm/Submit in the Activate dialog"
+      ],
+      "expected_result": "Activation is blocked; Activation Date field displays an inline error stating 'Activation Date must not be before Submitted On' (or equivalent); client remains in Pending status; dialog remains open or shows error",
+      "priority": "high"
+    },
+    {
+      "tc_id": "N-010",
+      "wf_ref": "WF-012",
+      "test_case": "Reject (Pending) — leave Reason blank and submit",
+      "preconditions": ["Client exists in Pending state and user is on the Client Detail page"],
+      "steps": [
+        "1. Open the Client Detail page for a client in Pending status",
+        "2. Click the Reject action",
+        "3. Leave the Reason field blank in the Reject dialog",
+        "4. Click Confirm/Submit in the Reject dialog"
+      ],
+      "expected_result": "Inline validation error appears on the Reason field indicating it is required; rejection is blocked; client remains in Pending status; dialog remains open or shows error",
+      "priority": "high"
+    },
+    {
+      "tc_id": "N-011",
+      "wf_ref": "WF-013",
+      "test_case": "Withdraw (Pending) — leave Reason blank and submit",
+      "preconditions": ["Client exists in Pending state and user is on the Client Detail page"],
+      "steps": [
+        "1. Open the Client Detail page for a client in Pending status",
+        "2. Click the Withdraw action",
+        "3. Leave the Reason field blank in the Withdraw dialog",
+        "4. Click Confirm/Submit in the Withdraw dialog"
+      ],
+      "expected_result": "Inline validation error appears on the Reason field indicating it is required; withdrawal is blocked; client remains in Pending status; dialog remains open or shows error",
+      "priority": "high"
+    },
+    {
+      "tc_id": "N-012",
+      "wf_ref": "WF-015",
+      "test_case": "Transfer Client (Active) — leave Destination Office blank and submit",
+      "preconditions": ["Client exists in Active state and user is on the Client Detail page"],
+      "steps": [
+        "1. Open the Client Detail page for a client in Active status",
+        "2. Click the Transfer Client action",
+        "3. Leave the Destination Office field blank in the Transfer dialog",
+        "4. Click Confirm/Submit in the Transfer dialog"
+      ],
+      "expected_result": "Inline validation error appears on the Destination Office field indicating it is required; transfer is blocked; client remains in Active status with original Office unchanged; dialog remains open or shows error",
+      "priority": "high"
+    },
+    {
+      "tc_id": "N-013",
+      "wf_ref": "WF-015",
+      "test_case": "Transfer Client (Active) — selecting the same Office is blocked",
+      "preconditions": ["Client exists in Active state with current Office = <Current Office> and user is on the Client Detail page"],
+      "steps": [
+        "1. Open the Client Detail page for the Active client",
+        "2. Click the Transfer Client action",
+        "3. Select Destination Office = <Current Office> (same as current)",
+        "4. Click Confirm/Submit in the Transfer dialog"
+      ],
+      "expected_result": "Transfer is blocked; Destination Office field displays an inline error indicating 'Destination Office must be different from current Office' (or equivalent); client remains in Active status and Office is unchanged",
+      "priority": "high"
+    },
+    {
+      "tc_id": "N-014",
+      "wf_ref": "WF-016",
+      "test_case": "Close Client (Active) — leave Closure Reason blank and submit",
+      "preconditions": ["Client exists in Active state and user is on the Client Detail page"],
+      "steps": [
+        "1. Open the Client Detail page for a client in Active status",
+        "2. Click the Close action",
+        "3. Leave the Closure Reason field blank in the Close dialog",
+        "4. Click Confirm/Submit in the Close dialog"
+      ],
+      "expected_result": "Inline validation error appears on the Closure Reason field indicating it is required; closure is blocked; client remains in Active status; dialog remains open or shows error",
+      "priority": "high"
+    },
+    {
+      "tc_id": "N-015",
+      "wf_ref": "WF-016",
+      "test_case": "Close Client (Active) — cannot close when client has active accounts",
+      "preconditions": ["Client exists in Active state and has at least one active account (loans or savings) and user is on the Client Detail page"],
+      "steps": [
+        "1. Open the Client Detail page for the Active client with active accounts",
+        "2. Click the Close action",
+        "3. Enter a valid Closure Reason",
+        "4. Click Confirm/Submit in the Close dialog"
+      ],
+      "expected_result": "Closure is blocked; a visible error or toast appears indicating 'cannot close with active accounts' (or equivalent); client's status remains Active and dialog remains open or shows error",
+      "priority": "high"
+    },
+    {
+      "tc_id": "N-016",
+      "wf_ref": "WF-005",
+      "test_case": "State violation — Reactivate action is not available when client is Pending",
+      "preconditions": ["Client exists in Pending state and user is on the Client Detail page"],
+      "steps": [
+        "1. Open the Client Detail page for a client in Pending status",
+        "2. Inspect the action bar for available actions"
+      ],
+      "expected_result": "Reactivate action/button is not visible in the action bar for a Pending client; no Reactivate control is clickable",
+      "priority": "high"
+    },
+    {
+      "tc_id": "N-017",
+      "wf_ref": "WF-005",
+      "test_case": "State violation — Activate action is not available when client is Active",
+      "preconditions": ["Client exists in Active state and user is on the Client Detail page"],
+      "steps": [
+        "1. Open the Client Detail page for a client in Active status",
+        "2. Inspect the action bar for available actions"
+      ],
+      "expected_result": "Activate action/button is not visible in the action bar for an Active client; no Activate control is clickable",
+      "priority": "high"
+    },
+    {
+      "tc_id": "N-018",
+      "wf_ref": "WF-005",
+      "test_case": "State violation — Activate action is not available when client is Closed",
+      "preconditions": ["Client exists in Closed state and user is on the Client Detail page"],
+      "steps": [
+        "1. Open the Client Detail page for a client in Closed status",
+        "2. Inspect the action bar for available actions"
+      ],
+      "expected_result": "Activate action/button is not visible in the action bar for a Closed client; only Reactivate is available per spec; no Activate control is clickable",
+      "priority": "high"
+    },
+    {
+      "tc_id": "N-019",
+      "wf_ref": "WF-005",
+      "test_case": "State violation — no actions visible when client is Rejected",
+      "preconditions": ["Client exists in Rejected state and user is on the Client Detail page"],
+      "steps": [
+        "1. Open the Client Detail page for a client in Rejected status",
+        "2. Inspect the action bar for available actions"
+      ],
+      "expected_result": "No action buttons are visible in the action bar for a Rejected client; action bar shows no available actions and client remains in Rejected status",
+      "priority": "high"
+    },
+    {
+      "tc_id": "N-020",
+      "wf_ref": "WF-005",
+      "test_case": "State violation — no actions visible when client is Withdrawn",
+      "preconditions": ["Client exists in Withdrawn state and user is on the Client Detail page"],
+      "steps": [
+        "1. Open the Client Detail page for a client in Withdrawn status",
+        "2. Inspect the action bar for available actions"
+      ],
+      "expected_result": "No action buttons are visible in the action bar for a Withdrawn client; action bar shows no available actions and client remains in Withdrawn status",
+      "priority": "high"
     }
   ],
   "summary": {
-    "total": 8,
-    "high_priority": 6,
-    "medium_priority": 2,
-    "low_priority": 0
+    "total": 20,
+    "high_priority": 18,
+    "medium_priority": 1,
+    "low_priority": 1
   }
 }
 
 ------------------------------------------------------------
-[22:30:34] Test-Negative - PARSED JSON
+[14:26:49] Test-Negative - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Client Management",
@@ -786,142 +966,319 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "N-001",
-      "test_case": "Leave required text field (Office) blank in Create Client wizard",
+      "wf_ref": "WF-009",
+      "test_case": "Create Client \u2014 leave required dropdown (Office) blank and submit",
       "preconditions": [
-        "User is authenticated and on the Clients page",
-        "Create Client wizard is opened"
+        "User is on the Create Client wizard (Step 1: General Details)"
       ],
       "steps": [
-        "1. In Step 1 (General Details) clear the Office field",
-        "2. Enter <valid First Name> into the First Name field",
-        "3. Enter <valid Last Name> into the Last Name field",
-        "4. Enter <valid date> into the Submitted On field",
-        "5. Click Submit"
+        "1. Ensure the Create Client wizard is open on Step 1 (General Details)",
+        "2. Leave the Office field blank",
+        "3. Fill all other required fields with valid values (e.g., <valid First Name>, <valid Last Name>, <valid Submitted On>)",
+        "4. Click Submit"
       ],
-      "expected_result": "Inline validation error appears on the Office field indicating it is required; the form does not submit and no client is created",
+      "expected_result": "Inline validation error appears on the Office field indicating it is required; form does not submit; no client is created; user remains on the wizard",
       "priority": "high"
     },
     {
       "tc_id": "N-002",
-      "test_case": "Leave required date field (Submitted On) blank in Create Client wizard",
+      "wf_ref": "WF-009",
+      "test_case": "Create Client \u2014 leave required text field (First Name) blank and submit",
       "preconditions": [
-        "User is authenticated and on the Clients page",
-        "Create Client wizard is opened"
+        "User is on the Create Client wizard (Step 1: General Details)"
       ],
       "steps": [
-        "1. In Step 1 (General Details) enter <valid Office> into the Office field",
-        "2. Enter <valid First Name> into the First Name field",
-        "3. Enter <valid Last Name> into the Last Name field",
-        "4. Leave the Submitted On field blank",
-        "5. Click Submit"
+        "1. Ensure the Create Client wizard is open on Step 1 (General Details)",
+        "2. Leave the First Name field blank",
+        "3. Fill all other required fields with valid values (e.g., <valid Office>, <valid Last Name>, <valid Submitted On>)",
+        "4. Click Submit"
       ],
-      "expected_result": "Inline validation error appears on the Submitted On field indicating it is required; the form does not submit and no client is created",
+      "expected_result": "Inline validation error appears on the First Name field indicating it is required; form does not submit; no client is created; user remains on the wizard",
       "priority": "high"
     },
     {
       "tc_id": "N-003",
-      "test_case": "Submit Create Client wizard with ALL required fields empty",
+      "wf_ref": "WF-009",
+      "test_case": "Create Client \u2014 leave required date field (Submitted On) blank and submit",
       "preconditions": [
-        "User is authenticated and on the Clients page",
-        "Create Client wizard is opened"
+        "User is on the Create Client wizard (Step 1: General Details)"
       ],
       "steps": [
-        "1. In Step 1 (General Details) leave the Office field blank",
-        "2. Leave the First Name field blank",
-        "3. Leave the Last Name field blank",
-        "4. Leave the Submitted On field blank",
-        "5. Click Submit"
+        "1. Ensure the Create Client wizard is open on Step 1 (General Details)",
+        "2. Leave the Submitted On field blank",
+        "3. Fill all other required fields with valid values (e.g., <valid Office>, <valid First Name>, <valid Last Name>)",
+        "4. Click Submit"
       ],
-      "expected_result": "Inline validation errors appear on Office, First Name, Last Name, and Submitted On indicating each is required; the form does not submit and no client is created",
+      "expected_result": "Inline validation error appears on the Submitted On field indicating it is required; form does not submit; no client is created; user remains on the wizard",
       "priority": "high"
     },
     {
       "tc_id": "N-004",
-      "test_case": "Submit Create Client with External ID that already exists (uniqueness violation)",
+      "wf_ref": "WF-009",
+      "test_case": "Create Client \u2014 submit with ALL required fields empty",
       "preconditions": [
-        "A client with <existing External_ID> already exists in the system",
-        "User is authenticated and on the Clients page",
-        "Create Client wizard is opened"
+        "User is on the Create Client wizard (Step 1: General Details)"
       ],
       "steps": [
-        "1. In Step 1 (General Details) enter <valid Office> into the Office field",
-        "2. Enter <valid First Name> into the First Name field",
-        "3. Enter <valid Last Name> into the Last Name field",
-        "4. Enter <valid date> into the Submitted On field",
-        "5. Enter <External_ID already present in system> into the External ID field",
-        "6. Click Submit"
+        "1. Ensure the Create Client wizard is open on Step 1 (General Details)",
+        "2. Leave all required fields empty (Office, First Name, Last Name, Submitted On)",
+        "3. Click Submit"
       ],
-      "expected_result": "External ID field displays an inline validation error: 'must be unique across clients'; the form does not submit and no client is created",
+      "expected_result": "Inline validation errors appear on Office, First Name, Last Name, and Submitted On indicating they are required; form does not submit; no client is created; user remains on the wizard",
       "priority": "high"
     },
     {
       "tc_id": "N-005",
-      "test_case": "Activate client with Activation Date before Submitted On (date constraint violation)",
+      "wf_ref": "WF-009",
+      "test_case": "Create Client \u2014 invalid Email Address format is rejected",
       "preconditions": [
-        "A client exists in Pending status with Submitted_On = <submitted date>",
-        "User is authenticated and on that client's Client Detail page"
+        "User is on the Create Client wizard (Step 1: General Details)"
       ],
       "steps": [
-        "1. Click the Activate action in the action bar",
-        "2. Enter <date before Submitted_On> into the Activation Date field",
-        "3. Click Confirm/Activate"
+        "1. Open the Create Client wizard to Step 1 (General Details)",
+        "2. Enter <invalid email format> in the Email Address field",
+        "3. Fill all required fields with valid values",
+        "4. Click Submit"
       ],
-      "expected_result": "Activation Date field displays an inline validation error: 'must not be before Submitted_On'; activation is blocked and client remains in Pending status",
-      "priority": "high"
+      "expected_result": "Email Address field displays an inline error indicating the email format is invalid (e.g., 'Must be a valid email address'); form does not submit; no client is created; user remains on the wizard",
+      "priority": "medium"
     },
     {
       "tc_id": "N-006",
-      "test_case": "Attempt to Close client when precondition 'no active accounts' is not met",
+      "wf_ref": "WF-009",
+      "test_case": "Create Client \u2014 submit with duplicate External ID (must be unique)",
       "preconditions": [
-        "A client exists in Active status and has one or more active accounts",
-        "User is authenticated and on that client's Client Detail page"
+        "An existing client already has External ID = <existing External ID>",
+        "User is on the Create Client wizard (Step 1: General Details)"
       ],
       "steps": [
-        "1. Click the Close action in the action bar",
-        "2. Enter <closure reason> into the Closure Reason field",
-        "3. Click Confirm/Close"
+        "1. Open the Create Client wizard to Step 1 (General Details)",
+        "2. Enter <existing External ID> into the External ID field",
+        "3. Fill all required fields with valid values",
+        "4. Click Submit"
       ],
-      "expected_result": "Close action is blocked; the Close dialog displays a visible error banner indicating the client cannot be closed because active accounts exist; the client remains in Active status and no Close occurs",
+      "expected_result": "Form submission is blocked; External ID field displays an inline error indicating the value must be unique (e.g., 'External ID must be unique'); no client is created; user remains on the wizard",
       "priority": "high"
     },
     {
       "tc_id": "N-007",
-      "test_case": "Transfer Client using Destination Office equal to current office (must be different constraint)",
+      "wf_ref": "WF-022",
+      "test_case": "Identifiers \u2014 adding duplicate identifier entries is prevented",
       "preconditions": [
-        "A client exists in Active status with current Office = <current office>",
-        "User is authenticated and on that client's Client Detail page"
+        "User is on Create Client Step 4 (Identifiers) or Client Detail Identifiers tab"
       ],
       "steps": [
-        "1. Click the Transfer Client action in the action bar",
-        "2. Select <current office> in the Destination Office field",
-        "3. Click Confirm/Transfer"
+        "1. Open the Identifiers section (repeating group)",
+        "2. Add an identifier with Document Type = <X> and Document Key = <Y>",
+        "3. Attempt to add another identifier with Document Type = <X> and Document Key = <Y> (duplicate)",
+        "4. Click Save/Add to persist the identifier"
       ],
-      "expected_result": "Destination Office field displays an inline validation error: 'must be different from current office'; transfer is blocked and the client's Office remains unchanged",
-      "priority": "medium"
+      "expected_result": "UI prevents adding the duplicate identifier; an inline error appears on the second identifier row indicating duplicates are not allowed (e.g., 'Duplicate identifier not allowed'); duplicate entry is not saved",
+      "priority": "high"
     },
     {
       "tc_id": "N-008",
-      "test_case": "Enter invalid email format in Email Address field on Create Client wizard",
+      "wf_ref": "WF-010",
+      "test_case": "Activate (Pending) \u2014 leave Activation Date blank and submit",
       "preconditions": [
-        "User is authenticated and on the Clients page",
-        "Create Client wizard is opened"
+        "Client exists in Pending state and user is on the Client Detail page"
       ],
       "steps": [
-        "1. In Step 1 (General Details) enter <valid Office> into the Office field",
-        "2. Enter <valid First Name> into the First Name field",
-        "3. Enter <valid Last Name> into the Last Name field",
-        "4. Enter <valid date> into the Submitted On field",
-        "5. Enter <invalid email format> into the Email Address field",
-        "6. Click Submit"
+        "1. Open the Client Detail page for a client in Pending status",
+        "2. Click the Activate action",
+        "3. Leave the Activation Date field blank in the Activate dialog",
+        "4. Click Confirm/Submit in the Activate dialog"
       ],
-      "expected_result": "Email Address field displays an inline validation error indicating invalid email format; the form does not submit and no client is created",
-      "priority": "medium"
+      "expected_result": "Inline validation error appears on the Activation Date field indicating it is required; activation is blocked; client remains in Pending status; dialog remains open or shows error",
+      "priority": "high"
+    },
+    {
+      "tc_id": "N-009",
+      "wf_ref": "WF-010",
+      "test_case": "Activate (Pending) \u2014 Activation Date before Submitted On is rejected",
+      "preconditions": [
+        "Client exists in Pending state with Submitted On = <submitted date> and user is on the Client Detail page"
+      ],
+      "steps": [
+        "1. Open the Client Detail page for the Pending client",
+        "2. Click the Activate action",
+        "3. Enter <Activation Date earlier than Submitted On> into the Activation Date field",
+        "4. Click Confirm/Submit in the Activate dialog"
+      ],
+      "expected_result": "Activation is blocked; Activation Date field displays an inline error stating 'Activation Date must not be before Submitted On' (or equivalent); client remains in Pending status; dialog remains open or shows error",
+      "priority": "high"
+    },
+    {
+      "tc_id": "N-010",
+      "wf_ref": "WF-012",
+      "test_case": "Reject (Pending) \u2014 leave Reason blank and submit",
+      "preconditions": [
+        "Client exists in Pending state and user is on the Client Detail page"
+      ],
+      "steps": [
+        "1. Open the Client Detail page for a client in Pending status",
+        "2. Click the Reject action",
+        "3. Leave the Reason field blank in the Reject dialog",
+        "4. Click Confirm/Submit in the Reject dialog"
+      ],
+      "expected_result": "Inline validation error appears on the Reason field indicating it is required; rejection is blocked; client remains in Pending status; dialog remains open or shows error",
+      "priority": "high"
+    },
+    {
+      "tc_id": "N-011",
+      "wf_ref": "WF-013",
+      "test_case": "Withdraw (Pending) \u2014 leave Reason blank and submit",
+      "preconditions": [
+        "Client exists in Pending state and user is on the Client Detail page"
+      ],
+      "steps": [
+        "1. Open the Client Detail page for a client in Pending status",
+        "2. Click the Withdraw action",
+        "3. Leave the Reason field blank in the Withdraw dialog",
+        "4. Click Confirm/Submit in the Withdraw dialog"
+      ],
+      "expected_result": "Inline validation error appears on the Reason field indicating it is required; withdrawal is blocked; client remains in Pending status; dialog remains open or shows error",
+      "priority": "high"
+    },
+    {
+      "tc_id": "N-012",
+      "wf_ref": "WF-015",
+      "test_case": "Transfer Client (Active) \u2014 leave Destination Office blank and submit",
+      "preconditions": [
+        "Client exists in Active state and user is on the Client Detail page"
+      ],
+      "steps": [
+        "1. Open the Client Detail page for a client in Active status",
+        "2. Click the Transfer Client action",
+        "3. Leave the Destination Office field blank in the Transfer dialog",
+        "4. Click Confirm/Submit in the Transfer dialog"
+      ],
+      "expected_result": "Inline validation error appears on the Destination Office field indicating it is required; transfer is blocked; client remains in Active status with original Office unchanged; dialog remains open or shows error",
+      "priority": "high"
+    },
+    {
+      "tc_id": "N-013",
+      "wf_ref": "WF-015",
+      "test_case": "Transfer Client (Active) \u2014 selecting the same Office is blocked",
+      "preconditions": [
+        "Client exists in Active state with current Office = <Current Office> and user is on the Client Detail page"
+      ],
+      "steps": [
+        "1. Open the Client Detail page for the Active client",
+        "2. Click the Transfer Client action",
+        "3. Select Destination Office = <Current Office> (same as current)",
+        "4. Click Confirm/Submit in the Transfer dialog"
+      ],
+      "expected_result": "Transfer is blocked; Destination Office field displays an inline error indicating 'Destination Office must be different from current Office' (or equivalent); client remains in Active status and Office is unchanged",
+      "priority": "high"
+    },
+    {
+      "tc_id": "N-014",
+      "wf_ref": "WF-016",
+      "test_case": "Close Client (Active) \u2014 leave Closure Reason blank and submit",
+      "preconditions": [
+        "Client exists in Active state and user is on the Client Detail page"
+      ],
+      "steps": [
+        "1. Open the Client Detail page for a client in Active status",
+        "2. Click the Close action",
+        "3. Leave the Closure Reason field blank in the Close dialog",
+        "4. Click Confirm/Submit in the Close dialog"
+      ],
+      "expected_result": "Inline validation error appears on the Closure Reason field indicating it is required; closure is blocked; client remains in Active status; dialog remains open or shows error",
+      "priority": "high"
+    },
+    {
+      "tc_id": "N-015",
+      "wf_ref": "WF-016",
+      "test_case": "Close Client (Active) \u2014 cannot close when client has active accounts",
+      "preconditions": [
+        "Client exists in Active state and has at least one active account (loans or savings) and user is on the Client Detail page"
+      ],
+      "steps": [
+        "1. Open the Client Detail page for the Active client with active accounts",
+        "2. Click the Close action",
+        "3. Enter a valid Closure Reason",
+        "4. Click Confirm/Submit in the Close dialog"
+      ],
+      "expected_result": "Closure is blocked; a visible error or toast appears indicating 'cannot close with active accounts' (or equivalent); client's status remains Active and dialog remains open or shows error",
+      "priority": "high"
+    },
+    {
+      "tc_id": "N-016",
+      "wf_ref": "WF-005",
+      "test_case": "State violation \u2014 Reactivate action is not available when client is Pending",
+      "preconditions": [
+        "Client exists in Pending state and user is on the Client Detail page"
+      ],
+      "steps": [
+        "1. Open the Client Detail page for a client in Pending status",
+        "2. Inspect the action bar for available actions"
+      ],
+      "expected_result": "Reactivate action/button is not visible in the action bar for a Pending client; no Reactivate control is clickable",
+      "priority": "high"
+    },
+    {
+      "tc_id": "N-017",
+      "wf_ref": "WF-005",
+      "test_case": "State violation \u2014 Activate action is not available when client is Active",
+      "preconditions": [
+        "Client exists in Active state and user is on the Client Detail page"
+      ],
+      "steps": [
+        "1. Open the Client Detail page for a client in Active status",
+        "2. Inspect the action bar for available actions"
+      ],
+      "expected_result": "Activate action/button is not visible in the action bar for an Active client; no Activate control is clickable",
+      "priority": "high"
+    },
+    {
+      "tc_id": "N-018",
+      "wf_ref": "WF-005",
+      "test_case": "State violation \u2014 Activate action is not available when client is Closed",
+      "preconditions": [
+        "Client exists in Closed state and user is on the Client Detail page"
+      ],
+      "steps": [
+        "1. Open the Client Detail page for a client in Closed status",
+        "2. Inspect the action bar for available actions"
+      ],
+      "expected_result": "Activate action/button is not visible in the action bar for a Closed client; only Reactivate is available per spec; no Activate control is clickable",
+      "priority": "high"
+    },
+    {
+      "tc_id": "N-019",
+      "wf_ref": "WF-005",
+      "test_case": "State violation \u2014 no actions visible when client is Rejected",
+      "preconditions": [
+        "Client exists in Rejected state and user is on the Client Detail page"
+      ],
+      "steps": [
+        "1. Open the Client Detail page for a client in Rejected status",
+        "2. Inspect the action bar for available actions"
+      ],
+      "expected_result": "No action buttons are visible in the action bar for a Rejected client; action bar shows no available actions and client remains in Rejected status",
+      "priority": "high"
+    },
+    {
+      "tc_id": "N-020",
+      "wf_ref": "WF-005",
+      "test_case": "State violation \u2014 no actions visible when client is Withdrawn",
+      "preconditions": [
+        "Client exists in Withdrawn state and user is on the Client Detail page"
+      ],
+      "steps": [
+        "1. Open the Client Detail page for a client in Withdrawn status",
+        "2. Inspect the action bar for available actions"
+      ],
+      "expected_result": "No action buttons are visible in the action bar for a Withdrawn client; action bar shows no available actions and client remains in Withdrawn status",
+      "priority": "high"
     }
   ],
   "summary": {
-    "total": 8,
-    "high_priority": 6,
-    "medium_priority": 2,
-    "low_priority": 0
+    "total": 20,
+    "high_priority": 18,
+    "medium_priority": 1,
+    "low_priority": 1
   }
 }

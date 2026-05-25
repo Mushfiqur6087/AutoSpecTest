@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-21T22:54:00.267225
+DEBUG SESSION STARTED: 2026-05-25T14:51:20.255455
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[22:54:00] Test-Edge - SYSTEM PROMPT
+[14:51:20] Test-Edge - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Edge Case and Boundary Test Generator. You receive (1) a UI-AST JSON for one module and (2) the original functional description. Your job is to produce ONLY boundary and edge case tests — scenarios at the limits of valid/invalid input and unusual-but-plausible user behaviors.
 
@@ -25,6 +25,10 @@ You are NOT producing happy paths (positive prompt) or standard validation failu
 {Original functional description text for this module}
 </description>
 
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
+
 ---
 
 **UI-AST REFERENCE — How to Read the AST for Edge Testing:**
@@ -35,7 +39,7 @@ You are NOT producing happy paths (positive prompt) or standard validation failu
 | `repeating_group` with `max` | Test adding exactly `max` entries (should succeed) then one more (should block) |
 | `visible_when` / `required_when` | Edge: trigger condition, fill revealed field with boundary value |
 | `state_bound_action_bar` | State edges: rapid consecutive state transitions, transition from a boundary state |
-| `submit_actions[]` with multiple buttons | Interaction edge: double-click a submit button rapidly |
+
 | `type: "date"` fields | Data edges: today, yesterday, far future, Feb 29 leap year |
 | `type: "file_upload"` | Edge: file exactly at size limit, file at 1 byte over limit |
 
@@ -132,7 +136,6 @@ Pick only the ones that apply to field types present in this module's AST:
 
 Pick only the ones that match component types in this module's AST:
 
-- **Double-click submit** (any form/wizard with a submit button): rapidly double-click the submit button → assert only one record is created; no duplicate row appears in the listing table
 - **Rapid re-submission after redirect** (any form that redirects to a detail page on success): after a successful submit, press the browser back button → assert the creation form is shown blank (not pre-filled) OR the user is redirected to the detail page without a second entity being created
 - **Wizard step skip — enforced navigation** (wizard where steps must be completed sequentially): attempt to click a later step tab directly without completing earlier steps → assert navigation is blocked and the earlier step remains active
 - **Wizard step skip — free navigation** (wizard that allows free tab navigation): navigate to a later step without filling earlier steps → assert the later step displays and returning to the earlier step shows fields blank (no data was lost from the later step)
@@ -173,7 +176,16 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 
 - **High:** None — edge tests are secondary to core functionality
 - **Medium:** Boundary tests at thresholds (financial amounts, date ordering, count limits, file size limits)
-- **Low:** Input edge cases (long text, special chars, whitespace, decimal precision), interaction edge cases (double-click, browser back, wizard skip)
+- **Low:** Input edge cases (long text, special chars, whitespace, decimal precision), interaction edge cases (browser back, wizard skip)
+
+---
+
+**WORKFLOW-AWARE BOUNDARY SCOPING (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- For each workflow where `conditional_branch` activates a numeric or date field, check if that field has a boundary (a numeric/date threshold in the AST `constraints` or description).
+- If yes, that workflow's branch is a **candidate for a boundary edge test** — add or confirm a boundary TC exists for it.
+- Add `"wf_ref": "WF-NNN"` to each TC that maps to a specific workflow's boundary. Set `"wf_ref": null` for generic input/interaction edge tests.
 
 ---
 
@@ -185,6 +197,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": null,
       "subcategory": "boundary | input_edge | interaction_edge | state_edge | data_edge",
       "test_case": "Short descriptive name",
       "preconditions": ["precondition 1"],
@@ -207,7 +220,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 
 
 ------------------------------------------------------------
-[22:54:00] Test-Edge - USER PROMPT
+[14:51:20] Test-Edge - USER PROMPT
 ------------------------------------------------------------
 <module_name>Tours Search & Listing</module_name>
 
@@ -219,7 +232,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
       "type": "form",
       "fields": {
         "Destination": {
-          "type": "search",
+          "type": "unspecified",
           "required": false
         },
         "Travel_Start_Date": {
@@ -240,12 +253,8 @@ If the module has any numeric/date/count threshold in the AST or description, pr
             "Wildlife"
           ]
         },
-        "Duration_Min_Days": {
-          "type": "number",
-          "required": false
-        },
-        "Duration_Max_Days": {
-          "type": "number",
+        "Duration": {
+          "type": "unspecified",
           "required": false
         },
         "Budget_Min": {
@@ -260,19 +269,18 @@ If the module has any numeric/date/count threshold in the AST or description, pr
       "submit_actions": [
         {
           "element_name": "Search",
-          "type": "button",
-          "on_success": "redirects to Tours Listing page"
+          "on_success": "redirects to Tours_Listing_Page"
         }
       ]
     },
     "Tours_Listing_Page": {
       "type": "page",
       "components": {
-        "Filters_Sidebar": {
+        "Sidebar_Filters": {
           "type": "form",
           "fields": {
             "Destination": {
-              "type": "search",
+              "type": "unspecified",
               "required": false
             },
             "Tour_Type": {
@@ -293,12 +301,8 @@ If the module has any numeric/date/count threshold in the AST or description, pr
               "type": "number",
               "required": false
             },
-            "Duration_Min_Days": {
-              "type": "number",
-              "required": false
-            },
-            "Duration_Max_Days": {
-              "type": "number",
+            "Duration": {
+              "type": "unspecified",
               "required": false
             },
             "Departure_Start_Date": {
@@ -313,7 +317,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
         },
         "Sort_Control": {
           "type": "dropdown",
-          "element_name": "Sort By",
+          "element_name": "Sort_By",
           "options": [
             "Popularity",
             "Price",
@@ -321,15 +325,34 @@ If the module has any numeric/date/count threshold in the AST or description, pr
             "Rating"
           ]
         },
-        "Results_List": {
-          "type": "list",
-          "description": "Card-based results (cards are passive displays per spec)",
-          "sortable_options": [
-            "Popularity",
-            "Price",
-            "Duration",
-            "Rating"
-          ]
+        "Tours_Card_List": {
+          "type": "card_list",
+          "card_fields": {
+            "Image": {
+              "type": "unspecified"
+            },
+            "Name": {
+              "type": "unspecified"
+            },
+            "Destination": {
+              "type": "unspecified"
+            },
+            "Duration": {
+              "type": "unspecified"
+            },
+            "Starting_Price_Per_Person": {
+              "type": "number"
+            },
+            "Brief_Description": {
+              "type": "unspecified"
+            },
+            "Availability_Status": {
+              "type": "unspecified"
+            },
+            "Traveler_Rating": {
+              "type": "unspecified"
+            }
+          }
         }
       }
     }
@@ -346,10 +369,14 @@ The tours search form collects destination, travel dates, tour type (Adventure, 
 
 </description>
 
+<workflows>
+WF-001 | Search tours using the main search form | actor: <role> | branch: none | terminal: Search | on_success: redirects to Tours_Listing_Page
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[22:56:17] Test-Edge - LLM RESPONSE
+[14:53:08] Test-Edge - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Tours Search & Listing",
@@ -357,168 +384,131 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": "WF-001",
       "subcategory": "boundary",
-      "test_case": "Travel dates equal (start = end) accepted",
+      "test_case": "Travel Start and End on the same day (boundary pass)",
       "preconditions": [
-        "Tours search page is open"
+        "User is on the Tours Search form"
       ],
       "steps": [
-        "1. Set Travel_Start_Date to <date X>",
-        "2. Set Travel_End_Date to the same <date X>",
+        "1. Enter <date X> in Travel_Start_Date",
+        "2. Enter the same <date X> in Travel_End_Date",
         "3. Click the Search button"
       ],
-      "expected_result": "Search action succeeds and user is redirected to the Tours Listing page; the listing page shows results for the selected travel date and a visible filter or tag indicates the Travel_Start_Date/Travel_End_Date equal <date X>",
+      "expected_result": "Search submits successfully; user is redirected to Tours_Listing_Page and the listing is displayed. The search criteria shown on the listing page indicates Travel Start and Travel End as the same date.",
       "priority": "medium"
     },
     {
       "tc_id": "E-002",
+      "wf_ref": "WF-001",
       "subcategory": "boundary",
-      "test_case": "Travel_End_Date one day before Travel_Start_Date is blocked",
+      "test_case": "Travel Start is after Travel End by one day (just-past boundary — blocked)",
       "preconditions": [
-        "Tours search page is open"
+        "User is on the Tours Search form"
       ],
       "steps": [
-        "1. Set Travel_Start_Date to <date X>",
-        "2. Set Travel_End_Date to one day before <date X>",
+        "1. Enter <date X + 1 day> in Travel_Start_Date",
+        "2. Enter <date X> in Travel_End_Date",
         "3. Click the Search button"
       ],
-      "expected_result": "Search is blocked / error shown: Travel_End_Date displays an inline error indicating the end date must be the same as or after the start date; user remains on the search form",
+      "expected_result": "Search is blocked / error shown; an inline validation error is displayed next to the Travel_Start_Date and/or Travel_End_Date indicating the start date must be on or before the end date.",
       "priority": "medium"
     },
     {
       "tc_id": "E-003",
+      "wf_ref": "WF-001",
       "subcategory": "boundary",
-      "test_case": "Departure dates equal (start = end) accepted",
+      "test_case": "Budget_Min equals Budget_Max (exact-equality boundary)",
       "preconditions": [
-        "Tours search page is open"
+        "User is on the Tours Search form"
       ],
       "steps": [
-        "1. In the listing sidebar filters, set Departure_Start_Date to <date Y>",
-        "2. Set Departure_End_Date to the same <date Y>",
-        "3. Click the Search or Apply Filters control"
+        "1. Enter <amount A> in Budget_Min",
+        "2. Enter the same <amount A> in Budget_Max",
+        "3. Click the Search button"
       ],
-      "expected_result": "Filter application succeeds and the Results List updates on the Tours Listing page; a visible filter tag shows Departure_Start_Date/Departure_End_Date equal <date Y>",
+      "expected_result": "Search submits successfully; user is redirected to Tours_Listing_Page and results are shown. The visible results reflect the exact budget boundary (filters applied for Starting_Price_Per_Person equal to <amount A>).",
       "priority": "medium"
     },
     {
       "tc_id": "E-004",
+      "wf_ref": "WF-001",
       "subcategory": "boundary",
-      "test_case": "Departure_End_Date one day before Departure_Start_Date is blocked",
+      "test_case": "Budget_Min set one unit greater than Budget_Max (just-past boundary — blocked)",
       "preconditions": [
-        "Tours search page is open"
+        "User is on the Tours Search form"
       ],
       "steps": [
-        "1. In the listing sidebar filters, set Departure_Start_Date to <date Y>",
-        "2. Set Departure_End_Date to one day before <date Y>",
-        "3. Click the Search or Apply Filters control"
+        "1. Enter <amount B> in Budget_Max",
+        "2. Enter <one unit above amount B> in Budget_Min",
+        "3. Click the Search button"
       ],
-      "expected_result": "Filter application is blocked / error shown: Departure_End_Date displays an inline error indicating the end date must be the same as or after the start date; Results List does not update",
+      "expected_result": "Search is blocked / error shown; an inline validation error is displayed next to the Budget_Min/Budget_Max fields indicating the minimum budget cannot exceed the maximum budget.",
       "priority": "medium"
     },
     {
       "tc_id": "E-005",
-      "subcategory": "boundary",
-      "test_case": "Duration min equals max accepted (Duration_Min_Days = Duration_Max_Days)",
-      "preconditions": [
-        "Tours search page is open"
-      ],
-      "steps": [
-        "1. Set Duration_Min_Days to <N>",
-        "2. Set Duration_Max_Days to the same <N>",
-        "3. Click the Search button"
-      ],
-      "expected_result": "Search succeeds and the Tours Listing page displays results filtered for tours with duration equal to <N> days; the applied duration filter is visible",
-      "priority": "medium"
-    },
-    {
-      "tc_id": "E-006",
-      "subcategory": "boundary",
-      "test_case": "Duration_Min_Days greater than Duration_Max_Days is blocked",
-      "preconditions": [
-        "Tours search page is open"
-      ],
-      "steps": [
-        "1. Set Duration_Max_Days to <N>",
-        "2. Set Duration_Min_Days to one unit greater than <N>",
-        "3. Click the Search button"
-      ],
-      "expected_result": "Search is blocked / error shown: an inline error appears on Duration_Min_Days or Duration_Max_Days indicating the minimum duration cannot be greater than the maximum; user remains on the form",
-      "priority": "medium"
-    },
-    {
-      "tc_id": "E-007",
-      "subcategory": "boundary",
-      "test_case": "Budget min equals max accepted (Budget_Min = Budget_Max)",
-      "preconditions": [
-        "Tours search page is open"
-      ],
-      "steps": [
-        "1. Set Budget_Min to <M>",
-        "2. Set Budget_Max to the same <M>",
-        "3. Click the Search button"
-      ],
-      "expected_result": "Search succeeds and the Tours Listing page shows results that match the budget equal to <M>; a visible budget filter shows Budget_Min/Budget_Max = <M>",
-      "priority": "medium"
-    },
-    {
-      "tc_id": "E-008",
-      "subcategory": "boundary",
-      "test_case": "Budget_Min greater than Budget_Max is blocked",
-      "preconditions": [
-        "Tours search page is open"
-      ],
-      "steps": [
-        "1. Set Budget_Max to <M>",
-        "2. Set Budget_Min to one unit greater than <M>",
-        "3. Click the Search button"
-      ],
-      "expected_result": "Search is blocked / error shown: Budget_Min or Budget_Max displays an inline error indicating the minimum budget cannot exceed the maximum budget; user remains on the form",
-      "priority": "medium"
-    },
-    {
-      "tc_id": "E-009",
+      "wf_ref": "WF-001",
       "subcategory": "input_edge",
-      "test_case": "Destination contains emoji and special characters preserved in search",
+      "test_case": "Very long Destination string (200+ characters) submitted",
       "preconditions": [
-        "Tours search page is open"
+        "User is on the Tours Search form"
       ],
       "steps": [
-        "1. Enter a destination string that includes emoji and special characters into the Destination search field",
+        "1. Enter a very long string (200+ characters) in Destination",
         "2. Click the Search button"
       ],
-      "expected_result": "Search succeeds and the Tours Listing page loads; the destination filter or search summary visibly preserves the entered special characters/emoji (characters are not replaced by placeholder text) indicating the input was accepted",
+      "expected_result": "Search submits successfully; user is redirected to Tours_Listing_Page. The search criteria summary displays the Destination value — either the full long string is shown or the UI truncates it with a visible ellipsis/indication. No validation error is shown.",
       "priority": "low"
     },
     {
-      "tc_id": "E-010",
-      "subcategory": "interaction_edge",
-      "test_case": "Rapid double-click on Search only triggers one search/navigation",
+      "tc_id": "E-006",
+      "wf_ref": "WF-001",
+      "subcategory": "input_edge",
+      "test_case": "Destination containing special characters and emoji",
       "preconditions": [
-        "Tours search page is open and required fields (if any) are filled per test",
-        "No prior search in progress"
+        "User is on the Tours Search form"
       ],
       "steps": [
-        "1. Click the Search button twice in rapid succession (double-click)",
-        "2. Observe the UI"
+        "1. Enter a Destination value containing special characters and emoji (e.g., symbols, non-Latin characters, emoji) in Destination",
+        "2. Click the Search button"
       ],
-      "expected_result": "Second submission attempt is blocked / ignored: only one redirect to the Tours Listing page occurs and the UI does not perform duplicate navigations; the Search control becomes disabled or shows a single loading state while the search is processing",
+      "expected_result": "Search submits successfully; user is redirected to Tours_Listing_Page and the search summary displays the entered characters/emoji. No encoding error or validation error is shown.",
+      "priority": "low"
+    },
+    {
+      "tc_id": "E-007",
+      "wf_ref": "WF-001",
+      "subcategory": "interaction_edge",
+      "test_case": "Rapid resubmit after redirect using browser Back then Search",
+      "preconditions": [
+        "User is on the Tours Search form"
+      ],
+      "steps": [
+        "1. Enter <valid Destination> in Destination",
+        "2. Enter <valid date> in Travel_Start_Date",
+        "3. Click the Search button",
+        "4. On Tours_Listing_Page click the browser Back button to return to the Tours Search form",
+        "5. Immediately click the Search button again without changing any fields"
+      ],
+      "expected_result": "Second Search submission succeeds; user is redirected to Tours_Listing_Page. The application returns results for the submitted criteria and does not produce duplicate listings or UI errors (no duplicate creation actions or error dialogs are shown).",
       "priority": "low"
     }
   ],
   "summary": {
-    "total": 10,
-    "boundary": 8,
-    "input_edge": 1,
+    "total": 7,
+    "boundary": 4,
+    "input_edge": 2,
     "interaction_edge": 1,
     "state_edge": 0,
     "data_edge": 0,
-    "medium_priority": 8,
-    "low_priority": 2
+    "medium_priority": 4,
+    "low_priority": 3
   }
 }
 
 ------------------------------------------------------------
-[22:56:17] Test-Edge - PARSED JSON
+[14:53:08] Test-Edge - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Tours Search & Listing",
@@ -526,162 +516,125 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": "WF-001",
       "subcategory": "boundary",
-      "test_case": "Travel dates equal (start = end) accepted",
+      "test_case": "Travel Start and End on the same day (boundary pass)",
       "preconditions": [
-        "Tours search page is open"
+        "User is on the Tours Search form"
       ],
       "steps": [
-        "1. Set Travel_Start_Date to <date X>",
-        "2. Set Travel_End_Date to the same <date X>",
+        "1. Enter <date X> in Travel_Start_Date",
+        "2. Enter the same <date X> in Travel_End_Date",
         "3. Click the Search button"
       ],
-      "expected_result": "Search action succeeds and user is redirected to the Tours Listing page; the listing page shows results for the selected travel date and a visible filter or tag indicates the Travel_Start_Date/Travel_End_Date equal <date X>",
+      "expected_result": "Search submits successfully; user is redirected to Tours_Listing_Page and the listing is displayed. The search criteria shown on the listing page indicates Travel Start and Travel End as the same date.",
       "priority": "medium"
     },
     {
       "tc_id": "E-002",
+      "wf_ref": "WF-001",
       "subcategory": "boundary",
-      "test_case": "Travel_End_Date one day before Travel_Start_Date is blocked",
+      "test_case": "Travel Start is after Travel End by one day (just-past boundary \u2014 blocked)",
       "preconditions": [
-        "Tours search page is open"
+        "User is on the Tours Search form"
       ],
       "steps": [
-        "1. Set Travel_Start_Date to <date X>",
-        "2. Set Travel_End_Date to one day before <date X>",
+        "1. Enter <date X + 1 day> in Travel_Start_Date",
+        "2. Enter <date X> in Travel_End_Date",
         "3. Click the Search button"
       ],
-      "expected_result": "Search is blocked / error shown: Travel_End_Date displays an inline error indicating the end date must be the same as or after the start date; user remains on the search form",
+      "expected_result": "Search is blocked / error shown; an inline validation error is displayed next to the Travel_Start_Date and/or Travel_End_Date indicating the start date must be on or before the end date.",
       "priority": "medium"
     },
     {
       "tc_id": "E-003",
+      "wf_ref": "WF-001",
       "subcategory": "boundary",
-      "test_case": "Departure dates equal (start = end) accepted",
+      "test_case": "Budget_Min equals Budget_Max (exact-equality boundary)",
       "preconditions": [
-        "Tours search page is open"
+        "User is on the Tours Search form"
       ],
       "steps": [
-        "1. In the listing sidebar filters, set Departure_Start_Date to <date Y>",
-        "2. Set Departure_End_Date to the same <date Y>",
-        "3. Click the Search or Apply Filters control"
+        "1. Enter <amount A> in Budget_Min",
+        "2. Enter the same <amount A> in Budget_Max",
+        "3. Click the Search button"
       ],
-      "expected_result": "Filter application succeeds and the Results List updates on the Tours Listing page; a visible filter tag shows Departure_Start_Date/Departure_End_Date equal <date Y>",
+      "expected_result": "Search submits successfully; user is redirected to Tours_Listing_Page and results are shown. The visible results reflect the exact budget boundary (filters applied for Starting_Price_Per_Person equal to <amount A>).",
       "priority": "medium"
     },
     {
       "tc_id": "E-004",
+      "wf_ref": "WF-001",
       "subcategory": "boundary",
-      "test_case": "Departure_End_Date one day before Departure_Start_Date is blocked",
+      "test_case": "Budget_Min set one unit greater than Budget_Max (just-past boundary \u2014 blocked)",
       "preconditions": [
-        "Tours search page is open"
+        "User is on the Tours Search form"
       ],
       "steps": [
-        "1. In the listing sidebar filters, set Departure_Start_Date to <date Y>",
-        "2. Set Departure_End_Date to one day before <date Y>",
-        "3. Click the Search or Apply Filters control"
+        "1. Enter <amount B> in Budget_Max",
+        "2. Enter <one unit above amount B> in Budget_Min",
+        "3. Click the Search button"
       ],
-      "expected_result": "Filter application is blocked / error shown: Departure_End_Date displays an inline error indicating the end date must be the same as or after the start date; Results List does not update",
+      "expected_result": "Search is blocked / error shown; an inline validation error is displayed next to the Budget_Min/Budget_Max fields indicating the minimum budget cannot exceed the maximum budget.",
       "priority": "medium"
     },
     {
       "tc_id": "E-005",
-      "subcategory": "boundary",
-      "test_case": "Duration min equals max accepted (Duration_Min_Days = Duration_Max_Days)",
-      "preconditions": [
-        "Tours search page is open"
-      ],
-      "steps": [
-        "1. Set Duration_Min_Days to <N>",
-        "2. Set Duration_Max_Days to the same <N>",
-        "3. Click the Search button"
-      ],
-      "expected_result": "Search succeeds and the Tours Listing page displays results filtered for tours with duration equal to <N> days; the applied duration filter is visible",
-      "priority": "medium"
-    },
-    {
-      "tc_id": "E-006",
-      "subcategory": "boundary",
-      "test_case": "Duration_Min_Days greater than Duration_Max_Days is blocked",
-      "preconditions": [
-        "Tours search page is open"
-      ],
-      "steps": [
-        "1. Set Duration_Max_Days to <N>",
-        "2. Set Duration_Min_Days to one unit greater than <N>",
-        "3. Click the Search button"
-      ],
-      "expected_result": "Search is blocked / error shown: an inline error appears on Duration_Min_Days or Duration_Max_Days indicating the minimum duration cannot be greater than the maximum; user remains on the form",
-      "priority": "medium"
-    },
-    {
-      "tc_id": "E-007",
-      "subcategory": "boundary",
-      "test_case": "Budget min equals max accepted (Budget_Min = Budget_Max)",
-      "preconditions": [
-        "Tours search page is open"
-      ],
-      "steps": [
-        "1. Set Budget_Min to <M>",
-        "2. Set Budget_Max to the same <M>",
-        "3. Click the Search button"
-      ],
-      "expected_result": "Search succeeds and the Tours Listing page shows results that match the budget equal to <M>; a visible budget filter shows Budget_Min/Budget_Max = <M>",
-      "priority": "medium"
-    },
-    {
-      "tc_id": "E-008",
-      "subcategory": "boundary",
-      "test_case": "Budget_Min greater than Budget_Max is blocked",
-      "preconditions": [
-        "Tours search page is open"
-      ],
-      "steps": [
-        "1. Set Budget_Max to <M>",
-        "2. Set Budget_Min to one unit greater than <M>",
-        "3. Click the Search button"
-      ],
-      "expected_result": "Search is blocked / error shown: Budget_Min or Budget_Max displays an inline error indicating the minimum budget cannot exceed the maximum budget; user remains on the form",
-      "priority": "medium"
-    },
-    {
-      "tc_id": "E-009",
+      "wf_ref": "WF-001",
       "subcategory": "input_edge",
-      "test_case": "Destination contains emoji and special characters preserved in search",
+      "test_case": "Very long Destination string (200+ characters) submitted",
       "preconditions": [
-        "Tours search page is open"
+        "User is on the Tours Search form"
       ],
       "steps": [
-        "1. Enter a destination string that includes emoji and special characters into the Destination search field",
+        "1. Enter a very long string (200+ characters) in Destination",
         "2. Click the Search button"
       ],
-      "expected_result": "Search succeeds and the Tours Listing page loads; the destination filter or search summary visibly preserves the entered special characters/emoji (characters are not replaced by placeholder text) indicating the input was accepted",
+      "expected_result": "Search submits successfully; user is redirected to Tours_Listing_Page. The search criteria summary displays the Destination value \u2014 either the full long string is shown or the UI truncates it with a visible ellipsis/indication. No validation error is shown.",
       "priority": "low"
     },
     {
-      "tc_id": "E-010",
-      "subcategory": "interaction_edge",
-      "test_case": "Rapid double-click on Search only triggers one search/navigation",
+      "tc_id": "E-006",
+      "wf_ref": "WF-001",
+      "subcategory": "input_edge",
+      "test_case": "Destination containing special characters and emoji",
       "preconditions": [
-        "Tours search page is open and required fields (if any) are filled per test",
-        "No prior search in progress"
+        "User is on the Tours Search form"
       ],
       "steps": [
-        "1. Click the Search button twice in rapid succession (double-click)",
-        "2. Observe the UI"
+        "1. Enter a Destination value containing special characters and emoji (e.g., symbols, non-Latin characters, emoji) in Destination",
+        "2. Click the Search button"
       ],
-      "expected_result": "Second submission attempt is blocked / ignored: only one redirect to the Tours Listing page occurs and the UI does not perform duplicate navigations; the Search control becomes disabled or shows a single loading state while the search is processing",
+      "expected_result": "Search submits successfully; user is redirected to Tours_Listing_Page and the search summary displays the entered characters/emoji. No encoding error or validation error is shown.",
+      "priority": "low"
+    },
+    {
+      "tc_id": "E-007",
+      "wf_ref": "WF-001",
+      "subcategory": "interaction_edge",
+      "test_case": "Rapid resubmit after redirect using browser Back then Search",
+      "preconditions": [
+        "User is on the Tours Search form"
+      ],
+      "steps": [
+        "1. Enter <valid Destination> in Destination",
+        "2. Enter <valid date> in Travel_Start_Date",
+        "3. Click the Search button",
+        "4. On Tours_Listing_Page click the browser Back button to return to the Tours Search form",
+        "5. Immediately click the Search button again without changing any fields"
+      ],
+      "expected_result": "Second Search submission succeeds; user is redirected to Tours_Listing_Page. The application returns results for the submitted criteria and does not produce duplicate listings or UI errors (no duplicate creation actions or error dialogs are shown).",
       "priority": "low"
     }
   ],
   "summary": {
-    "total": 10,
-    "boundary": 8,
-    "input_edge": 1,
+    "total": 7,
+    "boundary": 4,
+    "input_edge": 2,
     "interaction_edge": 1,
     "state_edge": 0,
     "data_edge": 0,
-    "medium_priority": 8,
-    "low_priority": 2
+    "medium_priority": 4,
+    "low_priority": 3
   }
 }

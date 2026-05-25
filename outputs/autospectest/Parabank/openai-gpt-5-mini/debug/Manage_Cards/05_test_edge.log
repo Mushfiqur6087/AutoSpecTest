@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-22T21:31:44.629405
+DEBUG SESSION STARTED: 2026-05-25T15:41:24.135113
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[21:31:44] Test-Edge - SYSTEM PROMPT
+[15:41:24] Test-Edge - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Edge Case and Boundary Test Generator. You receive (1) a UI-AST JSON for one module and (2) the original functional description. Your job is to produce ONLY boundary and edge case tests — scenarios at the limits of valid/invalid input and unusual-but-plausible user behaviors.
 
@@ -24,6 +24,10 @@ You are NOT producing happy paths (positive prompt) or standard validation failu
 <description>
 {Original functional description text for this module}
 </description>
+
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
 
 ---
 
@@ -176,6 +180,15 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 
 ---
 
+**WORKFLOW-AWARE BOUNDARY SCOPING (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- For each workflow where `conditional_branch` activates a numeric or date field, check if that field has a boundary (a numeric/date threshold in the AST `constraints` or description).
+- If yes, that workflow's branch is a **candidate for a boundary edge test** — add or confirm a boundary TC exists for it.
+- Add `"wf_ref": "WF-NNN"` to each TC that maps to a specific workflow's boundary. Set `"wf_ref": null` for generic input/interaction edge tests.
+
+---
+
 **OUTPUT — JSON only, no prose, no markdown fencing:**
 
 {
@@ -184,6 +197,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": null,
       "subcategory": "boundary | input_edge | interaction_edge | state_edge | data_edge",
       "test_case": "Short descriptive name",
       "preconditions": ["precondition 1"],
@@ -206,7 +220,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 
 
 ------------------------------------------------------------
-[21:31:44] Test-Edge - USER PROMPT
+[15:41:24] Test-Edge - USER PROMPT
 ------------------------------------------------------------
 <module_name>Manage Cards</module_name>
 
@@ -219,7 +233,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
       "fields": {
         "Card_Type": {
           "type": "dropdown",
-          "required": true,
+          "required": false,
           "options": [
             "Debit",
             "Credit"
@@ -227,24 +241,24 @@ If the module has any numeric/date/count threshold in the AST or description, pr
         },
         "Account_to_Link": {
           "type": "dropdown",
-          "required": true
+          "required": false
         },
         "Shipping_Address": {
           "type": "unspecified",
-          "required": true,
+          "required": false,
           "constraints": [
-            "address must be complete"
+            "must be complete"
           ]
         }
       },
       "submit_actions": [
         {
           "element_name": "Request Card",
+          "on_success": "opens card-request ticket and shows \"Card request submitted successfully.\" with tracking ID",
+          "on_failure": "displays validation errors inline and form remains editable",
           "constraints": [
-            "address must be complete",
-            "selected account must be in good standing"
-          ],
-          "on_success": "opens a card-request ticket and shows \"Card request submitted successfully.\" with a tracking ID"
+            "verifies selected account is in good standing before creating ticket"
+          ]
         }
       ]
     },
@@ -253,18 +267,18 @@ If the module has any numeric/date/count threshold in the AST or description, pr
       "fields": {
         "Select_Existing_Card": {
           "type": "dropdown",
-          "required": true
+          "required": false
         },
         "New_Spending_Limit": {
           "type": "number",
           "required": false,
           "constraints": [
             "must be numeric",
-            "must not exceed policy maximum"
+            "must not exceed policy limit"
           ]
         },
         "Travel_Notice": {
-          "type": "repeating_group",
+          "type": "group",
           "required": false,
           "item_fields": {
             "Start_Date": {
@@ -275,35 +289,43 @@ If the module has any numeric/date/count threshold in the AST or description, pr
               "type": "date",
               "required": false
             },
-            "Destination": {
-              "type": "unspecified",
-              "required": false
+            "Destinations": {
+              "type": "repeating_group",
+              "required": false,
+              "item_fields": {
+                "Destination": {
+                  "type": "unspecified",
+                  "required": false
+                }
+              }
             }
           },
           "constraints": [
-            "Start_Date <= End_Date when both provided"
+            "Start_Date must be on or before End_Date"
           ]
         },
         "Card_Status": {
           "type": "dropdown",
-          "required": true,
+          "required": false,
           "options": [
             "Active",
             "Frozen"
+          ],
+          "constraints": [
+            "status change must be an allowable card-status transition"
           ]
         }
       },
       "submit_actions": [
         {
           "element_name": "Update Controls",
-          "constraints": [
-            "existing card must be selected",
-            "numeric limits must be within allowed policy",
-            "date ranges must be valid (Start_Date <= End_Date)",
-            "card-status transitions must be allowable by policy"
-          ],
           "on_success": "Card controls updated successfully.",
-          "on_failure": "validation failures appear inline and the form remains editable"
+          "on_failure": "validation failures appear inline and the form remains editable",
+          "constraints": [
+            "validates numeric limits for New_Spending_Limit",
+            "validates date ranges for Travel_Notice",
+            "validates allowable card-status transitions"
+          ]
         }
       ]
     }
@@ -317,10 +339,15 @@ The Manage Cards page contains two separate forms presented in stacked cards.The
 
 </description>
 
+<workflows>
+WF-001 | Request a new card | actor: <role> | branch: none | terminal: Request Card | on_success: opens card-request ticket and shows "Card request submitted successfully." with tracking ID
+WF-002 | Update existing card controls | actor: <role> | branch: none | terminal: Update Controls | on_success: Card controls updated successfully.
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[21:33:22] Test-Edge - LLM RESPONSE
+[15:43:54] Test-Edge - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Manage Cards",
@@ -328,141 +355,187 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": "WF-002",
       "subcategory": "boundary",
-      "test_case": "New Spending Limit exactly at policy maximum is accepted",
+      "test_case": "New Spending Limit — exactly at policy limit (should succeed)",
       "preconditions": [
-        "User is on Manage Cards page and Card Controls form is visible",
-        "An existing card is available in Select_Existing_Card",
-        "Policy maximum for New Spending Limit is known as <policy maximum>"
+        "User is logged in",
+        "Manage Cards page is open",
+        "An existing card is selectable in Select_Existing_Card dropdown"
       ],
       "steps": [
-        "1. In Card Controls form, select a card from Select_Existing_Card",
-        "2. Enter <policy maximum> in New_Spending_Limit",
-        "3. Click Update Controls"
+        "1. In Card Controls form, open Select_Existing_Card dropdown",
+        "2. Select an existing card",
+        "3. Click into New_Spending_Limit",
+        "4. Enter <policy limit> in New_Spending_Limit",
+        "5. Click Update Controls"
       ],
-      "expected_result": "Update succeeds: the page displays \"Card controls updated successfully.\" and the saved card details show New Spending Limit = <policy maximum>",
+      "expected_result": "Form submits successfully; 'Card controls updated successfully.' message is shown and the saved New Spending Limit equals <policy limit> (succeeds)",
       "priority": "medium"
     },
     {
       "tc_id": "E-002",
+      "wf_ref": "WF-002",
       "subcategory": "boundary",
-      "test_case": "New Spending Limit one unit above policy maximum is blocked with inline validation",
+      "test_case": "New Spending Limit — one unit above policy limit (should be blocked)",
       "preconditions": [
-        "User is on Manage Cards page and Card Controls form is visible",
-        "An existing card is available in Select_Existing_Card",
-        "Policy maximum for New Spending Limit is known as <policy maximum>"
+        "User is logged in",
+        "Manage Cards page is open",
+        "An existing card is selectable in Select_Existing_Card dropdown"
       ],
       "steps": [
-        "1. In Card Controls form, select a card from Select_Existing_Card",
-        "2. Enter <policy maximum + 1> in New_Spending_Limit",
-        "3. Click Update Controls"
+        "1. In Card Controls form, open Select_Existing_Card dropdown",
+        "2. Select an existing card",
+        "3. Click into New_Spending_Limit",
+        "4. Enter <one unit above policy limit> in New_Spending_Limit",
+        "5. Click Update Controls"
       ],
-      "expected_result": "Update is blocked / error shown: an inline validation error appears adjacent to New Spending Limit indicating the value exceeds the allowed policy; the form remains editable and no \"Card controls updated successfully.\" message is shown",
+      "expected_result": "New_Spending_Limit displays an inline validation error indicating the value exceeds the policy limit and the form remains editable (is blocked / error shown)",
       "priority": "medium"
     },
     {
       "tc_id": "E-003",
+      "wf_ref": "WF-002",
       "subcategory": "boundary",
-      "test_case": "Travel Notice where Start_Date equals End_Date is accepted",
+      "test_case": "Travel Notice — Start_Date equals End_Date (same-day travel, should succeed)",
       "preconditions": [
-        "User is on Manage Cards page and Card Controls form is visible",
-        "An existing card is selected in Select_Existing_Card"
+        "User is logged in",
+        "Manage Cards page is open",
+        "An existing card is selectable in Select_Existing_Card dropdown"
       ],
       "steps": [
-        "1. In Card Controls form, select a card from Select_Existing_Card",
-        "2. Click to add one Travel_Notice entry",
-        "3. Enter <date D> in the Travel_Notice Start_Date field for the new entry",
-        "4. Enter <same date D> in the Travel_Notice End_Date field for the new entry",
-        "5. Click Update Controls"
+        "1. In Card Controls form, open Select_Existing_Card dropdown",
+        "2. Select an existing card",
+        "3. Expand Travel_Notice group",
+        "4. Click into Start_Date",
+        "5. Enter a date value where Start_Date equals End_Date",
+        "6. Click into End_Date",
+        "7. Enter the same date value used in Start_Date",
+        "8. Click Update Controls"
       ],
-      "expected_result": "Update succeeds: the page displays \"Card controls updated successfully.\" and the saved travel notice shows Start_Date = <date D> and End_Date = <date D>",
+      "expected_result": "Form submits successfully; 'Card controls updated successfully.' message is shown and the travel notice is saved with Start_Date = End_Date (succeeds)",
       "priority": "medium"
     },
     {
       "tc_id": "E-004",
+      "wf_ref": "WF-002",
       "subcategory": "boundary",
-      "test_case": "Travel Notice where Start_Date is one day after End_Date is blocked",
+      "test_case": "Travel Notice — Start_Date one day after End_Date (should be blocked)",
       "preconditions": [
-        "User is on Manage Cards page and Card Controls form is visible",
-        "An existing card is selected in Select_Existing_Card"
+        "User is logged in",
+        "Manage Cards page is open",
+        "An existing card is selectable in Select_Existing_Card dropdown"
       ],
       "steps": [
-        "1. In Card Controls form, select a card from Select_Existing_Card",
-        "2. Click to add one Travel_Notice entry",
-        "3. Enter <date D + 1 day> in the Travel_Notice Start_Date field for the new entry",
-        "4. Enter <date D> in the Travel_Notice End_Date field for the new entry",
-        "5. Click Update Controls"
+        "1. In Card Controls form, open Select_Existing_Card dropdown",
+        "2. Select an existing card",
+        "3. Expand Travel_Notice group",
+        "4. Click into End_Date",
+        "5. Enter a date value for End_Date",
+        "6. Click into Start_Date",
+        "7. Enter <one day after End_Date> in Start_Date",
+        "8. Click Update Controls"
       ],
-      "expected_result": "Update is blocked / error shown: an inline validation error appears near the travel notice dates stating Start_Date must be on or before End_Date; the form remains editable and no success message is shown",
+      "expected_result": "Start_Date field displays an inline validation error indicating Start Date must be on or before End Date and the form remains editable (is blocked / error shown)",
       "priority": "medium"
     },
     {
       "tc_id": "E-005",
+      "wf_ref": "WF-001",
       "subcategory": "input_edge",
-      "test_case": "Shipping Address with leading and trailing whitespace is evaluated for completeness (whitespace trimmed)",
+      "test_case": "Shipping Address — very long text (>200 characters)",
       "preconditions": [
-        "User is on Manage Cards page and Card Request form is visible",
-        "Account to Link has a selectable account in required state"
+        "User is logged in",
+        "Manage Cards page is open",
+        "Card Request form is visible"
       ],
       "steps": [
-        "1. In Card Request Form, select a Card_Type",
-        "2. Select an Account_to_Link",
-        "3. Enter a complete Shipping_Address where each required address component has leading and trailing whitespace (e.g. '  <street>  ,  <city>  ,  <zip>  ')",
-        "4. Click Request Card"
+        "1. In Card Request form, click into Shipping_Address",
+        "2. Enter a very long address string longer than 200 characters into Shipping_Address",
+        "3. Click into Card_Type",
+        "4. Select a Card_Type",
+        "5. Click into Account_to_Link and select an account",
+        "6. Click Request Card"
       ],
-      "expected_result": "Request succeeds: the page shows \"Card request submitted successfully.\" with a tracking ID; the confirmation or ticket summary displays the Shipping Address with leading/trailing whitespace trimmed (saved value shows address components without extra spaces)",
-      "priority": "medium"
+      "expected_result": "If the UI accepts long addresses the form submits and a ticket is created showing the saved Shipping_Address in the ticket details (succeeds). If the UI enforces a maximum length, Shipping_Address shows an inline truncation/length validation message and the form remains editable (is blocked / error shown)",
+      "priority": "low"
     },
     {
       "tc_id": "E-006",
+      "wf_ref": "WF-001",
       "subcategory": "input_edge",
-      "test_case": "Very long Shipping Address (>200 characters) is submitted",
+      "test_case": "Shipping Address — leading and trailing whitespace is trimmed on save",
       "preconditions": [
-        "User is on Manage Cards page and Card Request form is visible",
-        "Account to Link has a selectable account in required state"
+        "User is logged in",
+        "Manage Cards page is open",
+        "Card Request form is visible"
       ],
       "steps": [
-        "1. In Card Request Form, select a Card_Type",
-        "2. Select an Account_to_Link",
-        "3. Enter a Shipping_Address longer than 200 characters that nevertheless includes all required address components",
-        "4. Click Request Card"
+        "1. In Card Request form, click into Shipping_Address",
+        "2. Enter an otherwise-complete address with leading and trailing spaces around the text",
+        "3. Click into Card_Type",
+        "4. Select a Card_Type",
+        "5. Click into Account_to_Link and select an account",
+        "6. Click Request Card"
       ],
-      "expected_result": "Request succeeds: the page displays \"Card request submitted successfully.\" with a tracking ID and the confirmation shows the Shipping Address (the UI displays the long address in the confirmation; if truncation is applied it is visible as truncated in the confirmation)",
+      "expected_result": "Leading/trailing whitespace is trimmed; on the ticket detail or success confirmation the Shipping_Address shows without leading/trailing spaces (succeeds)",
       "priority": "low"
     },
     {
       "tc_id": "E-007",
+      "wf_ref": "WF-002",
       "subcategory": "interaction_edge",
-      "test_case": "Add then remove all Travel Notice entries and submit (optional group removal)",
+      "test_case": "Travel Notice repeating group — add then remove all Destinations and submit",
       "preconditions": [
-        "User is on Manage Cards page and Card Controls form is visible",
-        "An existing card is selected in Select_Existing_Card"
+        "User is logged in",
+        "Manage Cards page is open",
+        "An existing card is selectable in Select_Existing_Card dropdown"
       ],
       "steps": [
-        "1. In Card Controls form, select a card from Select_Existing_Card",
-        "2. Click to add one Travel_Notice entry",
-        "3. Enter a Destination or dates in the added Travel_Notice entry",
-        "4. Remove the Travel_Notice entry so that zero travel notices remain",
-        "5. Click Update Controls"
+        "1. In Card Controls form, open Select_Existing_Card dropdown",
+        "2. Select an existing card",
+        "3. Expand Travel_Notice group",
+        "4. Click Add Destination to add one Destinations repeating_group row",
+        "5. Click into the newly added Destination and enter a destination value",
+        "6. Click Remove (delete) the added Destination row so there are zero destinations",
+        "7. Enter valid Start_Date and End_Date (Start_Date on or before End_Date)",
+        "8. Click Update Controls"
       ],
-      "expected_result": "Update succeeds: because Travel Notice is optional, the page displays \"Card controls updated successfully.\" and no travel notices are saved for the card (the saved card details show zero travel notices)",
+      "expected_result": "Since Destinations repeating_group has no minimum, the form submits successfully; 'Card controls updated successfully.' message is shown and no destinations are saved (succeeds)",
       "priority": "low"
+    },
+    {
+      "tc_id": "E-008",
+      "wf_ref": "WF-001",
+      "subcategory": "interaction_edge",
+      "test_case": "Request Card — rapid resubmission after success (browser back then resubmit)",
+      "preconditions": [
+        "User is logged in",
+        "Manage Cards page is open",
+        "A Card Request has been submitted successfully and the success confirmation with tracking ID is visible"
+      ],
+      "steps": [
+        "1. From the success confirmation page with tracking ID displayed, use the browser Back button",
+        "2. On returning to the Card Request form, without changing fields, click Request Card again"
+      ],
+      "expected_result": "Second submission attempt is blocked to prevent duplicate ticket creation; the UI either prevents submission or shows the original tracking ID/duplicate-request message and no additional ticket is created (is blocked / error shown)",
+      "priority": "medium"
     }
   ],
   "summary": {
-    "total": 7,
+    "total": 8,
     "boundary": 4,
     "input_edge": 2,
-    "interaction_edge": 1,
+    "interaction_edge": 2,
     "state_edge": 0,
     "data_edge": 0,
     "medium_priority": 5,
-    "low_priority": 2
+    "low_priority": 3
   }
 }
 
 ------------------------------------------------------------
-[21:33:22] Test-Edge - PARSED JSON
+[15:43:54] Test-Edge - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Manage Cards",
@@ -470,135 +543,181 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": "WF-002",
       "subcategory": "boundary",
-      "test_case": "New Spending Limit exactly at policy maximum is accepted",
+      "test_case": "New Spending Limit \u2014 exactly at policy limit (should succeed)",
       "preconditions": [
-        "User is on Manage Cards page and Card Controls form is visible",
-        "An existing card is available in Select_Existing_Card",
-        "Policy maximum for New Spending Limit is known as <policy maximum>"
+        "User is logged in",
+        "Manage Cards page is open",
+        "An existing card is selectable in Select_Existing_Card dropdown"
       ],
       "steps": [
-        "1. In Card Controls form, select a card from Select_Existing_Card",
-        "2. Enter <policy maximum> in New_Spending_Limit",
-        "3. Click Update Controls"
+        "1. In Card Controls form, open Select_Existing_Card dropdown",
+        "2. Select an existing card",
+        "3. Click into New_Spending_Limit",
+        "4. Enter <policy limit> in New_Spending_Limit",
+        "5. Click Update Controls"
       ],
-      "expected_result": "Update succeeds: the page displays \"Card controls updated successfully.\" and the saved card details show New Spending Limit = <policy maximum>",
+      "expected_result": "Form submits successfully; 'Card controls updated successfully.' message is shown and the saved New Spending Limit equals <policy limit> (succeeds)",
       "priority": "medium"
     },
     {
       "tc_id": "E-002",
+      "wf_ref": "WF-002",
       "subcategory": "boundary",
-      "test_case": "New Spending Limit one unit above policy maximum is blocked with inline validation",
+      "test_case": "New Spending Limit \u2014 one unit above policy limit (should be blocked)",
       "preconditions": [
-        "User is on Manage Cards page and Card Controls form is visible",
-        "An existing card is available in Select_Existing_Card",
-        "Policy maximum for New Spending Limit is known as <policy maximum>"
+        "User is logged in",
+        "Manage Cards page is open",
+        "An existing card is selectable in Select_Existing_Card dropdown"
       ],
       "steps": [
-        "1. In Card Controls form, select a card from Select_Existing_Card",
-        "2. Enter <policy maximum + 1> in New_Spending_Limit",
-        "3. Click Update Controls"
+        "1. In Card Controls form, open Select_Existing_Card dropdown",
+        "2. Select an existing card",
+        "3. Click into New_Spending_Limit",
+        "4. Enter <one unit above policy limit> in New_Spending_Limit",
+        "5. Click Update Controls"
       ],
-      "expected_result": "Update is blocked / error shown: an inline validation error appears adjacent to New Spending Limit indicating the value exceeds the allowed policy; the form remains editable and no \"Card controls updated successfully.\" message is shown",
+      "expected_result": "New_Spending_Limit displays an inline validation error indicating the value exceeds the policy limit and the form remains editable (is blocked / error shown)",
       "priority": "medium"
     },
     {
       "tc_id": "E-003",
+      "wf_ref": "WF-002",
       "subcategory": "boundary",
-      "test_case": "Travel Notice where Start_Date equals End_Date is accepted",
+      "test_case": "Travel Notice \u2014 Start_Date equals End_Date (same-day travel, should succeed)",
       "preconditions": [
-        "User is on Manage Cards page and Card Controls form is visible",
-        "An existing card is selected in Select_Existing_Card"
+        "User is logged in",
+        "Manage Cards page is open",
+        "An existing card is selectable in Select_Existing_Card dropdown"
       ],
       "steps": [
-        "1. In Card Controls form, select a card from Select_Existing_Card",
-        "2. Click to add one Travel_Notice entry",
-        "3. Enter <date D> in the Travel_Notice Start_Date field for the new entry",
-        "4. Enter <same date D> in the Travel_Notice End_Date field for the new entry",
-        "5. Click Update Controls"
+        "1. In Card Controls form, open Select_Existing_Card dropdown",
+        "2. Select an existing card",
+        "3. Expand Travel_Notice group",
+        "4. Click into Start_Date",
+        "5. Enter a date value where Start_Date equals End_Date",
+        "6. Click into End_Date",
+        "7. Enter the same date value used in Start_Date",
+        "8. Click Update Controls"
       ],
-      "expected_result": "Update succeeds: the page displays \"Card controls updated successfully.\" and the saved travel notice shows Start_Date = <date D> and End_Date = <date D>",
+      "expected_result": "Form submits successfully; 'Card controls updated successfully.' message is shown and the travel notice is saved with Start_Date = End_Date (succeeds)",
       "priority": "medium"
     },
     {
       "tc_id": "E-004",
+      "wf_ref": "WF-002",
       "subcategory": "boundary",
-      "test_case": "Travel Notice where Start_Date is one day after End_Date is blocked",
+      "test_case": "Travel Notice \u2014 Start_Date one day after End_Date (should be blocked)",
       "preconditions": [
-        "User is on Manage Cards page and Card Controls form is visible",
-        "An existing card is selected in Select_Existing_Card"
+        "User is logged in",
+        "Manage Cards page is open",
+        "An existing card is selectable in Select_Existing_Card dropdown"
       ],
       "steps": [
-        "1. In Card Controls form, select a card from Select_Existing_Card",
-        "2. Click to add one Travel_Notice entry",
-        "3. Enter <date D + 1 day> in the Travel_Notice Start_Date field for the new entry",
-        "4. Enter <date D> in the Travel_Notice End_Date field for the new entry",
-        "5. Click Update Controls"
+        "1. In Card Controls form, open Select_Existing_Card dropdown",
+        "2. Select an existing card",
+        "3. Expand Travel_Notice group",
+        "4. Click into End_Date",
+        "5. Enter a date value for End_Date",
+        "6. Click into Start_Date",
+        "7. Enter <one day after End_Date> in Start_Date",
+        "8. Click Update Controls"
       ],
-      "expected_result": "Update is blocked / error shown: an inline validation error appears near the travel notice dates stating Start_Date must be on or before End_Date; the form remains editable and no success message is shown",
+      "expected_result": "Start_Date field displays an inline validation error indicating Start Date must be on or before End Date and the form remains editable (is blocked / error shown)",
       "priority": "medium"
     },
     {
       "tc_id": "E-005",
+      "wf_ref": "WF-001",
       "subcategory": "input_edge",
-      "test_case": "Shipping Address with leading and trailing whitespace is evaluated for completeness (whitespace trimmed)",
+      "test_case": "Shipping Address \u2014 very long text (>200 characters)",
       "preconditions": [
-        "User is on Manage Cards page and Card Request form is visible",
-        "Account to Link has a selectable account in required state"
+        "User is logged in",
+        "Manage Cards page is open",
+        "Card Request form is visible"
       ],
       "steps": [
-        "1. In Card Request Form, select a Card_Type",
-        "2. Select an Account_to_Link",
-        "3. Enter a complete Shipping_Address where each required address component has leading and trailing whitespace (e.g. '  <street>  ,  <city>  ,  <zip>  ')",
-        "4. Click Request Card"
+        "1. In Card Request form, click into Shipping_Address",
+        "2. Enter a very long address string longer than 200 characters into Shipping_Address",
+        "3. Click into Card_Type",
+        "4. Select a Card_Type",
+        "5. Click into Account_to_Link and select an account",
+        "6. Click Request Card"
       ],
-      "expected_result": "Request succeeds: the page shows \"Card request submitted successfully.\" with a tracking ID; the confirmation or ticket summary displays the Shipping Address with leading/trailing whitespace trimmed (saved value shows address components without extra spaces)",
-      "priority": "medium"
+      "expected_result": "If the UI accepts long addresses the form submits and a ticket is created showing the saved Shipping_Address in the ticket details (succeeds). If the UI enforces a maximum length, Shipping_Address shows an inline truncation/length validation message and the form remains editable (is blocked / error shown)",
+      "priority": "low"
     },
     {
       "tc_id": "E-006",
+      "wf_ref": "WF-001",
       "subcategory": "input_edge",
-      "test_case": "Very long Shipping Address (>200 characters) is submitted",
+      "test_case": "Shipping Address \u2014 leading and trailing whitespace is trimmed on save",
       "preconditions": [
-        "User is on Manage Cards page and Card Request form is visible",
-        "Account to Link has a selectable account in required state"
+        "User is logged in",
+        "Manage Cards page is open",
+        "Card Request form is visible"
       ],
       "steps": [
-        "1. In Card Request Form, select a Card_Type",
-        "2. Select an Account_to_Link",
-        "3. Enter a Shipping_Address longer than 200 characters that nevertheless includes all required address components",
-        "4. Click Request Card"
+        "1. In Card Request form, click into Shipping_Address",
+        "2. Enter an otherwise-complete address with leading and trailing spaces around the text",
+        "3. Click into Card_Type",
+        "4. Select a Card_Type",
+        "5. Click into Account_to_Link and select an account",
+        "6. Click Request Card"
       ],
-      "expected_result": "Request succeeds: the page displays \"Card request submitted successfully.\" with a tracking ID and the confirmation shows the Shipping Address (the UI displays the long address in the confirmation; if truncation is applied it is visible as truncated in the confirmation)",
+      "expected_result": "Leading/trailing whitespace is trimmed; on the ticket detail or success confirmation the Shipping_Address shows without leading/trailing spaces (succeeds)",
       "priority": "low"
     },
     {
       "tc_id": "E-007",
+      "wf_ref": "WF-002",
       "subcategory": "interaction_edge",
-      "test_case": "Add then remove all Travel Notice entries and submit (optional group removal)",
+      "test_case": "Travel Notice repeating group \u2014 add then remove all Destinations and submit",
       "preconditions": [
-        "User is on Manage Cards page and Card Controls form is visible",
-        "An existing card is selected in Select_Existing_Card"
+        "User is logged in",
+        "Manage Cards page is open",
+        "An existing card is selectable in Select_Existing_Card dropdown"
       ],
       "steps": [
-        "1. In Card Controls form, select a card from Select_Existing_Card",
-        "2. Click to add one Travel_Notice entry",
-        "3. Enter a Destination or dates in the added Travel_Notice entry",
-        "4. Remove the Travel_Notice entry so that zero travel notices remain",
-        "5. Click Update Controls"
+        "1. In Card Controls form, open Select_Existing_Card dropdown",
+        "2. Select an existing card",
+        "3. Expand Travel_Notice group",
+        "4. Click Add Destination to add one Destinations repeating_group row",
+        "5. Click into the newly added Destination and enter a destination value",
+        "6. Click Remove (delete) the added Destination row so there are zero destinations",
+        "7. Enter valid Start_Date and End_Date (Start_Date on or before End_Date)",
+        "8. Click Update Controls"
       ],
-      "expected_result": "Update succeeds: because Travel Notice is optional, the page displays \"Card controls updated successfully.\" and no travel notices are saved for the card (the saved card details show zero travel notices)",
+      "expected_result": "Since Destinations repeating_group has no minimum, the form submits successfully; 'Card controls updated successfully.' message is shown and no destinations are saved (succeeds)",
       "priority": "low"
+    },
+    {
+      "tc_id": "E-008",
+      "wf_ref": "WF-001",
+      "subcategory": "interaction_edge",
+      "test_case": "Request Card \u2014 rapid resubmission after success (browser back then resubmit)",
+      "preconditions": [
+        "User is logged in",
+        "Manage Cards page is open",
+        "A Card Request has been submitted successfully and the success confirmation with tracking ID is visible"
+      ],
+      "steps": [
+        "1. From the success confirmation page with tracking ID displayed, use the browser Back button",
+        "2. On returning to the Card Request form, without changing fields, click Request Card again"
+      ],
+      "expected_result": "Second submission attempt is blocked to prevent duplicate ticket creation; the UI either prevents submission or shows the original tracking ID/duplicate-request message and no additional ticket is created (is blocked / error shown)",
+      "priority": "medium"
     }
   ],
   "summary": {
-    "total": 7,
+    "total": 8,
     "boundary": 4,
     "input_edge": 2,
-    "interaction_edge": 1,
+    "interaction_edge": 2,
     "state_edge": 0,
     "data_edge": 0,
     "medium_priority": 5,
-    "low_priority": 2
+    "low_priority": 3
   }
 }

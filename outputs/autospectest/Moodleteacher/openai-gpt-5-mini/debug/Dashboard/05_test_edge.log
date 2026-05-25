@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-22T21:47:19.032147
+DEBUG SESSION STARTED: 2026-05-25T15:28:45.997602
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[21:47:19] Test-Edge - SYSTEM PROMPT
+[15:28:45] Test-Edge - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Edge Case and Boundary Test Generator. You receive (1) a UI-AST JSON for one module and (2) the original functional description. Your job is to produce ONLY boundary and edge case tests — scenarios at the limits of valid/invalid input and unusual-but-plausible user behaviors.
 
@@ -24,6 +24,10 @@ You are NOT producing happy paths (positive prompt) or standard validation failu
 <description>
 {Original functional description text for this module}
 </description>
+
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
 
 ---
 
@@ -176,6 +180,15 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 
 ---
 
+**WORKFLOW-AWARE BOUNDARY SCOPING (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- For each workflow where `conditional_branch` activates a numeric or date field, check if that field has a boundary (a numeric/date threshold in the AST `constraints` or description).
+- If yes, that workflow's branch is a **candidate for a boundary edge test** — add or confirm a boundary TC exists for it.
+- Add `"wf_ref": "WF-NNN"` to each TC that maps to a specific workflow's boundary. Set `"wf_ref": null` for generic input/interaction edge tests.
+
+---
+
 **OUTPUT — JSON only, no prose, no markdown fencing:**
 
 {
@@ -184,6 +197,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": null,
       "subcategory": "boundary | input_edge | interaction_edge | state_edge | data_edge",
       "test_case": "Short descriptive name",
       "preconditions": ["precondition 1"],
@@ -206,7 +220,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 
 
 ------------------------------------------------------------
-[21:47:19] Test-Edge - USER PROMPT
+[15:28:45] Test-Edge - USER PROMPT
 ------------------------------------------------------------
 <module_name>Dashboard</module_name>
 
@@ -220,9 +234,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
         "Time_Range": {
           "type": "dropdown",
           "required": false,
-          "options": [
-            "Next 7 days"
-          ]
+          "on_change": "when selected range contains no items, the timeline shows empty state"
         },
         "Sort_Order": {
           "type": "dropdown",
@@ -232,13 +244,12 @@ If the module has any numeric/date/count threshold in the AST or description, pr
           "type": "search",
           "required": false,
           "constraints": [
-            "searches by activity name or type"
+            "searches activities by name or type"
           ]
-        },
-        "Empty_State": {
-          "type": "unspecified",
-          "visible_when": "no items exist within the selected time range"
         }
+      },
+      "state_behaviors": {
+        "empty_state": "shown when selected Time_Range contains no items"
       }
     },
     "Calendar_Block": {
@@ -246,45 +257,35 @@ If the module has any numeric/date/count threshold in the AST or description, pr
       "fields": {
         "Course_Filter": {
           "type": "dropdown",
-          "required": false,
-          "options": [
-            "All courses"
-          ],
-          "constraints": [
-            "filters calendar events by selected course"
-          ]
+          "required": false
         },
         "New_Event": {
           "type": "button",
-          "on_success": "creates calendar entry"
+          "on_click": "opens new event creation form or modal"
         },
-        "Previous_Month": {
+        "Prev_Month": {
           "type": "button",
-          "on_success": "navigates to previous month"
+          "on_click": "navigates to previous month",
+          "on_success": "updates displayed month and year heading"
         },
         "Next_Month": {
           "type": "button",
-          "on_success": "navigates to next month"
-        },
-        "Current_Date_Highlight": {
-          "type": "unspecified",
-          "visible_when": "date == current date"
-        },
-        "Date_Event_Display": {
-          "type": "unspecified",
-          "constraints": [
-            "dates with events display their event names inline"
-          ]
-        },
-        "Full_Calendar": {
-          "type": "link",
-          "on_success": "opens dedicated calendar view"
-        },
-        "Import_or_Export_Calendars": {
-          "type": "link",
-          "on_success": "opens calendar data management"
+          "on_click": "navigates to next month",
+          "on_success": "updates displayed month and year heading"
         }
-      }
+      },
+      "links": [
+        {
+          "element_name": "Full calendar",
+          "type": "link",
+          "on_click": "opens dedicated calendar view"
+        },
+        {
+          "element_name": "Import or export calendars",
+          "type": "link",
+          "on_click": "opens calendar data management (import/export)"
+        }
+      ]
     }
   }
 }
@@ -299,10 +300,23 @@ The Dashboard displays a personalized greeting at the top. The main content area
 
 </description>
 
+<workflows>
+WF-001 | Select Time_Range that contains items (timeline populated) | actor: <role> | branch: Time_Range contains items | terminal: Time_Range | on_success: Timeline displays activities within selected Time_Range
+WF-002 | Select Time_Range that contains no items (timeline empty state) | actor: <role> | branch: Time_Range contains no items | terminal: Time_Range | on_success: when selected range contains no items, the timeline shows empty state
+WF-003 | Change timeline Sort_Order | actor: <role> | branch: none | terminal: Sort_Order | on_success: Timeline sorts activities by selected Sort_Order
+WF-004 | Search activities in timeline | actor: <role> | branch: none | terminal: Search_Activities | on_success: Timeline shows activities matching the search term (searches activities by name or type)
+WF-005 | Filter calendar by course using Course_Filter | actor: <role> | branch: none | terminal: Course_Filter | on_success: Calendar displays events filtered by selected Course_Filter
+WF-006 | Create new calendar event | actor: <role> | branch: none | terminal: New_Event | on_success: opens new event creation form or modal
+WF-007 | Navigate to previous month in calendar | actor: <role> | branch: none | terminal: Prev_Month | on_success: updates displayed month and year heading
+WF-008 | Navigate to next month in calendar | actor: <role> | branch: none | terminal: Next_Month | on_success: updates displayed month and year heading
+WF-009 | Open full calendar view | actor: <role> | branch: none | terminal: Full calendar | on_success: opens dedicated calendar view
+WF-010 | Open calendar import/export management | actor: <role> | branch: none | terminal: Import or export calendars | on_success: opens calendar data management (import/export)
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[21:47:56] Test-Edge - LLM RESPONSE
+[15:29:38] Test-Edge - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Dashboard",
@@ -310,126 +324,88 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": "WF-002",
       "subcategory": "boundary",
-      "test_case": "Event on exactly the last day of the selected 'Next 7 days' range appears in Timeline and Calendar",
+      "test_case": "Search filters all activities within a populated Time_Range resulting in empty timeline",
       "preconditions": [
-        "User is logged in and Dashboard is open",
-        "Timeline_Block Time_Range dropdown is visible"
+        "User is authenticated and on the Dashboard page",
+        "Timeline Block is showing a Time_Range that contains at least one activity (timeline is populated)"
       ],
       "steps": [
-        "1. Click the Time_Range dropdown in the Timeline_Block",
-        "2. Select 'Next 7 days' from the Time_Range dropdown",
-        "3. Click the Calendar_Block New_Event button",
-        "4. In the New Event form, set the event date to the date exactly 7 days from today (the last day of the selected range)",
-        "5. Fill any other required fields in the New Event form",
-        "6. Click Save/Create to create the event",
-        "7. Observe the Timeline_Block activity list and the date cell for the event in the Calendar_Block"
+        "1. Click the Time_Range dropdown and select the Time_Range that is known to contain items",
+        "2. Observe that the Timeline Block lists at least one activity",
+        "3. Focus the Search_Activities field",
+        "4. Enter a search term that matches no activity name or type within the selected Time_Range",
+        "5. Submit the search (press Enter or click the search control)"
       ],
-      "expected_result": "Event creation succeeds; the newly created event is listed in the Timeline_Block (visible in the activity list) and the Calendar_Block date cell for the date exactly 7 days from today displays the event name inline (Form presence in Timeline and inline display succeeds).",
+      "expected_result": "succeeds: Timeline updates to the empty state for the selected Time_Range; the Timeline Block's empty_state UI element is shown and no activity rows are visible",
       "priority": "medium"
     },
     {
       "tc_id": "E-002",
-      "subcategory": "boundary",
-      "test_case": "Event scheduled one day after the end of the 'Next 7 days' range is excluded from Timeline",
+      "wf_ref": "WF-004",
+      "subcategory": "input_edge",
+      "test_case": "Search_Activities accepts very long unicode/emoji string and returns results or empty state without input errors",
       "preconditions": [
-        "User is logged in and Dashboard is open",
-        "Timeline_Block Time_Range dropdown is visible and set to 'Next 7 days'"
+        "User is on the Dashboard page",
+        "Timeline Block is visible"
       ],
       "steps": [
-        "1. Ensure Time_Range in the Timeline_Block is set to 'Next 7 days'",
-        "2. Click the Calendar_Block New_Event button",
-        "3. In the New Event form, set the event date to the date that is exactly 8 days from today (one day after the selected range)",
-        "4. Fill any other required fields in the New Event form",
-        "5. Click Save/Create to create the event",
-        "6. Observe the Timeline_Block activity list"
+        "1. Focus the Search_Activities field",
+        "2. Enter a unicode string containing emoji and special characters with length greater than 200 characters",
+        "3. Submit the search (press Enter or click the search control)"
       ],
-      "expected_result": "Timeline_Block does not list the event created for the date one day after the selected range; the Timeline_Block shows its Empty_State or absence of that event (is blocked / error shown for inclusion in the selected range).",
-      "priority": "medium"
+      "expected_result": "succeeds: Search input accepts the long unicode string (value remains visible in the search field); the Timeline either displays matching activities or shows the empty state if none match, and no inline input-length error or blocking validation is shown",
+      "priority": "low"
     },
     {
       "tc_id": "E-003",
-      "subcategory": "input_edge",
-      "test_case": "Very long search string (200+ characters) in Search_Activities field",
+      "wf_ref": "WF-007",
+      "subcategory": "boundary",
+      "test_case": "Prev_Month across year boundary decrements the displayed year (January -> December previous year)",
       "preconditions": [
-        "User is logged in and Dashboard is open",
-        "Search_Activities field in Timeline_Block is visible"
+        "User is on the Dashboard page and Calendar Block is visible",
+        "Calendar heading currently displays January <year>"
       ],
       "steps": [
-        "1. Click into the Search_Activities field in the Timeline_Block",
-        "2. Enter a very long string of 200+ characters into the Search_Activities field",
-        "3. Press Enter or click the Search control to execute the search",
-        "4. Observe the Timeline_Block results area"
+        "1. Click the Prev_Month button once"
       ],
-      "expected_result": "Search executes successfully without UI crash; the Timeline_Block displays either matching activities or a 'no results' message and the search input remains usable (long input handling succeeds).",
-      "priority": "low"
-    },
-    {
-      "tc_id": "E-004",
-      "subcategory": "input_edge",
-      "test_case": "Search with special characters and emoji in Search_Activities",
-      "preconditions": [
-        "User is logged in and Dashboard is open",
-        "Search_Activities field in Timeline_Block is visible"
-      ],
-      "steps": [
-        "1. Click into the Search_Activities field in the Timeline_Block",
-        "2. Enter a string containing special characters and emoji (e.g., punctuation, symbols, emoji) into the Search_Activities field",
-        "3. Press Enter or click the Search control to execute the search",
-        "4. Observe the Timeline_Block results area and any inline validation or error messages"
-      ],
-      "expected_result": "Search executes successfully with special characters and emoji; no validation error is shown and the results area either lists matching activities or shows 'no results' (special-character search succeeds).",
-      "priority": "low"
-    },
-    {
-      "tc_id": "E-005",
-      "subcategory": "interaction_edge",
-      "test_case": "Rapid consecutive Next_Month clicks advances calendar by multiple months without UI failure and current-date highlight updates accordingly",
-      "preconditions": [
-        "User is logged in and Dashboard is open",
-        "Calendar_Block is visible with Current month/year heading and Next_Month button"
-      ],
-      "steps": [
-        "1. Note the current month/year heading in the Calendar_Block",
-        "2. Click the Next_Month button five times in rapid succession (fast clicks, less than one second between clicks)",
-        "3. Observe the Calendar_Block month/year heading after the rapid clicks",
-        "4. Check whether Current_Date_Highlight is visible in the displayed month"
-      ],
-      "expected_result": "Calendar_Block updates to the month that is five months ahead and the UI remains responsive; if the displayed month no longer contains today's date, the Current_Date_Highlight is not visible; no duplicate navigation actions or UI errors occur (rapid navigation succeeds).",
+      "expected_result": "succeeds: Calendar month and year heading updates to December and the displayed year is the previous year (year decremented by 1); the Calendar Block grid refreshes to show the correct dates for December of the previous year",
       "priority": "medium"
     },
     {
-      "tc_id": "E-006",
-      "subcategory": "data_edge",
-      "test_case": "Current date highlight toggles when navigating away from and back to the current month",
+      "tc_id": "E-004",
+      "wf_ref": null,
+      "subcategory": "interaction_edge",
+      "test_case": "Rapid consecutive Next_Month clicks result in the final month rendered correctly without stale UI",
       "preconditions": [
-        "User is logged in and Dashboard is open",
-        "Calendar_Block is visible and Current_Date_Highlight is visible for the current month"
+        "User is on the Dashboard page and Calendar Block is visible",
+        "Note the current month and year in the calendar heading before starting"
       ],
       "steps": [
-        "1. Click the Calendar_Block Previous_Month button once",
-        "2. Observe that Current_Date_Highlight is not visible in the previous month view",
-        "3. Click the Calendar_Block Next_Month button once to return to the original month",
-        "4. Observe that Current_Date_Highlight is visible again in the current month view"
+        "1. Click the Next_Month button",
+        "2. Immediately click the Next_Month button again",
+        "3. Immediately click the Next_Month button a third time",
+        "4. Wait for the calendar UI to finish updating"
       ],
-      "expected_result": "When viewing the previous month Current_Date_Highlight is not shown; after returning to the current month the Current_Date_Highlight is visible again (highlight toggle succeeds).",
+      "expected_result": "succeeds: Calendar heading displays the month that is three months ahead of the original heading (month and year adjusted accordingly); the calendar grid fully refreshes to that final month, no persistent loading indicator or error message is shown, and no intermediate/stale month remains visible",
       "priority": "low"
     }
   ],
   "summary": {
-    "total": 6,
+    "total": 4,
     "boundary": 2,
-    "input_edge": 2,
+    "input_edge": 1,
     "interaction_edge": 1,
     "state_edge": 0,
-    "data_edge": 1,
-    "medium_priority": 3,
-    "low_priority": 3
+    "data_edge": 0,
+    "medium_priority": 2,
+    "low_priority": 2
   }
 }
 
 ------------------------------------------------------------
-[21:47:56] Test-Edge - PARSED JSON
+[15:29:38] Test-Edge - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Dashboard",
@@ -437,120 +413,82 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": "WF-002",
       "subcategory": "boundary",
-      "test_case": "Event on exactly the last day of the selected 'Next 7 days' range appears in Timeline and Calendar",
+      "test_case": "Search filters all activities within a populated Time_Range resulting in empty timeline",
       "preconditions": [
-        "User is logged in and Dashboard is open",
-        "Timeline_Block Time_Range dropdown is visible"
+        "User is authenticated and on the Dashboard page",
+        "Timeline Block is showing a Time_Range that contains at least one activity (timeline is populated)"
       ],
       "steps": [
-        "1. Click the Time_Range dropdown in the Timeline_Block",
-        "2. Select 'Next 7 days' from the Time_Range dropdown",
-        "3. Click the Calendar_Block New_Event button",
-        "4. In the New Event form, set the event date to the date exactly 7 days from today (the last day of the selected range)",
-        "5. Fill any other required fields in the New Event form",
-        "6. Click Save/Create to create the event",
-        "7. Observe the Timeline_Block activity list and the date cell for the event in the Calendar_Block"
+        "1. Click the Time_Range dropdown and select the Time_Range that is known to contain items",
+        "2. Observe that the Timeline Block lists at least one activity",
+        "3. Focus the Search_Activities field",
+        "4. Enter a search term that matches no activity name or type within the selected Time_Range",
+        "5. Submit the search (press Enter or click the search control)"
       ],
-      "expected_result": "Event creation succeeds; the newly created event is listed in the Timeline_Block (visible in the activity list) and the Calendar_Block date cell for the date exactly 7 days from today displays the event name inline (Form presence in Timeline and inline display succeeds).",
+      "expected_result": "succeeds: Timeline updates to the empty state for the selected Time_Range; the Timeline Block's empty_state UI element is shown and no activity rows are visible",
       "priority": "medium"
     },
     {
       "tc_id": "E-002",
-      "subcategory": "boundary",
-      "test_case": "Event scheduled one day after the end of the 'Next 7 days' range is excluded from Timeline",
+      "wf_ref": "WF-004",
+      "subcategory": "input_edge",
+      "test_case": "Search_Activities accepts very long unicode/emoji string and returns results or empty state without input errors",
       "preconditions": [
-        "User is logged in and Dashboard is open",
-        "Timeline_Block Time_Range dropdown is visible and set to 'Next 7 days'"
+        "User is on the Dashboard page",
+        "Timeline Block is visible"
       ],
       "steps": [
-        "1. Ensure Time_Range in the Timeline_Block is set to 'Next 7 days'",
-        "2. Click the Calendar_Block New_Event button",
-        "3. In the New Event form, set the event date to the date that is exactly 8 days from today (one day after the selected range)",
-        "4. Fill any other required fields in the New Event form",
-        "5. Click Save/Create to create the event",
-        "6. Observe the Timeline_Block activity list"
+        "1. Focus the Search_Activities field",
+        "2. Enter a unicode string containing emoji and special characters with length greater than 200 characters",
+        "3. Submit the search (press Enter or click the search control)"
       ],
-      "expected_result": "Timeline_Block does not list the event created for the date one day after the selected range; the Timeline_Block shows its Empty_State or absence of that event (is blocked / error shown for inclusion in the selected range).",
-      "priority": "medium"
+      "expected_result": "succeeds: Search input accepts the long unicode string (value remains visible in the search field); the Timeline either displays matching activities or shows the empty state if none match, and no inline input-length error or blocking validation is shown",
+      "priority": "low"
     },
     {
       "tc_id": "E-003",
-      "subcategory": "input_edge",
-      "test_case": "Very long search string (200+ characters) in Search_Activities field",
+      "wf_ref": "WF-007",
+      "subcategory": "boundary",
+      "test_case": "Prev_Month across year boundary decrements the displayed year (January -> December previous year)",
       "preconditions": [
-        "User is logged in and Dashboard is open",
-        "Search_Activities field in Timeline_Block is visible"
+        "User is on the Dashboard page and Calendar Block is visible",
+        "Calendar heading currently displays January <year>"
       ],
       "steps": [
-        "1. Click into the Search_Activities field in the Timeline_Block",
-        "2. Enter a very long string of 200+ characters into the Search_Activities field",
-        "3. Press Enter or click the Search control to execute the search",
-        "4. Observe the Timeline_Block results area"
+        "1. Click the Prev_Month button once"
       ],
-      "expected_result": "Search executes successfully without UI crash; the Timeline_Block displays either matching activities or a 'no results' message and the search input remains usable (long input handling succeeds).",
-      "priority": "low"
-    },
-    {
-      "tc_id": "E-004",
-      "subcategory": "input_edge",
-      "test_case": "Search with special characters and emoji in Search_Activities",
-      "preconditions": [
-        "User is logged in and Dashboard is open",
-        "Search_Activities field in Timeline_Block is visible"
-      ],
-      "steps": [
-        "1. Click into the Search_Activities field in the Timeline_Block",
-        "2. Enter a string containing special characters and emoji (e.g., punctuation, symbols, emoji) into the Search_Activities field",
-        "3. Press Enter or click the Search control to execute the search",
-        "4. Observe the Timeline_Block results area and any inline validation or error messages"
-      ],
-      "expected_result": "Search executes successfully with special characters and emoji; no validation error is shown and the results area either lists matching activities or shows 'no results' (special-character search succeeds).",
-      "priority": "low"
-    },
-    {
-      "tc_id": "E-005",
-      "subcategory": "interaction_edge",
-      "test_case": "Rapid consecutive Next_Month clicks advances calendar by multiple months without UI failure and current-date highlight updates accordingly",
-      "preconditions": [
-        "User is logged in and Dashboard is open",
-        "Calendar_Block is visible with Current month/year heading and Next_Month button"
-      ],
-      "steps": [
-        "1. Note the current month/year heading in the Calendar_Block",
-        "2. Click the Next_Month button five times in rapid succession (fast clicks, less than one second between clicks)",
-        "3. Observe the Calendar_Block month/year heading after the rapid clicks",
-        "4. Check whether Current_Date_Highlight is visible in the displayed month"
-      ],
-      "expected_result": "Calendar_Block updates to the month that is five months ahead and the UI remains responsive; if the displayed month no longer contains today's date, the Current_Date_Highlight is not visible; no duplicate navigation actions or UI errors occur (rapid navigation succeeds).",
+      "expected_result": "succeeds: Calendar month and year heading updates to December and the displayed year is the previous year (year decremented by 1); the Calendar Block grid refreshes to show the correct dates for December of the previous year",
       "priority": "medium"
     },
     {
-      "tc_id": "E-006",
-      "subcategory": "data_edge",
-      "test_case": "Current date highlight toggles when navigating away from and back to the current month",
+      "tc_id": "E-004",
+      "wf_ref": null,
+      "subcategory": "interaction_edge",
+      "test_case": "Rapid consecutive Next_Month clicks result in the final month rendered correctly without stale UI",
       "preconditions": [
-        "User is logged in and Dashboard is open",
-        "Calendar_Block is visible and Current_Date_Highlight is visible for the current month"
+        "User is on the Dashboard page and Calendar Block is visible",
+        "Note the current month and year in the calendar heading before starting"
       ],
       "steps": [
-        "1. Click the Calendar_Block Previous_Month button once",
-        "2. Observe that Current_Date_Highlight is not visible in the previous month view",
-        "3. Click the Calendar_Block Next_Month button once to return to the original month",
-        "4. Observe that Current_Date_Highlight is visible again in the current month view"
+        "1. Click the Next_Month button",
+        "2. Immediately click the Next_Month button again",
+        "3. Immediately click the Next_Month button a third time",
+        "4. Wait for the calendar UI to finish updating"
       ],
-      "expected_result": "When viewing the previous month Current_Date_Highlight is not shown; after returning to the current month the Current_Date_Highlight is visible again (highlight toggle succeeds).",
+      "expected_result": "succeeds: Calendar heading displays the month that is three months ahead of the original heading (month and year adjusted accordingly); the calendar grid fully refreshes to that final month, no persistent loading indicator or error message is shown, and no intermediate/stale month remains visible",
       "priority": "low"
     }
   ],
   "summary": {
-    "total": 6,
+    "total": 4,
     "boundary": 2,
-    "input_edge": 2,
+    "input_edge": 1,
     "interaction_edge": 1,
     "state_edge": 0,
-    "data_edge": 1,
-    "medium_priority": 3,
-    "low_priority": 3
+    "data_edge": 0,
+    "medium_priority": 2,
+    "low_priority": 2
   }
 }

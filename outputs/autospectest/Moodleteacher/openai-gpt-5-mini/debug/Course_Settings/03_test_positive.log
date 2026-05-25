@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-22T21:47:19.056161
+DEBUG SESSION STARTED: 2026-05-25T15:28:46.015555
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[21:47:19] Test-Positive - SYSTEM PROMPT
+[15:28:46] Test-Positive - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Expert UI Test Case Generator. You receive (1) a UI-AST JSON for one specific module and (2) the original functional description for that module.
 
@@ -24,6 +24,10 @@ Your job is to produce ONLY positive/functional UI test cases — tests where va
 <description>
 {Original functional description text for this module}
 </description>
+
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
 
 ---
 
@@ -146,6 +150,13 @@ Because you are testing a module in isolation, establish the required entry stat
 **1. Forms & Wizards (`form`, `wizard`):**
 - Generate ONE happy path per distinct success outcome.
 - *Conditional UI Check:* If a toggle/dropdown reveals new mandatory fields (`visible_when`), generate a separate test for that conditional branch.
+- **Wizard step coverage (CRITICAL):** If a wizard has multiple steps and any step beyond Step 1 contains its own named field group (e.g., "Address Details", "Family Members", "Identifiers"), generate ONE dedicated positive TC per such step. The TC must:
+  - Navigate to that specific step (include the preceding steps as preconditions or brief navigation steps)
+  - Fill the fields described for that step (not just pass through)
+  - Assert the step's content is visible/saved on the detail page after final submission
+  - **Do NOT collapse all wizard steps into one happy-path TC** — if Steps 2, 3, and 4 each have their own named section in the spec, they each need their own TC.
+- **Wizard in-step identifiers/duplicates:** If a wizard step allows adding identifiers, documents, or similar entries that have a uniqueness constraint, include a TC for that wizard step that also verifies the constraint (e.g., attempting to add a duplicate Document Type+Key pair inside the wizard). This is a different code path from adding the same post-creation on the detail page.
+- **Action dialogs:** If a `state_bound_action_bar` action opens a dialog with its own `fields{}` (e.g., Activate requires Activation Date, Reject requires Reason), generate ONE positive TC per such action-dialog — distinct from the state-transition TC. The TC fills the dialog field and completes the action.
 
 **2. State Machines (`state_bound_action_bar`):**
 - For each unique action available in a specific state, generate ONE test performing that action.
@@ -200,6 +211,19 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 
 ---
 
+**WORKFLOW COVERAGE OBLIGATION (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- Your test cases must **collectively cover every workflow** listed.
+- For each `wf_id`, at least one TC must:
+  - Activate the `conditional_branch` (if not null) — i.e. the test must set up the condition described.
+  - Assert the `on_success` as its `expected_result` (verbatim or as the primary basis for the expected result).
+- Add `"wf_ref": "WF-NNN"` to each TC to identify which workflow it covers.
+- If one TC naturally covers multiple workflows (e.g., the base path overlaps), pick the most specific `wf_ref`.
+- If a TC does not map to any workflow (e.g., a navigation-only test), set `"wf_ref": null`.
+
+---
+
 **OUTPUT — JSON only, no prose, no markdown fencing:**
 
 {
@@ -208,6 +232,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
   "test_cases": [
     {
       "tc_id": "P-001",
+      "wf_ref": "WF-001",
       "test_case": "Short descriptive name",
       "preconditions": ["User logged in as <Role>", "<Prerequisite state>"],
       "steps": ["1. Step one", "2. Step two"],
@@ -224,7 +249,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 }
 
 ------------------------------------------------------------
-[21:47:19] Test-Positive - USER PROMPT
+[15:28:46] Test-Positive - USER PROMPT
 ------------------------------------------------------------
 <module_name>Course Settings</module_name>
 
@@ -234,155 +259,126 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
   "components": {
     "Course_Settings_Form": {
       "type": "form",
-      "constraints": [
-        "inline format validations enforced"
-      ],
-      "panels": [
-        {
-          "panel_name": "General",
-          "type": "collapsible_panel",
-          "fields": {
-            "Course_Full_Name": {
-              "type": "unspecified",
-              "required": true,
-              "constraints": [
-                "inline validation"
-              ]
-            },
-            "Course_Short_Name": {
-              "type": "unspecified",
-              "required": true,
-              "constraints": [
-                "inline validation"
-              ]
-            },
-            "Course_Category": {
-              "type": "dropdown",
-              "required": true
-            },
-            "Course_Visibility": {
-              "type": "dropdown",
-              "options": [
-                "Show",
-                "Hide"
-              ]
-            },
-            "Course_Start_Date": {
-              "type": "date"
-            },
-            "Course_End_Date_Enable": {
-              "type": "checkbox"
-            },
-            "Course_End_Date": {
-              "type": "date",
-              "enabled_when": "Course_End_Date_Enable == true"
-            },
-            "Course_ID_Number": {
-              "type": "unspecified",
-              "constraints": [
-                "inline validation"
-              ]
-            },
-            "Course_Summary": {
-              "type": "unspecified",
-              "constraints": [
-                "rich text editor"
-              ]
-            },
-            "Course_Image": {
-              "type": "file_upload"
-            }
-          }
+      "fields": {
+        "Course_Full_Name": {
+          "type": "unspecified",
+          "required": true,
+          "constraints": [
+            "required",
+            "inline validation"
+          ]
         },
-        {
-          "panel_name": "Format & Layout",
-          "type": "collapsible_panel",
-          "fields": {
-            "Course_Format": {
-              "type": "dropdown",
-              "options": [
-                "Topics format",
-                "Weekly format"
-              ]
-            },
-            "Layout_Controls": {
-              "type": "unspecified",
-              "visible_when": "Course_Format == Topics format OR Course_Format == Weekly format",
-              "fields": {}
-            }
-          }
+        "Course_Short_Name": {
+          "type": "unspecified",
+          "required": true,
+          "constraints": [
+            "required",
+            "inline validation"
+          ]
         },
-        {
-          "panel_name": "Appearance",
-          "type": "collapsible_panel",
-          "fields": {
-            "Language": {
-              "type": "dropdown"
-            },
-            "News_Items": {
-              "type": "number"
-            },
-            "Show_Activity_Dates": {
-              "type": "checkbox"
-            },
-            "Show_Completion_Conditions": {
-              "type": "checkbox"
-            }
-          }
+        "Course_Category": {
+          "type": "dropdown",
+          "required": true,
+          "constraints": [
+            "required",
+            "inline validation"
+          ]
         },
-        {
-          "panel_name": "Files & Uploads",
-          "type": "collapsible_panel",
-          "fields": {
-            "Maximum_Upload_Size": {
-              "type": "dropdown"
-            }
-          }
+        "Course_Visibility": {
+          "type": "dropdown",
+          "options": [
+            "Show",
+            "Hide"
+          ]
         },
-        {
-          "panel_name": "Completion",
-          "type": "collapsible_panel",
-          "fields": {
-            "Completion_Tracking": {
-              "type": "checkbox"
-            }
-          }
+        "Course_Start_Date": {
+          "type": "date"
         },
-        {
-          "panel_name": "Groups",
-          "type": "collapsible_panel",
-          "fields": {
-            "Group_Mode": {
-              "type": "dropdown"
-            },
-            "Grouping": {
-              "type": "dropdown"
-            }
-          }
+        "Enable_Course_End_Date": {
+          "type": "checkbox",
+          "description": "Toggle to enable Course End Date"
         },
-        {
-          "panel_name": "Tags",
-          "type": "collapsible_panel",
-          "fields": {
-            "Tags": {
-              "type": "unspecified"
-            }
-          }
+        "Course_End_Date": {
+          "type": "date",
+          "enabled_when": "Enable_Course_End_Date == true",
+          "required_when": "Enable_Course_End_Date == true",
+          "constraints": [
+            "must be >= Course_Start_Date when enabled",
+            "inline validation"
+          ]
+        },
+        "Course_ID_Number": {
+          "type": "unspecified"
+        },
+        "Course_Summary": {
+          "type": "unspecified",
+          "constraints": [
+            "rich text input",
+            "inline validation"
+          ]
+        },
+        "Course_Image_Upload": {
+          "type": "file_upload"
+        },
+        "Course_Format": {
+          "type": "dropdown",
+          "options": [
+            "Topics format",
+            "Weekly format"
+          ]
+        },
+        "Layout_Controls_Topics": {
+          "type": "unspecified",
+          "visible_when": "Course_Format == Topics format",
+          "fields": {}
+        },
+        "Layout_Controls_Weekly": {
+          "type": "unspecified",
+          "visible_when": "Course_Format == Weekly format",
+          "fields": {}
+        },
+        "Appearance_Language": {
+          "type": "dropdown"
+        },
+        "Appearance_News_Items": {
+          "type": "number"
+        },
+        "Appearance_Show_Activity_Dates": {
+          "type": "checkbox"
+        },
+        "Appearance_Completion_Conditions_Display": {
+          "type": "checkbox"
+        },
+        "Maximum_Upload_Size": {
+          "type": "unspecified"
+        },
+        "Completion_Tracking": {
+          "type": "checkbox"
+        },
+        "Groups_Group_Mode": {
+          "type": "dropdown"
+        },
+        "Groups_Grouping": {
+          "type": "dropdown",
+          "visible_when": "Groups_Group_Mode != No groups"
+        },
+        "Tags": {
+          "type": "unspecified"
         }
-      ],
+      },
       "submit_actions": [
         {
           "element_name": "Save and display",
-          "type": "button",
-          "on_success": "persists configuration and returns to course page",
-          "constraints": []
+          "on_success": "persists configuration and returns to the course page"
         },
         {
           "element_name": "Cancel",
-          "type": "button",
-          "on_success": "leaves existing settings unchanged",
-          "constraints": []
+          "on_success": "leaves existing settings unchanged"
         }
+      ],
+      "constraints": [
+        "required fields and format validations are enforced inline",
+        "Course_Start_Date must be <= Course_End_Date when Enable_Course_End_Date == true"
       ]
     }
   }
@@ -398,10 +394,29 @@ The Course Settings form is organized into collapsible panels with the following
 
 </description>
 
+<workflows>
+WF-001 | Save and display — End date disabled, Format = Topics format, Group mode = No groups | actor: <role> | branch: Enable_Course_End_Date == false AND Course_Format == Topics format AND Groups_Group_Mode == No groups | terminal: Save and display | on_success: persists configuration and returns to the course page
+WF-002 | Save and display — End date disabled, Format = Topics format, Group mode != No groups | actor: <role> | branch: Enable_Course_End_Date == false AND Course_Format == Topics format AND Groups_Group_Mode != No groups | terminal: Save and display | on_success: persists configuration and returns to the course page
+WF-003 | Save and display — End date disabled, Format = Weekly format, Group mode = No groups | actor: <role> | branch: Enable_Course_End_Date == false AND Course_Format == Weekly format AND Groups_Group_Mode == No groups | terminal: Save and display | on_success: persists configuration and returns to the course page
+WF-004 | Save and display — End date disabled, Format = Weekly format, Group mode != No groups | actor: <role> | branch: Enable_Course_End_Date == false AND Course_Format == Weekly format AND Groups_Group_Mode != No groups | terminal: Save and display | on_success: persists configuration and returns to the course page
+WF-005 | Save and display — End date enabled, Format = Topics format, Group mode = No groups | actor: <role> | branch: Enable_Course_End_Date == true AND Course_Format == Topics format AND Groups_Group_Mode == No groups | terminal: Save and display | on_success: persists configuration and returns to the course page
+WF-006 | Save and display — End date enabled, Format = Topics format, Group mode != No groups | actor: <role> | branch: Enable_Course_End_Date == true AND Course_Format == Topics format AND Groups_Group_Mode != No groups | terminal: Save and display | on_success: persists configuration and returns to the course page
+WF-007 | Save and display — End date enabled, Format = Weekly format, Group mode = No groups | actor: <role> | branch: Enable_Course_End_Date == true AND Course_Format == Weekly format AND Groups_Group_Mode == No groups | terminal: Save and display | on_success: persists configuration and returns to the course page
+WF-008 | Save and display — End date enabled, Format = Weekly format, Group mode != No groups | actor: <role> | branch: Enable_Course_End_Date == true AND Course_Format == Weekly format AND Groups_Group_Mode != No groups | terminal: Save and display | on_success: persists configuration and returns to the course page
+WF-009 | Cancel — End date disabled, Format = Topics format, Group mode = No groups | actor: <role> | branch: Enable_Course_End_Date == false AND Course_Format == Topics format AND Groups_Group_Mode == No groups | terminal: Cancel | on_success: leaves existing settings unchanged
+WF-010 | Cancel — End date disabled, Format = Topics format, Group mode != No groups | actor: <role> | branch: Enable_Course_End_Date == false AND Course_Format == Topics format AND Groups_Group_Mode != No groups | terminal: Cancel | on_success: leaves existing settings unchanged
+WF-011 | Cancel — End date disabled, Format = Weekly format, Group mode = No groups | actor: <role> | branch: Enable_Course_End_Date == false AND Course_Format == Weekly format AND Groups_Group_Mode == No groups | terminal: Cancel | on_success: leaves existing settings unchanged
+WF-012 | Cancel — End date disabled, Format = Weekly format, Group mode != No groups | actor: <role> | branch: Enable_Course_End_Date == false AND Course_Format == Weekly format AND Groups_Group_Mode != No groups | terminal: Cancel | on_success: leaves existing settings unchanged
+WF-013 | Cancel — End date enabled, Format = Topics format, Group mode = No groups | actor: <role> | branch: Enable_Course_End_Date == true AND Course_Format == Topics format AND Groups_Group_Mode == No groups | terminal: Cancel | on_success: leaves existing settings unchanged
+WF-014 | Cancel — End date enabled, Format = Topics format, Group mode != No groups | actor: <role> | branch: Enable_Course_End_Date == true AND Course_Format == Topics format AND Groups_Group_Mode != No groups | terminal: Cancel | on_success: leaves existing settings unchanged
+WF-015 | Cancel — End date enabled, Format = Weekly format, Group mode = No groups | actor: <role> | branch: Enable_Course_End_Date == true AND Course_Format == Weekly format AND Groups_Group_Mode == No groups | terminal: Cancel | on_success: leaves existing settings unchanged
+WF-016 | Cancel — End date enabled, Format = Weekly format, Group mode != No groups | actor: <role> | branch: Enable_Course_End_Date == true AND Course_Format == Weekly format AND Groups_Group_Mode != No groups | terminal: Cancel | on_success: leaves existing settings unchanged
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[21:49:04] Test-Positive - LLM RESPONSE
+[15:31:00] Test-Positive - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Course Settings",
@@ -409,88 +424,379 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Save and display with required fields filled (happy path)",
+      "wf_ref": "WF-001",
+      "test_case": "Save with End Date disabled, Format = Topics format, Group mode = No groups",
       "preconditions": [
-        "User logged in as <Teacher>",
-        "Course Settings page is open for <course>"
+        "User logged in as <role>",
+        "Course Settings page is open"
       ],
       "steps": [
-        "1. Enter <valid course full name> in the Course Full Name field",
-        "2. Enter <valid course short name> in the Course Short Name field",
-        "3. Select <course category> from the Course Category dropdown",
-        "4. Select <visibility option> from the Course Visibility dropdown",
-        "5. Optionally enter <valid start date> in the Course Start Date field",
-        "6. Enter <text> in the Course Summary rich text editor",
-        "7. Upload a <valid image file> using the Course Image upload control",
+        "1. Enter <valid course full name> in Course Full Name",
+        "2. Enter <valid course short name> in Course Short Name",
+        "3. Select <valid category> from Course Category",
+        "4. Ensure Enable Course End Date is unchecked",
+        "5. Select 'Topics format' from Course Format",
+        "6. Verify Layout Controls for Topics are visible",
+        "7. Select 'No groups' for Groups Group Mode",
         "8. Click the 'Save and display' button"
       ],
-      "expected_result": "User is returned to the course page",
+      "expected_result": "persists configuration and returns to the course page",
       "priority": "high"
     },
     {
       "tc_id": "P-002",
-      "test_case": "Cancel discards changes and leaves existing settings unchanged",
+      "wf_ref": "WF-002",
+      "test_case": "Save with End Date disabled, Format = Topics format, Group mode != No groups",
       "preconditions": [
-        "User logged in as <Teacher>",
-        "Course Settings page is open for <course> with existing values: Course Full Name = <existing course full name>, Course Short Name = <existing course short name>, Course Category = <existing course category>"
+        "User logged in as <role>",
+        "Course Settings page is open"
       ],
       "steps": [
-        "1. Change Course Full Name to <new valid course full name>",
-        "2. Change Course Short Name to <new valid course short name>",
-        "3. Change Course Category to <different valid course category>",
-        "4. Click the 'Cancel' button"
+        "1. Enter <valid course full name> in Course Full Name",
+        "2. Enter <valid course short name> in Course Short Name",
+        "3. Select <valid category> from Course Category",
+        "4. Ensure Enable Course End Date is unchecked",
+        "5. Select 'Topics format' from Course Format",
+        "6. Verify Layout Controls for Topics are visible",
+        "7. Select <a group mode other than No groups> for Groups Group Mode",
+        "8. Verify Groups Grouping dropdown is visible",
+        "9. Select <valid grouping> from Groups Grouping",
+        "10. Click the 'Save and display' button"
       ],
-      "expected_result": "Course Settings form still displays the original values: Course Full Name = <existing course full name>, Course Short Name = <existing course short name>, Course Category = <existing course category>; no save/confirmation notification is shown",
-      "priority": "medium"
+      "expected_result": "persists configuration and returns to the course page",
+      "priority": "high"
     },
     {
       "tc_id": "P-003",
-      "test_case": "Enable Course End Date, fill date, and Save and display (visible_when branch for End Date)",
+      "wf_ref": "WF-003",
+      "test_case": "Save with End Date disabled, Format = Weekly format, Group mode = No groups",
       "preconditions": [
-        "User logged in as <Teacher>",
-        "Course Settings page is open for <course>"
+        "User logged in as <role>",
+        "Course Settings page is open"
       ],
       "steps": [
-        "1. Enter <valid course full name> in the Course Full Name field",
-        "2. Enter <valid course short name> in the Course Short Name field",
-        "3. Select <course category> from the Course Category dropdown",
-        "4. Check the Course End Date Enable checkbox",
-        "5. Verify the Course End Date field becomes enabled/visible",
-        "6. Enter <valid end date> in the Course End Date field",
-        "7. Click the 'Save and display' button"
+        "1. Enter <valid course full name> in Course Full Name",
+        "2. Enter <valid course short name> in Course Short Name",
+        "3. Select <valid category> from Course Category",
+        "4. Ensure Enable Course End Date is unchecked",
+        "5. Select 'Weekly format' from Course Format",
+        "6. Verify Layout Controls for Weekly are visible",
+        "7. Select 'No groups' for Groups Group Mode",
+        "8. Click the 'Save and display' button"
       ],
-      "expected_result": "User is returned to the course page",
+      "expected_result": "persists configuration and returns to the course page",
       "priority": "high"
     },
     {
       "tc_id": "P-004",
-      "test_case": "Select Course Format to reveal Layout Controls then Save and display (visible_when branch for Layout Controls)",
+      "wf_ref": "WF-004",
+      "test_case": "Save with End Date disabled, Format = Weekly format, Group mode != No groups",
       "preconditions": [
-        "User logged in as <Teacher>",
-        "Course Settings page is open for <course>"
+        "User logged in as <role>",
+        "Course Settings page is open"
       ],
       "steps": [
-        "1. Enter <valid course full name> in the Course Full Name field",
-        "2. Enter <valid course short name> in the Course Short Name field",
-        "3. Select 'Topics format' from the Course Format dropdown",
-        "4. Verify the Layout Controls section becomes visible",
-        "5. Configure at least one control inside Layout Controls as applicable (use available controls)",
-        "6. Click the 'Save and display' button"
+        "1. Enter <valid course full name> in Course Full Name",
+        "2. Enter <valid course short name> in Course Short Name",
+        "3. Select <valid category> from Course Category",
+        "4. Ensure Enable Course End Date is unchecked",
+        "5. Select 'Weekly format' from Course Format",
+        "6. Verify Layout Controls for Weekly are visible",
+        "7. Select <a group mode other than No groups> for Groups Group Mode",
+        "8. Verify Groups Grouping dropdown is visible",
+        "9. Select <valid grouping> from Groups Grouping",
+        "10. Click the 'Save and display' button"
       ],
-      "expected_result": "User is returned to the course page",
+      "expected_result": "persists configuration and returns to the course page",
       "priority": "high"
+    },
+    {
+      "tc_id": "P-005",
+      "wf_ref": "WF-005",
+      "test_case": "Save with End Date enabled, Format = Topics format, Group mode = No groups",
+      "preconditions": [
+        "User logged in as <role>",
+        "Course Settings page is open"
+      ],
+      "steps": [
+        "1. Enter <valid course full name> in Course Full Name",
+        "2. Enter <valid course short name> in Course Short Name",
+        "3. Select <valid category> from Course Category",
+        "4. Enter <valid start date> in Course Start Date",
+        "5. Click the Enable Course End Date toggle to enable it",
+        "6. Enter <valid end date greater than or equal to start date> in Course End Date",
+        "7. Select 'Topics format' from Course Format",
+        "8. Verify Layout Controls for Topics are visible",
+        "9. Select 'No groups' for Groups Group Mode",
+        "10. Click the 'Save and display' button"
+      ],
+      "expected_result": "persists configuration and returns to the course page",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-006",
+      "wf_ref": "WF-006",
+      "test_case": "Save with End Date enabled, Format = Topics format, Group mode != No groups",
+      "preconditions": [
+        "User logged in as <role>",
+        "Course Settings page is open"
+      ],
+      "steps": [
+        "1. Enter <valid course full name> in Course Full Name",
+        "2. Enter <valid course short name> in Course Short Name",
+        "3. Select <valid category> from Course Category",
+        "4. Enter <valid start date> in Course Start Date",
+        "5. Click the Enable Course End Date toggle to enable it",
+        "6. Enter <valid end date greater than or equal to start date> in Course End Date",
+        "7. Select 'Topics format' from Course Format",
+        "8. Verify Layout Controls for Topics are visible",
+        "9. Select <a group mode other than No groups> for Groups Group Mode",
+        "10. Verify Groups Grouping dropdown is visible",
+        "11. Select <valid grouping> from Groups Grouping",
+        "12. Click the 'Save and display' button"
+      ],
+      "expected_result": "persists configuration and returns to the course page",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-007",
+      "wf_ref": "WF-007",
+      "test_case": "Save with End Date enabled, Format = Weekly format, Group mode = No groups",
+      "preconditions": [
+        "User logged in as <role>",
+        "Course Settings page is open"
+      ],
+      "steps": [
+        "1. Enter <valid course full name> in Course Full Name",
+        "2. Enter <valid course short name> in Course Short Name",
+        "3. Select <valid category> from Course Category",
+        "4. Enter <valid start date> in Course Start Date",
+        "5. Click the Enable Course End Date toggle to enable it",
+        "6. Enter <valid end date greater than or equal to start date> in Course End Date",
+        "7. Select 'Weekly format' from Course Format",
+        "8. Verify Layout Controls for Weekly are visible",
+        "9. Select 'No groups' for Groups Group Mode",
+        "10. Click the 'Save and display' button"
+      ],
+      "expected_result": "persists configuration and returns to the course page",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-008",
+      "wf_ref": "WF-008",
+      "test_case": "Save with End Date enabled, Format = Weekly format, Group mode != No groups",
+      "preconditions": [
+        "User logged in as <role>",
+        "Course Settings page is open"
+      ],
+      "steps": [
+        "1. Enter <valid course full name> in Course Full Name",
+        "2. Enter <valid course short name> in Course Short Name",
+        "3. Select <valid category> from Course Category",
+        "4. Enter <valid start date> in Course Start Date",
+        "5. Click the Enable Course End Date toggle to enable it",
+        "6. Enter <valid end date greater than or equal to start date> in Course End Date",
+        "7. Select 'Weekly format' from Course Format",
+        "8. Verify Layout Controls for Weekly are visible",
+        "9. Select <a group mode other than No groups> for Groups Group Mode",
+        "10. Verify Groups Grouping dropdown is visible",
+        "11. Select <valid grouping> from Groups Grouping",
+        "12. Click the 'Save and display' button"
+      ],
+      "expected_result": "persists configuration and returns to the course page",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-009",
+      "wf_ref": "WF-009",
+      "test_case": "Cancel with End Date disabled, Format = Topics format, Group mode = No groups",
+      "preconditions": [
+        "User logged in as <role>",
+        "Course Settings page is open"
+      ],
+      "steps": [
+        "1. Enter <valid course full name> in Course Full Name",
+        "2. Enter <valid course short name> in Course Short Name",
+        "3. Select <valid category> from Course Category",
+        "4. Ensure Enable Course End Date is unchecked",
+        "5. Select 'Topics format' from Course Format",
+        "6. Verify Layout Controls for Topics are visible",
+        "7. Select 'No groups' for Groups Group Mode",
+        "8. Click the 'Cancel' button"
+      ],
+      "expected_result": "leaves existing settings unchanged",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-010",
+      "wf_ref": "WF-010",
+      "test_case": "Cancel with End Date disabled, Format = Topics format, Group mode != No groups",
+      "preconditions": [
+        "User logged in as <role>",
+        "Course Settings page is open"
+      ],
+      "steps": [
+        "1. Enter <valid course full name> in Course Full Name",
+        "2. Enter <valid course short name> in Course Short Name",
+        "3. Select <valid category> from Course Category",
+        "4. Ensure Enable Course End Date is unchecked",
+        "5. Select 'Topics format' from Course Format",
+        "6. Verify Layout Controls for Topics are visible",
+        "7. Select <a group mode other than No groups> for Groups Group Mode",
+        "8. Verify Groups Grouping dropdown is visible",
+        "9. Click the 'Cancel' button"
+      ],
+      "expected_result": "leaves existing settings unchanged",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-011",
+      "wf_ref": "WF-011",
+      "test_case": "Cancel with End Date disabled, Format = Weekly format, Group mode = No groups",
+      "preconditions": [
+        "User logged in as <role>",
+        "Course Settings page is open"
+      ],
+      "steps": [
+        "1. Enter <valid course full name> in Course Full Name",
+        "2. Enter <valid course short name> in Course Short Name",
+        "3. Select <valid category> from Course Category",
+        "4. Ensure Enable Course End Date is unchecked",
+        "5. Select 'Weekly format' from Course Format",
+        "6. Verify Layout Controls for Weekly are visible",
+        "7. Select 'No groups' for Groups Group Mode",
+        "8. Click the 'Cancel' button"
+      ],
+      "expected_result": "leaves existing settings unchanged",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-012",
+      "wf_ref": "WF-012",
+      "test_case": "Cancel with End Date disabled, Format = Weekly format, Group mode != No groups",
+      "preconditions": [
+        "User logged in as <role>",
+        "Course Settings page is open"
+      ],
+      "steps": [
+        "1. Enter <valid course full name> in Course Full Name",
+        "2. Enter <valid course short name> in Course Short Name",
+        "3. Select <valid category> from Course Category",
+        "4. Ensure Enable Course End Date is unchecked",
+        "5. Select 'Weekly format' from Course Format",
+        "6. Verify Layout Controls for Weekly are visible",
+        "7. Select <a group mode other than No groups> for Groups Group Mode",
+        "8. Verify Groups Grouping dropdown is visible",
+        "9. Click the 'Cancel' button"
+      ],
+      "expected_result": "leaves existing settings unchanged",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-013",
+      "wf_ref": "WF-013",
+      "test_case": "Cancel with End Date enabled, Format = Topics format, Group mode = No groups",
+      "preconditions": [
+        "User logged in as <role>",
+        "Course Settings page is open"
+      ],
+      "steps": [
+        "1. Enter <valid course full name> in Course Full Name",
+        "2. Enter <valid course short name> in Course Short Name",
+        "3. Select <valid category> from Course Category",
+        "4. Enter <valid start date> in Course Start Date",
+        "5. Click the Enable Course End Date toggle to enable it",
+        "6. Enter <valid end date greater than or equal to start date> in Course End Date",
+        "7. Select 'Topics format' from Course Format",
+        "8. Verify Layout Controls for Topics are visible",
+        "9. Select 'No groups' for Groups Group Mode",
+        "10. Click the 'Cancel' button"
+      ],
+      "expected_result": "leaves existing settings unchanged",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-014",
+      "wf_ref": "WF-014",
+      "test_case": "Cancel with End Date enabled, Format = Topics format, Group mode != No groups",
+      "preconditions": [
+        "User logged in as <role>",
+        "Course Settings page is open"
+      ],
+      "steps": [
+        "1. Enter <valid course full name> in Course Full Name",
+        "2. Enter <valid course short name> in Course Short Name",
+        "3. Select <valid category> from Course Category",
+        "4. Enter <valid start date> in Course Start Date",
+        "5. Click the Enable Course End Date toggle to enable it",
+        "6. Enter <valid end date greater than or equal to start date> in Course End Date",
+        "7. Select 'Topics format' from Course Format",
+        "8. Verify Layout Controls for Topics are visible",
+        "9. Select <a group mode other than No groups> for Groups Group Mode",
+        "10. Verify Groups Grouping dropdown is visible",
+        "11. Click the 'Cancel' button"
+      ],
+      "expected_result": "leaves existing settings unchanged",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-015",
+      "wf_ref": "WF-015",
+      "test_case": "Cancel with End Date enabled, Format = Weekly format, Group mode = No groups",
+      "preconditions": [
+        "User logged in as <role>",
+        "Course Settings page is open"
+      ],
+      "steps": [
+        "1. Enter <valid course full name> in Course Full Name",
+        "2. Enter <valid course short name> in Course Short Name",
+        "3. Select <valid category> from Course Category",
+        "4. Enter <valid start date> in Course Start Date",
+        "5. Click the Enable Course End Date toggle to enable it",
+        "6. Enter <valid end date greater than or equal to start date> in Course End Date",
+        "7. Select 'Weekly format' from Course Format",
+        "8. Verify Layout Controls for Weekly are visible",
+        "9. Select 'No groups' for Groups Group Mode",
+        "10. Click the 'Cancel' button"
+      ],
+      "expected_result": "leaves existing settings unchanged",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-016",
+      "wf_ref": "WF-016",
+      "test_case": "Cancel with End Date enabled, Format = Weekly format, Group mode != No groups",
+      "preconditions": [
+        "User logged in as <role>",
+        "Course Settings page is open"
+      ],
+      "steps": [
+        "1. Enter <valid course full name> in Course Full Name",
+        "2. Enter <valid course short name> in Course Short Name",
+        "3. Select <valid category> from Course Category",
+        "4. Enter <valid start date> in Course Start Date",
+        "5. Click the Enable Course End Date toggle to enable it",
+        "6. Enter <valid end date greater than or equal to start date> in Course End Date",
+        "7. Select 'Weekly format' from Course Format",
+        "8. Verify Layout Controls for Weekly are visible",
+        "9. Select <a group mode other than No groups> for Groups Group Mode",
+        "10. Verify Groups Grouping dropdown is visible",
+        "11. Click the 'Cancel' button"
+      ],
+      "expected_result": "leaves existing settings unchanged",
+      "priority": "medium"
     }
   ],
   "summary": {
-    "total": 4,
-    "high_priority": 3,
-    "medium_priority": 1,
+    "total": 16,
+    "high_priority": 8,
+    "medium_priority": 8,
     "low_priority": 0
   }
 }
 
 ------------------------------------------------------------
-[21:49:04] Test-Positive - PARSED JSON
+[15:31:00] Test-Positive - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Course Settings",
@@ -498,82 +804,373 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Save and display with required fields filled (happy path)",
+      "wf_ref": "WF-001",
+      "test_case": "Save with End Date disabled, Format = Topics format, Group mode = No groups",
       "preconditions": [
-        "User logged in as <Teacher>",
-        "Course Settings page is open for <course>"
+        "User logged in as <role>",
+        "Course Settings page is open"
       ],
       "steps": [
-        "1. Enter <valid course full name> in the Course Full Name field",
-        "2. Enter <valid course short name> in the Course Short Name field",
-        "3. Select <course category> from the Course Category dropdown",
-        "4. Select <visibility option> from the Course Visibility dropdown",
-        "5. Optionally enter <valid start date> in the Course Start Date field",
-        "6. Enter <text> in the Course Summary rich text editor",
-        "7. Upload a <valid image file> using the Course Image upload control",
+        "1. Enter <valid course full name> in Course Full Name",
+        "2. Enter <valid course short name> in Course Short Name",
+        "3. Select <valid category> from Course Category",
+        "4. Ensure Enable Course End Date is unchecked",
+        "5. Select 'Topics format' from Course Format",
+        "6. Verify Layout Controls for Topics are visible",
+        "7. Select 'No groups' for Groups Group Mode",
         "8. Click the 'Save and display' button"
       ],
-      "expected_result": "User is returned to the course page",
+      "expected_result": "persists configuration and returns to the course page",
       "priority": "high"
     },
     {
       "tc_id": "P-002",
-      "test_case": "Cancel discards changes and leaves existing settings unchanged",
+      "wf_ref": "WF-002",
+      "test_case": "Save with End Date disabled, Format = Topics format, Group mode != No groups",
       "preconditions": [
-        "User logged in as <Teacher>",
-        "Course Settings page is open for <course> with existing values: Course Full Name = <existing course full name>, Course Short Name = <existing course short name>, Course Category = <existing course category>"
+        "User logged in as <role>",
+        "Course Settings page is open"
       ],
       "steps": [
-        "1. Change Course Full Name to <new valid course full name>",
-        "2. Change Course Short Name to <new valid course short name>",
-        "3. Change Course Category to <different valid course category>",
-        "4. Click the 'Cancel' button"
+        "1. Enter <valid course full name> in Course Full Name",
+        "2. Enter <valid course short name> in Course Short Name",
+        "3. Select <valid category> from Course Category",
+        "4. Ensure Enable Course End Date is unchecked",
+        "5. Select 'Topics format' from Course Format",
+        "6. Verify Layout Controls for Topics are visible",
+        "7. Select <a group mode other than No groups> for Groups Group Mode",
+        "8. Verify Groups Grouping dropdown is visible",
+        "9. Select <valid grouping> from Groups Grouping",
+        "10. Click the 'Save and display' button"
       ],
-      "expected_result": "Course Settings form still displays the original values: Course Full Name = <existing course full name>, Course Short Name = <existing course short name>, Course Category = <existing course category>; no save/confirmation notification is shown",
-      "priority": "medium"
+      "expected_result": "persists configuration and returns to the course page",
+      "priority": "high"
     },
     {
       "tc_id": "P-003",
-      "test_case": "Enable Course End Date, fill date, and Save and display (visible_when branch for End Date)",
+      "wf_ref": "WF-003",
+      "test_case": "Save with End Date disabled, Format = Weekly format, Group mode = No groups",
       "preconditions": [
-        "User logged in as <Teacher>",
-        "Course Settings page is open for <course>"
+        "User logged in as <role>",
+        "Course Settings page is open"
       ],
       "steps": [
-        "1. Enter <valid course full name> in the Course Full Name field",
-        "2. Enter <valid course short name> in the Course Short Name field",
-        "3. Select <course category> from the Course Category dropdown",
-        "4. Check the Course End Date Enable checkbox",
-        "5. Verify the Course End Date field becomes enabled/visible",
-        "6. Enter <valid end date> in the Course End Date field",
-        "7. Click the 'Save and display' button"
+        "1. Enter <valid course full name> in Course Full Name",
+        "2. Enter <valid course short name> in Course Short Name",
+        "3. Select <valid category> from Course Category",
+        "4. Ensure Enable Course End Date is unchecked",
+        "5. Select 'Weekly format' from Course Format",
+        "6. Verify Layout Controls for Weekly are visible",
+        "7. Select 'No groups' for Groups Group Mode",
+        "8. Click the 'Save and display' button"
       ],
-      "expected_result": "User is returned to the course page",
+      "expected_result": "persists configuration and returns to the course page",
       "priority": "high"
     },
     {
       "tc_id": "P-004",
-      "test_case": "Select Course Format to reveal Layout Controls then Save and display (visible_when branch for Layout Controls)",
+      "wf_ref": "WF-004",
+      "test_case": "Save with End Date disabled, Format = Weekly format, Group mode != No groups",
       "preconditions": [
-        "User logged in as <Teacher>",
-        "Course Settings page is open for <course>"
+        "User logged in as <role>",
+        "Course Settings page is open"
       ],
       "steps": [
-        "1. Enter <valid course full name> in the Course Full Name field",
-        "2. Enter <valid course short name> in the Course Short Name field",
-        "3. Select 'Topics format' from the Course Format dropdown",
-        "4. Verify the Layout Controls section becomes visible",
-        "5. Configure at least one control inside Layout Controls as applicable (use available controls)",
-        "6. Click the 'Save and display' button"
+        "1. Enter <valid course full name> in Course Full Name",
+        "2. Enter <valid course short name> in Course Short Name",
+        "3. Select <valid category> from Course Category",
+        "4. Ensure Enable Course End Date is unchecked",
+        "5. Select 'Weekly format' from Course Format",
+        "6. Verify Layout Controls for Weekly are visible",
+        "7. Select <a group mode other than No groups> for Groups Group Mode",
+        "8. Verify Groups Grouping dropdown is visible",
+        "9. Select <valid grouping> from Groups Grouping",
+        "10. Click the 'Save and display' button"
       ],
-      "expected_result": "User is returned to the course page",
+      "expected_result": "persists configuration and returns to the course page",
       "priority": "high"
+    },
+    {
+      "tc_id": "P-005",
+      "wf_ref": "WF-005",
+      "test_case": "Save with End Date enabled, Format = Topics format, Group mode = No groups",
+      "preconditions": [
+        "User logged in as <role>",
+        "Course Settings page is open"
+      ],
+      "steps": [
+        "1. Enter <valid course full name> in Course Full Name",
+        "2. Enter <valid course short name> in Course Short Name",
+        "3. Select <valid category> from Course Category",
+        "4. Enter <valid start date> in Course Start Date",
+        "5. Click the Enable Course End Date toggle to enable it",
+        "6. Enter <valid end date greater than or equal to start date> in Course End Date",
+        "7. Select 'Topics format' from Course Format",
+        "8. Verify Layout Controls for Topics are visible",
+        "9. Select 'No groups' for Groups Group Mode",
+        "10. Click the 'Save and display' button"
+      ],
+      "expected_result": "persists configuration and returns to the course page",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-006",
+      "wf_ref": "WF-006",
+      "test_case": "Save with End Date enabled, Format = Topics format, Group mode != No groups",
+      "preconditions": [
+        "User logged in as <role>",
+        "Course Settings page is open"
+      ],
+      "steps": [
+        "1. Enter <valid course full name> in Course Full Name",
+        "2. Enter <valid course short name> in Course Short Name",
+        "3. Select <valid category> from Course Category",
+        "4. Enter <valid start date> in Course Start Date",
+        "5. Click the Enable Course End Date toggle to enable it",
+        "6. Enter <valid end date greater than or equal to start date> in Course End Date",
+        "7. Select 'Topics format' from Course Format",
+        "8. Verify Layout Controls for Topics are visible",
+        "9. Select <a group mode other than No groups> for Groups Group Mode",
+        "10. Verify Groups Grouping dropdown is visible",
+        "11. Select <valid grouping> from Groups Grouping",
+        "12. Click the 'Save and display' button"
+      ],
+      "expected_result": "persists configuration and returns to the course page",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-007",
+      "wf_ref": "WF-007",
+      "test_case": "Save with End Date enabled, Format = Weekly format, Group mode = No groups",
+      "preconditions": [
+        "User logged in as <role>",
+        "Course Settings page is open"
+      ],
+      "steps": [
+        "1. Enter <valid course full name> in Course Full Name",
+        "2. Enter <valid course short name> in Course Short Name",
+        "3. Select <valid category> from Course Category",
+        "4. Enter <valid start date> in Course Start Date",
+        "5. Click the Enable Course End Date toggle to enable it",
+        "6. Enter <valid end date greater than or equal to start date> in Course End Date",
+        "7. Select 'Weekly format' from Course Format",
+        "8. Verify Layout Controls for Weekly are visible",
+        "9. Select 'No groups' for Groups Group Mode",
+        "10. Click the 'Save and display' button"
+      ],
+      "expected_result": "persists configuration and returns to the course page",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-008",
+      "wf_ref": "WF-008",
+      "test_case": "Save with End Date enabled, Format = Weekly format, Group mode != No groups",
+      "preconditions": [
+        "User logged in as <role>",
+        "Course Settings page is open"
+      ],
+      "steps": [
+        "1. Enter <valid course full name> in Course Full Name",
+        "2. Enter <valid course short name> in Course Short Name",
+        "3. Select <valid category> from Course Category",
+        "4. Enter <valid start date> in Course Start Date",
+        "5. Click the Enable Course End Date toggle to enable it",
+        "6. Enter <valid end date greater than or equal to start date> in Course End Date",
+        "7. Select 'Weekly format' from Course Format",
+        "8. Verify Layout Controls for Weekly are visible",
+        "9. Select <a group mode other than No groups> for Groups Group Mode",
+        "10. Verify Groups Grouping dropdown is visible",
+        "11. Select <valid grouping> from Groups Grouping",
+        "12. Click the 'Save and display' button"
+      ],
+      "expected_result": "persists configuration and returns to the course page",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-009",
+      "wf_ref": "WF-009",
+      "test_case": "Cancel with End Date disabled, Format = Topics format, Group mode = No groups",
+      "preconditions": [
+        "User logged in as <role>",
+        "Course Settings page is open"
+      ],
+      "steps": [
+        "1. Enter <valid course full name> in Course Full Name",
+        "2. Enter <valid course short name> in Course Short Name",
+        "3. Select <valid category> from Course Category",
+        "4. Ensure Enable Course End Date is unchecked",
+        "5. Select 'Topics format' from Course Format",
+        "6. Verify Layout Controls for Topics are visible",
+        "7. Select 'No groups' for Groups Group Mode",
+        "8. Click the 'Cancel' button"
+      ],
+      "expected_result": "leaves existing settings unchanged",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-010",
+      "wf_ref": "WF-010",
+      "test_case": "Cancel with End Date disabled, Format = Topics format, Group mode != No groups",
+      "preconditions": [
+        "User logged in as <role>",
+        "Course Settings page is open"
+      ],
+      "steps": [
+        "1. Enter <valid course full name> in Course Full Name",
+        "2. Enter <valid course short name> in Course Short Name",
+        "3. Select <valid category> from Course Category",
+        "4. Ensure Enable Course End Date is unchecked",
+        "5. Select 'Topics format' from Course Format",
+        "6. Verify Layout Controls for Topics are visible",
+        "7. Select <a group mode other than No groups> for Groups Group Mode",
+        "8. Verify Groups Grouping dropdown is visible",
+        "9. Click the 'Cancel' button"
+      ],
+      "expected_result": "leaves existing settings unchanged",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-011",
+      "wf_ref": "WF-011",
+      "test_case": "Cancel with End Date disabled, Format = Weekly format, Group mode = No groups",
+      "preconditions": [
+        "User logged in as <role>",
+        "Course Settings page is open"
+      ],
+      "steps": [
+        "1. Enter <valid course full name> in Course Full Name",
+        "2. Enter <valid course short name> in Course Short Name",
+        "3. Select <valid category> from Course Category",
+        "4. Ensure Enable Course End Date is unchecked",
+        "5. Select 'Weekly format' from Course Format",
+        "6. Verify Layout Controls for Weekly are visible",
+        "7. Select 'No groups' for Groups Group Mode",
+        "8. Click the 'Cancel' button"
+      ],
+      "expected_result": "leaves existing settings unchanged",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-012",
+      "wf_ref": "WF-012",
+      "test_case": "Cancel with End Date disabled, Format = Weekly format, Group mode != No groups",
+      "preconditions": [
+        "User logged in as <role>",
+        "Course Settings page is open"
+      ],
+      "steps": [
+        "1. Enter <valid course full name> in Course Full Name",
+        "2. Enter <valid course short name> in Course Short Name",
+        "3. Select <valid category> from Course Category",
+        "4. Ensure Enable Course End Date is unchecked",
+        "5. Select 'Weekly format' from Course Format",
+        "6. Verify Layout Controls for Weekly are visible",
+        "7. Select <a group mode other than No groups> for Groups Group Mode",
+        "8. Verify Groups Grouping dropdown is visible",
+        "9. Click the 'Cancel' button"
+      ],
+      "expected_result": "leaves existing settings unchanged",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-013",
+      "wf_ref": "WF-013",
+      "test_case": "Cancel with End Date enabled, Format = Topics format, Group mode = No groups",
+      "preconditions": [
+        "User logged in as <role>",
+        "Course Settings page is open"
+      ],
+      "steps": [
+        "1. Enter <valid course full name> in Course Full Name",
+        "2. Enter <valid course short name> in Course Short Name",
+        "3. Select <valid category> from Course Category",
+        "4. Enter <valid start date> in Course Start Date",
+        "5. Click the Enable Course End Date toggle to enable it",
+        "6. Enter <valid end date greater than or equal to start date> in Course End Date",
+        "7. Select 'Topics format' from Course Format",
+        "8. Verify Layout Controls for Topics are visible",
+        "9. Select 'No groups' for Groups Group Mode",
+        "10. Click the 'Cancel' button"
+      ],
+      "expected_result": "leaves existing settings unchanged",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-014",
+      "wf_ref": "WF-014",
+      "test_case": "Cancel with End Date enabled, Format = Topics format, Group mode != No groups",
+      "preconditions": [
+        "User logged in as <role>",
+        "Course Settings page is open"
+      ],
+      "steps": [
+        "1. Enter <valid course full name> in Course Full Name",
+        "2. Enter <valid course short name> in Course Short Name",
+        "3. Select <valid category> from Course Category",
+        "4. Enter <valid start date> in Course Start Date",
+        "5. Click the Enable Course End Date toggle to enable it",
+        "6. Enter <valid end date greater than or equal to start date> in Course End Date",
+        "7. Select 'Topics format' from Course Format",
+        "8. Verify Layout Controls for Topics are visible",
+        "9. Select <a group mode other than No groups> for Groups Group Mode",
+        "10. Verify Groups Grouping dropdown is visible",
+        "11. Click the 'Cancel' button"
+      ],
+      "expected_result": "leaves existing settings unchanged",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-015",
+      "wf_ref": "WF-015",
+      "test_case": "Cancel with End Date enabled, Format = Weekly format, Group mode = No groups",
+      "preconditions": [
+        "User logged in as <role>",
+        "Course Settings page is open"
+      ],
+      "steps": [
+        "1. Enter <valid course full name> in Course Full Name",
+        "2. Enter <valid course short name> in Course Short Name",
+        "3. Select <valid category> from Course Category",
+        "4. Enter <valid start date> in Course Start Date",
+        "5. Click the Enable Course End Date toggle to enable it",
+        "6. Enter <valid end date greater than or equal to start date> in Course End Date",
+        "7. Select 'Weekly format' from Course Format",
+        "8. Verify Layout Controls for Weekly are visible",
+        "9. Select 'No groups' for Groups Group Mode",
+        "10. Click the 'Cancel' button"
+      ],
+      "expected_result": "leaves existing settings unchanged",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-016",
+      "wf_ref": "WF-016",
+      "test_case": "Cancel with End Date enabled, Format = Weekly format, Group mode != No groups",
+      "preconditions": [
+        "User logged in as <role>",
+        "Course Settings page is open"
+      ],
+      "steps": [
+        "1. Enter <valid course full name> in Course Full Name",
+        "2. Enter <valid course short name> in Course Short Name",
+        "3. Select <valid category> from Course Category",
+        "4. Enter <valid start date> in Course Start Date",
+        "5. Click the Enable Course End Date toggle to enable it",
+        "6. Enter <valid end date greater than or equal to start date> in Course End Date",
+        "7. Select 'Weekly format' from Course Format",
+        "8. Verify Layout Controls for Weekly are visible",
+        "9. Select <a group mode other than No groups> for Groups Group Mode",
+        "10. Verify Groups Grouping dropdown is visible",
+        "11. Click the 'Cancel' button"
+      ],
+      "expected_result": "leaves existing settings unchanged",
+      "priority": "medium"
     }
   ],
   "summary": {
-    "total": 4,
-    "high_priority": 3,
-    "medium_priority": 1,
+    "total": 16,
+    "high_priority": 8,
+    "medium_priority": 8,
     "low_priority": 0
   }
 }

@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-21T22:29:06.495602
+DEBUG SESSION STARTED: 2026-05-25T14:24:50.698981
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[22:29:06] Test-Negative - SYSTEM PROMPT
+[14:24:50] Test-Negative - SYSTEM PROMPT
 ------------------------------------------------------------
 You are a Negative Test Case Generator. You receive (1) a UI-AST JSON for one module and (2) the original functional description. Your job is to produce ONLY negative test cases — tests where invalid input is provided or business rules are violated, and the system correctly rejects or blocks the action.
 
@@ -22,6 +22,10 @@ You are a Negative Test Case Generator. You receive (1) a UI-AST JSON for one mo
 <description>
 {Original functional description text for this module}
 </description>
+
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
 
 ---
 
@@ -111,6 +115,9 @@ Group required fields by type: `text/unspecified`, `email`, `password`, `number`
 
 Do NOT generate a separate blank-field test for every required field. If 5 text fields are all required, one representative covers them all.
 
+**Action dialog required fields — NOT subject to cross-form deduplication:**
+If a `state_bound_action_bar` action opens a dialog with its own required `fields{}` (e.g., Activate requires Activation Date, Reject requires a Reason, Withdraw requires a Reason, Close requires a Closure Reason), each such dialog is its own testing scope. Generate ONE "leave the required dialog field blank and submit" test per distinct action dialog. These are HIGH priority — they block state transitions and are common defect sites. Do not suppress them because the main wizard already has a blank-field test.
+
 **2. Format violations:**
 
 For fields with type-specific format rules (from AST type or description):
@@ -143,6 +150,10 @@ For each unique `constraints[]` entry in the AST, and for cross-field rules desc
 
 One test per unique constraint. Do not duplicate the same mechanism.
 
+**Constraint timing tests:** If the spec states an action is blocked by a pre-existing system state (e.g., "cannot close with active accounts", "cannot transfer to the same office"), generate TWO tests:
+1. The standard constraint violation test (user opens the dialog, fills required fields, submits → blocked).
+2. A constraint-timing test: user opens the dialog WITHOUT filling required fields → assert whether the block is shown immediately on dialog open (before the user fills anything) OR only on submit. This distinguishes whether the UI enforces the constraint eagerly or lazily. Steps: open the dialog, observe the state → assert what is visible before any interaction. If the spec is silent on timing, generate only the first test.
+
 **5. Precondition violations (auth, role, and state):**
 
 For each `preconditions[]` entry on any action — and for auth/role rules described in the spec:
@@ -154,18 +165,18 @@ For each `preconditions[]` entry on any action — and for auth/role rules descr
 **6. State-machine violations:**
 
 From `state_bound_action_bar` nodes:
-- For each state where an action is NOT listed in `available_actions`, generate one test attempting that action from that state. Example: attempting "Approve" on an entity already in "Active" state.
+- **Every defined state must have at least one wrong-state test.** For each state, identify at least one action that is NOT in its `available_actions` list and generate a test attempting that action from that state.
 - If a state has an empty `available_actions` array, generate one test verifying no action buttons are visible in that state.
-
-One test per unique wrong-state scenario — do not enumerate every action × every invalid state.
+- **Do not stop after 1–2 representative examples** when the module defines 4+ distinct states. The states Active, Pending, Closed, Rejected, and Withdrawn each have different action sets — each must be independently verified.
+- One test per state is sufficient — pick the most distinct unavailable action for that state. Do not enumerate every action × every state (that would be exponential).
 
 ---
 
 **DEDUPLICATION GATE (run before outputting):**
 
-1. **Required field dedup:** Multiple required text fields → ONE representative test, not one per field.
+1. **Required field dedup:** Multiple required text fields in the **same form or dialog** → ONE representative test, not one per field.
 2. **Sub-rule dedup:** A field with multiple validation sub-rules (e.g., password: length + uppercase + lowercase + number + special char) → ONE representative violation test, not one per sub-rule.
-3. **Cross-form dedup:** If two forms in the same module share the same validation mechanism (e.g., both have a required text field) → test it on the primary form only.
+3. **Cross-form dedup:** If two **main forms** in the same module share the same validation mechanism → test it on the primary form only. **Exception: action dialogs are never suppressed by cross-form dedup** — each action dialog with a required field gets its own blank-field test regardless.
 4. **Uniqueness check:** Before outputting, ask for each TC: "Does this test catch a bug that NO other test in this module would catch?" If no → remove it.
 
 ---
@@ -174,9 +185,11 @@ One test per unique wrong-state scenario — do not enumerate every action × ev
 
 - Simple module (login, single form, display page): **2–4 tests**
 - Medium module (standard CRUD form, form with constraints): **4–8 tests**
-- Complex module (state machine, multi-form, wizard with many constraints): **8–12 tests**
+- Complex module (state machine, multi-form, wizard with many constraints): **10–16 tests**
 
-If you exceed these ranges, you are generating redundant tests. Apply the deduplication gate again before outputting.
+For modules with a `state_bound_action_bar` defining 4+ states, the state-machine violation tests alone will produce 4–5 tests. This is expected and correct — do not suppress them to hit a lower target.
+
+If you exceed the upper range, apply the deduplication gate again before outputting.
 
 ---
 
@@ -184,6 +197,17 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
 
 - **High:** State precondition violations, constraint violations that could corrupt data, unauthenticated access, required field representatives
 - **Medium:** Format violations, cross-field validation, numeric bounds, wrong-role access, wrong-state action attempts
+
+---
+
+**WORKFLOW-AWARE FAILURE INJECTION (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- For each workflow that contains a form interaction (terminal action is a submit/save/create/approve button):
+  - Identify the most **critical blocking failure** for that workflow's `conditional_branch`.
+  - If that failure mode is NOT already covered by another workflow's negative test, generate one negative TC for it.
+- **Do NOT generate one negative TC per workflow mechanically.** Apply the existing deduplication gate first — only add a TC if it catches a bug that no other test would catch.
+- Add `"wf_ref": "WF-NNN"` to each TC that maps to a workflow. Set `"wf_ref": null` for generic validation tests.
 
 ---
 
@@ -195,6 +219,7 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
   "test_cases": [
     {
       "tc_id": "N-001",
+      "wf_ref": null,
       "test_case": "Short descriptive name",
       "preconditions": ["precondition 1"],
       "steps": ["1. Step one", "2. Step two"],
@@ -212,7 +237,7 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
 
 
 ------------------------------------------------------------
-[22:29:06] Test-Negative - USER PROMPT
+[14:24:50] Test-Negative - USER PROMPT
 ------------------------------------------------------------
 <module_name>Login</module_name>
 
@@ -220,48 +245,53 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
 {
   "module_name": "Login",
   "components": {
-    "Language_Selector": {
-      "type": "dropdown",
-      "element_name": "Language_Selector"
-    },
-    "Login_Form": {
+    "Authentication_Interface": {
       "type": "form",
       "fields": {
+        "Language_Selector": {
+          "type": "dropdown",
+          "required": false
+        },
         "Tenant": {
           "type": "dropdown",
-          "default_value": "default",
-          "constraints": []
+          "required": false,
+          "default_value": "default"
         },
         "Username": {
           "type": "unspecified",
+          "required": true,
           "constraints": [
             "required",
-            "inline_validation_on_empty"
+            "show_inline_validation_message_on_empty"
           ]
         },
         "Password": {
           "type": "password",
+          "required": true,
           "constraints": [
             "required",
-            "inline_validation_on_empty"
+            "show_inline_validation_message_on_empty"
           ]
         },
         "Remember_Me": {
           "type": "checkbox",
-          "constraints": []
-        },
-        "Forgot_Password": {
-          "type": "link",
-          "on_click": "navigates to Forgot Password flow"
+          "required": false
         }
       },
       "submit_actions": [
         {
           "element_name": "Login",
           "type": "button",
-          "enabled_when": "Username != '' and Password != ''",
+          "enabled_when": "Username != '' && Password != ''",
           "on_success": "redirects to Dashboard",
-          "on_failure": "shows error message 'Invalid credentials'"
+          "on_failure": "shows invalid credentials error message"
+        }
+      ],
+      "links": [
+        {
+          "element_name": "Forgot Password?",
+          "type": "link",
+          "on_click": "navigates to Forgot Password page"
         }
       ]
     }
@@ -278,10 +308,15 @@ The login page has two panels. The left panel displays a background image with t
 
 </description>
 
+<workflows>
+WF-001 | Login with required fields filled | actor: <role> | branch: Username != '' AND Password != '' | terminal: Login | on_success: redirects to Dashboard
+WF-002 | Navigate to Forgot Password page | actor: <role> | branch: none | terminal: Forgot Password? | on_success: navigates to Forgot Password page
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[22:29:33] Test-Negative - LLM RESPONSE
+[14:25:20] Test-Negative - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Login",
@@ -289,58 +324,66 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "N-001",
-      "test_case": "Username required — leave Username blank and attempt to submit",
+      "wf_ref": null,
+      "test_case": "Username required - leave blank while other required fields filled",
       "preconditions": [
-        "User is on the Login page"
+        "User is on the Login page",
+        "User is not authenticated"
       ],
       "steps": [
         "1. Leave the Username field blank",
-        "2. Enter <valid password> into the Password field",
-        "3. Attempt to click the Login button"
+        "2. Enter <valid password> in the Password field",
+        "3. Click the Login button"
       ],
-      "expected_result": "Login button remains disabled; the Username field displays an inline validation error indicating it is required; the form does not submit and the user stays on the Login page",
+      "expected_result": "Username field displays an inline validation error indicating it is required; the Login button remains disabled and the form does not submit; user stays on the Login page",
       "priority": "high"
     },
     {
       "tc_id": "N-002",
-      "test_case": "Password required — leave Password blank and attempt to submit",
+      "wf_ref": null,
+      "test_case": "Password required - leave blank while other required fields filled",
       "preconditions": [
-        "User is on the Login page"
+        "User is on the Login page",
+        "User is not authenticated"
       ],
       "steps": [
-        "1. Enter <valid username> into the Username field",
+        "1. Enter <valid username> in the Username field",
         "2. Leave the Password field blank",
-        "3. Attempt to click the Login button"
+        "3. Click the Login button"
       ],
-      "expected_result": "Login button remains disabled; the Password field displays an inline validation error indicating it is required; the form does not submit and the user stays on the Login page",
+      "expected_result": "Password field displays an inline validation error indicating it is required; the Login button remains disabled and the form does not submit; user stays on the Login page",
       "priority": "high"
     },
     {
       "tc_id": "N-003",
-      "test_case": "All required fields empty — attempt to submit with both Username and Password blank",
+      "wf_ref": null,
+      "test_case": "All required fields empty - attempt submit",
       "preconditions": [
-        "User is on the Login page"
+        "User is on the Login page",
+        "User is not authenticated"
       ],
       "steps": [
         "1. Leave the Username field blank",
         "2. Leave the Password field blank",
-        "3. Attempt to click the Login button"
+        "3. Click the Login button"
       ],
-      "expected_result": "Login button remains disabled; both Username and Password fields display inline validation errors indicating they are required; the form does not submit and the user stays on the Login page",
+      "expected_result": "Both Username and Password fields display inline validation errors indicating they are required; the Login button remains disabled and the form does not submit; user stays on the Login page",
       "priority": "high"
     },
     {
       "tc_id": "N-004",
-      "test_case": "Invalid credentials — submit with incorrect Username or Password",
+      "wf_ref": "WF-001",
+      "test_case": "Invalid credentials supplied while both required fields filled",
       "preconditions": [
-        "User is on the Login page"
+        "User is on the Login page",
+        "User is not authenticated"
       ],
       "steps": [
-        "1. Enter <invalid username> into the Username field",
-        "2. Enter <invalid password> into the Password field",
+        "1. Enter <username> in the Username field",
+        "2. Enter <incorrect password> in the Password field",
         "3. Click the Login button"
       ],
-      "expected_result": "Login attempt is blocked; page displays the error message 'Invalid credentials' and the user remains on the Login page (no redirect to Dashboard)",
+      "expected_result": "A visible error message appears indicating an invalid credentials error message (login failure); the form does not redirect to the Dashboard and the user remains on the Login page",
       "priority": "high"
     }
   ],
@@ -353,7 +396,7 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
 }
 
 ------------------------------------------------------------
-[22:29:33] Test-Negative - PARSED JSON
+[14:25:20] Test-Negative - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Login",
@@ -361,58 +404,66 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "N-001",
-      "test_case": "Username required \u2014 leave Username blank and attempt to submit",
+      "wf_ref": null,
+      "test_case": "Username required - leave blank while other required fields filled",
       "preconditions": [
-        "User is on the Login page"
+        "User is on the Login page",
+        "User is not authenticated"
       ],
       "steps": [
         "1. Leave the Username field blank",
-        "2. Enter <valid password> into the Password field",
-        "3. Attempt to click the Login button"
+        "2. Enter <valid password> in the Password field",
+        "3. Click the Login button"
       ],
-      "expected_result": "Login button remains disabled; the Username field displays an inline validation error indicating it is required; the form does not submit and the user stays on the Login page",
+      "expected_result": "Username field displays an inline validation error indicating it is required; the Login button remains disabled and the form does not submit; user stays on the Login page",
       "priority": "high"
     },
     {
       "tc_id": "N-002",
-      "test_case": "Password required \u2014 leave Password blank and attempt to submit",
+      "wf_ref": null,
+      "test_case": "Password required - leave blank while other required fields filled",
       "preconditions": [
-        "User is on the Login page"
+        "User is on the Login page",
+        "User is not authenticated"
       ],
       "steps": [
-        "1. Enter <valid username> into the Username field",
+        "1. Enter <valid username> in the Username field",
         "2. Leave the Password field blank",
-        "3. Attempt to click the Login button"
+        "3. Click the Login button"
       ],
-      "expected_result": "Login button remains disabled; the Password field displays an inline validation error indicating it is required; the form does not submit and the user stays on the Login page",
+      "expected_result": "Password field displays an inline validation error indicating it is required; the Login button remains disabled and the form does not submit; user stays on the Login page",
       "priority": "high"
     },
     {
       "tc_id": "N-003",
-      "test_case": "All required fields empty \u2014 attempt to submit with both Username and Password blank",
+      "wf_ref": null,
+      "test_case": "All required fields empty - attempt submit",
       "preconditions": [
-        "User is on the Login page"
+        "User is on the Login page",
+        "User is not authenticated"
       ],
       "steps": [
         "1. Leave the Username field blank",
         "2. Leave the Password field blank",
-        "3. Attempt to click the Login button"
+        "3. Click the Login button"
       ],
-      "expected_result": "Login button remains disabled; both Username and Password fields display inline validation errors indicating they are required; the form does not submit and the user stays on the Login page",
+      "expected_result": "Both Username and Password fields display inline validation errors indicating they are required; the Login button remains disabled and the form does not submit; user stays on the Login page",
       "priority": "high"
     },
     {
       "tc_id": "N-004",
-      "test_case": "Invalid credentials \u2014 submit with incorrect Username or Password",
+      "wf_ref": "WF-001",
+      "test_case": "Invalid credentials supplied while both required fields filled",
       "preconditions": [
-        "User is on the Login page"
+        "User is on the Login page",
+        "User is not authenticated"
       ],
       "steps": [
-        "1. Enter <invalid username> into the Username field",
-        "2. Enter <invalid password> into the Password field",
+        "1. Enter <username> in the Username field",
+        "2. Enter <incorrect password> in the Password field",
         "3. Click the Login button"
       ],
-      "expected_result": "Login attempt is blocked; page displays the error message 'Invalid credentials' and the user remains on the Login page (no redirect to Dashboard)",
+      "expected_result": "A visible error message appears indicating an invalid credentials error message (login failure); the form does not redirect to the Dashboard and the user remains on the Login page",
       "priority": "high"
     }
   ],

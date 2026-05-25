@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-21T22:54:00.280770
+DEBUG SESSION STARTED: 2026-05-25T14:51:20.264895
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[22:54:00] Test-Edge - SYSTEM PROMPT
+[14:51:20] Test-Edge - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Edge Case and Boundary Test Generator. You receive (1) a UI-AST JSON for one module and (2) the original functional description. Your job is to produce ONLY boundary and edge case tests — scenarios at the limits of valid/invalid input and unusual-but-plausible user behaviors.
 
@@ -25,6 +25,10 @@ You are NOT producing happy paths (positive prompt) or standard validation failu
 {Original functional description text for this module}
 </description>
 
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
+
 ---
 
 **UI-AST REFERENCE — How to Read the AST for Edge Testing:**
@@ -35,7 +39,7 @@ You are NOT producing happy paths (positive prompt) or standard validation failu
 | `repeating_group` with `max` | Test adding exactly `max` entries (should succeed) then one more (should block) |
 | `visible_when` / `required_when` | Edge: trigger condition, fill revealed field with boundary value |
 | `state_bound_action_bar` | State edges: rapid consecutive state transitions, transition from a boundary state |
-| `submit_actions[]` with multiple buttons | Interaction edge: double-click a submit button rapidly |
+
 | `type: "date"` fields | Data edges: today, yesterday, far future, Feb 29 leap year |
 | `type: "file_upload"` | Edge: file exactly at size limit, file at 1 byte over limit |
 
@@ -132,7 +136,6 @@ Pick only the ones that apply to field types present in this module's AST:
 
 Pick only the ones that match component types in this module's AST:
 
-- **Double-click submit** (any form/wizard with a submit button): rapidly double-click the submit button → assert only one record is created; no duplicate row appears in the listing table
 - **Rapid re-submission after redirect** (any form that redirects to a detail page on success): after a successful submit, press the browser back button → assert the creation form is shown blank (not pre-filled) OR the user is redirected to the detail page without a second entity being created
 - **Wizard step skip — enforced navigation** (wizard where steps must be completed sequentially): attempt to click a later step tab directly without completing earlier steps → assert navigation is blocked and the earlier step remains active
 - **Wizard step skip — free navigation** (wizard that allows free tab navigation): navigate to a later step without filling earlier steps → assert the later step displays and returning to the earlier step shows fields blank (no data was lost from the later step)
@@ -173,7 +176,16 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 
 - **High:** None — edge tests are secondary to core functionality
 - **Medium:** Boundary tests at thresholds (financial amounts, date ordering, count limits, file size limits)
-- **Low:** Input edge cases (long text, special chars, whitespace, decimal precision), interaction edge cases (double-click, browser back, wizard skip)
+- **Low:** Input edge cases (long text, special chars, whitespace, decimal precision), interaction edge cases (browser back, wizard skip)
+
+---
+
+**WORKFLOW-AWARE BOUNDARY SCOPING (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- For each workflow where `conditional_branch` activates a numeric or date field, check if that field has a boundary (a numeric/date threshold in the AST `constraints` or description).
+- If yes, that workflow's branch is a **candidate for a boundary edge test** — add or confirm a boundary TC exists for it.
+- Add `"wf_ref": "WF-NNN"` to each TC that maps to a specific workflow's boundary. Set `"wf_ref": null` for generic input/interaction edge tests.
 
 ---
 
@@ -185,6 +197,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": null,
       "subcategory": "boundary | input_edge | interaction_edge | state_edge | data_edge",
       "test_case": "Short descriptive name",
       "preconditions": ["precondition 1"],
@@ -207,7 +220,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 
 
 ------------------------------------------------------------
-[22:54:00] Test-Edge - USER PROMPT
+[14:51:20] Test-Edge - USER PROMPT
 ------------------------------------------------------------
 <module_name>Offers & Deals</module_name>
 
@@ -215,78 +228,89 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 {
   "module_name": "Offers & Deals",
   "components": {
-    "Offers_Filters": {
-      "type": "form",
-      "fields": {
-        "Service_Type": {
-          "type": "dropdown",
-          "required": false,
-          "options": [
-            "Hotels",
-            "Flights",
-            "Packages"
+    "Offers_Page": {
+      "type": "page",
+      "components": {
+        "Offers_Filters": {
+          "type": "form",
+          "fields": {
+            "Service_Type": {
+              "type": "dropdown",
+              "required": false,
+              "options": [
+                "Hotels",
+                "Flights",
+                "Packages"
+              ]
+            },
+            "Destination": {
+              "type": "search",
+              "required": false
+            },
+            "Travel_Dates": {
+              "type": "date_range",
+              "required": false
+            }
+          },
+          "submit_actions": [
+            {
+              "action_name": "Apply Filters",
+              "type": "apply_filters",
+              "on_success": "filters offers list"
+            },
+            {
+              "action_name": "Clear Filters",
+              "type": "clear_filters",
+              "on_success": "resets filters to default"
+            }
           ]
         },
-        "Destination": {
-          "type": "search",
-          "required": false
+        "Promotions_List": {
+          "type": "repeating_group",
+          "min": 0,
+          "item_fields": {
+            "Book_Now": {
+              "type": "button",
+              "actions": [
+                {
+                  "action_name": "Apply_Promo_Code",
+                  "type": "apply_promo_code",
+                  "on_success": "applies promotional code to booking flow"
+                },
+                {
+                  "action_name": "Redirect_Pre_Filled_Search",
+                  "type": "redirect_pre_filled_search",
+                  "on_success": "redirects to pre-filled search with discounted rates applied"
+                }
+              ]
+            },
+            "Terms_and_Conditions": {
+              "type": "link",
+              "action_name": "Open_Terms",
+              "on_success": "opens terms and conditions"
+            }
+          }
         },
-        "Start_Date": {
-          "type": "date",
-          "required": false
-        },
-        "End_Date": {
-          "type": "date",
-          "required": false
-        }
-      },
-      "submit_actions": [
-        {
-          "element_name": null,
-          "on_success": "filters offers list"
-        }
-      ]
-    },
-    "Deals_List": {
-      "type": "repeating_group",
-      "item_fields": {
-        "Book_Now": {
-          "type": "button",
-          "on_success": "applies promotional code to booking flow OR redirects to a pre-filled search with the discounted rates applied"
-        },
-        "Terms_and_Conditions": {
-          "type": "link",
-          "on_success": "opens terms and conditions"
+        "Newsletter_Subscription": {
+          "type": "form",
+          "fields": {
+            "Email": {
+              "type": "email",
+              "required": false,
+              "constraints": [
+                "must be a valid email address"
+              ]
+            }
+          },
+          "submit_actions": [
+            {
+              "action_name": "Subscribe",
+              "type": "subscribe_newsletter",
+              "on_success": "subscribed to newsletter"
+            }
+          ]
         }
       }
-    },
-    "Promotional_Banners": {
-      "type": "repeating_group",
-      "item_fields": {
-        "Book_Now": {
-          "type": "button",
-          "on_success": "applies promotional code to booking flow OR redirects to a pre-filled search with the discounted rates applied"
-        },
-        "Terms_and_Conditions": {
-          "type": "link",
-          "on_success": "opens terms and conditions"
-        }
-      }
-    },
-    "Newsletter_Subscription": {
-      "type": "form",
-      "fields": {
-        "Email": {
-          "type": "email",
-          "required": false
-        }
-      },
-      "submit_actions": [
-        {
-          "element_name": null,
-          "on_success": "submits email to receive future exclusive deals"
-        }
-      ]
     }
   }
 }
@@ -301,10 +325,19 @@ The Offers page displays promotional banners and featured deal cards, each showi
 
 </description>
 
+<workflows>
+WF-001 | Apply Filters | actor: <role> | branch: none | terminal: Apply Filters | on_success: filters offers list
+WF-002 | Clear Filters | actor: <role> | branch: none | terminal: Clear Filters | on_success: resets filters to default
+WF-003 | Subscribe to Newsletter | actor: <role> | branch: none | terminal: Subscribe | on_success: subscribed to newsletter
+WF-004 | Book Now - Apply Promo Code | actor: <role> | branch: none | terminal: Apply_Promo_Code | on_success: applies promotional code to booking flow
+WF-005 | Book Now - Redirect to Pre-Filled Search | actor: <role> | branch: none | terminal: Redirect_Pre_Filled_Search | on_success: redirects to pre-filled search with discounted rates applied
+WF-006 | Open Terms and Conditions | actor: <role> | branch: none | terminal: Open_Terms | on_success: opens terms and conditions
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[22:59:34] Test-Edge - LLM RESPONSE
+[14:55:02] Test-Edge - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Offers & Deals",
@@ -312,113 +345,123 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": "WF-001",
       "subcategory": "boundary",
-      "test_case": "Start_Date equals End_Date (same-day filter)",
-      "preconditions": [
-        "Offers page is open and deals list is visible"
-      ],
+      "test_case": "Travel_Dates start and end set to the same day (same-day travel) should be accepted",
+      "preconditions": ["Offers page is open"],
       "steps": [
-        "1. Click into the Offers Filters Start_Date field",
-        "2. Enter <date X> in Start_Date",
-        "3. Click into the Offers Filters End_Date field",
-        "4. Enter <the same date X> in End_Date",
-        "5. Click the Apply/Submit Filters button"
+        "1. Click the Offers_Filters form to open filter controls",
+        "2. In Travel_Dates, set Start = <selected date>",
+        "3. In Travel_Dates, set End = <same selected date>",
+        "4. Click Apply Filters"
       ],
-      "expected_result": "Applying filters succeeds; offers list updates to show deals valid on <date X>; no inline error is shown on either date field and an active filter tag (or similar UI element) displays the selected date range",
+      "expected_result": "Apply Filters succeeds; Promotions_List updates to reflect filters; the Travel_Dates UI shows a date chip displaying the same-day range (Start = End) indicating the filter is applied",
       "priority": "medium"
     },
     {
       "tc_id": "E-002",
+      "wf_ref": "WF-001",
       "subcategory": "boundary",
-      "test_case": "End_Date one day before Start_Date (date-order violation)",
-      "preconditions": [
-        "Offers page is open and deals list is visible"
-      ],
+      "test_case": "Travel_Dates Start set one day after End should be blocked",
+      "preconditions": ["Offers page is open"],
       "steps": [
-        "1. Click into the Offers Filters Start_Date field",
-        "2. Enter <date Y> in Start_Date",
-        "3. Click into the Offers Filters End_Date field",
-        "4. Enter <one day before date Y> in End_Date",
-        "5. Click the Apply/Submit Filters button"
+        "1. Click the Offers_Filters form to open filter controls",
+        "2. In Travel_Dates, set Start = <date B>",
+        "3. In Travel_Dates, set End = <date A> where <date B> is exactly one day after <date A>",
+        "4. Click Apply Filters"
       ],
-      "expected_result": "Filter submission is blocked / error shown; the End_Date field displays an inline error indicating the end date cannot be before the start date (filter application is prevented) and the offers list does not update",
+      "expected_result": "Travel_Dates field displays an inline error indicating the start date is after the end date and Apply Filters is blocked (error shown); Promotions_List is not changed",
       "priority": "medium"
     },
     {
       "tc_id": "E-003",
-      "subcategory": "data_edge",
-      "test_case": "Start_Date set to today (date edge)",
-      "preconditions": [
-        "Offers page is open and deals list is visible"
-      ],
+      "wf_ref": "WF-003",
+      "subcategory": "input_edge",
+      "test_case": "Newsletter email with leading and trailing whitespace is trimmed before submission",
+      "preconditions": ["Offers page is open", "Newsletter_Subscription form visible"],
       "steps": [
-        "1. Click into the Offers Filters Start_Date field",
-        "2. Enter <today's date> in Start_Date",
-        "3. Leave End_Date empty",
-        "4. Click the Apply/Submit Filters button"
+        "1. Click into the Newsletter_Subscription Email field",
+        "2. Enter an email address with leading and trailing whitespace surrounding the local and domain parts: ' <email> '",
+        "3. Click Subscribe"
       ],
-      "expected_result": "Applying filters with Start_Date = <today's date> succeeds; offers list updates to show deals valid from today onward (UI shows active Start_Date filter tag or similar); no error is shown for choosing today's date",
+      "expected_result": "Subscription succeeds; confirmation UI is shown and the displayed subscribed email is trimmed (no leading/trailing whitespace) in the confirmation message",
       "priority": "medium"
     },
     {
       "tc_id": "E-004",
+      "wf_ref": "WF-003",
       "subcategory": "input_edge",
-      "test_case": "Very long Destination string (>200 characters)",
-      "preconditions": [
-        "Offers page is open and deals list is visible"
-      ],
+      "test_case": "Newsletter email containing Unicode characters in local part is rejected as invalid",
+      "preconditions": ["Offers page is open", "Newsletter_Subscription form visible"],
       "steps": [
-        "1. Click into the Offers Filters Destination search field",
-        "2. Enter a very long string (more than 200 characters) into Destination",
-        "3. Click the Apply/Submit Filters button"
+        "1. Click into the Newsletter_Subscription Email field",
+        "2. Enter an email address that includes Unicode characters in the local part (non-ASCII characters)",
+        "3. Click Subscribe"
       ],
-      "expected_result": "Entering a >200-character value in Destination either succeeds (filters are applied) and the UI shows the active Destination filter truncated with an ellipsis in the filter chip or summary, or the Destination field displays a clear inline error indicating the input exceeds the allowed length (either outcome must be visible); no silent data loss occurs without a visible indicator",
-      "priority": "low"
+      "expected_result": "Subscription is blocked; Email field displays an inline error with text 'must be a valid email address' (error shown) and no subscription confirmation appears",
+      "priority": "medium"
     },
     {
       "tc_id": "E-005",
+      "wf_ref": "WF-001",
       "subcategory": "input_edge",
-      "test_case": "Newsletter email with leading and trailing whitespace is submitted",
-      "preconditions": [
-        "Offers page is open and Newsletter Subscription component is visible"
-      ],
+      "test_case": "Destination search accepts an extremely long pasted query (>200 characters) and Apply Filters executes",
+      "preconditions": ["Offers page is open"],
       "steps": [
-        "1. Click into the Newsletter_Subscription Email field",
-        "2. Enter an email value with leading and trailing whitespace in the Email field (e.g., ' <email> ')",
-        "3. Click the Subscribe / Submit button for Newsletter_Subscription"
+        "1. Click into the Offers_Filters Destination search field",
+        "2. Paste a very long string (>200 characters) into the Destination field",
+        "3. Click Apply Filters"
       ],
-      "expected_result": "Subscription submission succeeds; the UI confirms submission and any displayed email in the confirmation message or active subscription list shows the email trimmed of leading/trailing whitespace (no whitespace stored/shown); no validation error is shown for trimmed input",
+      "expected_result": "Apply Filters succeeds; Promotions_List updates (possibly showing zero matches) and the Destination input visually handles the long value (field shows the long value or an ellipsized/truncated UI representation); no crash or navigation error occurs",
       "priority": "low"
     },
     {
       "tc_id": "E-006",
-      "subcategory": "interaction_edge",
-      "test_case": "Rapid double-click on a deal's Book_Now button",
-      "preconditions": [
-        "Offers page is open and at least one deal card or promotional banner is visible in Deals_List or Promotional_Banners"
-      ],
+      "wf_ref": "WF-004",
+      "subcategory": "state_edge",
+      "test_case": "Rapid double-clicking Book Now (Apply_Promo_Code) results in a single promo application",
+      "preconditions": ["Offers page is open", "At least one promotion item visible in Promotions_List"],
       "steps": [
-        "1. Identify a visible deal card's Book_Now button",
-        "2. Double-click (two rapid clicks) the Book_Now button"
+        "1. Locate a promotion item in Promotions_List with a Book_Now button configured to Apply_Promo_Code",
+        "2. Click the Book_Now button once",
+        "3. Immediately click the Book_Now button a second time (before the first action completes)"
       ],
-      "expected_result": "Only one booking flow is initiated (single redirect or single application of the promotional code) and the UI shows a single navigation/action; the second rapid click is ignored or de-duplicated and no duplicate booking flows or duplicate promotional-code applications occur (user-visible: only one redirect or one confirmation shown)",
+      "expected_result": "Second click is ignored / blocked; Book_Now shows a loading state then becomes disabled until completion; a single promo-applied confirmation/toast is shown and only one promo application is performed (no duplicate promo application) — visible as a single toast or UI badge",
       "priority": "medium"
+    },
+    {
+      "tc_id": "E-007",
+      "wf_ref": "WF-005",
+      "subcategory": "interaction_edge",
+      "test_case": "After redirect to pre-filled search from Book Now, pressing browser Back returns to Offers with filters preserved",
+      "preconditions": ["Offers page is open"],
+      "steps": [
+        "1. In Offers_Filters set Service_Type = <value>",
+        "2. In Offers_Filters set Destination = <value>",
+        "3. In Offers_Filters set Travel_Dates Start and End = <dates>",
+        "4. Click Apply Filters",
+        "5. From Promotions_List click Book_Now that triggers Redirect_Pre_Filled_Search",
+        "6. Wait for the pre-filled search page to load",
+        "7. Press the browser Back button"
+      ],
+      "expected_result": "Browser navigates back to the Offers page; the Offers_Filters fields (Service_Type, Destination, Travel_Dates) retain the values set before the redirect (filters preserved) and Promotions_List displays according to those retained filters",
+      "priority": "low"
     }
   ],
   "summary": {
-    "total": 6,
+    "total": 7,
     "boundary": 2,
-    "input_edge": 2,
+    "input_edge": 3,
     "interaction_edge": 1,
-    "state_edge": 0,
-    "data_edge": 1,
+    "state_edge": 1,
+    "data_edge": 0,
     "medium_priority": 4,
-    "low_priority": 2
+    "low_priority": 3
   }
 }
 
 ------------------------------------------------------------
-[22:59:34] Test-Edge - PARSED JSON
+[14:55:02] Test-Edge - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Offers & Deals",
@@ -426,107 +469,134 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": "WF-001",
       "subcategory": "boundary",
-      "test_case": "Start_Date equals End_Date (same-day filter)",
+      "test_case": "Travel_Dates start and end set to the same day (same-day travel) should be accepted",
       "preconditions": [
-        "Offers page is open and deals list is visible"
+        "Offers page is open"
       ],
       "steps": [
-        "1. Click into the Offers Filters Start_Date field",
-        "2. Enter <date X> in Start_Date",
-        "3. Click into the Offers Filters End_Date field",
-        "4. Enter <the same date X> in End_Date",
-        "5. Click the Apply/Submit Filters button"
+        "1. Click the Offers_Filters form to open filter controls",
+        "2. In Travel_Dates, set Start = <selected date>",
+        "3. In Travel_Dates, set End = <same selected date>",
+        "4. Click Apply Filters"
       ],
-      "expected_result": "Applying filters succeeds; offers list updates to show deals valid on <date X>; no inline error is shown on either date field and an active filter tag (or similar UI element) displays the selected date range",
+      "expected_result": "Apply Filters succeeds; Promotions_List updates to reflect filters; the Travel_Dates UI shows a date chip displaying the same-day range (Start = End) indicating the filter is applied",
       "priority": "medium"
     },
     {
       "tc_id": "E-002",
+      "wf_ref": "WF-001",
       "subcategory": "boundary",
-      "test_case": "End_Date one day before Start_Date (date-order violation)",
+      "test_case": "Travel_Dates Start set one day after End should be blocked",
       "preconditions": [
-        "Offers page is open and deals list is visible"
+        "Offers page is open"
       ],
       "steps": [
-        "1. Click into the Offers Filters Start_Date field",
-        "2. Enter <date Y> in Start_Date",
-        "3. Click into the Offers Filters End_Date field",
-        "4. Enter <one day before date Y> in End_Date",
-        "5. Click the Apply/Submit Filters button"
+        "1. Click the Offers_Filters form to open filter controls",
+        "2. In Travel_Dates, set Start = <date B>",
+        "3. In Travel_Dates, set End = <date A> where <date B> is exactly one day after <date A>",
+        "4. Click Apply Filters"
       ],
-      "expected_result": "Filter submission is blocked / error shown; the End_Date field displays an inline error indicating the end date cannot be before the start date (filter application is prevented) and the offers list does not update",
+      "expected_result": "Travel_Dates field displays an inline error indicating the start date is after the end date and Apply Filters is blocked (error shown); Promotions_List is not changed",
       "priority": "medium"
     },
     {
       "tc_id": "E-003",
-      "subcategory": "data_edge",
-      "test_case": "Start_Date set to today (date edge)",
+      "wf_ref": "WF-003",
+      "subcategory": "input_edge",
+      "test_case": "Newsletter email with leading and trailing whitespace is trimmed before submission",
       "preconditions": [
-        "Offers page is open and deals list is visible"
+        "Offers page is open",
+        "Newsletter_Subscription form visible"
       ],
       "steps": [
-        "1. Click into the Offers Filters Start_Date field",
-        "2. Enter <today's date> in Start_Date",
-        "3. Leave End_Date empty",
-        "4. Click the Apply/Submit Filters button"
+        "1. Click into the Newsletter_Subscription Email field",
+        "2. Enter an email address with leading and trailing whitespace surrounding the local and domain parts: ' <email> '",
+        "3. Click Subscribe"
       ],
-      "expected_result": "Applying filters with Start_Date = <today's date> succeeds; offers list updates to show deals valid from today onward (UI shows active Start_Date filter tag or similar); no error is shown for choosing today's date",
+      "expected_result": "Subscription succeeds; confirmation UI is shown and the displayed subscribed email is trimmed (no leading/trailing whitespace) in the confirmation message",
       "priority": "medium"
     },
     {
       "tc_id": "E-004",
+      "wf_ref": "WF-003",
       "subcategory": "input_edge",
-      "test_case": "Very long Destination string (>200 characters)",
+      "test_case": "Newsletter email containing Unicode characters in local part is rejected as invalid",
       "preconditions": [
-        "Offers page is open and deals list is visible"
-      ],
-      "steps": [
-        "1. Click into the Offers Filters Destination search field",
-        "2. Enter a very long string (more than 200 characters) into Destination",
-        "3. Click the Apply/Submit Filters button"
-      ],
-      "expected_result": "Entering a >200-character value in Destination either succeeds (filters are applied) and the UI shows the active Destination filter truncated with an ellipsis in the filter chip or summary, or the Destination field displays a clear inline error indicating the input exceeds the allowed length (either outcome must be visible); no silent data loss occurs without a visible indicator",
-      "priority": "low"
-    },
-    {
-      "tc_id": "E-005",
-      "subcategory": "input_edge",
-      "test_case": "Newsletter email with leading and trailing whitespace is submitted",
-      "preconditions": [
-        "Offers page is open and Newsletter Subscription component is visible"
+        "Offers page is open",
+        "Newsletter_Subscription form visible"
       ],
       "steps": [
         "1. Click into the Newsletter_Subscription Email field",
-        "2. Enter an email value with leading and trailing whitespace in the Email field (e.g., ' <email> ')",
-        "3. Click the Subscribe / Submit button for Newsletter_Subscription"
+        "2. Enter an email address that includes Unicode characters in the local part (non-ASCII characters)",
+        "3. Click Subscribe"
       ],
-      "expected_result": "Subscription submission succeeds; the UI confirms submission and any displayed email in the confirmation message or active subscription list shows the email trimmed of leading/trailing whitespace (no whitespace stored/shown); no validation error is shown for trimmed input",
+      "expected_result": "Subscription is blocked; Email field displays an inline error with text 'must be a valid email address' (error shown) and no subscription confirmation appears",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "E-005",
+      "wf_ref": "WF-001",
+      "subcategory": "input_edge",
+      "test_case": "Destination search accepts an extremely long pasted query (>200 characters) and Apply Filters executes",
+      "preconditions": [
+        "Offers page is open"
+      ],
+      "steps": [
+        "1. Click into the Offers_Filters Destination search field",
+        "2. Paste a very long string (>200 characters) into the Destination field",
+        "3. Click Apply Filters"
+      ],
+      "expected_result": "Apply Filters succeeds; Promotions_List updates (possibly showing zero matches) and the Destination input visually handles the long value (field shows the long value or an ellipsized/truncated UI representation); no crash or navigation error occurs",
       "priority": "low"
     },
     {
       "tc_id": "E-006",
-      "subcategory": "interaction_edge",
-      "test_case": "Rapid double-click on a deal's Book_Now button",
+      "wf_ref": "WF-004",
+      "subcategory": "state_edge",
+      "test_case": "Rapid double-clicking Book Now (Apply_Promo_Code) results in a single promo application",
       "preconditions": [
-        "Offers page is open and at least one deal card or promotional banner is visible in Deals_List or Promotional_Banners"
+        "Offers page is open",
+        "At least one promotion item visible in Promotions_List"
       ],
       "steps": [
-        "1. Identify a visible deal card's Book_Now button",
-        "2. Double-click (two rapid clicks) the Book_Now button"
+        "1. Locate a promotion item in Promotions_List with a Book_Now button configured to Apply_Promo_Code",
+        "2. Click the Book_Now button once",
+        "3. Immediately click the Book_Now button a second time (before the first action completes)"
       ],
-      "expected_result": "Only one booking flow is initiated (single redirect or single application of the promotional code) and the UI shows a single navigation/action; the second rapid click is ignored or de-duplicated and no duplicate booking flows or duplicate promotional-code applications occur (user-visible: only one redirect or one confirmation shown)",
+      "expected_result": "Second click is ignored / blocked; Book_Now shows a loading state then becomes disabled until completion; a single promo-applied confirmation/toast is shown and only one promo application is performed (no duplicate promo application) \u2014 visible as a single toast or UI badge",
       "priority": "medium"
+    },
+    {
+      "tc_id": "E-007",
+      "wf_ref": "WF-005",
+      "subcategory": "interaction_edge",
+      "test_case": "After redirect to pre-filled search from Book Now, pressing browser Back returns to Offers with filters preserved",
+      "preconditions": [
+        "Offers page is open"
+      ],
+      "steps": [
+        "1. In Offers_Filters set Service_Type = <value>",
+        "2. In Offers_Filters set Destination = <value>",
+        "3. In Offers_Filters set Travel_Dates Start and End = <dates>",
+        "4. Click Apply Filters",
+        "5. From Promotions_List click Book_Now that triggers Redirect_Pre_Filled_Search",
+        "6. Wait for the pre-filled search page to load",
+        "7. Press the browser Back button"
+      ],
+      "expected_result": "Browser navigates back to the Offers page; the Offers_Filters fields (Service_Type, Destination, Travel_Dates) retain the values set before the redirect (filters preserved) and Promotions_List displays according to those retained filters",
+      "priority": "low"
     }
   ],
   "summary": {
-    "total": 6,
+    "total": 7,
     "boundary": 2,
-    "input_edge": 2,
+    "input_edge": 3,
     "interaction_edge": 1,
-    "state_edge": 0,
-    "data_edge": 1,
+    "state_edge": 1,
+    "data_edge": 0,
     "medium_priority": 4,
-    "low_priority": 2
+    "low_priority": 3
   }
 }

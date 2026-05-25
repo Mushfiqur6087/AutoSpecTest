@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-21T22:29:06.507675
+DEBUG SESSION STARTED: 2026-05-25T14:24:50.710022
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[22:29:06] Test-Positive - SYSTEM PROMPT
+[14:24:50] Test-Positive - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Expert UI Test Case Generator. You receive (1) a UI-AST JSON for one specific module and (2) the original functional description for that module.
 
@@ -24,6 +24,10 @@ Your job is to produce ONLY positive/functional UI test cases — tests where va
 <description>
 {Original functional description text for this module}
 </description>
+
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
 
 ---
 
@@ -146,6 +150,13 @@ Because you are testing a module in isolation, establish the required entry stat
 **1. Forms & Wizards (`form`, `wizard`):**
 - Generate ONE happy path per distinct success outcome.
 - *Conditional UI Check:* If a toggle/dropdown reveals new mandatory fields (`visible_when`), generate a separate test for that conditional branch.
+- **Wizard step coverage (CRITICAL):** If a wizard has multiple steps and any step beyond Step 1 contains its own named field group (e.g., "Address Details", "Family Members", "Identifiers"), generate ONE dedicated positive TC per such step. The TC must:
+  - Navigate to that specific step (include the preceding steps as preconditions or brief navigation steps)
+  - Fill the fields described for that step (not just pass through)
+  - Assert the step's content is visible/saved on the detail page after final submission
+  - **Do NOT collapse all wizard steps into one happy-path TC** — if Steps 2, 3, and 4 each have their own named section in the spec, they each need their own TC.
+- **Wizard in-step identifiers/duplicates:** If a wizard step allows adding identifiers, documents, or similar entries that have a uniqueness constraint, include a TC for that wizard step that also verifies the constraint (e.g., attempting to add a duplicate Document Type+Key pair inside the wizard). This is a different code path from adding the same post-creation on the detail page.
+- **Action dialogs:** If a `state_bound_action_bar` action opens a dialog with its own `fields{}` (e.g., Activate requires Activation Date, Reject requires Reason), generate ONE positive TC per such action-dialog — distinct from the state-transition TC. The TC fills the dialog field and completes the action.
 
 **2. State Machines (`state_bound_action_bar`):**
 - For each unique action available in a specific state, generate ONE test performing that action.
@@ -200,6 +211,19 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 
 ---
 
+**WORKFLOW COVERAGE OBLIGATION (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- Your test cases must **collectively cover every workflow** listed.
+- For each `wf_id`, at least one TC must:
+  - Activate the `conditional_branch` (if not null) — i.e. the test must set up the condition described.
+  - Assert the `on_success` as its `expected_result` (verbatim or as the primary basis for the expected result).
+- Add `"wf_ref": "WF-NNN"` to each TC to identify which workflow it covers.
+- If one TC naturally covers multiple workflows (e.g., the base path overlaps), pick the most specific `wf_ref`.
+- If a TC does not map to any workflow (e.g., a navigation-only test), set `"wf_ref": null`.
+
+---
+
 **OUTPUT — JSON only, no prose, no markdown fencing:**
 
 {
@@ -208,6 +232,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
   "test_cases": [
     {
       "tc_id": "P-001",
+      "wf_ref": "WF-001",
       "test_case": "Short descriptive name",
       "preconditions": ["User logged in as <Role>", "<Prerequisite state>"],
       "steps": ["1. Step one", "2. Step two"],
@@ -224,7 +249,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 }
 
 ------------------------------------------------------------
-[22:29:06] Test-Positive - USER PROMPT
+[14:24:50] Test-Positive - USER PROMPT
 ------------------------------------------------------------
 <module_name>Dashboard</module_name>
 
@@ -232,10 +257,14 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 {
   "module_name": "Dashboard",
   "components": {
-    "Home_Page_Dashboard_Button": {
-      "type": "link",
+    "Home_Dashboard_Button": {
+      "type": "button",
       "element_name": "Dashboard",
-      "on_click_navigates_to": "Dashboard_Page"
+      "location": "Home Page",
+      "on_success": "navigates to Dashboard page",
+      "preconditions": [
+        "on Home page"
+      ]
     },
     "Dashboard_Page": {
       "type": "page",
@@ -247,32 +276,17 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
       },
       "components": {
         "Client_Trends_Chart": {
-          "type": "unspecified",
-          "element_name": "Client Trends Chart",
+          "type": "chart",
+          "element_name": "Client Trends",
+          "series": [
+            "New Clients",
+            "Closed Clients"
+          ],
           "legend_items": [
             "New Clients",
             "Closed Clients"
           ],
-          "preconditions": [
-            "office must be selected"
-          ]
-        },
-        "Summary_Cards": {
-          "type": "group",
-          "fields": {
-            "Amount_Pending_Disbursed": {
-              "type": "unspecified",
-              "constraints": [
-                "shows 'No Data' if no information is available for the selected office"
-              ]
-            },
-            "Amount_Collected": {
-              "type": "unspecified",
-              "constraints": [
-                "shows 'No Data' if no information is available for the selected office"
-              ]
-            }
-          }
+          "bound_to": "selected_office"
         }
       }
     }
@@ -289,10 +303,14 @@ The Dashboard is accessed from the "Dashboard" button on the Home page. A "Searc
 
 </description>
 
+<workflows>
+WF-001 | Open Dashboard from Home page | actor: <role> | branch: none | terminal: Dashboard | on_success: navigates to Dashboard page
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[22:29:39] Test-Positive - LLM RESPONSE
+[14:25:27] Test-Positive - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Dashboard",
@@ -300,88 +318,86 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Navigate to Dashboard from Home",
+      "wf_ref": "WF-001",
+      "test_case": "Open Dashboard from Home page and verify main elements",
       "preconditions": [
-        "User logged in as <User>",
-        "Home page is open"
+        "User logged in as <role>",
+        "on Home page"
       ],
       "steps": [
         "1. Click the 'Dashboard' button on the Home page"
       ],
-      "expected_result": "Dashboard page is displayed with the 'Search Activity' field visible at the top",
+      "expected_result": "navigates to Dashboard page; Dashboard page displays the Search Activity field at the top and the 'Client Trends' chart with legend items 'New Clients' and 'Closed Clients'",
       "priority": "high"
     },
     {
       "tc_id": "P-002",
-      "test_case": "Client Trends chart displays when an office is selected",
+      "wf_ref": null,
+      "test_case": "Client Trends chart shows both series and legends for a selected office",
       "preconditions": [
-        "User logged in as <User>",
-        "Home page is open",
-        "Office <selected office> is selected and has client data"
+        "User logged in as <role>",
+        "Dashboard page is open with <selected_office> selected"
       ],
       "steps": [
-        "1. Click the 'Dashboard' button on the Home page",
-        "2. Observe the main chart area"
+        "1. Focus on the 'Client Trends' chart area on the Dashboard page"
       ],
-      "expected_result": "Client Trends Chart is visible for the selected office and shows legend items 'New Clients' and 'Closed Clients'",
-      "priority": "high"
+      "expected_result": "The 'Client Trends' chart is displayed for <selected_office> showing the series 'New Clients' and 'Closed Clients' and the legend contains 'New Clients' and 'Closed Clients'",
+      "priority": "medium"
     },
     {
       "tc_id": "P-003",
-      "test_case": "Summary cards show amounts when data exists for the selected office",
+      "wf_ref": null,
+      "test_case": "Summary cards display numeric totals when data exists for the selected office",
       "preconditions": [
-        "User logged in as <User>",
-        "Home page is open",
-        "Office <selected office> is selected and has dashboard financial data"
+        "User logged in as <role>",
+        "Dashboard page is open with <selected_office> selected that has dashboard data"
       ],
       "steps": [
-        "1. Click the 'Dashboard' button on the Home page",
-        "2. Observe the summary cards below the chart"
+        "1. Scroll to the summary cards below the 'Client Trends' chart"
       ],
-      "expected_result": "Summary cards display Amount Pending / Disbursed and Amount Collected values for the selected office (numeric values visible on each card)",
+      "expected_result": "The 'Amount Pending / Disbursed' card displays a numeric total for <selected_office> and the 'Amount Collected' card displays a numeric total for <selected_office>",
       "priority": "medium"
     },
     {
       "tc_id": "P-004",
+      "wf_ref": null,
       "test_case": "Summary cards show 'No Data' when no information is available for the selected office",
       "preconditions": [
-        "User logged in as <User>",
-        "Home page is open",
-        "Office <selected office> is selected and has no dashboard data"
+        "User logged in as <role>",
+        "Dashboard page is open with <selected_office> selected that has no dashboard data"
       ],
       "steps": [
-        "1. Click the 'Dashboard' button on the Home page",
-        "2. Observe the summary cards area below the chart"
+        "1. Scroll to the summary cards below the 'Client Trends' chart"
       ],
-      "expected_result": "Both summary cards display 'No Data' for Amount Pending / Disbursed and Amount Collected",
+      "expected_result": "The 'Amount Pending / Disbursed' card displays 'No Data' and the 'Amount Collected' card displays 'No Data'",
       "priority": "medium"
     },
     {
       "tc_id": "P-005",
-      "test_case": "Search Activity filters activity results on the Dashboard",
+      "wf_ref": null,
+      "test_case": "Search Activity field accepts input",
       "preconditions": [
-        "User logged in as <User>",
-        "Home page is open",
-        "Dashboard contains activity items for the selected office"
+        "User logged in as <role>",
+        "Dashboard page is open"
       ],
       "steps": [
-        "1. Click the 'Dashboard' button on the Home page",
-        "2. Enter <search term> in the 'Search Activity' field and submit the search"
+        "1. Enter <search term> in the Search Activity field",
+        "2. Press Enter or trigger the search action"
       ],
-      "expected_result": "Activity list displays only items matching <search term>; unrelated activity items are no longer visible",
-      "priority": "medium"
+      "expected_result": "The Search Activity field contains <search term>",
+      "priority": "low"
     }
   ],
   "summary": {
     "total": 5,
-    "high_priority": 2,
+    "high_priority": 1,
     "medium_priority": 3,
-    "low_priority": 0
+    "low_priority": 1
   }
 }
 
 ------------------------------------------------------------
-[22:29:39] Test-Positive - PARSED JSON
+[14:25:27] Test-Positive - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Dashboard",
@@ -389,82 +405,80 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Navigate to Dashboard from Home",
+      "wf_ref": "WF-001",
+      "test_case": "Open Dashboard from Home page and verify main elements",
       "preconditions": [
-        "User logged in as <User>",
-        "Home page is open"
+        "User logged in as <role>",
+        "on Home page"
       ],
       "steps": [
         "1. Click the 'Dashboard' button on the Home page"
       ],
-      "expected_result": "Dashboard page is displayed with the 'Search Activity' field visible at the top",
+      "expected_result": "navigates to Dashboard page; Dashboard page displays the Search Activity field at the top and the 'Client Trends' chart with legend items 'New Clients' and 'Closed Clients'",
       "priority": "high"
     },
     {
       "tc_id": "P-002",
-      "test_case": "Client Trends chart displays when an office is selected",
+      "wf_ref": null,
+      "test_case": "Client Trends chart shows both series and legends for a selected office",
       "preconditions": [
-        "User logged in as <User>",
-        "Home page is open",
-        "Office <selected office> is selected and has client data"
+        "User logged in as <role>",
+        "Dashboard page is open with <selected_office> selected"
       ],
       "steps": [
-        "1. Click the 'Dashboard' button on the Home page",
-        "2. Observe the main chart area"
+        "1. Focus on the 'Client Trends' chart area on the Dashboard page"
       ],
-      "expected_result": "Client Trends Chart is visible for the selected office and shows legend items 'New Clients' and 'Closed Clients'",
-      "priority": "high"
+      "expected_result": "The 'Client Trends' chart is displayed for <selected_office> showing the series 'New Clients' and 'Closed Clients' and the legend contains 'New Clients' and 'Closed Clients'",
+      "priority": "medium"
     },
     {
       "tc_id": "P-003",
-      "test_case": "Summary cards show amounts when data exists for the selected office",
+      "wf_ref": null,
+      "test_case": "Summary cards display numeric totals when data exists for the selected office",
       "preconditions": [
-        "User logged in as <User>",
-        "Home page is open",
-        "Office <selected office> is selected and has dashboard financial data"
+        "User logged in as <role>",
+        "Dashboard page is open with <selected_office> selected that has dashboard data"
       ],
       "steps": [
-        "1. Click the 'Dashboard' button on the Home page",
-        "2. Observe the summary cards below the chart"
+        "1. Scroll to the summary cards below the 'Client Trends' chart"
       ],
-      "expected_result": "Summary cards display Amount Pending / Disbursed and Amount Collected values for the selected office (numeric values visible on each card)",
+      "expected_result": "The 'Amount Pending / Disbursed' card displays a numeric total for <selected_office> and the 'Amount Collected' card displays a numeric total for <selected_office>",
       "priority": "medium"
     },
     {
       "tc_id": "P-004",
+      "wf_ref": null,
       "test_case": "Summary cards show 'No Data' when no information is available for the selected office",
       "preconditions": [
-        "User logged in as <User>",
-        "Home page is open",
-        "Office <selected office> is selected and has no dashboard data"
+        "User logged in as <role>",
+        "Dashboard page is open with <selected_office> selected that has no dashboard data"
       ],
       "steps": [
-        "1. Click the 'Dashboard' button on the Home page",
-        "2. Observe the summary cards area below the chart"
+        "1. Scroll to the summary cards below the 'Client Trends' chart"
       ],
-      "expected_result": "Both summary cards display 'No Data' for Amount Pending / Disbursed and Amount Collected",
+      "expected_result": "The 'Amount Pending / Disbursed' card displays 'No Data' and the 'Amount Collected' card displays 'No Data'",
       "priority": "medium"
     },
     {
       "tc_id": "P-005",
-      "test_case": "Search Activity filters activity results on the Dashboard",
+      "wf_ref": null,
+      "test_case": "Search Activity field accepts input",
       "preconditions": [
-        "User logged in as <User>",
-        "Home page is open",
-        "Dashboard contains activity items for the selected office"
+        "User logged in as <role>",
+        "Dashboard page is open"
       ],
       "steps": [
-        "1. Click the 'Dashboard' button on the Home page",
-        "2. Enter <search term> in the 'Search Activity' field and submit the search"
+        "1. Enter <search term> in the Search Activity field",
+        "2. Press Enter or trigger the search action"
       ],
-      "expected_result": "Activity list displays only items matching <search term>; unrelated activity items are no longer visible",
-      "priority": "medium"
+      "expected_result": "The Search Activity field contains <search term>",
+      "priority": "low"
     }
   ],
   "summary": {
     "total": 5,
-    "high_priority": 2,
+    "high_priority": 1,
     "medium_priority": 3,
-    "low_priority": 0
+    "low_priority": 1
   }
 }

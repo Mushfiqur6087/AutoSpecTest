@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-21T22:54:00.268831
+DEBUG SESSION STARTED: 2026-05-25T14:51:20.256628
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[22:54:00] Test-Positive - SYSTEM PROMPT
+[14:51:20] Test-Positive - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Expert UI Test Case Generator. You receive (1) a UI-AST JSON for one specific module and (2) the original functional description for that module.
 
@@ -24,6 +24,10 @@ Your job is to produce ONLY positive/functional UI test cases — tests where va
 <description>
 {Original functional description text for this module}
 </description>
+
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
 
 ---
 
@@ -146,6 +150,13 @@ Because you are testing a module in isolation, establish the required entry stat
 **1. Forms & Wizards (`form`, `wizard`):**
 - Generate ONE happy path per distinct success outcome.
 - *Conditional UI Check:* If a toggle/dropdown reveals new mandatory fields (`visible_when`), generate a separate test for that conditional branch.
+- **Wizard step coverage (CRITICAL):** If a wizard has multiple steps and any step beyond Step 1 contains its own named field group (e.g., "Address Details", "Family Members", "Identifiers"), generate ONE dedicated positive TC per such step. The TC must:
+  - Navigate to that specific step (include the preceding steps as preconditions or brief navigation steps)
+  - Fill the fields described for that step (not just pass through)
+  - Assert the step's content is visible/saved on the detail page after final submission
+  - **Do NOT collapse all wizard steps into one happy-path TC** — if Steps 2, 3, and 4 each have their own named section in the spec, they each need their own TC.
+- **Wizard in-step identifiers/duplicates:** If a wizard step allows adding identifiers, documents, or similar entries that have a uniqueness constraint, include a TC for that wizard step that also verifies the constraint (e.g., attempting to add a duplicate Document Type+Key pair inside the wizard). This is a different code path from adding the same post-creation on the detail page.
+- **Action dialogs:** If a `state_bound_action_bar` action opens a dialog with its own `fields{}` (e.g., Activate requires Activation Date, Reject requires Reason), generate ONE positive TC per such action-dialog — distinct from the state-transition TC. The TC fills the dialog field and completes the action.
 
 **2. State Machines (`state_bound_action_bar`):**
 - For each unique action available in a specific state, generate ONE test performing that action.
@@ -200,6 +211,19 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 
 ---
 
+**WORKFLOW COVERAGE OBLIGATION (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- Your test cases must **collectively cover every workflow** listed.
+- For each `wf_id`, at least one TC must:
+  - Activate the `conditional_branch` (if not null) — i.e. the test must set up the condition described.
+  - Assert the `on_success` as its `expected_result` (verbatim or as the primary basis for the expected result).
+- Add `"wf_ref": "WF-NNN"` to each TC to identify which workflow it covers.
+- If one TC naturally covers multiple workflows (e.g., the base path overlaps), pick the most specific `wf_ref`.
+- If a TC does not map to any workflow (e.g., a navigation-only test), set `"wf_ref": null`.
+
+---
+
 **OUTPUT — JSON only, no prose, no markdown fencing:**
 
 {
@@ -208,6 +232,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
   "test_cases": [
     {
       "tc_id": "P-001",
+      "wf_ref": "WF-001",
       "test_case": "Short descriptive name",
       "preconditions": ["User logged in as <Role>", "<Prerequisite state>"],
       "steps": ["1. Step one", "2. Step two"],
@@ -224,7 +249,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 }
 
 ------------------------------------------------------------
-[22:54:00] Test-Positive - USER PROMPT
+[14:51:20] Test-Positive - USER PROMPT
 ------------------------------------------------------------
 <module_name>Cars Search & Listing</module_name>
 
@@ -235,139 +260,97 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
     "Car_Search_Form": {
       "type": "form",
       "fields": {
-        "Pick_Up_Location": {
-          "type": "search"
+        "Pick-up_Location": {
+          "type": "unspecified",
+          "required": false
         },
-        "Drop_Off_Location": {
-          "type": "search"
+        "Drop-off_Location": {
+          "type": "unspecified",
+          "required": false
         },
-        "Pick_Up_Date": {
-          "type": "date"
+        "Pick-up_Date": {
+          "type": "date",
+          "required": false
         },
-        "Pick_Up_Time": {
-          "type": "unspecified"
+        "Drop-off_Date": {
+          "type": "date",
+          "required": false
         },
-        "Drop_Off_Date": {
-          "type": "date"
+        "Pick-up_Time": {
+          "type": "time",
+          "required": false
         },
-        "Drop_Off_Time": {
-          "type": "unspecified"
+        "Drop-off_Time": {
+          "type": "time",
+          "required": false
         },
         "Driver_Age": {
-          "type": "number"
+          "type": "number",
+          "required": false
         }
       },
-      "constraints": [
-        "Drop_Off_Date >= Pick_Up_Date"
-      ],
       "submit_actions": [
         {
-          "element_name": "Search",
-          "on_success": "redirects to Listing_Page"
+          "element_name": "unspecified",
+          "on_success": "redirects to listing page"
         }
       ]
     },
-    "Listing_Page": {
-      "type": "page",
-      "components": {
-        "Sidebar_Filters": {
-          "type": "panel",
-          "on_change": "updates results dynamically",
-          "fields": {
-            "Car_Type": {
-              "type": "multiselect",
-              "options": [
-                "Economy",
-                "Compact",
-                "SUV",
-                "Luxury",
-                "Van"
-              ]
-            },
-            "Transmission": {
-              "type": "multiselect",
-              "options": [
-                "Automatic",
-                "Manual"
-              ]
-            },
-            "Fuel_Policy": {
-              "type": "multiselect"
-            },
-            "Rental_Company": {
-              "type": "multiselect"
-            },
-            "Price_Range": {
-              "type": "unspecified"
-            }
-          }
+    "Sidebar_Filters": {
+      "type": "form",
+      "on_change": "updates results dynamically",
+      "fields": {
+        "Car_Type": {
+          "type": "unspecified",
+          "required": false,
+          "options": [
+            "Economy",
+            "Compact",
+            "SUV",
+            "Luxury",
+            "Van"
+          ]
         },
-        "Vehicles_List": {
-          "type": "grouped_list",
-          "grouped_by": "Car_Type",
-          "item_fields": {
-            "Vehicle_Image": {
-              "type": "image"
-            },
-            "Make_and_Model": {
-              "type": "text"
-            },
-            "Transmission_Type": {
-              "type": "text",
-              "options": [
-                "Automatic",
-                "Manual"
-              ]
-            },
-            "Fuel_Policy": {
-              "type": "text"
-            },
-            "Seating_Capacity": {
-              "type": "number"
-            },
-            "Luggage_Capacity": {
-              "type": "number"
-            },
-            "Features": {
-              "type": "list",
-              "items": [
-                "AC",
-                "GPS",
-                "etc."
-              ]
-            },
-            "Price_Per_Day": {
-              "type": "currency"
-            },
-            "Total_Rental_Cost": {
-              "type": "currency",
-              "computed": "Price_Per_Day * rental_days"
-            },
-            "Book_Now": {
-              "type": "button",
-              "element_name": "Book Now",
-              "on_success": "initiates booking flow"
-            }
-          },
-          "groups": {
-            "Economy": {
-              "items": []
-            },
-            "Compact": {
-              "items": []
-            },
-            "SUV": {
-              "items": []
-            },
-            "Luxury": {
-              "items": []
-            },
-            "Van": {
-              "items": []
-            }
-          }
+        "Transmission": {
+          "type": "unspecified",
+          "required": false,
+          "options": [
+            "Automatic",
+            "Manual"
+          ]
+        },
+        "Fuel_Policy": {
+          "type": "unspecified",
+          "required": false
+        },
+        "Rental_Company": {
+          "type": "unspecified",
+          "required": false
+        },
+        "Price_Range": {
+          "type": "range",
+          "required": false
         }
       }
+    },
+    "Vehicle_Listings": {
+      "type": "grouped_list",
+      "group_by": "category",
+      "groups": [
+        "Economy",
+        "Compact",
+        "SUV",
+        "Luxury",
+        "Van"
+      ],
+      "row_actions": [
+        {
+          "action_name": "Book Now",
+          "type": "button",
+          "on_click": "initiates booking for selected vehicle"
+        }
+      ],
+      "notes": "Each listing displays make/model, transmission, fuel policy, seating, luggage, features, price per day and total cost for the selected period (display-only, not represented here)."
     }
   }
 }
@@ -382,10 +365,15 @@ The car rental search form collects pick-up and drop-off location, pick-up and d
 
 </description>
 
+<workflows>
+WF-001 | Submit car search form | actor: <role> | branch: none | terminal: unspecified | on_success: redirects to listing page
+WF-002 | Book Now from listing | actor: <role> | branch: none | terminal: Book Now | on_success: initiates booking for selected vehicle
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[22:56:22] Test-Positive - LLM RESPONSE
+[14:53:02] Test-Positive - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Cars Search & Listing",
@@ -393,121 +381,93 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Perform a valid search and navigate to listings",
+      "wf_ref": "WF-001",
+      "test_case": "Submit valid car search redirects to listing page",
       "preconditions": [
-        "User logged in as <Customer>"
+        "User logged in as <role>"
       ],
       "steps": [
-        "1. Navigate to the Cars Search page",
-        "2. Enter <Pick_Up_Location> in the Pick Up Location search field",
-        "3. Enter <Drop_Off_Location> in the Drop Off Location search field",
-        "4. Select <Pick_Up_Date> and <Pick_Up_Time>",
-        "5. Select <Drop_Off_Date> (>= Pick Up Date) and <Drop_Off_Time>",
-        "6. Enter <Driver_Age> in the Driver Age field",
-        "7. Click the Search button"
+        "1. Enter <pick-up location> in the Pick-up Location field",
+        "2. Enter <drop-off location> in the Drop-off Location field",
+        "3. Select <pick-up date> in the Pick-up Date field",
+        "4. Select <drop-off date> in the Drop-off Date field",
+        "5. Select <pick-up time> in the Pick-up Time field",
+        "6. Select <drop-off time> in the Drop-off Time field",
+        "7. Enter <driver age> in the Driver Age field",
+        "8. Click the Search / Submit button on the Car Search form"
       ],
-      "expected_result": "redirects to Listing_Page",
+      "expected_result": "redirects to listing page",
       "priority": "high"
     },
     {
       "tc_id": "P-002",
-      "test_case": "Total Rental Cost updates visibly based on selected rental period",
+      "wf_ref": null,
+      "test_case": "Search shows grouped vehicle listings with required attributes",
       "preconditions": [
-        "User logged in as <Customer>"
+        "User logged in as <role>"
       ],
       "steps": [
-        "1. Navigate to the Cars Search page",
-        "2. Enter <Pick_Up_Location> and <Drop_Off_Location>",
-        "3. Select <Pick_Up_Date> and <Pick_Up_Time>",
-        "4. Select <Drop_Off_Date> (>= Pick Up Date) and <Drop_Off_Time> to create a rental period of <rental_days>",
-        "5. Enter <Driver_Age> and click Search",
-        "6. On the Listing page, locate a listed vehicle and note its displayed Price_Per_Day and Total Rental Cost"
+        "1. Enter valid search criteria in the Car Search form and submit (repeat steps from P-001)",
+        "2. Wait for the Listing page to load"
       ],
-      "expected_result": "For each listed vehicle, the Total Rental Cost value visibly updates to reflect Price_Per_Day multiplied by <rental_days> (Total Rental Cost = Price_Per_Day × <rental_days>)",
-      "priority": "high"
+      "expected_result": "Listing page displays grouped vehicle lists with groups: Economy, Compact, SUV, Luxury, Van. Each listing displays make and model, transmission type, fuel policy, seating and luggage capacity, feature icons (e.g., AC, GPS), price per day and total rental cost for the selected period.",
+      "priority": "medium"
     },
     {
       "tc_id": "P-003",
-      "test_case": "Filter results by a single Car Type (multiselect)",
+      "wf_ref": null,
+      "test_case": "Applying single Car Type filter updates results dynamically",
       "preconditions": [
-        "User logged in as <Customer>"
+        "User logged in as <role>"
       ],
       "steps": [
-        "1. Navigate to the Cars Search page and perform a search that returns vehicles across multiple car types",
-        "2. On the Listing page, open the Sidebar_Filters panel if collapsed",
-        "3. In Car_Type multiselect, select <Car_Type>",
-        "4. Observe the Vehicles_List update"
+        "1. Enter valid search criteria in the Car Search form and submit (repeat steps from P-001)",
+        "2. On the Listing page, select <Car_Type> from the Car Type filter in the Sidebar Filters"
       ],
-      "expected_result": "Vehicles_List displays only vehicles grouped under <Car_Type>; groups for other car types are not visible",
+      "expected_result": "Vehicle listings display only vehicles matching selected Car Type '<Car_Type>'; listings from other categories are no longer visible",
       "priority": "medium"
     },
     {
       "tc_id": "P-004",
-      "test_case": "Filter results by Transmission type",
+      "wf_ref": null,
+      "test_case": "Applying multiple sidebar filters (Car Type, Transmission, Price Range) narrows results",
       "preconditions": [
-        "User logged in as <Customer>"
+        "User logged in as <role>"
       ],
       "steps": [
-        "1. Navigate to the Cars Search page and perform a search that returns mixed transmission types",
-        "2. On the Listing page, in Sidebar_Filters select <Transmission> (e.g., Automatic) from the Transmission multiselect",
-        "3. Observe the Vehicles_List update dynamically"
+        "1. Enter valid search criteria in the Car Search form and submit (repeat steps from P-001)",
+        "2. On the Listing page, select <Car_Type> from Car Type filter",
+        "3. Select <Transmission> from Transmission filter",
+        "4. Adjust the Price Range control to <price range>"
       ],
-      "expected_result": "Vehicles_List displays only vehicles whose Transmission_Type matches <Transmission>; vehicles with other transmission types are not visible",
+      "expected_result": "Vehicle listings display only vehicles matching selected Car Type '<Car_Type>' and Transmission '<Transmission>' and with total price within selected <price range>; unrelated listings are no longer visible",
       "priority": "medium"
     },
     {
       "tc_id": "P-005",
-      "test_case": "Filter results by Price Range and see dynamic update",
+      "wf_ref": "WF-002",
+      "test_case": "Click Book Now on a listing initiates booking for that vehicle",
       "preconditions": [
-        "User logged in as <Customer>"
+        "User logged in as <role>"
       ],
       "steps": [
-        "1. Navigate to the Cars Search page and perform a search that returns vehicles across a range of prices",
-        "2. On the Listing page, set the Price_Range filter to <min>-<max> in Sidebar_Filters",
-        "3. Observe the Vehicles_List update dynamically"
+        "1. Enter valid search criteria in the Car Search form and submit (repeat steps from P-001)",
+        "2. On the Listing page, identify a vehicle listing and click the Book Now button for the chosen vehicle"
       ],
-      "expected_result": "Vehicles_List displays only vehicles with Price_Per_Day within <min>-<max>; vehicles outside that range are not visible",
-      "priority": "medium"
-    },
-    {
-      "tc_id": "P-006",
-      "test_case": "Start booking by clicking Book Now on a listed vehicle",
-      "preconditions": [
-        "User logged in as <Customer>"
-      ],
-      "steps": [
-        "1. Navigate to the Cars Search page and perform a search that returns at least one vehicle",
-        "2. On the Listing page, locate a vehicle in the Vehicles_List",
-        "3. Click the Book Now button for that vehicle"
-      ],
-      "expected_result": "initiates booking flow",
+      "expected_result": "initiates booking for selected vehicle",
       "priority": "high"
-    },
-    {
-      "tc_id": "P-007",
-      "test_case": "Select multiple Car Types in multiselect and view combined results",
-      "preconditions": [
-        "User logged in as <Customer>"
-      ],
-      "steps": [
-        "1. Navigate to the Cars Search page and perform a search that returns vehicles across multiple car types",
-        "2. On the Listing page, in Car_Type multiselect select multiple options: <Car_Type_A> and <Car_Type_B>",
-        "3. Observe the Vehicles_List update dynamically"
-      ],
-      "expected_result": "Vehicles_List displays vehicles matching any of the selected car types; groups shown correspond only to the selected types",
-      "priority": "medium"
     }
   ],
   "summary": {
-    "total": 7,
-    "high_priority": 3,
-    "medium_priority": 4,
+    "total": 5,
+    "high_priority": 2,
+    "medium_priority": 3,
     "low_priority": 0
   }
 }
 
 ------------------------------------------------------------
-[22:56:22] Test-Positive - PARSED JSON
+[14:53:02] Test-Positive - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Cars Search & Listing",
@@ -515,115 +475,87 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Perform a valid search and navigate to listings",
+      "wf_ref": "WF-001",
+      "test_case": "Submit valid car search redirects to listing page",
       "preconditions": [
-        "User logged in as <Customer>"
+        "User logged in as <role>"
       ],
       "steps": [
-        "1. Navigate to the Cars Search page",
-        "2. Enter <Pick_Up_Location> in the Pick Up Location search field",
-        "3. Enter <Drop_Off_Location> in the Drop Off Location search field",
-        "4. Select <Pick_Up_Date> and <Pick_Up_Time>",
-        "5. Select <Drop_Off_Date> (>= Pick Up Date) and <Drop_Off_Time>",
-        "6. Enter <Driver_Age> in the Driver Age field",
-        "7. Click the Search button"
+        "1. Enter <pick-up location> in the Pick-up Location field",
+        "2. Enter <drop-off location> in the Drop-off Location field",
+        "3. Select <pick-up date> in the Pick-up Date field",
+        "4. Select <drop-off date> in the Drop-off Date field",
+        "5. Select <pick-up time> in the Pick-up Time field",
+        "6. Select <drop-off time> in the Drop-off Time field",
+        "7. Enter <driver age> in the Driver Age field",
+        "8. Click the Search / Submit button on the Car Search form"
       ],
-      "expected_result": "redirects to Listing_Page",
+      "expected_result": "redirects to listing page",
       "priority": "high"
     },
     {
       "tc_id": "P-002",
-      "test_case": "Total Rental Cost updates visibly based on selected rental period",
+      "wf_ref": null,
+      "test_case": "Search shows grouped vehicle listings with required attributes",
       "preconditions": [
-        "User logged in as <Customer>"
+        "User logged in as <role>"
       ],
       "steps": [
-        "1. Navigate to the Cars Search page",
-        "2. Enter <Pick_Up_Location> and <Drop_Off_Location>",
-        "3. Select <Pick_Up_Date> and <Pick_Up_Time>",
-        "4. Select <Drop_Off_Date> (>= Pick Up Date) and <Drop_Off_Time> to create a rental period of <rental_days>",
-        "5. Enter <Driver_Age> and click Search",
-        "6. On the Listing page, locate a listed vehicle and note its displayed Price_Per_Day and Total Rental Cost"
+        "1. Enter valid search criteria in the Car Search form and submit (repeat steps from P-001)",
+        "2. Wait for the Listing page to load"
       ],
-      "expected_result": "For each listed vehicle, the Total Rental Cost value visibly updates to reflect Price_Per_Day multiplied by <rental_days> (Total Rental Cost = Price_Per_Day \u00d7 <rental_days>)",
-      "priority": "high"
+      "expected_result": "Listing page displays grouped vehicle lists with groups: Economy, Compact, SUV, Luxury, Van. Each listing displays make and model, transmission type, fuel policy, seating and luggage capacity, feature icons (e.g., AC, GPS), price per day and total rental cost for the selected period.",
+      "priority": "medium"
     },
     {
       "tc_id": "P-003",
-      "test_case": "Filter results by a single Car Type (multiselect)",
+      "wf_ref": null,
+      "test_case": "Applying single Car Type filter updates results dynamically",
       "preconditions": [
-        "User logged in as <Customer>"
+        "User logged in as <role>"
       ],
       "steps": [
-        "1. Navigate to the Cars Search page and perform a search that returns vehicles across multiple car types",
-        "2. On the Listing page, open the Sidebar_Filters panel if collapsed",
-        "3. In Car_Type multiselect, select <Car_Type>",
-        "4. Observe the Vehicles_List update"
+        "1. Enter valid search criteria in the Car Search form and submit (repeat steps from P-001)",
+        "2. On the Listing page, select <Car_Type> from the Car Type filter in the Sidebar Filters"
       ],
-      "expected_result": "Vehicles_List displays only vehicles grouped under <Car_Type>; groups for other car types are not visible",
+      "expected_result": "Vehicle listings display only vehicles matching selected Car Type '<Car_Type>'; listings from other categories are no longer visible",
       "priority": "medium"
     },
     {
       "tc_id": "P-004",
-      "test_case": "Filter results by Transmission type",
+      "wf_ref": null,
+      "test_case": "Applying multiple sidebar filters (Car Type, Transmission, Price Range) narrows results",
       "preconditions": [
-        "User logged in as <Customer>"
+        "User logged in as <role>"
       ],
       "steps": [
-        "1. Navigate to the Cars Search page and perform a search that returns mixed transmission types",
-        "2. On the Listing page, in Sidebar_Filters select <Transmission> (e.g., Automatic) from the Transmission multiselect",
-        "3. Observe the Vehicles_List update dynamically"
+        "1. Enter valid search criteria in the Car Search form and submit (repeat steps from P-001)",
+        "2. On the Listing page, select <Car_Type> from Car Type filter",
+        "3. Select <Transmission> from Transmission filter",
+        "4. Adjust the Price Range control to <price range>"
       ],
-      "expected_result": "Vehicles_List displays only vehicles whose Transmission_Type matches <Transmission>; vehicles with other transmission types are not visible",
+      "expected_result": "Vehicle listings display only vehicles matching selected Car Type '<Car_Type>' and Transmission '<Transmission>' and with total price within selected <price range>; unrelated listings are no longer visible",
       "priority": "medium"
     },
     {
       "tc_id": "P-005",
-      "test_case": "Filter results by Price Range and see dynamic update",
+      "wf_ref": "WF-002",
+      "test_case": "Click Book Now on a listing initiates booking for that vehicle",
       "preconditions": [
-        "User logged in as <Customer>"
+        "User logged in as <role>"
       ],
       "steps": [
-        "1. Navigate to the Cars Search page and perform a search that returns vehicles across a range of prices",
-        "2. On the Listing page, set the Price_Range filter to <min>-<max> in Sidebar_Filters",
-        "3. Observe the Vehicles_List update dynamically"
+        "1. Enter valid search criteria in the Car Search form and submit (repeat steps from P-001)",
+        "2. On the Listing page, identify a vehicle listing and click the Book Now button for the chosen vehicle"
       ],
-      "expected_result": "Vehicles_List displays only vehicles with Price_Per_Day within <min>-<max>; vehicles outside that range are not visible",
-      "priority": "medium"
-    },
-    {
-      "tc_id": "P-006",
-      "test_case": "Start booking by clicking Book Now on a listed vehicle",
-      "preconditions": [
-        "User logged in as <Customer>"
-      ],
-      "steps": [
-        "1. Navigate to the Cars Search page and perform a search that returns at least one vehicle",
-        "2. On the Listing page, locate a vehicle in the Vehicles_List",
-        "3. Click the Book Now button for that vehicle"
-      ],
-      "expected_result": "initiates booking flow",
+      "expected_result": "initiates booking for selected vehicle",
       "priority": "high"
-    },
-    {
-      "tc_id": "P-007",
-      "test_case": "Select multiple Car Types in multiselect and view combined results",
-      "preconditions": [
-        "User logged in as <Customer>"
-      ],
-      "steps": [
-        "1. Navigate to the Cars Search page and perform a search that returns vehicles across multiple car types",
-        "2. On the Listing page, in Car_Type multiselect select multiple options: <Car_Type_A> and <Car_Type_B>",
-        "3. Observe the Vehicles_List update dynamically"
-      ],
-      "expected_result": "Vehicles_List displays vehicles matching any of the selected car types; groups shown correspond only to the selected types",
-      "priority": "medium"
     }
   ],
   "summary": {
-    "total": 7,
-    "high_priority": 3,
-    "medium_priority": 4,
+    "total": 5,
+    "high_priority": 2,
+    "medium_priority": 3,
     "low_priority": 0
   }
 }

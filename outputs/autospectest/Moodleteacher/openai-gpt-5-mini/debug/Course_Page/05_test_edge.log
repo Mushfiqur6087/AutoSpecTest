@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-22T21:47:19.045293
+DEBUG SESSION STARTED: 2026-05-25T15:28:46.011463
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[21:47:19] Test-Edge - SYSTEM PROMPT
+[15:28:46] Test-Edge - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Edge Case and Boundary Test Generator. You receive (1) a UI-AST JSON for one module and (2) the original functional description. Your job is to produce ONLY boundary and edge case tests — scenarios at the limits of valid/invalid input and unusual-but-plausible user behaviors.
 
@@ -24,6 +24,10 @@ You are NOT producing happy paths (positive prompt) or standard validation failu
 <description>
 {Original functional description text for this module}
 </description>
+
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
 
 ---
 
@@ -176,6 +180,15 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 
 ---
 
+**WORKFLOW-AWARE BOUNDARY SCOPING (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- For each workflow where `conditional_branch` activates a numeric or date field, check if that field has a boundary (a numeric/date threshold in the AST `constraints` or description).
+- If yes, that workflow's branch is a **candidate for a boundary edge test** — add or confirm a boundary TC exists for it.
+- Add `"wf_ref": "WF-NNN"` to each TC that maps to a specific workflow's boundary. Set `"wf_ref": null` for generic input/interaction edge tests.
+
+---
+
 **OUTPUT — JSON only, no prose, no markdown fencing:**
 
 {
@@ -184,6 +197,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": null,
       "subcategory": "boundary | input_edge | interaction_edge | state_edge | data_edge",
       "test_case": "Short descriptive name",
       "preconditions": ["precondition 1"],
@@ -206,7 +220,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 
 
 ------------------------------------------------------------
-[21:47:19] Test-Edge - USER PROMPT
+[15:28:46] Test-Edge - USER PROMPT
 ------------------------------------------------------------
 <module_name>Course Page</module_name>
 
@@ -218,30 +232,35 @@ If the module has any numeric/date/count threshold in the AST or description, pr
       "type": "tab_container",
       "tabs": []
     },
-    "Collapse_All_Link": {
-      "type": "link",
-      "element_name": "Collapse all",
-      "on_success": "collapses all sections"
-    },
     "Sections_List": {
       "type": "repeating_group",
       "item_fields": {
-        "Toggle_Section_Collapse": {
+        "Section_Header": {
           "type": "button",
-          "element_name": "Toggle Section Collapse",
+          "element_name": "Toggle Section Collapse/Expand",
           "on_success": "toggles this section collapsed state"
         },
-        "Activities": {
+        "Section_Collapse_State": {
+          "type": "unspecified",
+          "constraints": [],
+          "description": "represents whether the section is collapsed or expanded"
+        },
+        "Activities_and_Resources": {
           "type": "repeating_group",
           "item_fields": {
             "Activity_Name": {
               "type": "link",
-              "element_name": "Open activity/resource",
-              "on_success": "opens activity or resource"
+              "required": true,
+              "on_success": "navigates to activity or resource"
             }
           }
         }
       }
+    },
+    "Collapse_All_Link": {
+      "type": "link",
+      "element_name": "Collapse all",
+      "on_success": "collapses all sections at once"
     }
   }
 }
@@ -256,10 +275,16 @@ The Course page displays the full course content organized into collapsible sect
 
 </description>
 
+<workflows>
+WF-001 | Toggle section collapse/expand | actor: <role> | branch: none | terminal: Toggle Section Collapse/Expand | on_success: toggles this section collapsed state
+WF-002 | Collapse all sections | actor: <role> | branch: none | terminal: Collapse all | on_success: collapses all sections at once
+WF-003 | Open activity or resource | actor: <role> | branch: none | terminal: Activity_Name | on_success: navigates to activity or resource
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[21:48:14] Test-Edge - LLM RESPONSE
+[15:29:46] Test-Edge - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Course Page",
@@ -267,84 +292,88 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "E-001",
-      "subcategory": "interaction_edge",
-      "test_case": "Use 'Collapse all' when many sections are expanded",
+      "wf_ref": "WF-001",
+      "subcategory": "state_edge",
+      "test_case": "Rapid consecutive toggles of a single section",
       "preconditions": [
-        "Course Page is open in browser",
-        "Course contains multiple sections (>= 5) and each section is individually expanded so activities are visible"
+        "Course Page is loaded",
+        "There is at least one section displayed and it is currently expanded",
+        "That section contains at least one activity"
       ],
       "steps": [
-        "1. Click the 'Collapse all' link",
-        "2. Observe the visible state of all section chevrons and activity lists"
+        "1. Click the Section_Header (Toggle Section Collapse/Expand) for the target section",
+        "2. Click the same Section_Header a second time within 200ms of the first click",
+        "3. Click the same Section_Header a third time within 200ms of the previous click",
+        "4. Click the same Section_Header a fourth time within 200ms of the previous click",
+        "5. Click the same Section_Header a fifth time within 200ms of the previous click"
       ],
-      "expected_result": "All sections visually collapse (chevrons indicate collapsed and activities are hidden); no JavaScript error message or UI artifact appears. Action succeeds.",
+      "expected_result": "After the sequence of rapid clicks the final visible Section_Collapse_State reflects the last click (if last click was collapse → section shows collapsed chevron and activities hidden; if last click was expand → section shows expand chevron and activities visible). Toggle action sequence succeeds and no UI error message or visual state inconsistency (e.g., duplicated activity rows or flashing stale content) is shown.",
       "priority": "medium"
     },
     {
       "tc_id": "E-002",
-      "subcategory": "state_edge",
-      "test_case": "Rapid consecutive toggles of a single section's collapse button",
+      "wf_ref": "WF-002",
+      "subcategory": "interaction_edge",
+      "test_case": "Idempotent behavior when clicking 'Collapse all' twice in a row",
       "preconditions": [
-        "Course Page is open in browser",
-        "At least one section is present and currently expanded"
+        "Course Page is loaded",
+        "There are multiple sections with a mixture of expanded and collapsed states"
       ],
       "steps": [
-        "1. Rapidly click the section's 'Toggle Section Collapse' button repeatedly (multiple consecutive clicks within 1–2 seconds)",
-        "2. After clicks stop, observe the final collapsed/expanded state and any UI errors"
+        "1. Click the Collapse_All_Link (Collapse all)",
+        "2. Immediately click the Collapse_All_Link (Collapse all) again within 1 second"
       ],
-      "expected_result": "The section's visible state stabilizes to reflect the last toggle click (expanded or collapsed as per last click); no persistent UI error or duplicate-state artifact is shown. Action sequence succeeds.",
+      "expected_result": "First click collapses all sections (each section shows collapsed chevron and activities hidden). Second click is idempotent and succeeds: all sections remain collapsed, no error or visual flash is shown, and the UI does not create duplicate section entries or unexpected expansion.",
       "priority": "medium"
     },
     {
       "tc_id": "E-003",
+      "wf_ref": "WF-003",
       "subcategory": "interaction_edge",
-      "test_case": "Click an activity link then immediately click 'Collapse all' before navigation completes",
+      "test_case": "Attempt to open an activity while its section is collapsed",
       "preconditions": [
-        "Course Page is open in browser",
-        "At least one section is expanded and contains at least one activity",
-        "Activity link target may take measurable time to load (simulated slow navigation)"
+        "Course Page is loaded",
+        "There is at least one section that contains at least one activity",
+        "That section is currently collapsed"
       ],
       "steps": [
-        "1. Click an activity's 'Open activity/resource' link",
-        "2. Immediately (before the activity page finishes loading) click the 'Collapse all' link",
-        "3. Observe whether the browser navigates away, whether collapse takes effect, and whether any error is shown"
+        "1. Verify the target section is collapsed (activities are not visible)",
+        "2. Attempt to click the Activity_Name link for an activity inside that collapsed section"
       ],
-      "expected_result": "Exactly one navigation to the activity occurs and the user does not see a JavaScript error; if navigation completes first the collapse has no visible effect (user is on activity page); if collapse completes first user remains on Course Page with sections collapsed. In all cases the UI does not show an error and the sequence succeeds (no broken state or duplicate actions).",
-      "priority": "low"
+      "expected_result": "Click attempt on Activity_Name is blocked because the activity is not visible/interactive while the section is collapsed; no navigation occurs and no activity detail page is opened. The UI shows the section remains collapsed (collapsed chevron) and no error dialog is shown. If the UI instead auto-expands on attempted click, the auto-expand action succeeds and the subsequent click navigates exactly once to the activity.",
+      "priority": "medium"
     },
     {
       "tc_id": "E-004",
-      "subcategory": "input_edge | data_edge",
-      "test_case": "Very long and unusual section/activity names render and remain actionable",
+      "wf_ref": "WF-003",
+      "subcategory": "interaction_edge",
+      "test_case": "Double-click / rapid repeated click on an activity link",
       "preconditions": [
-        "Course Page is open in browser",
-        "Course contains at least one section whose display name is a very long string (>200 characters)",
-        "That section contains at least one activity whose display name includes leading/trailing whitespace and non-ASCII characters (emoji / unicode)"
+        "Course Page is loaded",
+        "Target section is expanded and the activity's Activity_Name link is visible and enabled"
       ],
       "steps": [
-        "1. Load the Course Page",
-        "2. Observe how the long section name is rendered in the section header",
-        "3. Hover or focus the long section name (if hover tooltip or accessible label is provided) and observe the full text display",
-        "4. Click the long-named activity's 'Open activity/resource' link"
+        "1. Click the Activity_Name link for the target activity",
+        "2. Immediately click the same Activity_Name link a second time before navigation completes (within 200ms)"
       ],
-      "expected_result": "Long section and activity names are rendered without breaking the page layout (e.g., truncated with ellipsis or wrapped in a stable way). Hover or accessibility label exposes the full name (trimmed of leading/trailing whitespace where UI normalizes it). Clicking the activity link successfully opens the activity page and no UI error is shown. Overall interaction succeeds.",
+      "expected_result": "Only one navigation to the activity/resource occurs; the second rapid click does not cause a duplicate navigation or duplicate resource loads. The navigation action succeeds and the Course Page does not show duplicate entries or error messages resulting from the rapid repeated clicks.",
       "priority": "medium"
     }
   ],
   "summary": {
     "total": 4,
     "boundary": 0,
-    "input_edge": 1,
-    "interaction_edge": 2,
+    "input_edge": 0,
+    "interaction_edge": 3,
     "state_edge": 1,
-    "data_edge": 1,
-    "medium_priority": 3,
-    "low_priority": 1
+    "data_edge": 0,
+    "medium_priority": 4,
+    "low_priority": 0
   }
 }
 
 ------------------------------------------------------------
-[21:48:14] Test-Edge - PARSED JSON
+[15:29:46] Test-Edge - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Course Page",
@@ -352,78 +381,82 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "E-001",
-      "subcategory": "interaction_edge",
-      "test_case": "Use 'Collapse all' when many sections are expanded",
+      "wf_ref": "WF-001",
+      "subcategory": "state_edge",
+      "test_case": "Rapid consecutive toggles of a single section",
       "preconditions": [
-        "Course Page is open in browser",
-        "Course contains multiple sections (>= 5) and each section is individually expanded so activities are visible"
+        "Course Page is loaded",
+        "There is at least one section displayed and it is currently expanded",
+        "That section contains at least one activity"
       ],
       "steps": [
-        "1. Click the 'Collapse all' link",
-        "2. Observe the visible state of all section chevrons and activity lists"
+        "1. Click the Section_Header (Toggle Section Collapse/Expand) for the target section",
+        "2. Click the same Section_Header a second time within 200ms of the first click",
+        "3. Click the same Section_Header a third time within 200ms of the previous click",
+        "4. Click the same Section_Header a fourth time within 200ms of the previous click",
+        "5. Click the same Section_Header a fifth time within 200ms of the previous click"
       ],
-      "expected_result": "All sections visually collapse (chevrons indicate collapsed and activities are hidden); no JavaScript error message or UI artifact appears. Action succeeds.",
+      "expected_result": "After the sequence of rapid clicks the final visible Section_Collapse_State reflects the last click (if last click was collapse \u2192 section shows collapsed chevron and activities hidden; if last click was expand \u2192 section shows expand chevron and activities visible). Toggle action sequence succeeds and no UI error message or visual state inconsistency (e.g., duplicated activity rows or flashing stale content) is shown.",
       "priority": "medium"
     },
     {
       "tc_id": "E-002",
-      "subcategory": "state_edge",
-      "test_case": "Rapid consecutive toggles of a single section's collapse button",
+      "wf_ref": "WF-002",
+      "subcategory": "interaction_edge",
+      "test_case": "Idempotent behavior when clicking 'Collapse all' twice in a row",
       "preconditions": [
-        "Course Page is open in browser",
-        "At least one section is present and currently expanded"
+        "Course Page is loaded",
+        "There are multiple sections with a mixture of expanded and collapsed states"
       ],
       "steps": [
-        "1. Rapidly click the section's 'Toggle Section Collapse' button repeatedly (multiple consecutive clicks within 1\u20132 seconds)",
-        "2. After clicks stop, observe the final collapsed/expanded state and any UI errors"
+        "1. Click the Collapse_All_Link (Collapse all)",
+        "2. Immediately click the Collapse_All_Link (Collapse all) again within 1 second"
       ],
-      "expected_result": "The section's visible state stabilizes to reflect the last toggle click (expanded or collapsed as per last click); no persistent UI error or duplicate-state artifact is shown. Action sequence succeeds.",
+      "expected_result": "First click collapses all sections (each section shows collapsed chevron and activities hidden). Second click is idempotent and succeeds: all sections remain collapsed, no error or visual flash is shown, and the UI does not create duplicate section entries or unexpected expansion.",
       "priority": "medium"
     },
     {
       "tc_id": "E-003",
+      "wf_ref": "WF-003",
       "subcategory": "interaction_edge",
-      "test_case": "Click an activity link then immediately click 'Collapse all' before navigation completes",
+      "test_case": "Attempt to open an activity while its section is collapsed",
       "preconditions": [
-        "Course Page is open in browser",
-        "At least one section is expanded and contains at least one activity",
-        "Activity link target may take measurable time to load (simulated slow navigation)"
+        "Course Page is loaded",
+        "There is at least one section that contains at least one activity",
+        "That section is currently collapsed"
       ],
       "steps": [
-        "1. Click an activity's 'Open activity/resource' link",
-        "2. Immediately (before the activity page finishes loading) click the 'Collapse all' link",
-        "3. Observe whether the browser navigates away, whether collapse takes effect, and whether any error is shown"
+        "1. Verify the target section is collapsed (activities are not visible)",
+        "2. Attempt to click the Activity_Name link for an activity inside that collapsed section"
       ],
-      "expected_result": "Exactly one navigation to the activity occurs and the user does not see a JavaScript error; if navigation completes first the collapse has no visible effect (user is on activity page); if collapse completes first user remains on Course Page with sections collapsed. In all cases the UI does not show an error and the sequence succeeds (no broken state or duplicate actions).",
-      "priority": "low"
+      "expected_result": "Click attempt on Activity_Name is blocked because the activity is not visible/interactive while the section is collapsed; no navigation occurs and no activity detail page is opened. The UI shows the section remains collapsed (collapsed chevron) and no error dialog is shown. If the UI instead auto-expands on attempted click, the auto-expand action succeeds and the subsequent click navigates exactly once to the activity.",
+      "priority": "medium"
     },
     {
       "tc_id": "E-004",
-      "subcategory": "input_edge | data_edge",
-      "test_case": "Very long and unusual section/activity names render and remain actionable",
+      "wf_ref": "WF-003",
+      "subcategory": "interaction_edge",
+      "test_case": "Double-click / rapid repeated click on an activity link",
       "preconditions": [
-        "Course Page is open in browser",
-        "Course contains at least one section whose display name is a very long string (>200 characters)",
-        "That section contains at least one activity whose display name includes leading/trailing whitespace and non-ASCII characters (emoji / unicode)"
+        "Course Page is loaded",
+        "Target section is expanded and the activity's Activity_Name link is visible and enabled"
       ],
       "steps": [
-        "1. Load the Course Page",
-        "2. Observe how the long section name is rendered in the section header",
-        "3. Hover or focus the long section name (if hover tooltip or accessible label is provided) and observe the full text display",
-        "4. Click the long-named activity's 'Open activity/resource' link"
+        "1. Click the Activity_Name link for the target activity",
+        "2. Immediately click the same Activity_Name link a second time before navigation completes (within 200ms)"
       ],
-      "expected_result": "Long section and activity names are rendered without breaking the page layout (e.g., truncated with ellipsis or wrapped in a stable way). Hover or accessibility label exposes the full name (trimmed of leading/trailing whitespace where UI normalizes it). Clicking the activity link successfully opens the activity page and no UI error is shown. Overall interaction succeeds.",
+      "expected_result": "Only one navigation to the activity/resource occurs; the second rapid click does not cause a duplicate navigation or duplicate resource loads. The navigation action succeeds and the Course Page does not show duplicate entries or error messages resulting from the rapid repeated clicks.",
       "priority": "medium"
     }
   ],
   "summary": {
     "total": 4,
     "boundary": 0,
-    "input_edge": 1,
-    "interaction_edge": 2,
+    "input_edge": 0,
+    "interaction_edge": 3,
     "state_edge": 1,
-    "data_edge": 1,
-    "medium_priority": 3,
-    "low_priority": 1
+    "data_edge": 0,
+    "medium_priority": 4,
+    "low_priority": 0
   }
 }

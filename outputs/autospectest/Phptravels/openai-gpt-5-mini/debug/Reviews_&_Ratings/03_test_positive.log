@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-21T22:54:00.279502
+DEBUG SESSION STARTED: 2026-05-25T14:51:20.263364
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[22:54:00] Test-Positive - SYSTEM PROMPT
+[14:51:20] Test-Positive - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Expert UI Test Case Generator. You receive (1) a UI-AST JSON for one specific module and (2) the original functional description for that module.
 
@@ -24,6 +24,10 @@ Your job is to produce ONLY positive/functional UI test cases — tests where va
 <description>
 {Original functional description text for this module}
 </description>
+
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
 
 ---
 
@@ -146,6 +150,13 @@ Because you are testing a module in isolation, establish the required entry stat
 **1. Forms & Wizards (`form`, `wizard`):**
 - Generate ONE happy path per distinct success outcome.
 - *Conditional UI Check:* If a toggle/dropdown reveals new mandatory fields (`visible_when`), generate a separate test for that conditional branch.
+- **Wizard step coverage (CRITICAL):** If a wizard has multiple steps and any step beyond Step 1 contains its own named field group (e.g., "Address Details", "Family Members", "Identifiers"), generate ONE dedicated positive TC per such step. The TC must:
+  - Navigate to that specific step (include the preceding steps as preconditions or brief navigation steps)
+  - Fill the fields described for that step (not just pass through)
+  - Assert the step's content is visible/saved on the detail page after final submission
+  - **Do NOT collapse all wizard steps into one happy-path TC** — if Steps 2, 3, and 4 each have their own named section in the spec, they each need their own TC.
+- **Wizard in-step identifiers/duplicates:** If a wizard step allows adding identifiers, documents, or similar entries that have a uniqueness constraint, include a TC for that wizard step that also verifies the constraint (e.g., attempting to add a duplicate Document Type+Key pair inside the wizard). This is a different code path from adding the same post-creation on the detail page.
+- **Action dialogs:** If a `state_bound_action_bar` action opens a dialog with its own `fields{}` (e.g., Activate requires Activation Date, Reject requires Reason), generate ONE positive TC per such action-dialog — distinct from the state-transition TC. The TC fills the dialog field and completes the action.
 
 **2. State Machines (`state_bound_action_bar`):**
 - For each unique action available in a specific state, generate ONE test performing that action.
@@ -200,6 +211,19 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 
 ---
 
+**WORKFLOW COVERAGE OBLIGATION (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- Your test cases must **collectively cover every workflow** listed.
+- For each `wf_id`, at least one TC must:
+  - Activate the `conditional_branch` (if not null) — i.e. the test must set up the condition described.
+  - Assert the `on_success` as its `expected_result` (verbatim or as the primary basis for the expected result).
+- Add `"wf_ref": "WF-NNN"` to each TC to identify which workflow it covers.
+- If one TC naturally covers multiple workflows (e.g., the base path overlaps), pick the most specific `wf_ref`.
+- If a TC does not map to any workflow (e.g., a navigation-only test), set `"wf_ref": null`.
+
+---
+
 **OUTPUT — JSON only, no prose, no markdown fencing:**
 
 {
@@ -208,6 +232,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
   "test_cases": [
     {
       "tc_id": "P-001",
+      "wf_ref": "WF-001",
       "test_case": "Short descriptive name",
       "preconditions": ["User logged in as <Role>", "<Prerequisite state>"],
       "steps": ["1. Step one", "2. Step two"],
@@ -224,7 +249,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 }
 
 ------------------------------------------------------------
-[22:54:00] Test-Positive - USER PROMPT
+[14:51:20] Test-Positive - USER PROMPT
 ------------------------------------------------------------
 <module_name>Reviews & Ratings</module_name>
 
@@ -232,80 +257,88 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 {
   "module_name": "Reviews & Ratings",
   "components": {
-    "Detail_Page_Reviews_Section": {
-      "type": "section",
-      "components": {
-        "Reviews_Filters": {
-          "type": "form",
+    "Reviews_Filters_Form": {
+      "type": "form",
+      "fields": {
+        "Rating": {
+          "type": "dropdown",
+          "required": false
+        },
+        "Date_Range": {
+          "type": "group",
           "fields": {
-            "Rating": {
-              "type": "dropdown"
+            "Start_Date": {
+              "type": "date",
+              "required": false
             },
-            "Date_From": {
-              "type": "date"
-            },
-            "Date_To": {
-              "type": "date"
-            },
-            "Traveler_Type": {
-              "type": "dropdown"
+            "End_Date": {
+              "type": "date",
+              "required": false
             }
           }
         },
-        "Reviews_List": {
-          "type": "data_table",
-          "row_actions": [],
-          "bulk_actions": [],
-          "fields": {}
+        "Traveler_Type": {
+          "type": "dropdown",
+          "required": false
         }
       }
     },
-    "Submit_Review_Form": {
+    "Review_Submission_Form": {
       "type": "form",
       "preconditions": [
         "user must be authenticated",
-        "user must have completed a booking for this item"
+        "user must have completed booking for the item being reviewed"
       ],
       "fields": {
         "Overall_Rating": {
-          "type": "number"
+          "type": "unspecified",
+          "required": true
         },
         "Cleanliness_Rating": {
-          "type": "number"
+          "type": "unspecified",
+          "required": true,
+          "visible_when": "applicable_category_present"
         },
         "Service_Rating": {
-          "type": "number"
+          "type": "unspecified",
+          "required": true,
+          "visible_when": "applicable_category_present"
         },
         "Location_Rating": {
-          "type": "number"
+          "type": "unspecified",
+          "required": true,
+          "visible_when": "applicable_category_present"
         },
-        "Written_Comments": {
-          "type": "unspecified"
+        "Written_Feedback": {
+          "type": "unspecified",
+          "required": false
+        },
+        "Photos": {
+          "type": "file_upload",
+          "required": false
         }
       },
       "submit_actions": [
         {
-          "element_name": "Submit Review",
-          "on_success": "submits review"
+          "on_success": "creates review and associates it with the item"
         }
       ]
     },
-    "Dashboard_Submit_Review_Button": {
-      "type": "button",
-      "element_name": "Write a Review",
+    "Dashboard_Write_Review_Action": {
+      "type": "action",
       "preconditions": [
         "user must be authenticated",
-        "user must have completed a booking for this item"
+        "user must have completed booking for the item being reviewed"
       ],
-      "opens": "Submit_Review_Form"
+      "on_success": "opens review submission form"
     },
-    "Post_Stay_Email_Prompt": {
-      "type": "link",
-      "element_name": "Leave a Review",
+    "Email_Post_Stay_Prompt_Action": {
+      "type": "action",
       "preconditions": [
-        "recipient must have completed a booking for this item"
+        "recipient must have completed booking for the item being reviewed",
+        "recipient must be authenticated or be prompted to authenticate"
       ],
-      "opens": "Submit_Review_Form"
+      "on_success": "opens review submission form"
     }
   }
 }
@@ -320,10 +353,17 @@ Listing pages show an aggregate rating score and total review count for each ite
 
 </description>
 
+<workflows>
+WF-001 | Submit review with category-specific ratings visible | actor: authenticated user who completed booking | branch: applicable_category_present == true | terminal: Submit Review | on_success: creates review and associates it with the item
+WF-002 | Submit review without category-specific ratings visible | actor: authenticated user who completed booking | branch: applicable_category_present == false | terminal: Submit Review | on_success: creates review and associates it with the item
+WF-003 | Open review submission from dashboard action | actor: authenticated user who completed booking | branch: none | terminal: Dashboard_Write_Review_Action | on_success: opens review submission form
+WF-004 | Open review submission from post-stay email prompt | actor: recipient who completed booking (may be prompted to authenticate) | branch: none | terminal: Email_Post_Stay_Prompt_Action | on_success: opens review submission form
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[22:58:24] Test-Positive - LLM RESPONSE
+[14:54:31] Test-Positive - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Reviews & Ratings",
@@ -331,84 +371,100 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Filter reviews by Rating shows only matching reviews",
+      "wf_ref": "WF-003",
+      "test_case": "Open review submission form from Dashboard Write Review action",
       "preconditions": [
-        "Item has multiple reviews with varying Overall Ratings and traveler types"
+        "User logged in as <authenticated user who completed booking>"
       ],
       "steps": [
-        "1. Open the Detail page for <item>",
-        "2. In the Reviews section, open the Reviews Filters",
-        "3. Select <rating> from the Rating dropdown",
-        "4. Click Apply filters"
+        "1. Navigate to the Dashboard page",
+        "2. Locate the booked item and click the 'Write Review' action on its card",
+        "3. If a confirmation or authentication prompt appears, complete authentication as <same user>"
       ],
-      "expected_result": "Reviews list displays only reviews with Overall Rating equal to <rating>; reviews with other ratings are no longer visible in the list",
+      "expected_result": "The review submission form is displayed (opens review submission form) showing the Overall Rating field and optional Written Feedback and Photos controls",
       "priority": "medium"
     },
     {
       "tc_id": "P-002",
-      "test_case": "Filter reviews by date range that yields no results shows empty-state",
+      "wf_ref": "WF-004",
+      "test_case": "Open review submission form from post-stay email prompt action",
       "preconditions": [
-        "Item has reviews, but none within the specified date range"
+        "User logged in as <recipient who completed booking>"
       ],
       "steps": [
-        "1. Open the Detail page for <item>",
-        "2. In the Reviews Filters, enter <Date_From> and <Date_To> that exclude all existing reviews",
-        "3. Click Apply filters"
+        "1. Open the Messages/Notifications or Post-stay Prompts area within the app",
+        "2. Click the 'Leave a Review' link/button in the post-stay email prompt",
+        "3. If prompted, authenticate as <recipient who completed booking>"
       ],
-      "expected_result": "The Reviews section shows a clear empty-state message indicating no reviews match the selected date range (no review rows are visible)",
-      "priority": "low"
+      "expected_result": "The review submission form is displayed (opens review submission form) with the Overall Rating field visible and ready for input",
+      "priority": "medium"
     },
     {
       "tc_id": "P-003",
-      "test_case": "Submit a review via Dashboard 'Write a Review' button",
+      "wf_ref": "WF-001",
+      "test_case": "Submit review with category-specific ratings visible (hotel categories present)",
       "preconditions": [
-        "User logged in as <User>",
-        "User has completed a booking for this item"
+        "User logged in as <authenticated user who completed booking>",
+        "The item detail page is configured with applicable_category_present == true"
       ],
       "steps": [
-        "1. Open the Dashboard for <User>",
-        "2. Click the 'Write a Review' button",
-        "3. In the Submit Review form, enter <Overall rating> in Overall Rating",
-        "4. Enter <Cleanliness rating> in Cleanliness Rating",
-        "5. Enter <Service rating> in Service Rating",
-        "6. Enter <Location rating> in Location Rating",
-        "7. Enter <written comments> in Written Comments",
-        "8. Click the 'Submit Review' button"
+        "1. Navigate to the Dashboard or Item Detail page and click 'Write Review' to open the review submission form",
+        "2. Enter <Overall rating> in the Overall Rating control",
+        "3. Enter <Cleanliness rating> in the Cleanliness Rating control",
+        "4. Enter <Service rating> in the Service Rating control",
+        "5. Enter <Location rating> in the Location Rating control",
+        "6. Enter <optional written feedback> in the Written Feedback field",
+        "7. Click Upload and attach a <valid image file> to the Photos control",
+        "8. Click the Submit button on the review form"
       ],
-      "expected_result": "A success notification with text \"submits review\" is displayed; the new review appears in the Reviews list showing the entered Overall Rating and the Written Comments",
+      "expected_result": "A success notification is displayed and the Reviews section for the item shows the newly submitted review (creates review and associates it with the item) — the review entry displays the entered Overall Rating, Cleanliness, Service and Location ratings, the written feedback text, and the uploaded photo thumbnails",
       "priority": "high"
     },
     {
       "tc_id": "P-004",
-      "test_case": "Open Submit Review form from Post-stay email link and submit review",
+      "wf_ref": "WF-002",
+      "test_case": "Submit review when category-specific ratings are not shown (applicable categories absent)",
       "preconditions": [
-        "Recipient has completed a booking for this item",
-        "Recipient is authenticated as <User>"
+        "User logged in as <authenticated user who completed booking>",
+        "The item detail page is configured with applicable_category_present == false"
       ],
       "steps": [
-        "1. Open the Post-stay email for <User>",
-        "2. Click the 'Leave a Review' link in the email",
-        "3. In the opened Submit Review form, enter <Overall rating> in Overall Rating",
-        "4. Enter <Cleanliness rating> in Cleanliness Rating",
-        "5. Enter <Service rating> in Service Rating",
-        "6. Enter <Location rating> in Location Rating",
-        "7. Enter <written comments> in Written Comments",
-        "8. Click the 'Submit Review' button"
+        "1. Navigate to the Dashboard or Item Detail page and click 'Write Review' to open the review submission form",
+        "2. Enter <Overall rating> in the Overall Rating control",
+        "3. Enter <optional written feedback> in the Written Feedback field",
+        "4. Optionally upload a <valid image file> via the Photos control",
+        "5. Click the Submit button on the review form"
       ],
-      "expected_result": "A success notification with text \"submits review\" is displayed; the new review appears in the Reviews list showing the entered Overall Rating and the Written Comments",
+      "expected_result": "A success notification is displayed and the Reviews section for the item shows the newly submitted review (creates review and associates it with the item) — the review entry displays the entered Overall Rating, the written feedback and any uploaded photos; category-specific rating fields are not shown on the review entry",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-005",
+      "wf_ref": null,
+      "test_case": "Filter reviews by rating, date range and traveler type",
+      "preconditions": [
+        "User on the Item Detail page with Reviews section visible and multiple reviews present"
+      ],
+      "steps": [
+        "1. In the Reviews Filters area select <Rating> from the Rating dropdown",
+        "2. Enter <Start date> and <End date> in the Date Range fields",
+        "3. Select <Traveler type> from the Traveler Type dropdown",
+        "4. Click the Apply/Filter button"
+      ],
+      "expected_result": "The Reviews list displays only reviews matching <Rating>, with stay/review dates within the specified <Start date> to <End date> range and posted by <Traveler type>; unrelated reviews are no longer visible in the list",
       "priority": "medium"
     }
   ],
   "summary": {
-    "total": 4,
-    "high_priority": 1,
-    "medium_priority": 2,
-    "low_priority": 1
+    "total": 5,
+    "high_priority": 2,
+    "medium_priority": 3,
+    "low_priority": 0
   }
 }
 
 ------------------------------------------------------------
-[22:58:24] Test-Positive - PARSED JSON
+[14:54:31] Test-Positive - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Reviews & Ratings",
@@ -416,78 +472,94 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Filter reviews by Rating shows only matching reviews",
+      "wf_ref": "WF-003",
+      "test_case": "Open review submission form from Dashboard Write Review action",
       "preconditions": [
-        "Item has multiple reviews with varying Overall Ratings and traveler types"
+        "User logged in as <authenticated user who completed booking>"
       ],
       "steps": [
-        "1. Open the Detail page for <item>",
-        "2. In the Reviews section, open the Reviews Filters",
-        "3. Select <rating> from the Rating dropdown",
-        "4. Click Apply filters"
+        "1. Navigate to the Dashboard page",
+        "2. Locate the booked item and click the 'Write Review' action on its card",
+        "3. If a confirmation or authentication prompt appears, complete authentication as <same user>"
       ],
-      "expected_result": "Reviews list displays only reviews with Overall Rating equal to <rating>; reviews with other ratings are no longer visible in the list",
+      "expected_result": "The review submission form is displayed (opens review submission form) showing the Overall Rating field and optional Written Feedback and Photos controls",
       "priority": "medium"
     },
     {
       "tc_id": "P-002",
-      "test_case": "Filter reviews by date range that yields no results shows empty-state",
+      "wf_ref": "WF-004",
+      "test_case": "Open review submission form from post-stay email prompt action",
       "preconditions": [
-        "Item has reviews, but none within the specified date range"
+        "User logged in as <recipient who completed booking>"
       ],
       "steps": [
-        "1. Open the Detail page for <item>",
-        "2. In the Reviews Filters, enter <Date_From> and <Date_To> that exclude all existing reviews",
-        "3. Click Apply filters"
+        "1. Open the Messages/Notifications or Post-stay Prompts area within the app",
+        "2. Click the 'Leave a Review' link/button in the post-stay email prompt",
+        "3. If prompted, authenticate as <recipient who completed booking>"
       ],
-      "expected_result": "The Reviews section shows a clear empty-state message indicating no reviews match the selected date range (no review rows are visible)",
-      "priority": "low"
+      "expected_result": "The review submission form is displayed (opens review submission form) with the Overall Rating field visible and ready for input",
+      "priority": "medium"
     },
     {
       "tc_id": "P-003",
-      "test_case": "Submit a review via Dashboard 'Write a Review' button",
+      "wf_ref": "WF-001",
+      "test_case": "Submit review with category-specific ratings visible (hotel categories present)",
       "preconditions": [
-        "User logged in as <User>",
-        "User has completed a booking for this item"
+        "User logged in as <authenticated user who completed booking>",
+        "The item detail page is configured with applicable_category_present == true"
       ],
       "steps": [
-        "1. Open the Dashboard for <User>",
-        "2. Click the 'Write a Review' button",
-        "3. In the Submit Review form, enter <Overall rating> in Overall Rating",
-        "4. Enter <Cleanliness rating> in Cleanliness Rating",
-        "5. Enter <Service rating> in Service Rating",
-        "6. Enter <Location rating> in Location Rating",
-        "7. Enter <written comments> in Written Comments",
-        "8. Click the 'Submit Review' button"
+        "1. Navigate to the Dashboard or Item Detail page and click 'Write Review' to open the review submission form",
+        "2. Enter <Overall rating> in the Overall Rating control",
+        "3. Enter <Cleanliness rating> in the Cleanliness Rating control",
+        "4. Enter <Service rating> in the Service Rating control",
+        "5. Enter <Location rating> in the Location Rating control",
+        "6. Enter <optional written feedback> in the Written Feedback field",
+        "7. Click Upload and attach a <valid image file> to the Photos control",
+        "8. Click the Submit button on the review form"
       ],
-      "expected_result": "A success notification with text \"submits review\" is displayed; the new review appears in the Reviews list showing the entered Overall Rating and the Written Comments",
+      "expected_result": "A success notification is displayed and the Reviews section for the item shows the newly submitted review (creates review and associates it with the item) \u2014 the review entry displays the entered Overall Rating, Cleanliness, Service and Location ratings, the written feedback text, and the uploaded photo thumbnails",
       "priority": "high"
     },
     {
       "tc_id": "P-004",
-      "test_case": "Open Submit Review form from Post-stay email link and submit review",
+      "wf_ref": "WF-002",
+      "test_case": "Submit review when category-specific ratings are not shown (applicable categories absent)",
       "preconditions": [
-        "Recipient has completed a booking for this item",
-        "Recipient is authenticated as <User>"
+        "User logged in as <authenticated user who completed booking>",
+        "The item detail page is configured with applicable_category_present == false"
       ],
       "steps": [
-        "1. Open the Post-stay email for <User>",
-        "2. Click the 'Leave a Review' link in the email",
-        "3. In the opened Submit Review form, enter <Overall rating> in Overall Rating",
-        "4. Enter <Cleanliness rating> in Cleanliness Rating",
-        "5. Enter <Service rating> in Service Rating",
-        "6. Enter <Location rating> in Location Rating",
-        "7. Enter <written comments> in Written Comments",
-        "8. Click the 'Submit Review' button"
+        "1. Navigate to the Dashboard or Item Detail page and click 'Write Review' to open the review submission form",
+        "2. Enter <Overall rating> in the Overall Rating control",
+        "3. Enter <optional written feedback> in the Written Feedback field",
+        "4. Optionally upload a <valid image file> via the Photos control",
+        "5. Click the Submit button on the review form"
       ],
-      "expected_result": "A success notification with text \"submits review\" is displayed; the new review appears in the Reviews list showing the entered Overall Rating and the Written Comments",
+      "expected_result": "A success notification is displayed and the Reviews section for the item shows the newly submitted review (creates review and associates it with the item) \u2014 the review entry displays the entered Overall Rating, the written feedback and any uploaded photos; category-specific rating fields are not shown on the review entry",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-005",
+      "wf_ref": null,
+      "test_case": "Filter reviews by rating, date range and traveler type",
+      "preconditions": [
+        "User on the Item Detail page with Reviews section visible and multiple reviews present"
+      ],
+      "steps": [
+        "1. In the Reviews Filters area select <Rating> from the Rating dropdown",
+        "2. Enter <Start date> and <End date> in the Date Range fields",
+        "3. Select <Traveler type> from the Traveler Type dropdown",
+        "4. Click the Apply/Filter button"
+      ],
+      "expected_result": "The Reviews list displays only reviews matching <Rating>, with stay/review dates within the specified <Start date> to <End date> range and posted by <Traveler type>; unrelated reviews are no longer visible in the list",
       "priority": "medium"
     }
   ],
   "summary": {
-    "total": 4,
-    "high_priority": 1,
-    "medium_priority": 2,
-    "low_priority": 1
+    "total": 5,
+    "high_priority": 2,
+    "medium_priority": 3,
+    "low_priority": 0
   }
 }

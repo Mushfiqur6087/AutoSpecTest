@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-22T21:31:44.627791
+DEBUG SESSION STARTED: 2026-05-25T15:41:24.133884
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[21:31:44] Test-Edge - SYSTEM PROMPT
+[15:41:24] Test-Edge - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Edge Case and Boundary Test Generator. You receive (1) a UI-AST JSON for one module and (2) the original functional description. Your job is to produce ONLY boundary and edge case tests — scenarios at the limits of valid/invalid input and unusual-but-plausible user behaviors.
 
@@ -24,6 +24,10 @@ You are NOT producing happy paths (positive prompt) or standard validation failu
 <description>
 {Original functional description text for this module}
 </description>
+
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
 
 ---
 
@@ -176,6 +180,15 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 
 ---
 
+**WORKFLOW-AWARE BOUNDARY SCOPING (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- For each workflow where `conditional_branch` activates a numeric or date field, check if that field has a boundary (a numeric/date threshold in the AST `constraints` or description).
+- If yes, that workflow's branch is a **candidate for a boundary edge test** — add or confirm a boundary TC exists for it.
+- Add `"wf_ref": "WF-NNN"` to each TC that maps to a specific workflow's boundary. Set `"wf_ref": null` for generic input/interaction edge tests.
+
+---
+
 **OUTPUT — JSON only, no prose, no markdown fencing:**
 
 {
@@ -184,6 +197,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": null,
       "subcategory": "boundary | input_edge | interaction_edge | state_edge | data_edge",
       "test_case": "Short descriptive name",
       "preconditions": ["precondition 1"],
@@ -206,7 +220,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 
 
 ------------------------------------------------------------
-[21:31:44] Test-Edge - USER PROMPT
+[15:41:24] Test-Edge - USER PROMPT
 ------------------------------------------------------------
 <module_name>Request Loan</module_name>
 
@@ -214,80 +228,63 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 {
   "module_name": "Request Loan",
   "components": {
-    "Request_Loan_Form": {
+    "Loan_Request_Form": {
       "type": "form",
       "fields": {
         "Loan_Type": {
           "type": "radio",
           "required": true,
           "options": [
-            {
-              "label": "Personal",
-              "value": "Personal",
-              "interest_rate": "unspecified"
-            },
-            {
-              "label": "Auto",
-              "value": "Auto",
-              "interest_rate": "unspecified"
-            },
-            {
-              "label": "Home",
-              "value": "Home",
-              "interest_rate": "unspecified"
-            }
+            "Personal",
+            "Auto",
+            "Home"
           ]
         },
         "Loan_Amount": {
           "type": "number",
           "required": true,
           "constraints": [
-            "when Loan_Type == Personal: min 1000, max 50000",
-            "when Loan_Type == Auto: min 5000, max 75000",
-            "when Loan_Type == Home: min 50000, max 500000",
+            "when Loan_Type == Personal => min 1000",
+            "when Loan_Type == Personal => max 50000",
+            "when Loan_Type == Auto => min 5000",
+            "when Loan_Type == Auto => max 75000",
+            "when Loan_Type == Home => min 50000",
+            "when Loan_Type == Home => max 500000",
             "must be a positive number"
           ]
         },
-        "Down_Payment_Amount": {
+        "Down_Payment": {
           "type": "number",
           "required": true,
           "constraints": [
             "must be less than Loan_Amount",
-            "must be >= 10% of Loan_Amount"
+            "must be >= 0",
+            "minimum 10% down payment is required by the credit engine for approval (enforced during credit simulation on submit)"
           ]
         },
         "Collateral_Account": {
           "type": "dropdown",
-          "required": false,
+          "required": true,
           "constraints": [
-            "selected account balance must be >= 20% of Loan_Amount",
-            "sufficient collateral funds required (account balance check)"
+            "selected account balance must be sufficient to cover required collateral value",
+            "required collateral value = 0.20 * Loan_Amount",
+            "collateral sufficiency validated before approval"
           ]
         }
       },
       "submit_actions": [
         {
-          "element_name": "Request Loan",
+          "element_name": "Submit Application",
           "type": "button",
           "constraints": [
-            "validates Loan_Amount against type-specific ranges (see Loan_Amount.constraints)",
-            "validates Down_Payment_Amount < Loan_Amount",
-            "validates Down_Payment_Amount >= 10% of Loan_Amount",
-            "validates Collateral_Account balance >= 20% of Loan_Amount"
+            "validates Loan_Amount ranges per Loan_Type (see Loan_Amount.constraints)",
+            "validates Down_Payment < Loan_Amount",
+            "validates Collateral_Account.balance >= 0.20 * Loan_Amount",
+            "simulated approval: credit engine returns approval with 80% probability",
+            "credit engine enforces minimum 10% down payment for approval"
           ],
-          "credit_engine": {
-            "approval_rate": 0.8,
-            "min_down_payment_percent": 10,
-            "behavior": "simulates approval/denial; returns specific denial reason on failure",
-            "denial_reasons": [
-              "Insufficient credit history",
-              "Inadequate collateral value",
-              "Down payment too low",
-              "Loan amount out of allowed range"
-            ]
-          },
-          "on_success": "Loan approved and created successfully! Returns account details. Note: in this mock system no actual balance debits occur.",
-          "on_failure": "Loan denied. Returns specific denial reason such as 'Insufficient credit history' or 'Inadequate collateral value'."
+          "on_success": "Loan approved and created successfully! returns loan account details; no actual balance debits occur",
+          "on_failure": "Loan denied; system surfaces specific reasons such as 'Insufficient credit history' or 'Inadequate collateral value'"
         }
       ]
     }
@@ -301,10 +298,23 @@ The loan page has interactive loan type cards (Personal, Auto, Home) with intere
 
 </description>
 
+<workflows>
+WF-001 | Submit valid Personal loan application (meets ranges, down payment and collateral) | actor: <role> | branch: Loan_Type == Personal AND Loan_Amount >= 1000 AND Loan_Amount <= 50000 AND Down_Payment < Loan_Amount AND Down_Payment >= 0.10 * Loan_Amount AND Collateral_Account.balance >= 0.20 * Loan_Amount | terminal: Submit Application | on_success: Loan approved and created successfully! returns loan account details; no actual balance debits occur
+WF-002 | Submit valid Auto loan application (meets ranges, down payment and collateral) | actor: <role> | branch: Loan_Type == Auto AND Loan_Amount >= 5000 AND Loan_Amount <= 75000 AND Down_Payment < Loan_Amount AND Down_Payment >= 0.10 * Loan_Amount AND Collateral_Account.balance >= 0.20 * Loan_Amount | terminal: Submit Application | on_success: Loan approved and created successfully! returns loan account details; no actual balance debits occur
+WF-003 | Submit valid Home loan application (meets ranges, down payment and collateral) | actor: <role> | branch: Loan_Type == Home AND Loan_Amount >= 50000 AND Loan_Amount <= 500000 AND Down_Payment < Loan_Amount AND Down_Payment >= 0.10 * Loan_Amount AND Collateral_Account.balance >= 0.20 * Loan_Amount | terminal: Submit Application | on_success: Loan approved and created successfully! returns loan account details; no actual balance debits occur
+WF-004 | Submit Personal loan with Loan_Amount out of allowed range | actor: <role> | branch: Loan_Type == Personal AND (Loan_Amount < 1000 OR Loan_Amount > 50000) | terminal: Submit Application | on_success: Loan denied; system surfaces specific reasons such as 'Insufficient credit history' or 'Inadequate collateral value'
+WF-005 | Submit Auto loan with Loan_Amount out of allowed range | actor: <role> | branch: Loan_Type == Auto AND (Loan_Amount < 5000 OR Loan_Amount > 75000) | terminal: Submit Application | on_success: Loan denied; system surfaces specific reasons such as 'Insufficient credit history' or 'Inadequate collateral value'
+WF-006 | Submit Home loan with Loan_Amount out of allowed range | actor: <role> | branch: Loan_Type == Home AND (Loan_Amount < 50000 OR Loan_Amount > 500000) | terminal: Submit Application | on_success: Loan denied; system surfaces specific reasons such as 'Insufficient credit history' or 'Inadequate collateral value'
+WF-007 | Submit with Down_Payment greater than or equal to Loan_Amount (invalid) | actor: <role> | branch: Down_Payment >= Loan_Amount | terminal: Submit Application | on_success: Loan denied; system surfaces specific reasons such as 'Insufficient credit history' or 'Inadequate collateral value'
+WF-008 | Submit with Down_Payment below minimum 10% of Loan_Amount (credit engine enforces minimum) | actor: <role> | branch: Down_Payment < 0.10 * Loan_Amount | terminal: Submit Application | on_success: Loan denied; system surfaces specific reasons such as 'Insufficient credit history' or 'Inadequate collateral value'
+WF-009 | Submit with Collateral_Account balance insufficient for required 20% collateral | actor: <role> | branch: Collateral_Account.balance < 0.20 * Loan_Amount | terminal: Submit Application | on_success: Loan denied; system surfaces specific reasons such as 'Insufficient credit history' or 'Inadequate collateral value'
+WF-010 | Submit with non-positive Loan_Amount (invalid) | actor: <role> | branch: Loan_Amount <= 0 | terminal: Submit Application | on_success: Loan denied; system surfaces specific reasons such as 'Insufficient credit history' or 'Inadequate collateral value'
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[21:33:14] Test-Edge - LLM RESPONSE
+[15:43:48] Test-Edge - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Request Loan",
@@ -312,184 +322,209 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": "WF-001",
       "subcategory": "boundary",
-      "test_case": "Personal Loan: Loan_Amount equals minimum allowed value (passes validation)",
+      "test_case": "Personal loan: Loan_Amount = minimum allowed (boundary pass)",
       "preconditions": [
-        "Target constraint: Request_Loan_Form.Loan_Amount when Loan_Type == Personal: min constraint"
+        "User is on the Request Loan page",
+        "There exists at least one Collateral_Account with balance >= 0.20 * Loan_Amount"
       ],
       "steps": [
-        "1. Select 'Personal' in Loan_Type",
-        "2. Enter <minimum allowed value for Personal> in Loan_Amount",
-        "3. Enter <a Down_Payment value that is >= 10% of Loan_Amount and < Loan_Amount> in Down_Payment",
-        "4. Leave Collateral_Account unselected",
-        "5. Click the 'Request Loan' button"
+        "1. Select Loan_Type = Personal",
+        "2. Enter exactly <minimum allowed value> in Loan_Amount",
+        "3. Enter <Down_Payment equal to 0.10 * Loan_Amount>",
+        "4. Select a Collateral_Account with balance >= 0.20 * Loan_Amount",
+        "5. Click Submit Application"
       ],
-      "expected_result": "Form validation succeeds (no inline validation errors for Loan_Amount or Down_Payment); clicking 'Request Loan' submits the request. (Submission succeeds past client validation; final approval/denial is determined by the credit engine.)",
+      "expected_result": "Form submission succeeds (field validation succeeds) and the request is sent to the credit simulation. Loan_Amount shows no validation error. Because the credit engine is probabilistic, either the success message 'Loan approved and created successfully!' with loan account details appears or a denial message is shown; the boundary validation for Loan_Amount passes.",
       "priority": "medium"
     },
     {
       "tc_id": "E-002",
+      "wf_ref": "WF-004",
       "subcategory": "boundary",
-      "test_case": "Personal Loan: Loan_Amount one unit below minimum (blocked by validation)",
+      "test_case": "Personal loan: Loan_Amount one unit below minimum (boundary fail)",
       "preconditions": [
-        "Target constraint: Request_Loan_Form.Loan_Amount when Loan_Type == Personal: min constraint"
+        "User is on the Request Loan page",
+        "There exists at least one Collateral_Account"
       ],
       "steps": [
-        "1. Select 'Personal' in Loan_Type",
-        "2. Enter <one unit below the minimum allowed value for Personal> in Loan_Amount",
-        "3. Enter <a Down_Payment value that would otherwise meet percentage constraints> in Down_Payment",
-        "4. Click the 'Request Loan' button"
+        "1. Select Loan_Type = Personal",
+        "2. Enter <one unit below minimum> in Loan_Amount",
+        "3. Enter <Down_Payment that is less than the entered Loan_Amount and >= 0>",
+        "4. Select any Collateral_Account",
+        "5. Click Submit Application"
       ],
-      "expected_result": "Submission is blocked; Loan_Amount displays an inline error indicating the value is below the minimum allowed for the selected Loan_Type and the request is not sent to the credit engine.",
+      "expected_result": "Submission is blocked; Loan_Amount displays an inline validation error indicating the value is below the minimum allowed for Personal loans (field-level validation prevents submit).",
       "priority": "medium"
     },
     {
       "tc_id": "E-003",
+      "wf_ref": "WF-002",
       "subcategory": "boundary",
-      "test_case": "Auto Loan: Loan_Amount equals maximum allowed value (passes validation)",
+      "test_case": "Auto loan: Loan_Amount = minimum allowed (boundary pass)",
       "preconditions": [
-        "Target constraint: Request_Loan_Form.Loan_Amount when Loan_Type == Auto: max constraint"
+        "User is on the Request Loan page",
+        "There exists at least one Collateral_Account with balance >= 0.20 * Loan_Amount"
       ],
       "steps": [
-        "1. Select 'Auto' in Loan_Type",
-        "2. Enter <maximum allowed value for Auto> in Loan_Amount",
-        "3. Enter <a Down_Payment value that is >= 10% of Loan_Amount and < Loan_Amount> in Down_Payment",
-        "4. Leave Collateral_Account unselected (or select an account with sufficient balance) ",
-        "5. Click the 'Request Loan' button"
+        "1. Select Loan_Type = Auto",
+        "2. Enter exactly <minimum allowed value> in Loan_Amount",
+        "3. Enter <Down_Payment equal to 0.10 * Loan_Amount>",
+        "4. Select a Collateral_Account with balance >= 0.20 * Loan_Amount",
+        "5. Click Submit Application"
       ],
-      "expected_result": "Form validation succeeds (no inline validation errors for Loan_Amount or Down_Payment); clicking 'Request Loan' submits the request (submission succeeds past client validation).",
+      "expected_result": "Form submission succeeds (field validation succeeds) and proceeds to credit simulation; Loan_Amount shows no inline error. Final approval is subject to the credit engine, but the Loan_Amount boundary check passes.",
       "priority": "medium"
     },
     {
       "tc_id": "E-004",
+      "wf_ref": "WF-005",
       "subcategory": "boundary",
-      "test_case": "Auto Loan: Loan_Amount one unit above maximum (blocked by validation)",
+      "test_case": "Auto loan: Loan_Amount one unit below minimum (boundary fail)",
       "preconditions": [
-        "Target constraint: Request_Loan_Form.Loan_Amount when Loan_Type == Auto: max constraint"
+        "User is on the Request Loan page",
+        "There exists at least one Collateral_Account"
       ],
       "steps": [
-        "1. Select 'Auto' in Loan_Type",
-        "2. Enter <one unit above the maximum allowed value for Auto> in Loan_Amount",
-        "3. Enter <a Down_Payment value that would otherwise meet percentage constraints> in Down_Payment",
-        "4. Click the 'Request Loan' button"
+        "1. Select Loan_Type = Auto",
+        "2. Enter <one unit below minimum> in Loan_Amount",
+        "3. Enter <Down_Payment that is less than the entered Loan_Amount and >= 0>",
+        "4. Select any Collateral_Account",
+        "5. Click Submit Application"
       ],
-      "expected_result": "Submission is blocked; Loan_Amount displays an inline error indicating the value is above the maximum allowed for the selected Loan_Type and the request is not sent to the credit engine.",
+      "expected_result": "Submission is blocked; Loan_Amount displays an inline validation error indicating the value is below the minimum allowed for Auto loans.",
       "priority": "medium"
     },
     {
       "tc_id": "E-005",
+      "wf_ref": "WF-003",
       "subcategory": "boundary",
-      "test_case": "Down_Payment exactly equals 10% of Loan_Amount (cross-field boundary passes validation)",
+      "test_case": "Home loan: Loan_Amount = minimum allowed (boundary pass)",
       "preconditions": [
-        "Target constraint: Request_Loan_Form.Down_Payment_Amount must be >= 10% of Loan_Amount (and must be < Loan_Amount)"
+        "User is on the Request Loan page",
+        "There exists at least one Collateral_Account with balance >= 0.20 * Loan_Amount"
       ],
       "steps": [
-        "1. Select 'Home' in Loan_Type",
-        "2. Enter <a Loan_Amount value that is within Home's allowed range> in Loan_Amount",
-        "3. Enter <Down_Payment set exactly to 10% of the Loan_Amount entered> in Down_Payment",
-        "4. Leave Collateral_Account unselected (or select an account with sufficient balance)",
-        "5. Click the 'Request Loan' button"
+        "1. Select Loan_Type = Home",
+        "2. Enter exactly <minimum allowed value> in Loan_Amount",
+        "3. Enter <Down_Payment equal to 0.10 * Loan_Amount>",
+        "4. Select a Collateral_Account with balance >= 0.20 * Loan_Amount",
+        "5. Click Submit Application"
       ],
-      "expected_result": "Form validation succeeds (no inline validation errors for Down_Payment regarding the 10% minimum or the 'less than Loan_Amount' rule); clicking 'Request Loan' submits the request.",
+      "expected_result": "Form submission succeeds (field validation succeeds) and proceeds to credit simulation; Loan_Amount shows no inline error. The Loan_Amount boundary check is accepted.",
       "priority": "medium"
     },
     {
       "tc_id": "E-006",
+      "wf_ref": "WF-006",
       "subcategory": "boundary",
-      "test_case": "Down_Payment one unit below 10% of Loan_Amount (cross-field boundary is blocked)",
+      "test_case": "Home loan: Loan_Amount one unit below minimum (boundary fail)",
       "preconditions": [
-        "Target constraint: Request_Loan_Form.Down_Payment_Amount must be >= 10% of Loan_Amount"
+        "User is on the Request Loan page",
+        "There exists at least one Collateral_Account"
       ],
       "steps": [
-        "1. Select 'Home' in Loan_Type",
-        "2. Enter <a Loan_Amount value that is within Home's allowed range> in Loan_Amount",
-        "3. Enter <one unit below 10% of the Loan_Amount entered> in Down_Payment",
-        "4. Click the 'Request Loan' button"
+        "1. Select Loan_Type = Home",
+        "2. Enter <one unit below minimum> in Loan_Amount",
+        "3. Enter <Down_Payment that is less than the entered Loan_Amount and >= 0>",
+        "4. Select any Collateral_Account",
+        "5. Click Submit Application"
       ],
-      "expected_result": "Submission is blocked; Down_Payment displays an inline error indicating the value is below the required 10% of the Loan_Amount and the request is not sent to the credit engine.",
+      "expected_result": "Submission is blocked; Loan_Amount displays an inline validation error indicating the value is below the minimum allowed for Home loans.",
       "priority": "medium"
     },
     {
       "tc_id": "E-007",
+      "wf_ref": "WF-003",
       "subcategory": "boundary",
-      "test_case": "Down_Payment equal to Loan_Amount (violates 'less than Loan_Amount' rule and is blocked)",
+      "test_case": "Home loan: Loan_Amount = maximum allowed (boundary pass)",
       "preconditions": [
-        "Target constraint: Request_Loan_Form.Down_Payment_Amount must be less than Loan_Amount"
+        "User is on the Request Loan page",
+        "There exists at least one Collateral_Account with balance >= 0.20 * Loan_Amount"
       ],
       "steps": [
-        "1. Select any Loan_Type",
-        "2. Enter <a Loan_Amount value within the allowed range for that Loan_Type> in Loan_Amount",
-        "3. Enter <a Down_Payment value equal to the Loan_Amount entered> in Down_Payment",
-        "4. Click the 'Request Loan' button"
+        "1. Select Loan_Type = Home",
+        "2. Enter exactly <maximum allowed value> in Loan_Amount",
+        "3. Enter <Down_Payment equal to 0.10 * Loan_Amount>",
+        "4. Select a Collateral_Account with balance >= 0.20 * Loan_Amount",
+        "5. Click Submit Application"
       ],
-      "expected_result": "Submission is blocked; Down_Payment displays an inline error indicating it must be less than Loan_Amount and the request is not sent to the credit engine.",
+      "expected_result": "Form submission succeeds (field validation succeeds) and proceeds to credit simulation; Loan_Amount shows no inline error. The maximum boundary for Loan_Amount is accepted.",
       "priority": "medium"
     },
     {
       "tc_id": "E-008",
+      "wf_ref": "WF-006",
       "subcategory": "boundary",
-      "test_case": "Collateral Account balance exactly equals 20% of Loan_Amount (passes collateral validation)",
+      "test_case": "Home loan: Loan_Amount one unit above maximum (boundary fail)",
       "preconditions": [
-        "Target constraint: Request_Loan_Form.Collateral_Account selected account balance must be >= 20% of Loan_Amount"
+        "User is on the Request Loan page",
+        "There exists at least one Collateral_Account"
       ],
       "steps": [
-        "1. Select any Loan_Type",
-        "2. Enter <a Loan_Amount value within the allowed range for that Loan_Type> in Loan_Amount",
-        "3. Enter <a Down_Payment value that meets Down_Payment constraints> in Down_Payment",
-        "4. Select <a Collateral_Account whose balance equals exactly 20% of the Loan_Amount entered> in Collateral_Account",
-        "5. Click the 'Request Loan' button"
+        "1. Select Loan_Type = Home",
+        "2. Enter <one unit above maximum> in Loan_Amount",
+        "3. Enter <Down_Payment that is less than the entered Loan_Amount and >= 0>",
+        "4. Select any Collateral_Account",
+        "5. Click Submit Application"
       ],
-      "expected_result": "Form validation succeeds (no inline collateral balance error); clicking 'Request Loan' submits the request. If the credit engine runs, collateral-related validation is not the cause of denial in this case.",
+      "expected_result": "Submission is blocked; Loan_Amount displays an inline validation error indicating the value exceeds the maximum allowed for Home loans.",
       "priority": "medium"
     },
     {
       "tc_id": "E-009",
+      "wf_ref": "WF-001",
       "subcategory": "boundary",
-      "test_case": "Collateral Account balance one unit below 20% of Loan_Amount (blocked by collateral validation)",
+      "test_case": "Collateral: Collateral_Account.balance exactly equals 20% of Loan_Amount (boundary pass)",
       "preconditions": [
-        "Target constraint: Request_Loan_Form.Collateral_Account selected account balance must be >= 20% of Loan_Amount"
+        "User is on the Request Loan page",
+        "There exists a Collateral_Account with balance exactly = 0.20 * Loan_Amount"
       ],
       "steps": [
-        "1. Select any Loan_Type",
-        "2. Enter <a Loan_Amount value within the allowed range for that Loan_Type> in Loan_Amount",
-        "3. Enter <a Down_Payment value that meets Down_Payment constraints> in Down_Payment",
-        "4. Select <a Collateral_Account whose balance is one unit below 20% of the Loan_Amount entered> in Collateral_Account",
-        "5. Click the 'Request Loan' button"
+        "1. Select Loan_Type = Personal",
+        "2. Enter <Loan_Amount within the allowed range for Personal>",
+        "3. Enter <Down_Payment equal to 0.10 * Loan_Amount>",
+        "4. Select the Collateral_Account whose balance = 0.20 * Loan_Amount",
+        "5. Click Submit Application"
       ],
-      "expected_result": "Submission is blocked; Collateral_Account field (or an inline form-level message) displays an error indicating insufficient collateral balance (below the required 20% of Loan_Amount) and the request is not sent to the credit engine.",
+      "expected_result": "Form submission succeeds (field validation succeeds) and proceeds to credit simulation; collateral sufficiency check passes (no collateral error shown). If the credit engine approves, 'Loan approved and created successfully!' is displayed; boundary collateral validation succeeds.",
       "priority": "medium"
     },
     {
       "tc_id": "E-010",
-      "subcategory": "interaction_edge",
-      "test_case": "Rapid re-submission after success: press Back then attempt to submit again (duplicate creation prevented at UI level)",
+      "wf_ref": "WF-009",
+      "subcategory": "boundary",
+      "test_case": "Collateral: Collateral_Account.balance one unit below 20% of Loan_Amount (boundary fail)",
       "preconditions": [
-        "Module behavior: on_success shows 'Loan approved and created successfully!' and returns to a detail page; mock system notes no real debits occur"
+        "User is on the Request Loan page",
+        "There exists a Collateral_Account with balance < 0.20 * Loan_Amount"
       ],
       "steps": [
-        "1. Complete a valid loan request (select Loan_Type, enter Loan_Amount within range, enter Down_Payment >=10% and < Loan_Amount, ensure collateral if selected meets 20%)",
-        "2. Click the 'Request Loan' button and wait for the success result 'Loan approved and created successfully!' or the detail page to appear",
-        "3. Click the browser Back button",
-        "4. On returning to the form page, click the 'Request Loan' button again without changing any fields"
+        "1. Select Loan_Type = Personal",
+        "2. Enter <Loan_Amount within the allowed range for Personal>",
+        "3. Enter <Down_Payment equal to 0.10 * Loan_Amount>",
+        "4. Select the Collateral_Account with balance < 0.20 * Loan_Amount",
+        "5. Click Submit Application"
       ],
-      "expected_result": "Second submission is blocked at the UI or server-side duplicate protection: no second identical loan record is created. The UI either shows the creation form cleared/disabled OR an inline/error message preventing duplicate creation; user does not see two identical loans in the account list.",
-      "priority": "low"
+      "expected_result": "Submission is blocked during collateral validation; the system surfaces a denial/validation reason such as 'Inadequate collateral value' and no loan account is created.",
+      "priority": "medium"
     }
   ],
   "summary": {
     "total": 10,
-    "boundary": 9,
+    "boundary": 10,
     "input_edge": 0,
-    "interaction_edge": 1,
+    "interaction_edge": 0,
     "state_edge": 0,
     "data_edge": 0,
-    "medium_priority": 9,
-    "low_priority": 1
+    "medium_priority": 10,
+    "low_priority": 0
   }
 }
 
 ------------------------------------------------------------
-[21:33:14] Test-Edge - PARSED JSON
+[15:43:48] Test-Edge - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Request Loan",
@@ -497,178 +532,203 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": "WF-001",
       "subcategory": "boundary",
-      "test_case": "Personal Loan: Loan_Amount equals minimum allowed value (passes validation)",
+      "test_case": "Personal loan: Loan_Amount = minimum allowed (boundary pass)",
       "preconditions": [
-        "Target constraint: Request_Loan_Form.Loan_Amount when Loan_Type == Personal: min constraint"
+        "User is on the Request Loan page",
+        "There exists at least one Collateral_Account with balance >= 0.20 * Loan_Amount"
       ],
       "steps": [
-        "1. Select 'Personal' in Loan_Type",
-        "2. Enter <minimum allowed value for Personal> in Loan_Amount",
-        "3. Enter <a Down_Payment value that is >= 10% of Loan_Amount and < Loan_Amount> in Down_Payment",
-        "4. Leave Collateral_Account unselected",
-        "5. Click the 'Request Loan' button"
+        "1. Select Loan_Type = Personal",
+        "2. Enter exactly <minimum allowed value> in Loan_Amount",
+        "3. Enter <Down_Payment equal to 0.10 * Loan_Amount>",
+        "4. Select a Collateral_Account with balance >= 0.20 * Loan_Amount",
+        "5. Click Submit Application"
       ],
-      "expected_result": "Form validation succeeds (no inline validation errors for Loan_Amount or Down_Payment); clicking 'Request Loan' submits the request. (Submission succeeds past client validation; final approval/denial is determined by the credit engine.)",
+      "expected_result": "Form submission succeeds (field validation succeeds) and the request is sent to the credit simulation. Loan_Amount shows no validation error. Because the credit engine is probabilistic, either the success message 'Loan approved and created successfully!' with loan account details appears or a denial message is shown; the boundary validation for Loan_Amount passes.",
       "priority": "medium"
     },
     {
       "tc_id": "E-002",
+      "wf_ref": "WF-004",
       "subcategory": "boundary",
-      "test_case": "Personal Loan: Loan_Amount one unit below minimum (blocked by validation)",
+      "test_case": "Personal loan: Loan_Amount one unit below minimum (boundary fail)",
       "preconditions": [
-        "Target constraint: Request_Loan_Form.Loan_Amount when Loan_Type == Personal: min constraint"
+        "User is on the Request Loan page",
+        "There exists at least one Collateral_Account"
       ],
       "steps": [
-        "1. Select 'Personal' in Loan_Type",
-        "2. Enter <one unit below the minimum allowed value for Personal> in Loan_Amount",
-        "3. Enter <a Down_Payment value that would otherwise meet percentage constraints> in Down_Payment",
-        "4. Click the 'Request Loan' button"
+        "1. Select Loan_Type = Personal",
+        "2. Enter <one unit below minimum> in Loan_Amount",
+        "3. Enter <Down_Payment that is less than the entered Loan_Amount and >= 0>",
+        "4. Select any Collateral_Account",
+        "5. Click Submit Application"
       ],
-      "expected_result": "Submission is blocked; Loan_Amount displays an inline error indicating the value is below the minimum allowed for the selected Loan_Type and the request is not sent to the credit engine.",
+      "expected_result": "Submission is blocked; Loan_Amount displays an inline validation error indicating the value is below the minimum allowed for Personal loans (field-level validation prevents submit).",
       "priority": "medium"
     },
     {
       "tc_id": "E-003",
+      "wf_ref": "WF-002",
       "subcategory": "boundary",
-      "test_case": "Auto Loan: Loan_Amount equals maximum allowed value (passes validation)",
+      "test_case": "Auto loan: Loan_Amount = minimum allowed (boundary pass)",
       "preconditions": [
-        "Target constraint: Request_Loan_Form.Loan_Amount when Loan_Type == Auto: max constraint"
+        "User is on the Request Loan page",
+        "There exists at least one Collateral_Account with balance >= 0.20 * Loan_Amount"
       ],
       "steps": [
-        "1. Select 'Auto' in Loan_Type",
-        "2. Enter <maximum allowed value for Auto> in Loan_Amount",
-        "3. Enter <a Down_Payment value that is >= 10% of Loan_Amount and < Loan_Amount> in Down_Payment",
-        "4. Leave Collateral_Account unselected (or select an account with sufficient balance) ",
-        "5. Click the 'Request Loan' button"
+        "1. Select Loan_Type = Auto",
+        "2. Enter exactly <minimum allowed value> in Loan_Amount",
+        "3. Enter <Down_Payment equal to 0.10 * Loan_Amount>",
+        "4. Select a Collateral_Account with balance >= 0.20 * Loan_Amount",
+        "5. Click Submit Application"
       ],
-      "expected_result": "Form validation succeeds (no inline validation errors for Loan_Amount or Down_Payment); clicking 'Request Loan' submits the request (submission succeeds past client validation).",
+      "expected_result": "Form submission succeeds (field validation succeeds) and proceeds to credit simulation; Loan_Amount shows no inline error. Final approval is subject to the credit engine, but the Loan_Amount boundary check passes.",
       "priority": "medium"
     },
     {
       "tc_id": "E-004",
+      "wf_ref": "WF-005",
       "subcategory": "boundary",
-      "test_case": "Auto Loan: Loan_Amount one unit above maximum (blocked by validation)",
+      "test_case": "Auto loan: Loan_Amount one unit below minimum (boundary fail)",
       "preconditions": [
-        "Target constraint: Request_Loan_Form.Loan_Amount when Loan_Type == Auto: max constraint"
+        "User is on the Request Loan page",
+        "There exists at least one Collateral_Account"
       ],
       "steps": [
-        "1. Select 'Auto' in Loan_Type",
-        "2. Enter <one unit above the maximum allowed value for Auto> in Loan_Amount",
-        "3. Enter <a Down_Payment value that would otherwise meet percentage constraints> in Down_Payment",
-        "4. Click the 'Request Loan' button"
+        "1. Select Loan_Type = Auto",
+        "2. Enter <one unit below minimum> in Loan_Amount",
+        "3. Enter <Down_Payment that is less than the entered Loan_Amount and >= 0>",
+        "4. Select any Collateral_Account",
+        "5. Click Submit Application"
       ],
-      "expected_result": "Submission is blocked; Loan_Amount displays an inline error indicating the value is above the maximum allowed for the selected Loan_Type and the request is not sent to the credit engine.",
+      "expected_result": "Submission is blocked; Loan_Amount displays an inline validation error indicating the value is below the minimum allowed for Auto loans.",
       "priority": "medium"
     },
     {
       "tc_id": "E-005",
+      "wf_ref": "WF-003",
       "subcategory": "boundary",
-      "test_case": "Down_Payment exactly equals 10% of Loan_Amount (cross-field boundary passes validation)",
+      "test_case": "Home loan: Loan_Amount = minimum allowed (boundary pass)",
       "preconditions": [
-        "Target constraint: Request_Loan_Form.Down_Payment_Amount must be >= 10% of Loan_Amount (and must be < Loan_Amount)"
+        "User is on the Request Loan page",
+        "There exists at least one Collateral_Account with balance >= 0.20 * Loan_Amount"
       ],
       "steps": [
-        "1. Select 'Home' in Loan_Type",
-        "2. Enter <a Loan_Amount value that is within Home's allowed range> in Loan_Amount",
-        "3. Enter <Down_Payment set exactly to 10% of the Loan_Amount entered> in Down_Payment",
-        "4. Leave Collateral_Account unselected (or select an account with sufficient balance)",
-        "5. Click the 'Request Loan' button"
+        "1. Select Loan_Type = Home",
+        "2. Enter exactly <minimum allowed value> in Loan_Amount",
+        "3. Enter <Down_Payment equal to 0.10 * Loan_Amount>",
+        "4. Select a Collateral_Account with balance >= 0.20 * Loan_Amount",
+        "5. Click Submit Application"
       ],
-      "expected_result": "Form validation succeeds (no inline validation errors for Down_Payment regarding the 10% minimum or the 'less than Loan_Amount' rule); clicking 'Request Loan' submits the request.",
+      "expected_result": "Form submission succeeds (field validation succeeds) and proceeds to credit simulation; Loan_Amount shows no inline error. The Loan_Amount boundary check is accepted.",
       "priority": "medium"
     },
     {
       "tc_id": "E-006",
+      "wf_ref": "WF-006",
       "subcategory": "boundary",
-      "test_case": "Down_Payment one unit below 10% of Loan_Amount (cross-field boundary is blocked)",
+      "test_case": "Home loan: Loan_Amount one unit below minimum (boundary fail)",
       "preconditions": [
-        "Target constraint: Request_Loan_Form.Down_Payment_Amount must be >= 10% of Loan_Amount"
+        "User is on the Request Loan page",
+        "There exists at least one Collateral_Account"
       ],
       "steps": [
-        "1. Select 'Home' in Loan_Type",
-        "2. Enter <a Loan_Amount value that is within Home's allowed range> in Loan_Amount",
-        "3. Enter <one unit below 10% of the Loan_Amount entered> in Down_Payment",
-        "4. Click the 'Request Loan' button"
+        "1. Select Loan_Type = Home",
+        "2. Enter <one unit below minimum> in Loan_Amount",
+        "3. Enter <Down_Payment that is less than the entered Loan_Amount and >= 0>",
+        "4. Select any Collateral_Account",
+        "5. Click Submit Application"
       ],
-      "expected_result": "Submission is blocked; Down_Payment displays an inline error indicating the value is below the required 10% of the Loan_Amount and the request is not sent to the credit engine.",
+      "expected_result": "Submission is blocked; Loan_Amount displays an inline validation error indicating the value is below the minimum allowed for Home loans.",
       "priority": "medium"
     },
     {
       "tc_id": "E-007",
+      "wf_ref": "WF-003",
       "subcategory": "boundary",
-      "test_case": "Down_Payment equal to Loan_Amount (violates 'less than Loan_Amount' rule and is blocked)",
+      "test_case": "Home loan: Loan_Amount = maximum allowed (boundary pass)",
       "preconditions": [
-        "Target constraint: Request_Loan_Form.Down_Payment_Amount must be less than Loan_Amount"
+        "User is on the Request Loan page",
+        "There exists at least one Collateral_Account with balance >= 0.20 * Loan_Amount"
       ],
       "steps": [
-        "1. Select any Loan_Type",
-        "2. Enter <a Loan_Amount value within the allowed range for that Loan_Type> in Loan_Amount",
-        "3. Enter <a Down_Payment value equal to the Loan_Amount entered> in Down_Payment",
-        "4. Click the 'Request Loan' button"
+        "1. Select Loan_Type = Home",
+        "2. Enter exactly <maximum allowed value> in Loan_Amount",
+        "3. Enter <Down_Payment equal to 0.10 * Loan_Amount>",
+        "4. Select a Collateral_Account with balance >= 0.20 * Loan_Amount",
+        "5. Click Submit Application"
       ],
-      "expected_result": "Submission is blocked; Down_Payment displays an inline error indicating it must be less than Loan_Amount and the request is not sent to the credit engine.",
+      "expected_result": "Form submission succeeds (field validation succeeds) and proceeds to credit simulation; Loan_Amount shows no inline error. The maximum boundary for Loan_Amount is accepted.",
       "priority": "medium"
     },
     {
       "tc_id": "E-008",
+      "wf_ref": "WF-006",
       "subcategory": "boundary",
-      "test_case": "Collateral Account balance exactly equals 20% of Loan_Amount (passes collateral validation)",
+      "test_case": "Home loan: Loan_Amount one unit above maximum (boundary fail)",
       "preconditions": [
-        "Target constraint: Request_Loan_Form.Collateral_Account selected account balance must be >= 20% of Loan_Amount"
+        "User is on the Request Loan page",
+        "There exists at least one Collateral_Account"
       ],
       "steps": [
-        "1. Select any Loan_Type",
-        "2. Enter <a Loan_Amount value within the allowed range for that Loan_Type> in Loan_Amount",
-        "3. Enter <a Down_Payment value that meets Down_Payment constraints> in Down_Payment",
-        "4. Select <a Collateral_Account whose balance equals exactly 20% of the Loan_Amount entered> in Collateral_Account",
-        "5. Click the 'Request Loan' button"
+        "1. Select Loan_Type = Home",
+        "2. Enter <one unit above maximum> in Loan_Amount",
+        "3. Enter <Down_Payment that is less than the entered Loan_Amount and >= 0>",
+        "4. Select any Collateral_Account",
+        "5. Click Submit Application"
       ],
-      "expected_result": "Form validation succeeds (no inline collateral balance error); clicking 'Request Loan' submits the request. If the credit engine runs, collateral-related validation is not the cause of denial in this case.",
+      "expected_result": "Submission is blocked; Loan_Amount displays an inline validation error indicating the value exceeds the maximum allowed for Home loans.",
       "priority": "medium"
     },
     {
       "tc_id": "E-009",
+      "wf_ref": "WF-001",
       "subcategory": "boundary",
-      "test_case": "Collateral Account balance one unit below 20% of Loan_Amount (blocked by collateral validation)",
+      "test_case": "Collateral: Collateral_Account.balance exactly equals 20% of Loan_Amount (boundary pass)",
       "preconditions": [
-        "Target constraint: Request_Loan_Form.Collateral_Account selected account balance must be >= 20% of Loan_Amount"
+        "User is on the Request Loan page",
+        "There exists a Collateral_Account with balance exactly = 0.20 * Loan_Amount"
       ],
       "steps": [
-        "1. Select any Loan_Type",
-        "2. Enter <a Loan_Amount value within the allowed range for that Loan_Type> in Loan_Amount",
-        "3. Enter <a Down_Payment value that meets Down_Payment constraints> in Down_Payment",
-        "4. Select <a Collateral_Account whose balance is one unit below 20% of the Loan_Amount entered> in Collateral_Account",
-        "5. Click the 'Request Loan' button"
+        "1. Select Loan_Type = Personal",
+        "2. Enter <Loan_Amount within the allowed range for Personal>",
+        "3. Enter <Down_Payment equal to 0.10 * Loan_Amount>",
+        "4. Select the Collateral_Account whose balance = 0.20 * Loan_Amount",
+        "5. Click Submit Application"
       ],
-      "expected_result": "Submission is blocked; Collateral_Account field (or an inline form-level message) displays an error indicating insufficient collateral balance (below the required 20% of Loan_Amount) and the request is not sent to the credit engine.",
+      "expected_result": "Form submission succeeds (field validation succeeds) and proceeds to credit simulation; collateral sufficiency check passes (no collateral error shown). If the credit engine approves, 'Loan approved and created successfully!' is displayed; boundary collateral validation succeeds.",
       "priority": "medium"
     },
     {
       "tc_id": "E-010",
-      "subcategory": "interaction_edge",
-      "test_case": "Rapid re-submission after success: press Back then attempt to submit again (duplicate creation prevented at UI level)",
+      "wf_ref": "WF-009",
+      "subcategory": "boundary",
+      "test_case": "Collateral: Collateral_Account.balance one unit below 20% of Loan_Amount (boundary fail)",
       "preconditions": [
-        "Module behavior: on_success shows 'Loan approved and created successfully!' and returns to a detail page; mock system notes no real debits occur"
+        "User is on the Request Loan page",
+        "There exists a Collateral_Account with balance < 0.20 * Loan_Amount"
       ],
       "steps": [
-        "1. Complete a valid loan request (select Loan_Type, enter Loan_Amount within range, enter Down_Payment >=10% and < Loan_Amount, ensure collateral if selected meets 20%)",
-        "2. Click the 'Request Loan' button and wait for the success result 'Loan approved and created successfully!' or the detail page to appear",
-        "3. Click the browser Back button",
-        "4. On returning to the form page, click the 'Request Loan' button again without changing any fields"
+        "1. Select Loan_Type = Personal",
+        "2. Enter <Loan_Amount within the allowed range for Personal>",
+        "3. Enter <Down_Payment equal to 0.10 * Loan_Amount>",
+        "4. Select the Collateral_Account with balance < 0.20 * Loan_Amount",
+        "5. Click Submit Application"
       ],
-      "expected_result": "Second submission is blocked at the UI or server-side duplicate protection: no second identical loan record is created. The UI either shows the creation form cleared/disabled OR an inline/error message preventing duplicate creation; user does not see two identical loans in the account list.",
-      "priority": "low"
+      "expected_result": "Submission is blocked during collateral validation; the system surfaces a denial/validation reason such as 'Inadequate collateral value' and no loan account is created.",
+      "priority": "medium"
     }
   ],
   "summary": {
     "total": 10,
-    "boundary": 9,
+    "boundary": 10,
     "input_edge": 0,
-    "interaction_edge": 1,
+    "interaction_edge": 0,
     "state_edge": 0,
     "data_edge": 0,
-    "medium_priority": 9,
-    "low_priority": 1
+    "medium_priority": 10,
+    "low_priority": 0
   }
 }

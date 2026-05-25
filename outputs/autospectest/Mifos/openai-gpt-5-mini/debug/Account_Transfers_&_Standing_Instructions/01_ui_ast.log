@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-21T22:19:56.398662
+DEBUG SESSION STARTED: 2026-05-25T14:09:57.022289
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[22:19:56] UI-AST Agent - SYSTEM PROMPT
+[14:09:57] UI-AST Agent - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Expert UI/UX Architect and Systems Analyst. Parse natural language functional specifications into a strict, deterministic UI Abstract Syntax Tree (UI-AST) formatted as a JSON Component Schema.
 
@@ -204,7 +204,7 @@ Mentally enumerate every interactive element in the source. Every field, button,
 }
 
 ------------------------------------------------------------
-[22:19:56] UI-AST Agent - USER PROMPT
+[14:09:57] UI-AST Agent - USER PROMPT
 ------------------------------------------------------------
 Module: Account Transfers & Standing Instructions
 
@@ -220,7 +220,480 @@ The Standing Instructions page displays a data table with columns for Name, From
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[22:22:16] UI-AST Agent - LLM RESPONSE
+[14:13:11] UI-AST Agent - LLM RESPONSE
+------------------------------------------------------------
+{
+  "module_name": "Account Transfers & Standing Instructions",
+  "components": {
+    "Account_Transfers_Form": {
+      "type": "form",
+      "fields": {
+        "From_Office": { "type": "unspecified", "required": false },
+        "From_Client": { "type": "unspecified", "required": false },
+        "From_Account_Type": {
+          "type": "dropdown",
+          "required": false,
+          "options": ["Savings Account", "Loan Account"]
+        },
+        "From_Account": { "type": "unspecified", "required": false },
+        "To_Office": { "type": "unspecified", "required": false },
+        "To_Client": { "type": "unspecified", "required": false },
+        "To_Account_Type": {
+          "type": "dropdown",
+          "required": false,
+          "options": ["Savings Account", "Loan Account"]
+        },
+        "To_Account": { "type": "unspecified", "required": false },
+        "Transfer_Amount": {
+          "type": "number",
+          "required": true,
+          "constraints": [
+            "must be a positive number",
+            "must not exceed available balance (shows error on violation)"
+          ]
+        },
+        "Transfer_Date": { "type": "date", "required": true },
+        "Description": { "type": "unspecified", "required": false }
+      },
+      "submit_actions": [
+        {
+          "element_name": "Submit",
+          "on_success": "processes transfer; debits source and credits destination"
+        }
+      ]
+    },
+    "Standing_Instructions_Table": {
+      "type": "data_table",
+      "columns": [
+        "Name",
+        "From Client",
+        "From Account",
+        "To Client",
+        "To Account",
+        "Amount",
+        "Validity From",
+        "Validity Till",
+        "Status"
+      ],
+      "row_actions": [
+        {
+          "action_name": "Enable",
+          "preconditions": ["status must be Disabled"],
+          "on_success": "changes status to Active"
+        },
+        {
+          "action_name": "Disable",
+          "preconditions": ["status must be Active"],
+          "on_success": "changes status to Disabled"
+        },
+        {
+          "action_name": "Delete",
+          "on_success": "deletes standing instruction"
+        }
+      ],
+      "bulk_actions": [
+        {
+          "action_name": "Enable Selected",
+          "preconditions": ["selected rows must have status Disabled"],
+          "on_success": "changes status to Active for selected"
+        },
+        {
+          "action_name": "Disable Selected",
+          "preconditions": ["selected rows must have status Active"],
+          "on_success": "changes status to Disabled for selected"
+        },
+        {
+          "action_name": "Delete Selected",
+          "on_success": "deletes selected standing instructions"
+        }
+      ],
+      "page_actions": [
+        {
+          "action_name": "Create Standing Instruction",
+          "element_type": "button",
+          "on_click": "opens Create_Standing_Instruction_Form"
+        }
+      ]
+    },
+    "Create_Standing_Instruction_Form": {
+      "type": "form",
+      "fields": {
+        "Name": { "type": "unspecified", "required": true },
+        "From_Office": { "type": "unspecified", "required": false },
+        "From_Client": { "type": "unspecified", "required": false },
+        "From_Account_Type": {
+          "type": "dropdown",
+          "required": false,
+          "options": ["Savings Account", "Loan Account"]
+        },
+        "From_Account": { "type": "unspecified", "required": false },
+        "To_Office": { "type": "unspecified", "required": false },
+        "To_Client": { "type": "unspecified", "required": false },
+        "To_Account_Type": {
+          "type": "dropdown",
+          "required": false,
+          "options": ["Savings Account", "Loan Account"]
+        },
+        "To_Account": { "type": "unspecified", "required": false },
+        "Transfer_Type": { "type": "unspecified", "required": false },
+        "Priority": { "type": "unspecified", "required": false },
+        "Instruction_Type": {
+          "type": "dropdown",
+          "required": false,
+          "options": ["Fixed", "Dues"]
+        },
+        "Amount": { "type": "number", "required": false },
+        "Validity_From": { "type": "date", "required": false },
+        "Validity_Till": { "type": "date", "required": false },
+        "Recurrence_Type": {
+          "type": "dropdown",
+          "required": false,
+          "options": ["Periodic", "As Per Dues"]
+        },
+        "Recurrence_Frequency": { "type": "unspecified", "required": false },
+        "Recurrence_Interval": { "type": "unspecified", "required": false }
+      },
+      "submit_actions": [
+        {
+          "element_name": "Create",
+          "on_success": "creates standing instruction"
+        },
+        { "element_name": "Cancel", "on_success": "closes form without creating" }
+      ]
+    },
+    "Standing_Instruction_State_Actions": {
+      "type": "state_bound_action_bar",
+      "states": {
+        "Active": {
+          "available_actions": [
+            {
+              "action_name": "Disable",
+              "on_success": "changes status to Disabled",
+              "preconditions": ["status must be Active"]
+            },
+            {
+              "action_name": "Delete",
+              "on_success": "deletes standing instruction"
+            }
+          ]
+        },
+        "Disabled": {
+          "available_actions": [
+            {
+              "action_name": "Enable",
+              "on_success": "changes status to Active",
+              "preconditions": ["status must be Disabled"]
+            },
+            {
+              "action_name": "Delete",
+              "on_success": "deletes standing instruction"
+            }
+          ]
+        }
+      }
+    }
+  }
+}
+
+------------------------------------------------------------
+[14:13:11] UI-AST Agent - PARSED JSON
+------------------------------------------------------------
+{
+  "module_name": "Account Transfers & Standing Instructions",
+  "components": {
+    "Account_Transfers_Form": {
+      "type": "form",
+      "fields": {
+        "From_Office": {
+          "type": "unspecified",
+          "required": false
+        },
+        "From_Client": {
+          "type": "unspecified",
+          "required": false
+        },
+        "From_Account_Type": {
+          "type": "dropdown",
+          "required": false,
+          "options": [
+            "Savings Account",
+            "Loan Account"
+          ]
+        },
+        "From_Account": {
+          "type": "unspecified",
+          "required": false
+        },
+        "To_Office": {
+          "type": "unspecified",
+          "required": false
+        },
+        "To_Client": {
+          "type": "unspecified",
+          "required": false
+        },
+        "To_Account_Type": {
+          "type": "dropdown",
+          "required": false,
+          "options": [
+            "Savings Account",
+            "Loan Account"
+          ]
+        },
+        "To_Account": {
+          "type": "unspecified",
+          "required": false
+        },
+        "Transfer_Amount": {
+          "type": "number",
+          "required": true,
+          "constraints": [
+            "must be a positive number",
+            "must not exceed available balance (shows error on violation)"
+          ]
+        },
+        "Transfer_Date": {
+          "type": "date",
+          "required": true
+        },
+        "Description": {
+          "type": "unspecified",
+          "required": false
+        }
+      },
+      "submit_actions": [
+        {
+          "element_name": "Submit",
+          "on_success": "processes transfer; debits source and credits destination"
+        }
+      ]
+    },
+    "Standing_Instructions_Table": {
+      "type": "data_table",
+      "columns": [
+        "Name",
+        "From Client",
+        "From Account",
+        "To Client",
+        "To Account",
+        "Amount",
+        "Validity From",
+        "Validity Till",
+        "Status"
+      ],
+      "row_actions": [
+        {
+          "action_name": "Enable",
+          "preconditions": [
+            "status must be Disabled"
+          ],
+          "on_success": "changes status to Active"
+        },
+        {
+          "action_name": "Disable",
+          "preconditions": [
+            "status must be Active"
+          ],
+          "on_success": "changes status to Disabled"
+        },
+        {
+          "action_name": "Delete",
+          "on_success": "deletes standing instruction"
+        }
+      ],
+      "bulk_actions": [
+        {
+          "action_name": "Enable Selected",
+          "preconditions": [
+            "selected rows must have status Disabled"
+          ],
+          "on_success": "changes status to Active for selected"
+        },
+        {
+          "action_name": "Disable Selected",
+          "preconditions": [
+            "selected rows must have status Active"
+          ],
+          "on_success": "changes status to Disabled for selected"
+        },
+        {
+          "action_name": "Delete Selected",
+          "on_success": "deletes selected standing instructions"
+        }
+      ],
+      "page_actions": [
+        {
+          "action_name": "Create Standing Instruction",
+          "element_type": "button",
+          "on_click": "opens Create_Standing_Instruction_Form"
+        }
+      ]
+    },
+    "Create_Standing_Instruction_Form": {
+      "type": "form",
+      "fields": {
+        "Name": {
+          "type": "unspecified",
+          "required": true
+        },
+        "From_Office": {
+          "type": "unspecified",
+          "required": false
+        },
+        "From_Client": {
+          "type": "unspecified",
+          "required": false
+        },
+        "From_Account_Type": {
+          "type": "dropdown",
+          "required": false,
+          "options": [
+            "Savings Account",
+            "Loan Account"
+          ]
+        },
+        "From_Account": {
+          "type": "unspecified",
+          "required": false
+        },
+        "To_Office": {
+          "type": "unspecified",
+          "required": false
+        },
+        "To_Client": {
+          "type": "unspecified",
+          "required": false
+        },
+        "To_Account_Type": {
+          "type": "dropdown",
+          "required": false,
+          "options": [
+            "Savings Account",
+            "Loan Account"
+          ]
+        },
+        "To_Account": {
+          "type": "unspecified",
+          "required": false
+        },
+        "Transfer_Type": {
+          "type": "unspecified",
+          "required": false
+        },
+        "Priority": {
+          "type": "unspecified",
+          "required": false
+        },
+        "Instruction_Type": {
+          "type": "dropdown",
+          "required": false,
+          "options": [
+            "Fixed",
+            "Dues"
+          ]
+        },
+        "Amount": {
+          "type": "number",
+          "required": false
+        },
+        "Validity_From": {
+          "type": "date",
+          "required": false
+        },
+        "Validity_Till": {
+          "type": "date",
+          "required": false
+        },
+        "Recurrence_Type": {
+          "type": "dropdown",
+          "required": false,
+          "options": [
+            "Periodic",
+            "As Per Dues"
+          ]
+        },
+        "Recurrence_Frequency": {
+          "type": "unspecified",
+          "required": false
+        },
+        "Recurrence_Interval": {
+          "type": "unspecified",
+          "required": false
+        }
+      },
+      "submit_actions": [
+        {
+          "element_name": "Create",
+          "on_success": "creates standing instruction"
+        },
+        {
+          "element_name": "Cancel",
+          "on_success": "closes form without creating"
+        }
+      ]
+    },
+    "Standing_Instruction_State_Actions": {
+      "type": "state_bound_action_bar",
+      "states": {
+        "Active": {
+          "available_actions": [
+            {
+              "action_name": "Disable",
+              "on_success": "changes status to Disabled",
+              "preconditions": [
+                "status must be Active"
+              ]
+            },
+            {
+              "action_name": "Delete",
+              "on_success": "deletes standing instruction"
+            }
+          ]
+        },
+        "Disabled": {
+          "available_actions": [
+            {
+              "action_name": "Enable",
+              "on_success": "changes status to Active",
+              "preconditions": [
+                "status must be Disabled"
+              ]
+            },
+            {
+              "action_name": "Delete",
+              "on_success": "deletes standing instruction"
+            }
+          ]
+        }
+      }
+    }
+  }
+}
+
+------------------------------------------------------------
+[14:14:40] UI-AST Agent - USER PROMPT
+------------------------------------------------------------
+Module: Account Transfers & Standing Instructions
+
+
+The Account Transfers form contains From Office, From Client, From Account Type (Savings Account, Loan Account), From Account, To Office, To Client, To Account Type, To Account, Transfer Amount (required), Transfer Date (required), and Description. If the transfer amount exceeds the available balance, an error is shown. Clicking "Submit" processes the transfer, debiting the source and crediting the destination.
+
+The Standing Instructions page displays a data table with columns for Name, From Client, From Account, To Client, To Account, Amount, Validity (From/Till dates), and Status (Active, Disabled). A "+ Create Standing Instruction" button opens the creation form containing Name (required), From and To account fields, Transfer Type, Priority, Instruction Type (Fixed, Dues), Amount, Validity From and Till dates, Recurrence Type (Periodic, As Per Dues), Recurrence Frequency, and Recurrence Interval. Standing instructions can be enabled, disabled, or deleted from the listing.
+
+---
+
+
+
+**CRITIC FEEDBACK FROM PREVIOUS ATTEMPT — address every point:**
+1. Remove Standing_Instructions_Table.bulk_actions entirely unless the description is updated to explicitly mention bulk enable/disable/delete operations; path to remove: components.Standing_Instructions_Table.bulk_actions
+2. Remove the Cancel submit action from Create_Standing_Instruction_Form unless the description explicitly includes a Cancel control; path to remove: components.Create_Standing_Instruction_Form.submit_actions[1]
+3. Remove the separate Standing_Instruction_State_Actions component and ensure enable/disable/delete actions are represented only as row actions on the Standing_Instructions_Table (or explicitly document a state-bound action bar in the description). Path to remove: components.Standing_Instruction_State_Actions
+
+
+IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
+
+------------------------------------------------------------
+[14:16:19] UI-AST Agent - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module_name": "Account Transfers & Standing Instructions",
@@ -266,8 +739,7 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
           "type": "number",
           "required": true,
           "constraints": [
-            "must be greater than 0",
-            "must not exceed available balance (error shown if exceeded)"
+            "must be <= available balance (error shown if exceeded)"
           ]
         },
         "Transfer_Date": {
@@ -282,11 +754,11 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
       "submit_actions": [
         {
           "element_name": "Submit",
-          "on_success": "processes transfer, debiting the source and crediting the destination"
+          "on_success": "processes transfer; debits source account and credits destination account"
         }
       ]
     },
-    "Standing_Instructions_Page": {
+    "Standing_Instructions_Table": {
       "type": "data_table",
       "columns": [
         "Name",
@@ -295,15 +767,14 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
         "To Client",
         "To Account",
         "Amount",
-        "Validity_From",
-        "Validity_Till",
+        "Validity From",
+        "Validity Till",
         "Status"
       ],
-      "toolbar_actions": [
+      "top_actions": [
         {
-          "element_name": "Create Standing Instruction",
-          "element_label": "+ Create Standing Instruction",
-          "on_click": "opens Create_Standing_Instruction_Form"
+          "element_name": "+ Create Standing Instruction",
+          "opens_form": "Create_Standing_Instruction_Form"
         }
       ],
       "row_actions": [
@@ -380,7 +851,7 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
       "submit_actions": [
         {
           "element_name": "Create",
-          "on_success": "creates standing instruction and adds it to the listing"
+          "on_success": "creates standing instruction"
         }
       ]
     }
@@ -388,7 +859,7 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
 }
 
 ------------------------------------------------------------
-[22:22:16] UI-AST Agent - PARSED JSON
+[14:16:19] UI-AST Agent - PARSED JSON
 ------------------------------------------------------------
 {
   "module_name": "Account Transfers & Standing Instructions",
@@ -440,8 +911,7 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
           "type": "number",
           "required": true,
           "constraints": [
-            "must be greater than 0",
-            "must not exceed available balance (error shown if exceeded)"
+            "must be <= available balance (error shown if exceeded)"
           ]
         },
         "Transfer_Date": {
@@ -456,11 +926,11 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
       "submit_actions": [
         {
           "element_name": "Submit",
-          "on_success": "processes transfer, debiting the source and crediting the destination"
+          "on_success": "processes transfer; debits source account and credits destination account"
         }
       ]
     },
-    "Standing_Instructions_Page": {
+    "Standing_Instructions_Table": {
       "type": "data_table",
       "columns": [
         "Name",
@@ -469,15 +939,14 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
         "To Client",
         "To Account",
         "Amount",
-        "Validity_From",
-        "Validity_Till",
+        "Validity From",
+        "Validity Till",
         "Status"
       ],
-      "toolbar_actions": [
+      "top_actions": [
         {
-          "element_name": "Create Standing Instruction",
-          "element_label": "+ Create Standing Instruction",
-          "on_click": "opens Create_Standing_Instruction_Form"
+          "element_name": "+ Create Standing Instruction",
+          "opens_form": "Create_Standing_Instruction_Form"
         }
       ],
       "row_actions": [
@@ -500,388 +969,6 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
           "on_success": "removes standing instruction from listing"
         }
       ]
-    },
-    "Create_Standing_Instruction_Form": {
-      "type": "form",
-      "fields": {
-        "Name": {
-          "type": "unspecified",
-          "required": true
-        },
-        "From_Account": {
-          "type": "unspecified",
-          "required": false
-        },
-        "To_Account": {
-          "type": "unspecified",
-          "required": false
-        },
-        "Transfer_Type": {
-          "type": "unspecified",
-          "required": false
-        },
-        "Priority": {
-          "type": "unspecified",
-          "required": false
-        },
-        "Instruction_Type": {
-          "type": "dropdown",
-          "required": false,
-          "options": [
-            "Fixed",
-            "Dues"
-          ]
-        },
-        "Amount": {
-          "type": "number",
-          "required": false
-        },
-        "Validity_From": {
-          "type": "date",
-          "required": false
-        },
-        "Validity_Till": {
-          "type": "date",
-          "required": false
-        },
-        "Recurrence_Type": {
-          "type": "dropdown",
-          "required": false,
-          "options": [
-            "Periodic",
-            "As Per Dues"
-          ]
-        },
-        "Recurrence_Frequency": {
-          "type": "unspecified",
-          "required": false
-        },
-        "Recurrence_Interval": {
-          "type": "unspecified",
-          "required": false
-        }
-      },
-      "submit_actions": [
-        {
-          "element_name": "Create",
-          "on_success": "creates standing instruction and adds it to the listing"
-        }
-      ]
-    }
-  }
-}
-
-------------------------------------------------------------
-[22:24:18] UI-AST Agent - USER PROMPT
-------------------------------------------------------------
-Module: Account Transfers & Standing Instructions
-
-
-The Account Transfers form contains From Office, From Client, From Account Type (Savings Account, Loan Account), From Account, To Office, To Client, To Account Type, To Account, Transfer Amount (required), Transfer Date (required), and Description. If the transfer amount exceeds the available balance, an error is shown. Clicking "Submit" processes the transfer, debiting the source and crediting the destination.
-
-The Standing Instructions page displays a data table with columns for Name, From Client, From Account, To Client, To Account, Amount, Validity (From/Till dates), and Status (Active, Disabled). A "+ Create Standing Instruction" button opens the creation form containing Name (required), From and To account fields, Transfer Type, Priority, Instruction Type (Fixed, Dues), Amount, Validity From and Till dates, Recurrence Type (Periodic, As Per Dues), Recurrence Frequency, and Recurrence Interval. Standing instructions can be enabled, disabled, or deleted from the listing.
-
----
-
-
-
-**CRITIC FEEDBACK FROM PREVIOUS ATTEMPT — address every point:**
-1. Remove the inferred 'must be greater than 0' constraint from Account_Transfers_Form.fields.Transfer_Amount.constraints — path: Account_Transfers_Form.fields.Transfer_Amount.constraints[0] should be deleted (leave only the error condition explicitly described: exceed available balance).
-2. Remove inferred preconditions from Standing_Instructions_Page.row_actions — delete Standing_Instructions_Page.row_actions[0].preconditions (Enable) and Standing_Instructions_Page.row_actions[1].preconditions (Disable), or replace them with only explicit behavior text if present in the description.
-3. Ensure no other validation/conditional rules are added unless explicitly described; keep only: Transfer_Amount (required) and 'error shown if exceeds available balance', Transfer_Date (required), and the listed fields and actions for standing instructions.
-
-
-IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
-
-------------------------------------------------------------
-[22:25:41] UI-AST Agent - LLM RESPONSE
-------------------------------------------------------------
-{
-  "module_name": "Account Transfers & Standing Instructions",
-  "components": {
-    "Account_Transfers_Form": {
-      "type": "form",
-      "fields": {
-        "From_Office": {
-          "type": "unspecified",
-          "required": false
-        },
-        "From_Client": {
-          "type": "unspecified",
-          "required": false
-        },
-        "From_Account_Type": {
-          "type": "dropdown",
-          "required": false,
-          "options": [
-            "Savings Account",
-            "Loan Account"
-          ]
-        },
-        "From_Account": {
-          "type": "unspecified",
-          "required": false
-        },
-        "To_Office": {
-          "type": "unspecified",
-          "required": false
-        },
-        "To_Client": {
-          "type": "unspecified",
-          "required": false
-        },
-        "To_Account_Type": {
-          "type": "dropdown",
-          "required": false,
-          "options": [
-            "Savings Account",
-            "Loan Account"
-          ]
-        },
-        "To_Account": {
-          "type": "unspecified",
-          "required": false
-        },
-        "Transfer_Amount": {
-          "type": "number",
-          "required": true,
-          "constraints": [
-            "error shown if amount exceeds available balance"
-          ]
-        },
-        "Transfer_Date": {
-          "type": "date",
-          "required": true
-        },
-        "Description": {
-          "type": "unspecified",
-          "required": false
-        }
-      },
-      "submit_actions": [
-        {
-          "element_name": "Submit",
-          "on_success": "processes transfer; debits the source account and credits the destination account"
-        }
-      ]
-    },
-    "Standing_Instructions_Page": {
-      "type": "data_table",
-      "columns": [
-        "Name",
-        "From Client",
-        "From Account",
-        "To Client",
-        "To Account",
-        "Amount",
-        "Validity From",
-        "Validity Till",
-        "Status"
-      ],
-      "status_values": [
-        "Active",
-        "Disabled"
-      ],
-      "create_button": {
-        "element_name": "+ Create Standing Instruction",
-        "action": "opens_form",
-        "opens_form": "Create_Standing_Instruction_Form"
-      },
-      "row_actions": [
-        {
-          "action_name": "Enable",
-          "on_success": "sets status to Active"
-        },
-        {
-          "action_name": "Disable",
-          "on_success": "sets status to Disabled"
-        },
-        {
-          "action_name": "Delete",
-          "on_success": "removes standing instruction from listing"
-        }
-      ],
-      "bulk_actions": []
-    },
-    "Create_Standing_Instruction_Form": {
-      "type": "form",
-      "fields": {
-        "Name": {
-          "type": "unspecified",
-          "required": true
-        },
-        "From_Account": {
-          "type": "unspecified",
-          "required": false
-        },
-        "To_Account": {
-          "type": "unspecified",
-          "required": false
-        },
-        "Transfer_Type": {
-          "type": "unspecified",
-          "required": false
-        },
-        "Priority": {
-          "type": "unspecified",
-          "required": false
-        },
-        "Instruction_Type": {
-          "type": "dropdown",
-          "required": false,
-          "options": [
-            "Fixed",
-            "Dues"
-          ]
-        },
-        "Amount": {
-          "type": "number",
-          "required": false
-        },
-        "Validity_From": {
-          "type": "date",
-          "required": false
-        },
-        "Validity_Till": {
-          "type": "date",
-          "required": false
-        },
-        "Recurrence_Type": {
-          "type": "dropdown",
-          "required": false,
-          "options": [
-            "Periodic",
-            "As Per Dues"
-          ]
-        },
-        "Recurrence_Frequency": {
-          "type": "unspecified",
-          "required": false
-        },
-        "Recurrence_Interval": {
-          "type": "unspecified",
-          "required": false
-        }
-      },
-      "submit_actions": [
-        {
-          "element_name": "Create",
-          "on_success": "creates standing instruction"
-        }
-      ]
-    }
-  }
-}
-
-------------------------------------------------------------
-[22:25:41] UI-AST Agent - PARSED JSON
-------------------------------------------------------------
-{
-  "module_name": "Account Transfers & Standing Instructions",
-  "components": {
-    "Account_Transfers_Form": {
-      "type": "form",
-      "fields": {
-        "From_Office": {
-          "type": "unspecified",
-          "required": false
-        },
-        "From_Client": {
-          "type": "unspecified",
-          "required": false
-        },
-        "From_Account_Type": {
-          "type": "dropdown",
-          "required": false,
-          "options": [
-            "Savings Account",
-            "Loan Account"
-          ]
-        },
-        "From_Account": {
-          "type": "unspecified",
-          "required": false
-        },
-        "To_Office": {
-          "type": "unspecified",
-          "required": false
-        },
-        "To_Client": {
-          "type": "unspecified",
-          "required": false
-        },
-        "To_Account_Type": {
-          "type": "dropdown",
-          "required": false,
-          "options": [
-            "Savings Account",
-            "Loan Account"
-          ]
-        },
-        "To_Account": {
-          "type": "unspecified",
-          "required": false
-        },
-        "Transfer_Amount": {
-          "type": "number",
-          "required": true,
-          "constraints": [
-            "error shown if amount exceeds available balance"
-          ]
-        },
-        "Transfer_Date": {
-          "type": "date",
-          "required": true
-        },
-        "Description": {
-          "type": "unspecified",
-          "required": false
-        }
-      },
-      "submit_actions": [
-        {
-          "element_name": "Submit",
-          "on_success": "processes transfer; debits the source account and credits the destination account"
-        }
-      ]
-    },
-    "Standing_Instructions_Page": {
-      "type": "data_table",
-      "columns": [
-        "Name",
-        "From Client",
-        "From Account",
-        "To Client",
-        "To Account",
-        "Amount",
-        "Validity From",
-        "Validity Till",
-        "Status"
-      ],
-      "status_values": [
-        "Active",
-        "Disabled"
-      ],
-      "create_button": {
-        "element_name": "+ Create Standing Instruction",
-        "action": "opens_form",
-        "opens_form": "Create_Standing_Instruction_Form"
-      },
-      "row_actions": [
-        {
-          "action_name": "Enable",
-          "on_success": "sets status to Active"
-        },
-        {
-          "action_name": "Disable",
-          "on_success": "sets status to Disabled"
-        },
-        {
-          "action_name": "Delete",
-          "on_success": "removes standing instruction from listing"
-        }
-      ],
-      "bulk_actions": []
     },
     "Create_Standing_Instruction_Form": {
       "type": "form",

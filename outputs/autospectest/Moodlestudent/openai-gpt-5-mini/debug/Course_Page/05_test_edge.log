@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-22T21:41:13.081162
+DEBUG SESSION STARTED: 2026-05-25T15:09:37.490937
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[21:41:13] Test-Edge - SYSTEM PROMPT
+[15:09:37] Test-Edge - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Edge Case and Boundary Test Generator. You receive (1) a UI-AST JSON for one module and (2) the original functional description. Your job is to produce ONLY boundary and edge case tests — scenarios at the limits of valid/invalid input and unusual-but-plausible user behaviors.
 
@@ -24,6 +24,10 @@ You are NOT producing happy paths (positive prompt) or standard validation failu
 <description>
 {Original functional description text for this module}
 </description>
+
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
 
 ---
 
@@ -176,6 +180,15 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 
 ---
 
+**WORKFLOW-AWARE BOUNDARY SCOPING (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- For each workflow where `conditional_branch` activates a numeric or date field, check if that field has a boundary (a numeric/date threshold in the AST `constraints` or description).
+- If yes, that workflow's branch is a **candidate for a boundary edge test** — add or confirm a boundary TC exists for it.
+- Add `"wf_ref": "WF-NNN"` to each TC that maps to a specific workflow's boundary. Set `"wf_ref": null` for generic input/interaction edge tests.
+
+---
+
 **OUTPUT — JSON only, no prose, no markdown fencing:**
 
 {
@@ -184,6 +197,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": null,
       "subcategory": "boundary | input_edge | interaction_edge | state_edge | data_edge",
       "test_case": "Short descriptive name",
       "preconditions": ["precondition 1"],
@@ -206,7 +220,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 
 
 ------------------------------------------------------------
-[21:41:13] Test-Edge - USER PROMPT
+[15:09:37] Test-Edge - USER PROMPT
 ------------------------------------------------------------
 <module_name>Course Page</module_name>
 
@@ -218,41 +232,42 @@ If the module has any numeric/date/count threshold in the AST or description, pr
       "type": "tab_container",
       "tabs": []
     },
-    "Collapse_All_Link": {
+    "Course_Sections": {
+      "type": "repeating_group",
+      "item_fields": {
+        "Collapsed": {
+          "type": "checkbox",
+          "required": false,
+          "on_change": "toggles section collapsed state"
+        },
+        "Items": {
+          "type": "repeating_group",
+          "item_fields": {
+            "Name": {
+              "type": "link",
+              "required": true,
+              "on_click": "navigates to activity or resource"
+            }
+          }
+        }
+      }
+    },
+    "Collapse_All": {
       "type": "link",
       "element_name": "Collapse all",
       "on_click": "collapses all sections",
       "on_success": "all sections collapsed"
     },
-    "Enable_Edit_Mode": {
+    "Edit_Mode_Toggle": {
       "type": "button",
-      "element_name": "Enable Edit Mode",
+      "element_name": "Enable Edit mode",
       "preconditions": [
-        "requires teacher role"
+        "role must not be Student"
       ],
-      "on_success": "edit mode enabled"
-    },
-    "Sections": {
-      "type": "repeating_group",
-      "item_fields": {
-        "Toggle_Section_Collapse": {
-          "type": "button",
-          "element_name": "Toggle section collapse",
-          "on_click": "toggles this section collapsed state",
-          "on_success": "section collapsed state toggled"
-        },
-        "Section_Items": {
-          "type": "repeating_group",
-          "item_fields": {
-            "Item_Link": {
-              "type": "link",
-              "element_name": "Activity or Resource",
-              "on_click": "navigates to activity/resource page",
-              "on_success": "opens activity/resource"
-            }
-          }
-        }
-      }
+      "on_success": "enter edit mode",
+      "constraints": [
+        "students cannot enable Edit mode on course pages"
+      ]
     }
   }
 }
@@ -267,10 +282,17 @@ The Course page displays the full course content organized into collapsible sect
 
 </description>
 
+<workflows>
+WF-001 | Collapse all sections | actor: <role> | branch: none | terminal: Collapse all | on_success: all sections collapsed
+WF-002 | Enable Edit mode (preconditioned) | actor: <role> | branch: precondition: role must not be Student | terminal: Enable Edit mode | on_success: enter edit mode
+WF-003 | Toggle a section's collapsed state | actor: <role> | branch: none | terminal: toggles section collapsed state | on_success: section collapsed state toggled
+WF-004 | Open an activity or resource from a section item | actor: <role> | branch: none | terminal: navigates to activity or resource | on_success: navigated to activity or resource
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[21:41:57] Test-Edge - LLM RESPONSE
+[15:10:55] Test-Edge - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Course Page",
@@ -278,123 +300,123 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": "WF-001",
       "subcategory": "interaction_edge",
-      "test_case": "Rapid repeated clicks on 'Collapse all' are idempotent",
+      "test_case": "Click 'Collapse all' when there are zero Course Sections",
       "preconditions": [
-        "Course page is open with >1 sections visible",
-        "User is on the course page (any role)"
+        "User is authenticated with a role allowed to view the course page",
+        "Course page is configured with zero Course Sections (repeating group is empty)"
       ],
       "steps": [
-        "1. Click the 'Collapse all' link",
-        "2. Immediately click the 'Collapse all' link a second time (before the collapse animation completes)"
+        "1. Navigate to the Course Page",
+        "2. Confirm there are no section entries listed in the main content area",
+        "3. Click the 'Collapse all' link"
       ],
-      "expected_result": "All sections end in the collapsed state; the second 'Collapse all' click does not cause an error and the action succeeds idempotently — UI shows all section chevrons in collapsed state and no error message is displayed",
+      "expected_result": "'Collapse all' click succeeds; no sections are displayed before or after the action; no error message is shown and the page remains stable (UI indicates completion of the action)",
       "priority": "medium"
     },
     {
       "tc_id": "E-002",
-      "subcategory": "boundary",
-      "test_case": "'Collapse all' with zero sections present",
+      "wf_ref": "WF-001",
+      "subcategory": "interaction_edge",
+      "test_case": "Click 'Collapse all' when some sections are already collapsed and others are expanded",
       "preconditions": [
-        "Course page is open for a course that has zero sections (empty sections repeating group)",
-        "User is on the course page (any role)"
+        "Course page contains multiple Course Sections",
+        "At least one section is pre-collapsed and at least one section is pre-expanded"
       ],
       "steps": [
-        "1. Observe that no section rows are listed",
-        "2. Click the 'Collapse all' link"
+        "1. Navigate to the Course Page",
+        "2. Verify at least one section's collapsed state is 'collapsed' and another's is 'expanded'",
+        "3. Click the 'Collapse all' link"
       ],
-      "expected_result": "'Collapse all' action succeeds with no side effects; page remains showing no sections and no error is shown — a visible no-sections state (empty list) remains and no JavaScript error banner appears",
-      "priority": "low"
+      "expected_result": "'Collapse all' click succeeds; all sections end in the collapsed state (each section's content is hidden and its collapsed indicator reflects collapsed); no error is shown",
+      "priority": "medium"
     },
     {
       "tc_id": "E-003",
+      "wf_ref": "WF-003",
       "subcategory": "state_edge",
-      "test_case": "Rapid consecutive toggles of a single section stabilize to the final user action",
+      "test_case": "Rapidly toggle a single section's collapsed state multiple times",
       "preconditions": [
-        "Course page is open with at least one section present",
-        "User is on the course page (any role)"
+        "Course page contains at least one Course Section",
+        "User is on the Course Page with the section visible"
       ],
       "steps": [
-        "1. Click the section's chevron (Toggle section collapse) to start a collapse or expand",
-        "2. Immediately click the same section's chevron two more times in quick succession",
-        "3. Wait for animations to finish"
+        "1. Locate a section's collapse chevron/checkbox",
+        "2. Click the section's collapse control to collapse it",
+        "3. Immediately click the same section's collapse control to expand it",
+        "4. Immediately click the same section's collapse control again to collapse it (perform clicks in rapid succession)"
       ],
-      "expected_result": "After the final toggle action completes, the section is in the state corresponding to the last click and the action succeeds; the UI shows the section collapsed or expanded according to the final toggle and no error message or inconsistent partial-UI state is visible",
+      "expected_result": "Rapid toggle sequence succeeds; the section's final visible state equals the last click (collapsed); UI shows no error or duplicate entries and the collapsed state indicator matches the final state",
       "priority": "medium"
     },
     {
       "tc_id": "E-004",
+      "wf_ref": "WF-002",
       "subcategory": "interaction_edge",
-      "test_case": "Click an item link while its parent section is collapsing (timing race)",
+      "test_case": "Enable Edit mode for a user who has both Student and a non-Student role (boundary of role precondition)",
       "preconditions": [
-        "Course page is open with a section that contains at least one Section_Items entry",
-        "User is on the course page (any role)"
+        "User account has both Student role and at least one non-Student role (e.g., Instructor) simultaneously",
+        "User is authenticated and on the Course Page"
       ],
       "steps": [
-        "1. Click the section's chevron to initiate collapse",
-        "2. Immediately (during the collapse animation) click the Activity or Resource Item_Link within that same section"
+        "1. Locate the 'Enable Edit mode' button on the Course Page",
+        "2. Click the 'Enable Edit mode' button"
       ],
-      "expected_result": "Navigation from the Item_Link is blocked if the parent section has become non-interactive during collapse; no navigation occurs and the Item_Link does not open the activity/resource while collapse is in progress — the action is blocked / error shown (no new page opens and no silent navigation happens)",
+      "expected_result": "'Enable Edit mode' click succeeds; the page enters edit mode and edit controls become visible (on_success 'enter edit mode' occurs); no error indicating 'students cannot enable Edit mode' is shown",
       "priority": "medium"
     },
     {
       "tc_id": "E-005",
-      "subcategory": "interaction_edge",
-      "test_case": "Student attempts to enable Edit Mode (precondition role boundary)",
+      "wf_ref": "WF-004",
+      "subcategory": "input_edge",
+      "test_case": "Activity/resource item Name contains long text and special/unicode characters and is clickable",
       "preconditions": [
-        "User is signed in with a student role",
-        "Course page is open"
+        "Course contains at least one section with an item whose Name includes long text (200+ characters) and special/unicode/emoji characters",
+        "User is on the Course Page"
       ],
       "steps": [
-        "1. Click the 'Enable Edit Mode' button"
+        "1. Locate the item link with the long/special-character Name in a section",
+        "2. Observe how the Name is rendered in the list",
+        "3. Click the item's Name link"
       ],
-      "expected_result": "Action is blocked / error shown: Edit mode is not enabled for the student and the page remains in read-only view; a visible denial (inline error, toast, or no change) is shown and no edit UI appears",
-      "priority": "medium"
+      "expected_result": "Rendering and click action succeeds; the Name is displayed (may be visually truncated but visible in the UI) and clicking the link navigates to the associated activity or resource page (navigation succeeds with destination displayed); no rendering error is shown and the Name text is preserved in the link text",
+      "priority": "low"
     },
     {
       "tc_id": "E-006",
-      "subcategory": "state_edge",
-      "test_case": "Teacher enables Edit Mode then immediately triggers 'Collapse all' (rapid state transition)",
+      "wf_ref": "WF-001",
+      "subcategory": "interaction_edge",
+      "test_case": "Add sections then remove all sections, then use 'Collapse all'",
       "preconditions": [
-        "User is signed in with a teacher role",
-        "Course page is open with multiple sections visible"
+        "User can add and remove Course Sections through the UI (repeating group supports add/remove)",
+        "User is on the Course Page"
       ],
       "steps": [
-        "1. Click the 'Enable Edit Mode' button",
-        "2. Immediately after the UI indicates edit mode is starting, click the 'Collapse all' link"
+        "1. Click to add a new Course Section",
+        "2. Add at least one Item inside the new Section (create a listed Name link)",
+        "3. Repeat add so there are multiple sections (optional)",
+        "4. Remove/delete all Course Sections until none remain",
+        "5. Click the 'Collapse all' link"
       ],
-      "expected_result": "Both state transitions succeed: edit mode becomes enabled and 'Collapse all' collapses sections while edit UI is active — the page shows the edit-mode indicator and all sections in collapsed state; no action is blocked and no error message is shown",
+      "expected_result": "Sequence succeeds; after removing all sections the course shows no sections, and clicking 'Collapse all' succeeds (does nothing visible) without error; UI remains stable with no sections listed",
       "priority": "medium"
-    },
-    {
-      "tc_id": "E-007",
-      "subcategory": "input_edge",
-      "test_case": "Very long course name (heading) with special characters and emoji displayed on Course Page",
-      "preconditions": [
-        "A course exists where the course name (heading) contains a very long string with special characters and emoji (length significantly greater than typical heading length)",
-        "User navigates to that course page (any role)"
-      ],
-      "steps": [
-        "1. Open the course page for the course with the very long heading"
-      ],
-      "expected_result": "Displaying a very long course name succeeds: the heading renders without breaking the layout (text wraps or is truncated with visible ellipsis per UI rules) and no overlap/overflow of other UI elements occurs — the page remains usable and no visual corruption or error is shown",
-      "priority": "low"
     }
   ],
   "summary": {
-    "total": 7,
-    "boundary": 1,
+    "total": 6,
+    "boundary": 0,
     "input_edge": 1,
     "interaction_edge": 4,
-    "state_edge": 2,
+    "state_edge": 1,
     "data_edge": 0,
     "medium_priority": 5,
-    "low_priority": 2
+    "low_priority": 1
   }
 }
 
 ------------------------------------------------------------
-[21:41:57] Test-Edge - PARSED JSON
+[15:10:55] Test-Edge - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Course Page",
@@ -402,117 +424,117 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": "WF-001",
       "subcategory": "interaction_edge",
-      "test_case": "Rapid repeated clicks on 'Collapse all' are idempotent",
+      "test_case": "Click 'Collapse all' when there are zero Course Sections",
       "preconditions": [
-        "Course page is open with >1 sections visible",
-        "User is on the course page (any role)"
+        "User is authenticated with a role allowed to view the course page",
+        "Course page is configured with zero Course Sections (repeating group is empty)"
       ],
       "steps": [
-        "1. Click the 'Collapse all' link",
-        "2. Immediately click the 'Collapse all' link a second time (before the collapse animation completes)"
+        "1. Navigate to the Course Page",
+        "2. Confirm there are no section entries listed in the main content area",
+        "3. Click the 'Collapse all' link"
       ],
-      "expected_result": "All sections end in the collapsed state; the second 'Collapse all' click does not cause an error and the action succeeds idempotently \u2014 UI shows all section chevrons in collapsed state and no error message is displayed",
+      "expected_result": "'Collapse all' click succeeds; no sections are displayed before or after the action; no error message is shown and the page remains stable (UI indicates completion of the action)",
       "priority": "medium"
     },
     {
       "tc_id": "E-002",
-      "subcategory": "boundary",
-      "test_case": "'Collapse all' with zero sections present",
+      "wf_ref": "WF-001",
+      "subcategory": "interaction_edge",
+      "test_case": "Click 'Collapse all' when some sections are already collapsed and others are expanded",
       "preconditions": [
-        "Course page is open for a course that has zero sections (empty sections repeating group)",
-        "User is on the course page (any role)"
+        "Course page contains multiple Course Sections",
+        "At least one section is pre-collapsed and at least one section is pre-expanded"
       ],
       "steps": [
-        "1. Observe that no section rows are listed",
-        "2. Click the 'Collapse all' link"
+        "1. Navigate to the Course Page",
+        "2. Verify at least one section's collapsed state is 'collapsed' and another's is 'expanded'",
+        "3. Click the 'Collapse all' link"
       ],
-      "expected_result": "'Collapse all' action succeeds with no side effects; page remains showing no sections and no error is shown \u2014 a visible no-sections state (empty list) remains and no JavaScript error banner appears",
-      "priority": "low"
+      "expected_result": "'Collapse all' click succeeds; all sections end in the collapsed state (each section's content is hidden and its collapsed indicator reflects collapsed); no error is shown",
+      "priority": "medium"
     },
     {
       "tc_id": "E-003",
+      "wf_ref": "WF-003",
       "subcategory": "state_edge",
-      "test_case": "Rapid consecutive toggles of a single section stabilize to the final user action",
+      "test_case": "Rapidly toggle a single section's collapsed state multiple times",
       "preconditions": [
-        "Course page is open with at least one section present",
-        "User is on the course page (any role)"
+        "Course page contains at least one Course Section",
+        "User is on the Course Page with the section visible"
       ],
       "steps": [
-        "1. Click the section's chevron (Toggle section collapse) to start a collapse or expand",
-        "2. Immediately click the same section's chevron two more times in quick succession",
-        "3. Wait for animations to finish"
+        "1. Locate a section's collapse chevron/checkbox",
+        "2. Click the section's collapse control to collapse it",
+        "3. Immediately click the same section's collapse control to expand it",
+        "4. Immediately click the same section's collapse control again to collapse it (perform clicks in rapid succession)"
       ],
-      "expected_result": "After the final toggle action completes, the section is in the state corresponding to the last click and the action succeeds; the UI shows the section collapsed or expanded according to the final toggle and no error message or inconsistent partial-UI state is visible",
+      "expected_result": "Rapid toggle sequence succeeds; the section's final visible state equals the last click (collapsed); UI shows no error or duplicate entries and the collapsed state indicator matches the final state",
       "priority": "medium"
     },
     {
       "tc_id": "E-004",
+      "wf_ref": "WF-002",
       "subcategory": "interaction_edge",
-      "test_case": "Click an item link while its parent section is collapsing (timing race)",
+      "test_case": "Enable Edit mode for a user who has both Student and a non-Student role (boundary of role precondition)",
       "preconditions": [
-        "Course page is open with a section that contains at least one Section_Items entry",
-        "User is on the course page (any role)"
+        "User account has both Student role and at least one non-Student role (e.g., Instructor) simultaneously",
+        "User is authenticated and on the Course Page"
       ],
       "steps": [
-        "1. Click the section's chevron to initiate collapse",
-        "2. Immediately (during the collapse animation) click the Activity or Resource Item_Link within that same section"
+        "1. Locate the 'Enable Edit mode' button on the Course Page",
+        "2. Click the 'Enable Edit mode' button"
       ],
-      "expected_result": "Navigation from the Item_Link is blocked if the parent section has become non-interactive during collapse; no navigation occurs and the Item_Link does not open the activity/resource while collapse is in progress \u2014 the action is blocked / error shown (no new page opens and no silent navigation happens)",
+      "expected_result": "'Enable Edit mode' click succeeds; the page enters edit mode and edit controls become visible (on_success 'enter edit mode' occurs); no error indicating 'students cannot enable Edit mode' is shown",
       "priority": "medium"
     },
     {
       "tc_id": "E-005",
-      "subcategory": "interaction_edge",
-      "test_case": "Student attempts to enable Edit Mode (precondition role boundary)",
+      "wf_ref": "WF-004",
+      "subcategory": "input_edge",
+      "test_case": "Activity/resource item Name contains long text and special/unicode characters and is clickable",
       "preconditions": [
-        "User is signed in with a student role",
-        "Course page is open"
+        "Course contains at least one section with an item whose Name includes long text (200+ characters) and special/unicode/emoji characters",
+        "User is on the Course Page"
       ],
       "steps": [
-        "1. Click the 'Enable Edit Mode' button"
+        "1. Locate the item link with the long/special-character Name in a section",
+        "2. Observe how the Name is rendered in the list",
+        "3. Click the item's Name link"
       ],
-      "expected_result": "Action is blocked / error shown: Edit mode is not enabled for the student and the page remains in read-only view; a visible denial (inline error, toast, or no change) is shown and no edit UI appears",
-      "priority": "medium"
+      "expected_result": "Rendering and click action succeeds; the Name is displayed (may be visually truncated but visible in the UI) and clicking the link navigates to the associated activity or resource page (navigation succeeds with destination displayed); no rendering error is shown and the Name text is preserved in the link text",
+      "priority": "low"
     },
     {
       "tc_id": "E-006",
-      "subcategory": "state_edge",
-      "test_case": "Teacher enables Edit Mode then immediately triggers 'Collapse all' (rapid state transition)",
+      "wf_ref": "WF-001",
+      "subcategory": "interaction_edge",
+      "test_case": "Add sections then remove all sections, then use 'Collapse all'",
       "preconditions": [
-        "User is signed in with a teacher role",
-        "Course page is open with multiple sections visible"
+        "User can add and remove Course Sections through the UI (repeating group supports add/remove)",
+        "User is on the Course Page"
       ],
       "steps": [
-        "1. Click the 'Enable Edit Mode' button",
-        "2. Immediately after the UI indicates edit mode is starting, click the 'Collapse all' link"
+        "1. Click to add a new Course Section",
+        "2. Add at least one Item inside the new Section (create a listed Name link)",
+        "3. Repeat add so there are multiple sections (optional)",
+        "4. Remove/delete all Course Sections until none remain",
+        "5. Click the 'Collapse all' link"
       ],
-      "expected_result": "Both state transitions succeed: edit mode becomes enabled and 'Collapse all' collapses sections while edit UI is active \u2014 the page shows the edit-mode indicator and all sections in collapsed state; no action is blocked and no error message is shown",
+      "expected_result": "Sequence succeeds; after removing all sections the course shows no sections, and clicking 'Collapse all' succeeds (does nothing visible) without error; UI remains stable with no sections listed",
       "priority": "medium"
-    },
-    {
-      "tc_id": "E-007",
-      "subcategory": "input_edge",
-      "test_case": "Very long course name (heading) with special characters and emoji displayed on Course Page",
-      "preconditions": [
-        "A course exists where the course name (heading) contains a very long string with special characters and emoji (length significantly greater than typical heading length)",
-        "User navigates to that course page (any role)"
-      ],
-      "steps": [
-        "1. Open the course page for the course with the very long heading"
-      ],
-      "expected_result": "Displaying a very long course name succeeds: the heading renders without breaking the layout (text wraps or is truncated with visible ellipsis per UI rules) and no overlap/overflow of other UI elements occurs \u2014 the page remains usable and no visual corruption or error is shown",
-      "priority": "low"
     }
   ],
   "summary": {
-    "total": 7,
-    "boundary": 1,
+    "total": 6,
+    "boundary": 0,
     "input_edge": 1,
     "interaction_edge": 4,
-    "state_edge": 2,
+    "state_edge": 1,
     "data_edge": 0,
     "medium_priority": 5,
-    "low_priority": 2
+    "low_priority": 1
   }
 }

@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-21T22:29:06.541453
+DEBUG SESSION STARTED: 2026-05-25T14:24:50.734074
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[22:29:06] Test-Edge - SYSTEM PROMPT
+[14:24:50] Test-Edge - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Edge Case and Boundary Test Generator. You receive (1) a UI-AST JSON for one module and (2) the original functional description. Your job is to produce ONLY boundary and edge case tests — scenarios at the limits of valid/invalid input and unusual-but-plausible user behaviors.
 
@@ -25,6 +25,10 @@ You are NOT producing happy paths (positive prompt) or standard validation failu
 {Original functional description text for this module}
 </description>
 
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
+
 ---
 
 **UI-AST REFERENCE — How to Read the AST for Edge Testing:**
@@ -35,7 +39,7 @@ You are NOT producing happy paths (positive prompt) or standard validation failu
 | `repeating_group` with `max` | Test adding exactly `max` entries (should succeed) then one more (should block) |
 | `visible_when` / `required_when` | Edge: trigger condition, fill revealed field with boundary value |
 | `state_bound_action_bar` | State edges: rapid consecutive state transitions, transition from a boundary state |
-| `submit_actions[]` with multiple buttons | Interaction edge: double-click a submit button rapidly |
+
 | `type: "date"` fields | Data edges: today, yesterday, far future, Feb 29 leap year |
 | `type: "file_upload"` | Edge: file exactly at size limit, file at 1 byte over limit |
 
@@ -132,7 +136,6 @@ Pick only the ones that apply to field types present in this module's AST:
 
 Pick only the ones that match component types in this module's AST:
 
-- **Double-click submit** (any form/wizard with a submit button): rapidly double-click the submit button → assert only one record is created; no duplicate row appears in the listing table
 - **Rapid re-submission after redirect** (any form that redirects to a detail page on success): after a successful submit, press the browser back button → assert the creation form is shown blank (not pre-filled) OR the user is redirected to the detail page without a second entity being created
 - **Wizard step skip — enforced navigation** (wizard where steps must be completed sequentially): attempt to click a later step tab directly without completing earlier steps → assert navigation is blocked and the earlier step remains active
 - **Wizard step skip — free navigation** (wizard that allows free tab navigation): navigate to a later step without filling earlier steps → assert the later step displays and returning to the earlier step shows fields blank (no data was lost from the later step)
@@ -173,7 +176,16 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 
 - **High:** None — edge tests are secondary to core functionality
 - **Medium:** Boundary tests at thresholds (financial amounts, date ordering, count limits, file size limits)
-- **Low:** Input edge cases (long text, special chars, whitespace, decimal precision), interaction edge cases (double-click, browser back, wizard skip)
+- **Low:** Input edge cases (long text, special chars, whitespace, decimal precision), interaction edge cases (browser back, wizard skip)
+
+---
+
+**WORKFLOW-AWARE BOUNDARY SCOPING (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- For each workflow where `conditional_branch` activates a numeric or date field, check if that field has a boundary (a numeric/date threshold in the AST `constraints` or description).
+- If yes, that workflow's branch is a **candidate for a boundary edge test** — add or confirm a boundary TC exists for it.
+- Add `"wf_ref": "WF-NNN"` to each TC that maps to a specific workflow's boundary. Set `"wf_ref": null` for generic input/interaction edge tests.
 
 ---
 
@@ -185,6 +197,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": null,
       "subcategory": "boundary | input_edge | interaction_edge | state_edge | data_edge",
       "test_case": "Short descriptive name",
       "preconditions": ["precondition 1"],
@@ -207,7 +220,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 
 
 ------------------------------------------------------------
-[22:29:06] Test-Edge - USER PROMPT
+[14:24:50] Test-Edge - USER PROMPT
 ------------------------------------------------------------
 <module_name>Share Account</module_name>
 
@@ -215,28 +228,24 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 {
   "module_name": "Share Account",
   "components": {
-    "Client_Detail_Create_Share_Account": {
-      "type": "link",
-      "element_name": "Create Share Account",
-      "on_click": "opens Share_Account_Application_Form"
-    },
     "Share_Account_Application_Form": {
       "type": "form",
+      "location": "Client Detail page",
       "fields": {
         "Share_Product": {
           "type": "dropdown",
-          "required": false,
-          "on_change": "auto-populates default values from selected product"
+          "required": true,
+          "on_change": "auto_populates default values for dependent fields (e.g., requested shares bounds, unit price)"
         },
         "Submitted_On": {
           "type": "date",
-          "required": false
+          "required": true
         },
         "Requested_Shares": {
           "type": "number",
-          "required": false,
+          "required": true,
           "constraints": [
-            "must be >= product.min and <= product.max per client"
+            "must be within product min and max for this client"
           ]
         },
         "Application_Date": {
@@ -249,12 +258,13 @@ If the module has any numeric/date/count threshold in the AST or description, pr
           "options_source": "client_active_savings_accounts"
         },
         "External_ID": {
-          "type": "text",
+          "type": "unspecified",
           "required": false
         },
         "Charges": {
-          "type": "unspecified",
-          "fields": {}
+          "type": "repeating_group",
+          "required": false,
+          "item_fields": {}
         }
       },
       "submit_actions": [
@@ -267,16 +277,18 @@ If the module has any numeric/date/count threshold in the AST or description, pr
     "Share_Account_Detail_Actions": {
       "type": "state_bound_action_bar",
       "states": {
-        "Pending": {
+        "Submitted and Pending Approval": {
           "available_actions": [
             {
               "action_name": "Approve",
               "fields": {
                 "Approved_Shares": {
-                  "type": "number"
+                  "type": "number",
+                  "required": true
                 },
                 "Approved_Date": {
-                  "type": "date"
+                  "type": "date",
+                  "required": true
                 }
               },
               "on_success": "changes status to Approved"
@@ -284,7 +296,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
             {
               "action_name": "Reject",
               "fields": {},
-              "on_success": "changes status to Rejected"
+              "on_success": "marks application as Rejected"
             }
           ]
         },
@@ -298,7 +310,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
             {
               "action_name": "Undo Approval",
               "fields": {},
-              "on_success": "reverts status to Pending"
+              "on_success": "reverts status to Submitted and Pending Approval"
             }
           ]
         },
@@ -306,20 +318,31 @@ If the module has any numeric/date/count threshold in the AST or description, pr
           "available_actions": [
             {
               "action_name": "Apply Additional Shares",
-              "fields": {}
+              "fields": {},
+              "on_success": "initiates purchase of additional shares"
             },
             {
               "action_name": "Redeem Shares",
               "fields": {
-                "Shares_to_Redeem": {
-                  "type": "number"
+                "Shares": {
+                  "type": "number",
+                  "required": true
+                },
+                "Savings_Account": {
+                  "type": "dropdown",
+                  "required": true,
+                  "options_source": "linked_savings_accounts"
                 }
               },
-              "on_success": "redemption amount is calculated as Shares_to_Redeem multiplied by current unit price and credited to the linked savings account"
+              "constraints": [
+                "redemption_amount = Shares * current_unit_price"
+              ],
+              "on_success": "credits calculated redemption amount to selected savings account"
             },
             {
               "action_name": "Close",
-              "fields": {}
+              "fields": {},
+              "on_success": "closes account (status -> Closed)"
             }
           ]
         }
@@ -340,9 +363,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
                 "Unit Price",
                 "Amount",
                 "Status"
-              ],
-              "row_actions": [],
-              "bulk_actions": []
+              ]
             }
           }
         },
@@ -355,15 +376,18 @@ If the module has any numeric/date/count threshold in the AST or description, pr
                 "Date",
                 "Amount Per Share",
                 "Total Amount"
-              ],
-              "row_actions": [],
-              "bulk_actions": []
+              ]
             }
           }
         },
         {
           "tab_name": "Charges",
-          "fields": {}
+          "fields": {
+            "Charges_Table": {
+              "type": "data_table",
+              "columns": []
+            }
+          }
         }
       ]
     }
@@ -382,10 +406,21 @@ The Share Account Detail page displays the share account number, product name, c
 
 </description>
 
+<workflows>
+WF-001 | Submit Share Account Application | actor: <role> | branch: none | terminal: Submit | on_success: creates account in Submitted and Pending Approval status
+WF-002 | Approve Share Account Application | actor: <role> | branch: entity_state == Submitted and Pending Approval | terminal: Approve | on_success: changes status to Approved
+WF-003 | Reject Share Account Application | actor: <role> | branch: entity_state == Submitted and Pending Approval | terminal: Reject | on_success: marks application as Rejected
+WF-004 | Activate Approved Share Account | actor: <role> | branch: entity_state == Approved | terminal: Activate | on_success: changes status to Active
+WF-005 | Undo Approval | actor: <role> | branch: entity_state == Approved | terminal: Undo Approval | on_success: reverts status to Submitted and Pending Approval
+WF-006 | Apply Additional Shares (Active Account) | actor: <role> | branch: entity_state == Active | terminal: Apply Additional Shares | on_success: initiates purchase of additional shares
+WF-007 | Redeem Shares (Active Account) | actor: <role> | branch: entity_state == Active | terminal: Redeem Shares | on_success: credits calculated redemption amount to selected savings account
+WF-008 | Close Share Account (Active Account) | actor: <role> | branch: entity_state == Active | terminal: Close | on_success: closes account (status -> Closed)
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[22:33:20] Test-Edge - LLM RESPONSE
+[14:29:22] Test-Edge - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Share Account",
@@ -393,140 +428,156 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": "WF-001",
       "subcategory": "boundary",
-      "test_case": "Requested Shares = product.min (boundary passes)",
+      "test_case": "Submit with Requested_Shares equal to product minimum",
       "preconditions": [
-        "Client Detail page is open",
-        "A Share Product exists for this client with defined product.min and product.max"
+        "Share Product has defined <minimum allowed value> for this client (AST: Requested_Shares constraint: must be within product min and max for this client)",
+        "Client Detail page open with a client that is eligible for the selected Share Product"
       ],
       "steps": [
-        "1. Click the Create Share Account link from Client Detail",
-        "2. In Share Product dropdown, select the product with the known product.min",
-        "3. Enter <minimum allowed value> in Requested_Shares",
-        "4. Click Submit"
+        "1. Click Share Product dropdown",
+        "2. Select a Share Product (triggers auto-population of defaults and requested shares bounds)",
+        "3. Enter today's date in Submitted_On",
+        "4. Enter <minimum allowed value> in Requested_Shares",
+        "5. Click Submit"
       ],
-      "expected_result": "Submit succeeds; an account is created in 'Submitted and Pending Approval' status and the Share Account detail page shows the status badge and Total pending shares equal to <minimum allowed value>",
+      "expected_result": "Form submits successfully; account creation succeeds and a Share Account is created in 'Submitted and Pending Approval' status; Share Account detail page shows Requested Shares = <minimum allowed value> and status badge 'Submitted and Pending Approval'",
       "priority": "medium"
     },
     {
       "tc_id": "E-002",
+      "wf_ref": "WF-001",
       "subcategory": "boundary",
-      "test_case": "Requested Shares one unit below product.min (boundary fails)",
+      "test_case": "Submit with Requested_Shares one unit below product minimum",
       "preconditions": [
-        "Client Detail page is open",
-        "A Share Product exists for this client with defined product.min and product.max"
+        "Share Product has defined <minimum allowed value> for this client (AST: Requested_Shares constraint: must be within product min and max for this client)",
+        "Client Detail page open with a client that is eligible for the selected Share Product"
       ],
       "steps": [
-        "1. Click the Create Share Account link from Client Detail",
-        "2. In Share Product dropdown, select the product with the known product.min",
-        "3. Enter <one unit below minimum> in Requested_Shares",
-        "4. Click Submit"
+        "1. Click Share Product dropdown",
+        "2. Select a Share Product (triggers auto-population of defaults and requested shares bounds)",
+        "3. Enter today's date in Submitted_On",
+        "4. Enter <one unit below minimum> in Requested_Shares",
+        "5. Click Submit"
       ],
-      "expected_result": "Submit is blocked / error shown; Requested_Shares displays an inline validation error indicating the value is below the minimum allowed and the account is not created",
+      "expected_result": "Submission is blocked / error shown: Requested_Shares displays an inline validation error indicating the value is below the minimum allowed and the form does not create the account",
       "priority": "medium"
     },
     {
       "tc_id": "E-003",
+      "wf_ref": "WF-001",
       "subcategory": "boundary",
-      "test_case": "Requested Shares = product.max (boundary passes)",
+      "test_case": "Submit with Requested_Shares equal to product maximum",
       "preconditions": [
-        "Client Detail page is open",
-        "A Share Product exists for this client with defined product.min and product.max"
+        "Share Product has defined <maximum allowed value> for this client (AST: Requested_Shares constraint: must be within product min and max for this client)",
+        "Client Detail page open with a client that is eligible for the selected Share Product"
       ],
       "steps": [
-        "1. Click the Create Share Account link from Client Detail",
-        "2. In Share Product dropdown, select the product with the known product.max",
-        "3. Enter <maximum allowed value> in Requested_Shares",
-        "4. Click Submit"
+        "1. Click Share Product dropdown",
+        "2. Select a Share Product (triggers auto-population of defaults and requested shares bounds)",
+        "3. Enter today's date in Submitted_On",
+        "4. Enter <maximum allowed value> in Requested_Shares",
+        "5. Click Submit"
       ],
-      "expected_result": "Submit succeeds; an account is created in 'Submitted and Pending Approval' status and the Share Account detail page shows Total pending shares equal to <maximum allowed value>",
+      "expected_result": "Form submits successfully; account creation succeeds and a Share Account is created in 'Submitted and Pending Approval' status; Share Account detail page shows Requested Shares = <maximum allowed value>",
       "priority": "medium"
     },
     {
       "tc_id": "E-004",
+      "wf_ref": "WF-001",
       "subcategory": "boundary",
-      "test_case": "Requested Shares one unit above product.max (boundary fails)",
+      "test_case": "Submit with Requested_Shares one unit above product maximum",
       "preconditions": [
-        "Client Detail page is open",
-        "A Share Product exists for this client with defined product.min and product.max"
+        "Share Product has defined <maximum allowed value> for this client (AST: Requested_Shares constraint: must be within product min and max for this client)",
+        "Client Detail page open with a client that is eligible for the selected Share Product"
       ],
       "steps": [
-        "1. Click the Create Share Account link from Client Detail",
-        "2. In Share Product dropdown, select the product with the known product.max",
-        "3. Enter <one unit above maximum> in Requested_Shares",
-        "4. Click Submit"
+        "1. Click Share Product dropdown",
+        "2. Select a Share Product (triggers auto-population of defaults and requested shares bounds)",
+        "3. Enter today's date in Submitted_On",
+        "4. Enter <one unit above maximum> in Requested_Shares",
+        "5. Click Submit"
       ],
-      "expected_result": "Submit is blocked / error shown; Requested_Shares displays an inline validation error indicating the value exceeds the maximum allowed and the account is not created",
+      "expected_result": "Submission is blocked / error shown: Requested_Shares displays an inline validation error indicating the value exceeds the product maximum and the form does not create the account",
       "priority": "medium"
     },
     {
       "tc_id": "E-005",
+      "wf_ref": "WF-001",
       "subcategory": "input_edge",
-      "test_case": "External_ID with leading and trailing whitespace is trimmed on save",
+      "test_case": "Requested_Shares with fractional/decimal precision beyond allowed (fractional shares)",
       "preconditions": [
-        "Client Detail page is open",
-        "A Share Product exists for this client with defined product.min"
+        "Requested_Shares is a numeric field on the Share Account Application form (AST: type = number for Requested_Shares)",
+        "Share Product selected with integer bounds (AST: Share_Product auto-populates requested shares bounds)"
       ],
       "steps": [
-        "1. Click the Create Share Account link from Client Detail",
-        "2. In Share Product dropdown, select a product",
-        "3. Enter <minimum allowed value> in Requested_Shares (or another valid value within product bounds)",
-        "4. Enter a value with leading and trailing spaces in External_ID (e.g., '  <some text>  ')",
+        "1. Click Share Product dropdown",
+        "2. Select a Share Product (triggers auto-population of defaults and requested shares bounds)",
+        "3. Enter today's date in Submitted_On",
+        "4. Enter a fractional value (greater precision than integer shares) in Requested_Shares",
         "5. Click Submit"
       ],
-      "expected_result": "Submit succeeds; on the Share Account detail page the External ID displays without the leading/trailing spaces (whitespace trimmed) and the Status badge shows 'Submitted and Pending Approval'",
+      "expected_result": "Submission is blocked / error shown: Requested_Shares displays an inline error indicating fractional shares are not allowed (or that the value must meet the product's integer precision), and the account is not created",
       "priority": "low"
     },
     {
       "tc_id": "E-006",
+      "wf_ref": "WF-001",
       "subcategory": "input_edge",
-      "test_case": "External_ID accepts special characters and emoji",
+      "test_case": "External_ID with leading and trailing whitespace is trimmed on save",
       "preconditions": [
-        "Client Detail page is open",
-        "A Share Product exists for this client with defined product.min"
+        "External_ID exists on the Share Account Application form (AST: type = unspecified for External_ID)",
+        "Requested_Shares can be set to a valid value within product bounds"
       ],
       "steps": [
-        "1. Click the Create Share Account link from Client Detail",
-        "2. In Share Product dropdown, select a product",
-        "3. Enter <minimum allowed value> in Requested_Shares (or another valid value within product bounds)",
-        "4. Enter special characters and emoji in External_ID (e.g., symbols, non-ASCII characters, emoji)",
-        "5. Click Submit"
+        "1. Click Share Product dropdown",
+        "2. Select a Share Product (triggers auto-population of defaults and requested shares bounds)",
+        "3. Enter today's date in Submitted_On",
+        "4. Enter <a valid value with leading and trailing whitespace> in External_ID",
+        "5. Enter a valid <value within product bounds> in Requested_Shares",
+        "6. Click Submit"
       ],
-      "expected_result": "Submit succeeds; on the Share Account detail page the External ID displays the exact entered special characters/emoji (characters preserved) and the account shows 'Submitted and Pending Approval'",
+      "expected_result": "Form submits successfully; account creation succeeds and on the Share Account detail page the External ID is shown with leading/trailing whitespace removed (trimmed) in the displayed value",
       "priority": "low"
     },
     {
       "tc_id": "E-007",
+      "wf_ref": "WF-001",
       "subcategory": "interaction_edge",
-      "test_case": "Rapid double-click Submit creates only one account",
+      "test_case": "Add then remove all Charges entries and submit (Charges repeating_group edge)",
       "preconditions": [
-        "Client Detail page is open",
-        "A Share Product exists for this client with defined product.min and product.max"
+        "Charges is a repeating_group on the Share Account Application form (AST: type = repeating_group for Charges)",
+        "Charges is optional (AST: required = false for Charges)"
       ],
       "steps": [
-        "1. Click the Create Share Account link from Client Detail",
-        "2. In Share Product dropdown, select a product",
-        "3. Enter <a valid value within product bounds> in Requested_Shares",
-        "4. Immediately double-click the Submit button (two clicks in rapid succession)"
+        "1. Click Share Product dropdown",
+        "2. Select a Share Product",
+        "3. Enter today's date in Submitted_On",
+        "4. Enter a valid <value within product bounds> in Requested_Shares",
+        "5. Click 'Add' to create a Charges entry in the Charges repeating group",
+        "6. Click the Remove/Delete control for the newly added Charges entry to remove it",
+        "7. Click Submit"
       ],
-      "expected_result": "Only one account creation succeeds; the UI navigates to a single Share Account detail page and there is no duplicate account or additional 'Submitted and Pending Approval' row for the same client",
-      "priority": "medium"
+      "expected_result": "Form submits successfully; account creation succeeds and Share Account detail page shows zero Charge rows (Charges list empty); submission succeeds despite adding then removing entries because Charges is optional",
+      "priority": "low"
     },
     {
       "tc_id": "E-008",
+      "wf_ref": "WF-002",
       "subcategory": "state_edge",
-      "test_case": "Rapid consecutive state transitions: Approve then Activate immediately",
+      "test_case": "Attempt Activate immediately after Approve (rapid consecutive state transitions)",
       "preconditions": [
-        "A Share Account exists for the client in Pending status with Requested_Shares = <a valid value>",
-        "Client Detail page showing that Pending Share Account is open"
+        "A Share Account exists in 'Submitted and Pending Approval' status (AST: state 'Submitted and Pending Approval' available)",
+        "Approve action is available in that state and on success changes status to Approved (AST: state_bound_action_bar)",
+        "Activate action is only available in Approved state (AST: state 'Approved' available actions include Activate)"
       ],
       "steps": [
-        "1. In the Share Account detail page action bar (Pending state), click Approve",
-        "2. In the Approve action fields, enter a valid value in Approved_Shares and enter Approved_Date = <today's date>",
-        "3. Submit the Approve action",
-        "4. Immediately after Approve succeeds, in the action bar click Activate"
+        "1. Open the Share Account detail page for an account in 'Submitted and Pending Approval'",
+        "2. Click the Approve action",
+        "3. Immediately (without waiting for page refresh or status confirmation) attempt to click Activate"
       ],
-      "expected_result": "Approve succeeds and status changes to Approved; immediately invoking Activate succeeds and status changes to Active (final visible status badge is 'Active')",
+      "expected_result": "Second action is blocked / error shown: Activate does not execute because the account's status has not yet reached 'Approved' in the UI; UI shows Activate is not available or a visible message indicates the action cannot be performed until approval finalizes (no unintended account state transition occurs)",
       "priority": "medium"
     }
   ],
@@ -537,13 +588,13 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
     "interaction_edge": 1,
     "state_edge": 1,
     "data_edge": 0,
-    "medium_priority": 6,
-    "low_priority": 2
+    "medium_priority": 5,
+    "low_priority": 3
   }
 }
 
 ------------------------------------------------------------
-[22:33:20] Test-Edge - PARSED JSON
+[14:29:22] Test-Edge - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Share Account",
@@ -551,140 +602,156 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": "WF-001",
       "subcategory": "boundary",
-      "test_case": "Requested Shares = product.min (boundary passes)",
+      "test_case": "Submit with Requested_Shares equal to product minimum",
       "preconditions": [
-        "Client Detail page is open",
-        "A Share Product exists for this client with defined product.min and product.max"
+        "Share Product has defined <minimum allowed value> for this client (AST: Requested_Shares constraint: must be within product min and max for this client)",
+        "Client Detail page open with a client that is eligible for the selected Share Product"
       ],
       "steps": [
-        "1. Click the Create Share Account link from Client Detail",
-        "2. In Share Product dropdown, select the product with the known product.min",
-        "3. Enter <minimum allowed value> in Requested_Shares",
-        "4. Click Submit"
+        "1. Click Share Product dropdown",
+        "2. Select a Share Product (triggers auto-population of defaults and requested shares bounds)",
+        "3. Enter today's date in Submitted_On",
+        "4. Enter <minimum allowed value> in Requested_Shares",
+        "5. Click Submit"
       ],
-      "expected_result": "Submit succeeds; an account is created in 'Submitted and Pending Approval' status and the Share Account detail page shows the status badge and Total pending shares equal to <minimum allowed value>",
+      "expected_result": "Form submits successfully; account creation succeeds and a Share Account is created in 'Submitted and Pending Approval' status; Share Account detail page shows Requested Shares = <minimum allowed value> and status badge 'Submitted and Pending Approval'",
       "priority": "medium"
     },
     {
       "tc_id": "E-002",
+      "wf_ref": "WF-001",
       "subcategory": "boundary",
-      "test_case": "Requested Shares one unit below product.min (boundary fails)",
+      "test_case": "Submit with Requested_Shares one unit below product minimum",
       "preconditions": [
-        "Client Detail page is open",
-        "A Share Product exists for this client with defined product.min and product.max"
+        "Share Product has defined <minimum allowed value> for this client (AST: Requested_Shares constraint: must be within product min and max for this client)",
+        "Client Detail page open with a client that is eligible for the selected Share Product"
       ],
       "steps": [
-        "1. Click the Create Share Account link from Client Detail",
-        "2. In Share Product dropdown, select the product with the known product.min",
-        "3. Enter <one unit below minimum> in Requested_Shares",
-        "4. Click Submit"
+        "1. Click Share Product dropdown",
+        "2. Select a Share Product (triggers auto-population of defaults and requested shares bounds)",
+        "3. Enter today's date in Submitted_On",
+        "4. Enter <one unit below minimum> in Requested_Shares",
+        "5. Click Submit"
       ],
-      "expected_result": "Submit is blocked / error shown; Requested_Shares displays an inline validation error indicating the value is below the minimum allowed and the account is not created",
+      "expected_result": "Submission is blocked / error shown: Requested_Shares displays an inline validation error indicating the value is below the minimum allowed and the form does not create the account",
       "priority": "medium"
     },
     {
       "tc_id": "E-003",
+      "wf_ref": "WF-001",
       "subcategory": "boundary",
-      "test_case": "Requested Shares = product.max (boundary passes)",
+      "test_case": "Submit with Requested_Shares equal to product maximum",
       "preconditions": [
-        "Client Detail page is open",
-        "A Share Product exists for this client with defined product.min and product.max"
+        "Share Product has defined <maximum allowed value> for this client (AST: Requested_Shares constraint: must be within product min and max for this client)",
+        "Client Detail page open with a client that is eligible for the selected Share Product"
       ],
       "steps": [
-        "1. Click the Create Share Account link from Client Detail",
-        "2. In Share Product dropdown, select the product with the known product.max",
-        "3. Enter <maximum allowed value> in Requested_Shares",
-        "4. Click Submit"
+        "1. Click Share Product dropdown",
+        "2. Select a Share Product (triggers auto-population of defaults and requested shares bounds)",
+        "3. Enter today's date in Submitted_On",
+        "4. Enter <maximum allowed value> in Requested_Shares",
+        "5. Click Submit"
       ],
-      "expected_result": "Submit succeeds; an account is created in 'Submitted and Pending Approval' status and the Share Account detail page shows Total pending shares equal to <maximum allowed value>",
+      "expected_result": "Form submits successfully; account creation succeeds and a Share Account is created in 'Submitted and Pending Approval' status; Share Account detail page shows Requested Shares = <maximum allowed value>",
       "priority": "medium"
     },
     {
       "tc_id": "E-004",
+      "wf_ref": "WF-001",
       "subcategory": "boundary",
-      "test_case": "Requested Shares one unit above product.max (boundary fails)",
+      "test_case": "Submit with Requested_Shares one unit above product maximum",
       "preconditions": [
-        "Client Detail page is open",
-        "A Share Product exists for this client with defined product.min and product.max"
+        "Share Product has defined <maximum allowed value> for this client (AST: Requested_Shares constraint: must be within product min and max for this client)",
+        "Client Detail page open with a client that is eligible for the selected Share Product"
       ],
       "steps": [
-        "1. Click the Create Share Account link from Client Detail",
-        "2. In Share Product dropdown, select the product with the known product.max",
-        "3. Enter <one unit above maximum> in Requested_Shares",
-        "4. Click Submit"
+        "1. Click Share Product dropdown",
+        "2. Select a Share Product (triggers auto-population of defaults and requested shares bounds)",
+        "3. Enter today's date in Submitted_On",
+        "4. Enter <one unit above maximum> in Requested_Shares",
+        "5. Click Submit"
       ],
-      "expected_result": "Submit is blocked / error shown; Requested_Shares displays an inline validation error indicating the value exceeds the maximum allowed and the account is not created",
+      "expected_result": "Submission is blocked / error shown: Requested_Shares displays an inline validation error indicating the value exceeds the product maximum and the form does not create the account",
       "priority": "medium"
     },
     {
       "tc_id": "E-005",
+      "wf_ref": "WF-001",
       "subcategory": "input_edge",
-      "test_case": "External_ID with leading and trailing whitespace is trimmed on save",
+      "test_case": "Requested_Shares with fractional/decimal precision beyond allowed (fractional shares)",
       "preconditions": [
-        "Client Detail page is open",
-        "A Share Product exists for this client with defined product.min"
+        "Requested_Shares is a numeric field on the Share Account Application form (AST: type = number for Requested_Shares)",
+        "Share Product selected with integer bounds (AST: Share_Product auto-populates requested shares bounds)"
       ],
       "steps": [
-        "1. Click the Create Share Account link from Client Detail",
-        "2. In Share Product dropdown, select a product",
-        "3. Enter <minimum allowed value> in Requested_Shares (or another valid value within product bounds)",
-        "4. Enter a value with leading and trailing spaces in External_ID (e.g., '  <some text>  ')",
+        "1. Click Share Product dropdown",
+        "2. Select a Share Product (triggers auto-population of defaults and requested shares bounds)",
+        "3. Enter today's date in Submitted_On",
+        "4. Enter a fractional value (greater precision than integer shares) in Requested_Shares",
         "5. Click Submit"
       ],
-      "expected_result": "Submit succeeds; on the Share Account detail page the External ID displays without the leading/trailing spaces (whitespace trimmed) and the Status badge shows 'Submitted and Pending Approval'",
+      "expected_result": "Submission is blocked / error shown: Requested_Shares displays an inline error indicating fractional shares are not allowed (or that the value must meet the product's integer precision), and the account is not created",
       "priority": "low"
     },
     {
       "tc_id": "E-006",
+      "wf_ref": "WF-001",
       "subcategory": "input_edge",
-      "test_case": "External_ID accepts special characters and emoji",
+      "test_case": "External_ID with leading and trailing whitespace is trimmed on save",
       "preconditions": [
-        "Client Detail page is open",
-        "A Share Product exists for this client with defined product.min"
+        "External_ID exists on the Share Account Application form (AST: type = unspecified for External_ID)",
+        "Requested_Shares can be set to a valid value within product bounds"
       ],
       "steps": [
-        "1. Click the Create Share Account link from Client Detail",
-        "2. In Share Product dropdown, select a product",
-        "3. Enter <minimum allowed value> in Requested_Shares (or another valid value within product bounds)",
-        "4. Enter special characters and emoji in External_ID (e.g., symbols, non-ASCII characters, emoji)",
-        "5. Click Submit"
+        "1. Click Share Product dropdown",
+        "2. Select a Share Product (triggers auto-population of defaults and requested shares bounds)",
+        "3. Enter today's date in Submitted_On",
+        "4. Enter <a valid value with leading and trailing whitespace> in External_ID",
+        "5. Enter a valid <value within product bounds> in Requested_Shares",
+        "6. Click Submit"
       ],
-      "expected_result": "Submit succeeds; on the Share Account detail page the External ID displays the exact entered special characters/emoji (characters preserved) and the account shows 'Submitted and Pending Approval'",
+      "expected_result": "Form submits successfully; account creation succeeds and on the Share Account detail page the External ID is shown with leading/trailing whitespace removed (trimmed) in the displayed value",
       "priority": "low"
     },
     {
       "tc_id": "E-007",
+      "wf_ref": "WF-001",
       "subcategory": "interaction_edge",
-      "test_case": "Rapid double-click Submit creates only one account",
+      "test_case": "Add then remove all Charges entries and submit (Charges repeating_group edge)",
       "preconditions": [
-        "Client Detail page is open",
-        "A Share Product exists for this client with defined product.min and product.max"
+        "Charges is a repeating_group on the Share Account Application form (AST: type = repeating_group for Charges)",
+        "Charges is optional (AST: required = false for Charges)"
       ],
       "steps": [
-        "1. Click the Create Share Account link from Client Detail",
-        "2. In Share Product dropdown, select a product",
-        "3. Enter <a valid value within product bounds> in Requested_Shares",
-        "4. Immediately double-click the Submit button (two clicks in rapid succession)"
+        "1. Click Share Product dropdown",
+        "2. Select a Share Product",
+        "3. Enter today's date in Submitted_On",
+        "4. Enter a valid <value within product bounds> in Requested_Shares",
+        "5. Click 'Add' to create a Charges entry in the Charges repeating group",
+        "6. Click the Remove/Delete control for the newly added Charges entry to remove it",
+        "7. Click Submit"
       ],
-      "expected_result": "Only one account creation succeeds; the UI navigates to a single Share Account detail page and there is no duplicate account or additional 'Submitted and Pending Approval' row for the same client",
-      "priority": "medium"
+      "expected_result": "Form submits successfully; account creation succeeds and Share Account detail page shows zero Charge rows (Charges list empty); submission succeeds despite adding then removing entries because Charges is optional",
+      "priority": "low"
     },
     {
       "tc_id": "E-008",
+      "wf_ref": "WF-002",
       "subcategory": "state_edge",
-      "test_case": "Rapid consecutive state transitions: Approve then Activate immediately",
+      "test_case": "Attempt Activate immediately after Approve (rapid consecutive state transitions)",
       "preconditions": [
-        "A Share Account exists for the client in Pending status with Requested_Shares = <a valid value>",
-        "Client Detail page showing that Pending Share Account is open"
+        "A Share Account exists in 'Submitted and Pending Approval' status (AST: state 'Submitted and Pending Approval' available)",
+        "Approve action is available in that state and on success changes status to Approved (AST: state_bound_action_bar)",
+        "Activate action is only available in Approved state (AST: state 'Approved' available actions include Activate)"
       ],
       "steps": [
-        "1. In the Share Account detail page action bar (Pending state), click Approve",
-        "2. In the Approve action fields, enter a valid value in Approved_Shares and enter Approved_Date = <today's date>",
-        "3. Submit the Approve action",
-        "4. Immediately after Approve succeeds, in the action bar click Activate"
+        "1. Open the Share Account detail page for an account in 'Submitted and Pending Approval'",
+        "2. Click the Approve action",
+        "3. Immediately (without waiting for page refresh or status confirmation) attempt to click Activate"
       ],
-      "expected_result": "Approve succeeds and status changes to Approved; immediately invoking Activate succeeds and status changes to Active (final visible status badge is 'Active')",
+      "expected_result": "Second action is blocked / error shown: Activate does not execute because the account's status has not yet reached 'Approved' in the UI; UI shows Activate is not available or a visible message indicates the action cannot be performed until approval finalizes (no unintended account state transition occurs)",
       "priority": "medium"
     }
   ],
@@ -695,7 +762,7 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
     "interaction_edge": 1,
     "state_edge": 1,
     "data_edge": 0,
-    "medium_priority": 6,
-    "low_priority": 2
+    "medium_priority": 5,
+    "low_priority": 3
   }
 }

@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-21T22:29:06.546079
+DEBUG SESSION STARTED: 2026-05-25T14:24:50.737674
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[22:29:06] Test-Edge - SYSTEM PROMPT
+[14:24:50] Test-Edge - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Edge Case and Boundary Test Generator. You receive (1) a UI-AST JSON for one module and (2) the original functional description. Your job is to produce ONLY boundary and edge case tests — scenarios at the limits of valid/invalid input and unusual-but-plausible user behaviors.
 
@@ -25,6 +25,10 @@ You are NOT producing happy paths (positive prompt) or standard validation failu
 {Original functional description text for this module}
 </description>
 
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
+
 ---
 
 **UI-AST REFERENCE — How to Read the AST for Edge Testing:**
@@ -35,7 +39,7 @@ You are NOT producing happy paths (positive prompt) or standard validation failu
 | `repeating_group` with `max` | Test adding exactly `max` entries (should succeed) then one more (should block) |
 | `visible_when` / `required_when` | Edge: trigger condition, fill revealed field with boundary value |
 | `state_bound_action_bar` | State edges: rapid consecutive state transitions, transition from a boundary state |
-| `submit_actions[]` with multiple buttons | Interaction edge: double-click a submit button rapidly |
+
 | `type: "date"` fields | Data edges: today, yesterday, far future, Feb 29 leap year |
 | `type: "file_upload"` | Edge: file exactly at size limit, file at 1 byte over limit |
 
@@ -132,7 +136,6 @@ Pick only the ones that apply to field types present in this module's AST:
 
 Pick only the ones that match component types in this module's AST:
 
-- **Double-click submit** (any form/wizard with a submit button): rapidly double-click the submit button → assert only one record is created; no duplicate row appears in the listing table
 - **Rapid re-submission after redirect** (any form that redirects to a detail page on success): after a successful submit, press the browser back button → assert the creation form is shown blank (not pre-filled) OR the user is redirected to the detail page without a second entity being created
 - **Wizard step skip — enforced navigation** (wizard where steps must be completed sequentially): attempt to click a later step tab directly without completing earlier steps → assert navigation is blocked and the earlier step remains active
 - **Wizard step skip — free navigation** (wizard that allows free tab navigation): navigate to a later step without filling earlier steps → assert the later step displays and returning to the earlier step shows fields blank (no data was lost from the later step)
@@ -173,7 +176,16 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 
 - **High:** None — edge tests are secondary to core functionality
 - **Medium:** Boundary tests at thresholds (financial amounts, date ordering, count limits, file size limits)
-- **Low:** Input edge cases (long text, special chars, whitespace, decimal precision), interaction edge cases (double-click, browser back, wizard skip)
+- **Low:** Input edge cases (long text, special chars, whitespace, decimal precision), interaction edge cases (browser back, wizard skip)
+
+---
+
+**WORKFLOW-AWARE BOUNDARY SCOPING (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- For each workflow where `conditional_branch` activates a numeric or date field, check if that field has a boundary (a numeric/date threshold in the AST `constraints` or description).
+- If yes, that workflow's branch is a **candidate for a boundary edge test** — add or confirm a boundary TC exists for it.
+- Add `"wf_ref": "WF-NNN"` to each TC that maps to a specific workflow's boundary. Set `"wf_ref": null` for generic input/interaction edge tests.
 
 ---
 
@@ -185,6 +197,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": null,
       "subcategory": "boundary | input_edge | interaction_edge | state_edge | data_edge",
       "test_case": "Short descriptive name",
       "preconditions": ["precondition 1"],
@@ -207,7 +220,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 
 
 ------------------------------------------------------------
-[22:29:06] Test-Edge - USER PROMPT
+[14:24:50] Test-Edge - USER PROMPT
 ------------------------------------------------------------
 <module_name>Accounting Rules & Financial Activity Mappings</module_name>
 
@@ -218,7 +231,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
     "Accounting_Rules_Table": {
       "type": "data_table",
       "columns": [
-        "Rule Name (link)",
+        "Rule Name",
         "Office",
         "Debit Account(s)",
         "Credit Account(s)"
@@ -226,15 +239,15 @@ If the module has any numeric/date/count threshold in the AST or description, pr
       "row_actions": [
         {
           "action_name": "Open",
-          "action_trigger": "click Rule Name link",
-          "opens": "Rule_Detail_View"
+          "action_type": "link",
+          "on_success": "navigates to Accounting_Rule_Detail_View"
         }
       ],
       "actions": [
         {
           "element_name": "+ Create Rule",
           "type": "button",
-          "opens": "Create_Rule_Form"
+          "on_click": "opens Create_Rule_Form"
         }
       ]
     },
@@ -245,30 +258,29 @@ If the module has any numeric/date/count threshold in the AST or description, pr
           "type": "dropdown",
           "required": false,
           "constraints": [
-            "blank applies to all offices"
+            "blank applies to all offices",
+            "blank option must be available to apply rule to all offices"
           ]
         },
         "Rule_Name": {
-          "type": "text",
+          "type": "unspecified",
           "required": true
         },
-        "Debit_Account_or_Tag": {
-          "type": "dropdown_or_multiselect",
+        "Debit_Account": {
+          "type": "dropdown",
+          "multi_select": true,
           "required": false,
-          "constraints": [
-            "supports single or multiple GL account selection / tags"
-          ]
+          "constraints": []
         },
         "Allow_Multiple_Debit_Entries": {
           "type": "checkbox",
           "required": false
         },
-        "Credit_Account_or_Tag": {
-          "type": "dropdown_or_multiselect",
+        "Credit_Account": {
+          "type": "dropdown",
+          "multi_select": true,
           "required": false,
-          "constraints": [
-            "supports single or multiple GL account selection / tags"
-          ]
+          "constraints": []
         },
         "Allow_Multiple_Credit_Entries": {
           "type": "checkbox",
@@ -278,67 +290,61 @@ If the module has any numeric/date/count threshold in the AST or description, pr
       "submit_actions": [
         {
           "element_name": "Create Rule",
-          "type": "button",
           "on_success": "creates accounting rule"
         }
       ]
     },
-    "Rule_Detail_View": {
+    "Accounting_Rule_Detail_View": {
       "type": "detail_view",
-      "opens_from": "Accounting_Rules_Table",
+      "fields": {},
       "actions": [
         {
           "action_name": "Edit",
-          "opens": "Edit_Rule_Form"
+          "type": "form_action",
+          "fields": {
+            "Office": {
+              "type": "dropdown",
+              "required": false,
+              "constraints": [
+                "blank applies to all offices",
+                "blank option must be available to apply rule to all offices"
+              ]
+            },
+            "Rule_Name": {
+              "type": "unspecified",
+              "required": true
+            },
+            "Debit_Account": {
+              "type": "dropdown",
+              "multi_select": true,
+              "required": false
+            },
+            "Allow_Multiple_Debit_Entries": {
+              "type": "checkbox",
+              "required": false
+            },
+            "Credit_Account": {
+              "type": "dropdown",
+              "multi_select": true,
+              "required": false
+            },
+            "Allow_Multiple_Credit_Entries": {
+              "type": "checkbox",
+              "required": false
+            }
+          },
+          "submit_actions": [
+            {
+              "element_name": "Save Changes",
+              "on_success": "updates accounting rule"
+            }
+          ]
         },
         {
           "action_name": "Delete",
-          "on_success": "deletes rule"
-        }
-      ]
-    },
-    "Edit_Rule_Form": {
-      "type": "form",
-      "fields": {
-        "Office": {
-          "type": "dropdown",
-          "required": false,
-          "constraints": [
-            "blank applies to all offices"
-          ]
-        },
-        "Rule_Name": {
-          "type": "text",
-          "required": true
-        },
-        "Debit_Account_or_Tag": {
-          "type": "dropdown_or_multiselect",
-          "required": false,
-          "constraints": [
-            "supports single or multiple GL account selection / tags"
-          ]
-        },
-        "Allow_Multiple_Debit_Entries": {
-          "type": "checkbox",
-          "required": false
-        },
-        "Credit_Account_or_Tag": {
-          "type": "dropdown_or_multiselect",
-          "required": false,
-          "constraints": [
-            "supports single or multiple GL account selection / tags"
-          ]
-        },
-        "Allow_Multiple_Credit_Entries": {
-          "type": "checkbox",
-          "required": false
-        }
-      },
-      "submit_actions": [
-        {
-          "element_name": "Save",
-          "type": "button",
-          "on_success": "updates rule"
+          "type": "destructive_action",
+          "preconditions": [],
+          "on_success": "deletes accounting rule"
         }
       ]
     },
@@ -348,11 +354,12 @@ If the module has any numeric/date/count threshold in the AST or description, pr
         "Financial Activity",
         "GL Account"
       ],
+      "row_actions": [],
       "actions": [
         {
           "element_name": "+ Create Mapping",
           "type": "button",
-          "opens": "Create_Mapping_Form"
+          "on_click": "opens Create_Mapping_Form"
         }
       ]
     },
@@ -374,8 +381,8 @@ If the module has any numeric/date/count threshold in the AST or description, pr
             "Overdraft Portfolio"
           ],
           "constraints": [
-            "each financial activity can only be mapped once",
-            "dropdown lists only unmapped activities"
+            "must be unmapped (each financial activity can only be mapped once)",
+            "options presented must be limited to activities not already mapped"
           ]
         },
         "GL_Account": {
@@ -386,8 +393,8 @@ If the module has any numeric/date/count threshold in the AST or description, pr
       "submit_actions": [
         {
           "element_name": "Create Mapping",
-          "type": "button",
-          "on_success": "creates mapping and enables automatic posting for system-level financial activities"
+          "on_success": "creates mapping and enables system to automatically post accounting entries for the mapped financial activity",
+          "constraints": []
         }
       ]
     }
@@ -406,10 +413,18 @@ The Financial Activity Mappings page displays a table mapping financial activiti
 
 </description>
 
+<workflows>
+WF-001 | Create Accounting Rule | actor: <role> | branch: none | terminal: Create Rule | on_success: creates accounting rule
+WF-002 | Open Accounting Rule Detail | actor: <role> | branch: none | terminal: Open | on_success: navigates to Accounting_Rule_Detail_View
+WF-003 | Edit and Save Accounting Rule | actor: <role> | branch: none | terminal: Save Changes | on_success: updates accounting rule
+WF-004 | Delete Accounting Rule | actor: <role> | branch: none | terminal: Delete | on_success: deletes accounting rule
+WF-005 | Create Financial Activity Mapping | actor: <role> | branch: none | terminal: Create Mapping | on_success: creates mapping and enables system to automatically post accounting entries for the mapped financial activity
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[22:34:10] Test-Edge - LLM RESPONSE
+[14:30:25] Test-Edge - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Accounting Rules & Financial Activity Mappings",
@@ -417,152 +432,142 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": "WF-005",
       "subcategory": "boundary",
-      "test_case": "Map the last remaining unmapped Financial Activity then verify no activities remain in dropdown",
+      "test_case": "Create mapping when only one unmapped financial activity remains (should succeed)",
       "preconditions": [
-        "All financial activities except one are already mapped in Financial_Activity_Mappings_Table"
+        "All financial activities except one are already mapped"
       ],
       "steps": [
-        "1. Click the \"+ Create Mapping\" button",
-        "2. Observe the Financial_Activity dropdown contains exactly one unmapped activity: <remaining unmapped financial activity>",
-        "3. Select <remaining unmapped financial activity> in Financial_Activity dropdown",
-        "4. Select <GL account> in GL_Account dropdown",
-        "5. Click the \"Create Mapping\" button",
-        "6. Close the Create Mapping form and click \"+ Create Mapping\" again to re-open the form"
+        "1. Navigate to Financial Activity Mappings page",
+        "2. Click \"+ Create Mapping\"",
+        "3. Open the Financial Activity dropdown",
+        "4. Select the single remaining unmapped Financial Activity",
+        "5. Select a GL Account",
+        "6. Click \"Create Mapping\""
       ],
-      "expected_result": "Creation succeeds: a new row appears in Financial_Activity_Mappings_Table with Financial Activity = <remaining unmapped financial activity> and GL Account = <GL account>; after creation the Financial_Activity dropdown in a newly opened Create Mapping form contains no entries (or is disabled) indicating there are no unmapped activities left, and the Create Mapping action is blocked / cannot proceed when no Financial_Activity can be selected",
+      "expected_result": "Form submission succeeds; a new row for the selected Financial Activity appears in the mappings table, and when reopening the Create Mapping form the previously selected activity is no longer present in the Financial Activity dropdown (it is removed from selectable options)",
       "priority": "medium"
     },
     {
       "tc_id": "E-002",
+      "wf_ref": "WF-005",
       "subcategory": "boundary",
-      "test_case": "Attempt to open Create Mapping when no unmapped financial activities remain",
+      "test_case": "Attempt to open Create Mapping when no unmapped financial activities remain (should be blocked)",
       "preconditions": [
-        "All financial activities listed in the system are already mapped (zero unmapped remain)"
+        "All listed financial activities are already mapped"
       ],
       "steps": [
-        "1. Click the \"+ Create Mapping\" button",
-        "2. Observe the Financial_Activity dropdown contents",
-        "3. Attempt to select a Financial Activity from the dropdown",
-        "4. Attempt to click the \"Create Mapping\" button"
+        "1. Navigate to Financial Activity Mappings page",
+        "2. Click \"+ Create Mapping\""
       ],
-      "expected_result": "Creation is blocked / error shown: Financial_Activity dropdown is empty or displays a 'no unmapped activities' state and the Create Mapping button is disabled or clicking it results in a visible inline error preventing creation",
+      "expected_result": "Create Mapping is blocked / error shown; the Financial Activity dropdown displays no selectable options (or is disabled) and the Create Mapping action cannot be performed (Create Mapping button is disabled or submitting without selection is blocked), so no new mapping is created",
       "priority": "medium"
     },
     {
       "tc_id": "E-003",
-      "subcategory": "boundary",
-      "test_case": "UI does not allow mapping a Financial Activity that is already mapped (dropdown exclusion)",
+      "wf_ref": "WF-001",
+      "subcategory": "input_edge",
+      "test_case": "Create Accounting Rule with very long Rule Name (>200 characters) (input-edge)",
       "preconditions": [
-        "At least one financial activity, <already mapped activity>, is already present in Financial_Activity_Mappings_Table"
+        "User can access \"+ Create Rule\" form"
       ],
       "steps": [
-        "1. Click the \"+ Create Mapping\" button",
-        "2. Open/search the Financial_Activity dropdown for the text of <already mapped activity>",
-        "3. Attempt to select <already mapped activity> from the dropdown if it appears",
-        "4. If the dropdown allows typing a value that is not listed, attempt to type/paste the exact text of <already mapped activity> and click \"Create Mapping\""
+        "1. Navigate to Accounting Rules page",
+        "2. Click \"+ Create Rule\"",
+        "3. In Rule_Name enter a very long string (200+ characters)",
+        "4. Leave Office blank (to apply to all offices) or select any Office",
+        "5. Optionally leave other fields empty (they are not required)",
+        "6. Click \"Create Rule\""
       ],
-      "expected_result": "Creation is blocked / error shown: the Financial_Activity dropdown does not list <already mapped activity>; attempts to select or type and submit that already-mapped activity are prevented by the UI (option not selectable) or the form submission is blocked with a visible error indicating the activity cannot be mapped twice",
-      "priority": "medium"
+      "expected_result": "Form submission succeeds; the new rule appears in the table and the detail view displays the Rule Name as entered (the full long string is shown without UI truncation indicator)",
+      "priority": "low"
     },
     {
       "tc_id": "E-004",
-      "subcategory": "boundary",
-      "test_case": "Attempt to select multiple Debit accounts while 'Allow Multiple Debit Entries' is unchecked",
+      "wf_ref": "WF-001",
+      "subcategory": "input_edge",
+      "test_case": "Create Accounting Rule with leading and trailing whitespace in Rule Name (trim behavior)",
       "preconditions": [
-        "Create Rule form is available via \"+ Create Rule\"",
-        "Debit_Account_or_Tag component supports multi-select and the form contains the Allow_Multiple_Debit_Entries checkbox"
+        "User can access \"+ Create Rule\" form"
       ],
       "steps": [
-        "1. Click the \"+ Create Rule\" button",
-        "2. Ensure the Allow_Multiple_Debit_Entries checkbox is unchecked",
-        "3. In Debit_Account_or_Tag, select one GL account/tag",
-        "4. Attempt to select a second GL account/tag in Debit_Account_or_Tag"
+        "1. Navigate to Accounting Rules page",
+        "2. Click \"+ Create Rule\"",
+        "3. In Rule_Name enter a value with leading and trailing spaces",
+        "4. Fill any other required fields",
+        "5. Click \"Create Rule\""
       ],
-      "expected_result": "Selection of a second debit account is blocked by the UI: when Allow_Multiple_Debit_Entries is unchecked the UI prevents choosing more than one debit account (the second selection is not applied) or an immediate inline control-level message appears preventing a multi-selection; in either case submission with multiple debit accounts is blocked",
-      "priority": "medium"
+      "expected_result": "Form submission succeeds; the detail view and the table display the saved Rule Name with leading and trailing whitespace removed (trimmed) — i.e., visible Rule Name has no extra spaces at start or end",
+      "priority": "low"
     },
     {
       "tc_id": "E-005",
-      "subcategory": "input_edge",
-      "test_case": "Create Rule with a very long Rule_Name (200+ characters)",
-      "preconditions": [
-        "Create Rule form is available via \"+ Create Rule\""
-      ],
-      "steps": [
-        "1. Click the \"+ Create Rule\" button",
-        "2. Enter a very long string (200+ characters) into the Rule_Name field",
-        "3. Fill any other required fields (if required) with valid selections",
-        "4. Click the \"Create Rule\" button"
-      ],
-      "expected_result": "Form submits successfully; the rule is created and the Rule Detail view opens (creation succeeds). The Rule Detail or table shows the saved Rule Name — if the UI truncates long names the displayed name is visibly truncated (e.g., with ellipsis) and no validation error is shown",
-      "priority": "low"
-    },
-    {
-      "tc_id": "E-006",
-      "subcategory": "input_edge",
-      "test_case": "Create Rule with Rule_Name containing leading and trailing whitespace",
-      "preconditions": [
-        "Create Rule form is available via \"+ Create Rule\""
-      ],
-      "steps": [
-        "1. Click the \"+ Create Rule\" button",
-        "2. Enter a Rule_Name value with leading and trailing spaces (e.g., \"  <name>  \")",
-        "3. Fill any other required fields with valid selections",
-        "4. Click the \"Create Rule\" button"
-      ],
-      "expected_result": "Form submits successfully; creation succeeds and the Rule Detail view shows the Rule Name trimmed of leading and trailing whitespace (saved value displayed without extra spaces)",
-      "priority": "low"
-    },
-    {
-      "tc_id": "E-007",
+      "wf_ref": "WF-005",
       "subcategory": "interaction_edge",
-      "test_case": "Rapid double-click on Create Rule results in a single created rule (no duplicates)",
+      "test_case": "Attempt duplicate mapping by navigating back after successful create (should be blocked)",
       "preconditions": [
-        "Create Rule form is available and other required fields can be completed"
+        "A mapping for a given Financial Activity has just been created in the current session"
       ],
       "steps": [
-        "1. Click the \"+ Create Rule\" button",
-        "2. Fill Rule_Name and any required fields with valid values",
-        "3. Rapidly double-click the \"Create Rule\" button (two quick clicks)",
-        "4. After submit completes, navigate to Accounting_Rules_Table"
+        "1. From Financial Activity Mappings page create a mapping for Financial Activity X (complete the create flow)",
+        "2. After successful creation, use the browser Back button or click \"+ Create Mapping\" to return to the Create Mapping form",
+        "3. Attempt to select Financial Activity X in the Financial Activity dropdown",
+        "4. If Financial Activity X appears, select it and attempt to create the mapping again by selecting a GL Account and clicking \"Create Mapping\""
       ],
-      "expected_result": "Creation succeeds once: a single new rule row is created in Accounting_Rules_Table (only one record appears), and the UI does not show duplicate rows; any second submission attempt is blocked by the UI or ignored so no duplicate entity is created",
+      "expected_result": "Attempt to create a duplicate mapping is blocked; the Financial Activity dropdown does not present the already-mapped Financial Activity X (or the submission is rejected), and no duplicate row is added to the mappings table",
       "priority": "medium"
     },
     {
-      "tc_id": "E-008",
-      "subcategory": "boundary",
-      "test_case": "Create Rule with Office left blank to apply rule to all offices",
+      "tc_id": "E-006",
+      "wf_ref": "WF-005",
+      "subcategory": "data_edge",
+      "test_case": "Dropdown search does not return already-mapped financial activity after it was mapped",
       "preconditions": [
-        "Create Rule form is available via \"+ Create Rule\"",
-        "Office dropdown is present with the possibility to leave it blank"
+        "Financial Activity Y has been mapped previously in the system"
       ],
       "steps": [
-        "1. Click the \"+ Create Rule\" button",
-        "2. Leave the Office dropdown blank (do not select an office)",
-        "3. Enter a valid Rule_Name",
-        "4. Click the \"Create Rule\" button",
-        "5. Return to Accounting_Rules_Table and view the Office column for the new row"
+        "1. Navigate to Financial Activity Mappings page",
+        "2. Click \"+ Create Mapping\"",
+        "3. Open the Financial Activity dropdown search field",
+        "4. Type the name of the already-mapped Financial Activity Y into the dropdown search"
       ],
-      "expected_result": "Creation succeeds: the rule is created and the Accounting_Rules_Table shows the new rule with the Office cell blank or labeled to indicate it applies to all offices per spec (rule creation with blank Office succeeds)",
+      "expected_result": "Search results in the Financial Activity dropdown do not include the already-mapped Financial Activity Y (it is not selectable), preventing selection of an activity that is already mapped",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "E-007",
+      "wf_ref": "WF-001",
+      "subcategory": "boundary",
+      "test_case": "Create Accounting Rule with Office left blank to apply to all offices (blank-office boundary)",
+      "preconditions": [
+        "User can access \"+ Create Rule\" form"
+      ],
+      "steps": [
+        "1. Navigate to Accounting Rules page",
+        "2. Click \"+ Create Rule\"",
+        "3. Leave the Office dropdown blank (do not select an office)",
+        "4. Enter a valid Rule_Name and any other required fields",
+        "5. Click \"Create Rule\""
+      ],
+      "expected_result": "Form submission succeeds; the new rule appears in the Accounting Rules table and its Office column cell is empty/blank (indicating the rule applies to all offices), and opening the rule's detail view shows Office left blank",
       "priority": "medium"
     }
   ],
   "summary": {
-    "total": 8,
-    "boundary": 5,
+    "total": 7,
+    "boundary": 3,
     "input_edge": 2,
     "interaction_edge": 1,
     "state_edge": 0,
-    "data_edge": 0,
-    "medium_priority": 6,
+    "data_edge": 1,
+    "medium_priority": 5,
     "low_priority": 2
   }
 }
 
 ------------------------------------------------------------
-[22:34:10] Test-Edge - PARSED JSON
+[14:30:25] Test-Edge - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Accounting Rules & Financial Activity Mappings",
@@ -570,146 +575,136 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": "WF-005",
       "subcategory": "boundary",
-      "test_case": "Map the last remaining unmapped Financial Activity then verify no activities remain in dropdown",
+      "test_case": "Create mapping when only one unmapped financial activity remains (should succeed)",
       "preconditions": [
-        "All financial activities except one are already mapped in Financial_Activity_Mappings_Table"
+        "All financial activities except one are already mapped"
       ],
       "steps": [
-        "1. Click the \"+ Create Mapping\" button",
-        "2. Observe the Financial_Activity dropdown contains exactly one unmapped activity: <remaining unmapped financial activity>",
-        "3. Select <remaining unmapped financial activity> in Financial_Activity dropdown",
-        "4. Select <GL account> in GL_Account dropdown",
-        "5. Click the \"Create Mapping\" button",
-        "6. Close the Create Mapping form and click \"+ Create Mapping\" again to re-open the form"
+        "1. Navigate to Financial Activity Mappings page",
+        "2. Click \"+ Create Mapping\"",
+        "3. Open the Financial Activity dropdown",
+        "4. Select the single remaining unmapped Financial Activity",
+        "5. Select a GL Account",
+        "6. Click \"Create Mapping\""
       ],
-      "expected_result": "Creation succeeds: a new row appears in Financial_Activity_Mappings_Table with Financial Activity = <remaining unmapped financial activity> and GL Account = <GL account>; after creation the Financial_Activity dropdown in a newly opened Create Mapping form contains no entries (or is disabled) indicating there are no unmapped activities left, and the Create Mapping action is blocked / cannot proceed when no Financial_Activity can be selected",
+      "expected_result": "Form submission succeeds; a new row for the selected Financial Activity appears in the mappings table, and when reopening the Create Mapping form the previously selected activity is no longer present in the Financial Activity dropdown (it is removed from selectable options)",
       "priority": "medium"
     },
     {
       "tc_id": "E-002",
+      "wf_ref": "WF-005",
       "subcategory": "boundary",
-      "test_case": "Attempt to open Create Mapping when no unmapped financial activities remain",
+      "test_case": "Attempt to open Create Mapping when no unmapped financial activities remain (should be blocked)",
       "preconditions": [
-        "All financial activities listed in the system are already mapped (zero unmapped remain)"
+        "All listed financial activities are already mapped"
       ],
       "steps": [
-        "1. Click the \"+ Create Mapping\" button",
-        "2. Observe the Financial_Activity dropdown contents",
-        "3. Attempt to select a Financial Activity from the dropdown",
-        "4. Attempt to click the \"Create Mapping\" button"
+        "1. Navigate to Financial Activity Mappings page",
+        "2. Click \"+ Create Mapping\""
       ],
-      "expected_result": "Creation is blocked / error shown: Financial_Activity dropdown is empty or displays a 'no unmapped activities' state and the Create Mapping button is disabled or clicking it results in a visible inline error preventing creation",
+      "expected_result": "Create Mapping is blocked / error shown; the Financial Activity dropdown displays no selectable options (or is disabled) and the Create Mapping action cannot be performed (Create Mapping button is disabled or submitting without selection is blocked), so no new mapping is created",
       "priority": "medium"
     },
     {
       "tc_id": "E-003",
-      "subcategory": "boundary",
-      "test_case": "UI does not allow mapping a Financial Activity that is already mapped (dropdown exclusion)",
+      "wf_ref": "WF-001",
+      "subcategory": "input_edge",
+      "test_case": "Create Accounting Rule with very long Rule Name (>200 characters) (input-edge)",
       "preconditions": [
-        "At least one financial activity, <already mapped activity>, is already present in Financial_Activity_Mappings_Table"
+        "User can access \"+ Create Rule\" form"
       ],
       "steps": [
-        "1. Click the \"+ Create Mapping\" button",
-        "2. Open/search the Financial_Activity dropdown for the text of <already mapped activity>",
-        "3. Attempt to select <already mapped activity> from the dropdown if it appears",
-        "4. If the dropdown allows typing a value that is not listed, attempt to type/paste the exact text of <already mapped activity> and click \"Create Mapping\""
+        "1. Navigate to Accounting Rules page",
+        "2. Click \"+ Create Rule\"",
+        "3. In Rule_Name enter a very long string (200+ characters)",
+        "4. Leave Office blank (to apply to all offices) or select any Office",
+        "5. Optionally leave other fields empty (they are not required)",
+        "6. Click \"Create Rule\""
       ],
-      "expected_result": "Creation is blocked / error shown: the Financial_Activity dropdown does not list <already mapped activity>; attempts to select or type and submit that already-mapped activity are prevented by the UI (option not selectable) or the form submission is blocked with a visible error indicating the activity cannot be mapped twice",
-      "priority": "medium"
+      "expected_result": "Form submission succeeds; the new rule appears in the table and the detail view displays the Rule Name as entered (the full long string is shown without UI truncation indicator)",
+      "priority": "low"
     },
     {
       "tc_id": "E-004",
-      "subcategory": "boundary",
-      "test_case": "Attempt to select multiple Debit accounts while 'Allow Multiple Debit Entries' is unchecked",
+      "wf_ref": "WF-001",
+      "subcategory": "input_edge",
+      "test_case": "Create Accounting Rule with leading and trailing whitespace in Rule Name (trim behavior)",
       "preconditions": [
-        "Create Rule form is available via \"+ Create Rule\"",
-        "Debit_Account_or_Tag component supports multi-select and the form contains the Allow_Multiple_Debit_Entries checkbox"
+        "User can access \"+ Create Rule\" form"
       ],
       "steps": [
-        "1. Click the \"+ Create Rule\" button",
-        "2. Ensure the Allow_Multiple_Debit_Entries checkbox is unchecked",
-        "3. In Debit_Account_or_Tag, select one GL account/tag",
-        "4. Attempt to select a second GL account/tag in Debit_Account_or_Tag"
+        "1. Navigate to Accounting Rules page",
+        "2. Click \"+ Create Rule\"",
+        "3. In Rule_Name enter a value with leading and trailing spaces",
+        "4. Fill any other required fields",
+        "5. Click \"Create Rule\""
       ],
-      "expected_result": "Selection of a second debit account is blocked by the UI: when Allow_Multiple_Debit_Entries is unchecked the UI prevents choosing more than one debit account (the second selection is not applied) or an immediate inline control-level message appears preventing a multi-selection; in either case submission with multiple debit accounts is blocked",
-      "priority": "medium"
+      "expected_result": "Form submission succeeds; the detail view and the table display the saved Rule Name with leading and trailing whitespace removed (trimmed) \u2014 i.e., visible Rule Name has no extra spaces at start or end",
+      "priority": "low"
     },
     {
       "tc_id": "E-005",
-      "subcategory": "input_edge",
-      "test_case": "Create Rule with a very long Rule_Name (200+ characters)",
-      "preconditions": [
-        "Create Rule form is available via \"+ Create Rule\""
-      ],
-      "steps": [
-        "1. Click the \"+ Create Rule\" button",
-        "2. Enter a very long string (200+ characters) into the Rule_Name field",
-        "3. Fill any other required fields (if required) with valid selections",
-        "4. Click the \"Create Rule\" button"
-      ],
-      "expected_result": "Form submits successfully; the rule is created and the Rule Detail view opens (creation succeeds). The Rule Detail or table shows the saved Rule Name \u2014 if the UI truncates long names the displayed name is visibly truncated (e.g., with ellipsis) and no validation error is shown",
-      "priority": "low"
-    },
-    {
-      "tc_id": "E-006",
-      "subcategory": "input_edge",
-      "test_case": "Create Rule with Rule_Name containing leading and trailing whitespace",
-      "preconditions": [
-        "Create Rule form is available via \"+ Create Rule\""
-      ],
-      "steps": [
-        "1. Click the \"+ Create Rule\" button",
-        "2. Enter a Rule_Name value with leading and trailing spaces (e.g., \"  <name>  \")",
-        "3. Fill any other required fields with valid selections",
-        "4. Click the \"Create Rule\" button"
-      ],
-      "expected_result": "Form submits successfully; creation succeeds and the Rule Detail view shows the Rule Name trimmed of leading and trailing whitespace (saved value displayed without extra spaces)",
-      "priority": "low"
-    },
-    {
-      "tc_id": "E-007",
+      "wf_ref": "WF-005",
       "subcategory": "interaction_edge",
-      "test_case": "Rapid double-click on Create Rule results in a single created rule (no duplicates)",
+      "test_case": "Attempt duplicate mapping by navigating back after successful create (should be blocked)",
       "preconditions": [
-        "Create Rule form is available and other required fields can be completed"
+        "A mapping for a given Financial Activity has just been created in the current session"
       ],
       "steps": [
-        "1. Click the \"+ Create Rule\" button",
-        "2. Fill Rule_Name and any required fields with valid values",
-        "3. Rapidly double-click the \"Create Rule\" button (two quick clicks)",
-        "4. After submit completes, navigate to Accounting_Rules_Table"
+        "1. From Financial Activity Mappings page create a mapping for Financial Activity X (complete the create flow)",
+        "2. After successful creation, use the browser Back button or click \"+ Create Mapping\" to return to the Create Mapping form",
+        "3. Attempt to select Financial Activity X in the Financial Activity dropdown",
+        "4. If Financial Activity X appears, select it and attempt to create the mapping again by selecting a GL Account and clicking \"Create Mapping\""
       ],
-      "expected_result": "Creation succeeds once: a single new rule row is created in Accounting_Rules_Table (only one record appears), and the UI does not show duplicate rows; any second submission attempt is blocked by the UI or ignored so no duplicate entity is created",
+      "expected_result": "Attempt to create a duplicate mapping is blocked; the Financial Activity dropdown does not present the already-mapped Financial Activity X (or the submission is rejected), and no duplicate row is added to the mappings table",
       "priority": "medium"
     },
     {
-      "tc_id": "E-008",
-      "subcategory": "boundary",
-      "test_case": "Create Rule with Office left blank to apply rule to all offices",
+      "tc_id": "E-006",
+      "wf_ref": "WF-005",
+      "subcategory": "data_edge",
+      "test_case": "Dropdown search does not return already-mapped financial activity after it was mapped",
       "preconditions": [
-        "Create Rule form is available via \"+ Create Rule\"",
-        "Office dropdown is present with the possibility to leave it blank"
+        "Financial Activity Y has been mapped previously in the system"
       ],
       "steps": [
-        "1. Click the \"+ Create Rule\" button",
-        "2. Leave the Office dropdown blank (do not select an office)",
-        "3. Enter a valid Rule_Name",
-        "4. Click the \"Create Rule\" button",
-        "5. Return to Accounting_Rules_Table and view the Office column for the new row"
+        "1. Navigate to Financial Activity Mappings page",
+        "2. Click \"+ Create Mapping\"",
+        "3. Open the Financial Activity dropdown search field",
+        "4. Type the name of the already-mapped Financial Activity Y into the dropdown search"
       ],
-      "expected_result": "Creation succeeds: the rule is created and the Accounting_Rules_Table shows the new rule with the Office cell blank or labeled to indicate it applies to all offices per spec (rule creation with blank Office succeeds)",
+      "expected_result": "Search results in the Financial Activity dropdown do not include the already-mapped Financial Activity Y (it is not selectable), preventing selection of an activity that is already mapped",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "E-007",
+      "wf_ref": "WF-001",
+      "subcategory": "boundary",
+      "test_case": "Create Accounting Rule with Office left blank to apply to all offices (blank-office boundary)",
+      "preconditions": [
+        "User can access \"+ Create Rule\" form"
+      ],
+      "steps": [
+        "1. Navigate to Accounting Rules page",
+        "2. Click \"+ Create Rule\"",
+        "3. Leave the Office dropdown blank (do not select an office)",
+        "4. Enter a valid Rule_Name and any other required fields",
+        "5. Click \"Create Rule\""
+      ],
+      "expected_result": "Form submission succeeds; the new rule appears in the Accounting Rules table and its Office column cell is empty/blank (indicating the rule applies to all offices), and opening the rule's detail view shows Office left blank",
       "priority": "medium"
     }
   ],
   "summary": {
-    "total": 8,
-    "boundary": 5,
+    "total": 7,
+    "boundary": 3,
     "input_edge": 2,
     "interaction_edge": 1,
     "state_edge": 0,
-    "data_edge": 0,
-    "medium_priority": 6,
+    "data_edge": 1,
+    "medium_priority": 5,
     "low_priority": 2
   }
 }

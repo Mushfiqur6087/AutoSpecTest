@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-21T22:29:06.560953
+DEBUG SESSION STARTED: 2026-05-25T14:24:50.749297
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[22:29:06] Test-Positive - SYSTEM PROMPT
+[14:24:50] Test-Positive - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Expert UI Test Case Generator. You receive (1) a UI-AST JSON for one specific module and (2) the original functional description for that module.
 
@@ -24,6 +24,10 @@ Your job is to produce ONLY positive/functional UI test cases — tests where va
 <description>
 {Original functional description text for this module}
 </description>
+
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
 
 ---
 
@@ -146,6 +150,13 @@ Because you are testing a module in isolation, establish the required entry stat
 **1. Forms & Wizards (`form`, `wizard`):**
 - Generate ONE happy path per distinct success outcome.
 - *Conditional UI Check:* If a toggle/dropdown reveals new mandatory fields (`visible_when`), generate a separate test for that conditional branch.
+- **Wizard step coverage (CRITICAL):** If a wizard has multiple steps and any step beyond Step 1 contains its own named field group (e.g., "Address Details", "Family Members", "Identifiers"), generate ONE dedicated positive TC per such step. The TC must:
+  - Navigate to that specific step (include the preceding steps as preconditions or brief navigation steps)
+  - Fill the fields described for that step (not just pass through)
+  - Assert the step's content is visible/saved on the detail page after final submission
+  - **Do NOT collapse all wizard steps into one happy-path TC** — if Steps 2, 3, and 4 each have their own named section in the spec, they each need their own TC.
+- **Wizard in-step identifiers/duplicates:** If a wizard step allows adding identifiers, documents, or similar entries that have a uniqueness constraint, include a TC for that wizard step that also verifies the constraint (e.g., attempting to add a duplicate Document Type+Key pair inside the wizard). This is a different code path from adding the same post-creation on the detail page.
+- **Action dialogs:** If a `state_bound_action_bar` action opens a dialog with its own `fields{}` (e.g., Activate requires Activation Date, Reject requires Reason), generate ONE positive TC per such action-dialog — distinct from the state-transition TC. The TC fills the dialog field and completes the action.
 
 **2. State Machines (`state_bound_action_bar`):**
 - For each unique action available in a specific state, generate ONE test performing that action.
@@ -200,6 +211,19 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 
 ---
 
+**WORKFLOW COVERAGE OBLIGATION (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- Your test cases must **collectively cover every workflow** listed.
+- For each `wf_id`, at least one TC must:
+  - Activate the `conditional_branch` (if not null) — i.e. the test must set up the condition described.
+  - Assert the `on_success` as its `expected_result` (verbatim or as the primary basis for the expected result).
+- Add `"wf_ref": "WF-NNN"` to each TC to identify which workflow it covers.
+- If one TC naturally covers multiple workflows (e.g., the base path overlaps), pick the most specific `wf_ref`.
+- If a TC does not map to any workflow (e.g., a navigation-only test), set `"wf_ref": null`.
+
+---
+
 **OUTPUT — JSON only, no prose, no markdown fencing:**
 
 {
@@ -208,6 +232,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
   "test_cases": [
     {
       "tc_id": "P-001",
+      "wf_ref": "WF-001",
       "test_case": "Short descriptive name",
       "preconditions": ["User logged in as <Role>", "<Prerequisite state>"],
       "steps": ["1. Step one", "2. Step two"],
@@ -224,7 +249,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 }
 
 ------------------------------------------------------------
-[22:29:06] Test-Positive - USER PROMPT
+[14:24:50] Test-Positive - USER PROMPT
 ------------------------------------------------------------
 <module_name>Logout</module_name>
 
@@ -232,38 +257,43 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 {
   "module_name": "Logout",
   "components": {
-    "User_Profile_Icon": {
-      "type": "button",
-      "visible_when": "user is logged in",
-      "on_click": "toggles Profile_Dropdown"
-    },
-    "Profile_Dropdown": {
+    "User_Profile_Menu": {
       "type": "dropdown",
-      "visible_when": "User_Profile_Icon == clicked",
+      "trigger": {
+        "element_name": "Profile Icon",
+        "type": "button",
+        "preconditions": [
+          "user must be logged in"
+        ]
+      },
       "items": [
         {
-          "element_name": "Profile Settings",
+          "action_name": "Profile Settings",
           "type": "link",
-          "on_click": "navigates to Profile Settings page"
-        },
-        {
-          "element_name": "Log Out",
-          "type": "button",
+          "on_click": "navigates to Profile Settings page",
           "preconditions": [
             "user must be logged in"
-          ],
-          "on_click": "initiates logout flow",
-          "on_success": "terminates authenticated session; clears authentication token; redirects to login page"
+          ]
+        },
+        {
+          "action_name": "Log Out",
+          "type": "button",
+          "on_success": "terminates authenticated session; clears authentication token; redirects to login page",
+          "preconditions": [
+            "user must be logged in"
+          ]
         }
       ]
     },
-    "Authenticated_Route_Guard": {
-      "type": "unspecified",
+    "Auth_Guard": {
+      "type": "auth_guard",
       "preconditions": [
-        "user must be logged in"
+        "user must be authenticated to access protected pages"
       ],
-      "on_failure": "redirects to login page",
-      "description": "Global guard applied to all authenticated routes. After logout, attempts to navigate to an authenticated page will trigger this guard and redirect to the login page."
+      "on_unauthenticated_navigation": "redirects to login page",
+      "notes": [
+        "After Log Out, attempts to navigate to authenticated pages will trigger the above redirect"
+      ]
     }
   }
 }
@@ -275,10 +305,15 @@ The logout function is accessible from the user profile icon in the top-right co
 
 </description>
 
+<workflows>
+WF-001 | Open Profile Settings via Profile Icon | actor: <role> | branch: User_Profile_Menu.trigger.preconditions == 'user must be logged in' | terminal: Profile Settings | on_success: navigates to Profile Settings page
+WF-002 | Log Out via Profile Icon | actor: <role> | branch: User_Profile_Menu.trigger.preconditions == 'user must be logged in' | terminal: Log Out | on_success: terminates authenticated session; clears authentication token; redirects to login page
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[22:36:12] Test-Positive - LLM RESPONSE
+[14:32:31] Test-Positive - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Logout",
@@ -286,70 +321,56 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Open Profile dropdown shows Profile Settings and Log Out",
-      "preconditions": ["User logged in as <User>"],
-      "steps": [
-        "1. Click the <User Profile> icon in the top-right corner"
+      "wf_ref": "WF-001",
+      "test_case": "Open Profile Settings via Profile Icon",
+      "preconditions": [
+        "User logged in as <role>"
       ],
-      "expected_result": "Profile dropdown is displayed showing the 'Profile Settings' link and the 'Log Out' button",
+      "steps": [
+        "1. Click the Profile Icon in the top-right corner to open the User Profile Menu",
+        "2. Click 'Profile Settings' in the dropdown"
+      ],
+      "expected_result": "navigates to Profile Settings page",
       "priority": "medium"
     },
     {
       "tc_id": "P-002",
-      "test_case": "Navigate to Profile Settings from Profile dropdown",
-      "preconditions": ["User logged in as <User>"],
-      "steps": [
-        "1. Click the <User Profile> icon in the top-right corner to open the dropdown",
-        "2. Click the 'Profile Settings' item in the dropdown"
+      "wf_ref": "WF-002",
+      "test_case": "Log Out via Profile Icon",
+      "preconditions": [
+        "User logged in as <role>"
       ],
-      "expected_result": "The application navigates to the Profile Settings page; the Profile Settings page is displayed",
-      "priority": "medium"
+      "steps": [
+        "1. Click the Profile Icon in the top-right corner to open the User Profile Menu",
+        "2. Click 'Log Out' in the dropdown"
+      ],
+      "expected_result": "terminates authenticated session; clears authentication token; redirects to login page",
+      "priority": "high"
     },
     {
       "tc_id": "P-003",
-      "test_case": "Log out via Profile dropdown redirects to Login page",
-      "preconditions": ["User logged in as <User>"],
-      "steps": [
-        "1. Click the <User Profile> icon in the top-right corner to open the dropdown",
-        "2. Click the 'Log Out' button in the dropdown"
+      "wf_ref": null,
+      "test_case": "Unauthenticated navigation to a protected page redirects to login",
+      "preconditions": [
+        "User not authenticated (logged out)"
       ],
-      "expected_result": "User is redirected to the Login page and the Login form is visible",
-      "priority": "high"
-    },
-    {
-      "tc_id": "P-004",
-      "test_case": "After logout, attempt to open an authenticated page redirects to Login page",
-      "preconditions": ["User logged in as <User>"],
       "steps": [
-        "1. Click the <User Profile> icon in the top-right corner to open the dropdown",
-        "2. Click the 'Log Out' button in the dropdown",
-        "3. Attempt to navigate to an authenticated page by entering the <authenticated route> in the browser address bar or clicking a bookmark to an authenticated page"
+        "1. Enter <authenticated page URL> in the browser address bar and navigate to it"
       ],
-      "expected_result": "Attempt to access the authenticated page is intercepted and the user is redirected to the Login page; the Login form is visible",
-      "priority": "high"
-    },
-    {
-      "tc_id": "P-005",
-      "test_case": "Profile dropdown toggles closed when Profile icon clicked again",
-      "preconditions": ["User logged in as <User>"],
-      "steps": [
-        "1. Click the <User Profile> icon in the top-right corner to open the dropdown",
-        "2. Click the <User Profile> icon again"
-      ],
-      "expected_result": "Profile dropdown is no longer visible",
-      "priority": "low"
+      "expected_result": "redirects to login page",
+      "priority": "medium"
     }
   ],
   "summary": {
-    "total": 5,
-    "high_priority": 2,
+    "total": 3,
+    "high_priority": 1,
     "medium_priority": 2,
-    "low_priority": 1
+    "low_priority": 0
   }
 }
 
 ------------------------------------------------------------
-[22:36:12] Test-Positive - PARSED JSON
+[14:32:31] Test-Positive - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Logout",
@@ -357,74 +378,50 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Open Profile dropdown shows Profile Settings and Log Out",
+      "wf_ref": "WF-001",
+      "test_case": "Open Profile Settings via Profile Icon",
       "preconditions": [
-        "User logged in as <User>"
+        "User logged in as <role>"
       ],
       "steps": [
-        "1. Click the <User Profile> icon in the top-right corner"
+        "1. Click the Profile Icon in the top-right corner to open the User Profile Menu",
+        "2. Click 'Profile Settings' in the dropdown"
       ],
-      "expected_result": "Profile dropdown is displayed showing the 'Profile Settings' link and the 'Log Out' button",
+      "expected_result": "navigates to Profile Settings page",
       "priority": "medium"
     },
     {
       "tc_id": "P-002",
-      "test_case": "Navigate to Profile Settings from Profile dropdown",
+      "wf_ref": "WF-002",
+      "test_case": "Log Out via Profile Icon",
       "preconditions": [
-        "User logged in as <User>"
+        "User logged in as <role>"
       ],
       "steps": [
-        "1. Click the <User Profile> icon in the top-right corner to open the dropdown",
-        "2. Click the 'Profile Settings' item in the dropdown"
+        "1. Click the Profile Icon in the top-right corner to open the User Profile Menu",
+        "2. Click 'Log Out' in the dropdown"
       ],
-      "expected_result": "The application navigates to the Profile Settings page; the Profile Settings page is displayed",
-      "priority": "medium"
+      "expected_result": "terminates authenticated session; clears authentication token; redirects to login page",
+      "priority": "high"
     },
     {
       "tc_id": "P-003",
-      "test_case": "Log out via Profile dropdown redirects to Login page",
+      "wf_ref": null,
+      "test_case": "Unauthenticated navigation to a protected page redirects to login",
       "preconditions": [
-        "User logged in as <User>"
+        "User not authenticated (logged out)"
       ],
       "steps": [
-        "1. Click the <User Profile> icon in the top-right corner to open the dropdown",
-        "2. Click the 'Log Out' button in the dropdown"
+        "1. Enter <authenticated page URL> in the browser address bar and navigate to it"
       ],
-      "expected_result": "User is redirected to the Login page and the Login form is visible",
-      "priority": "high"
-    },
-    {
-      "tc_id": "P-004",
-      "test_case": "After logout, attempt to open an authenticated page redirects to Login page",
-      "preconditions": [
-        "User logged in as <User>"
-      ],
-      "steps": [
-        "1. Click the <User Profile> icon in the top-right corner to open the dropdown",
-        "2. Click the 'Log Out' button in the dropdown",
-        "3. Attempt to navigate to an authenticated page by entering the <authenticated route> in the browser address bar or clicking a bookmark to an authenticated page"
-      ],
-      "expected_result": "Attempt to access the authenticated page is intercepted and the user is redirected to the Login page; the Login form is visible",
-      "priority": "high"
-    },
-    {
-      "tc_id": "P-005",
-      "test_case": "Profile dropdown toggles closed when Profile icon clicked again",
-      "preconditions": [
-        "User logged in as <User>"
-      ],
-      "steps": [
-        "1. Click the <User Profile> icon in the top-right corner to open the dropdown",
-        "2. Click the <User Profile> icon again"
-      ],
-      "expected_result": "Profile dropdown is no longer visible",
-      "priority": "low"
+      "expected_result": "redirects to login page",
+      "priority": "medium"
     }
   ],
   "summary": {
-    "total": 5,
-    "high_priority": 2,
+    "total": 3,
+    "high_priority": 1,
     "medium_priority": 2,
-    "low_priority": 1
+    "low_priority": 0
   }
 }

@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-21T22:29:06.532197
+DEBUG SESSION STARTED: 2026-05-25T14:24:50.727320
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[22:29:06] Test-Positive - SYSTEM PROMPT
+[14:24:50] Test-Positive - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Expert UI Test Case Generator. You receive (1) a UI-AST JSON for one specific module and (2) the original functional description for that module.
 
@@ -24,6 +24,10 @@ Your job is to produce ONLY positive/functional UI test cases — tests where va
 <description>
 {Original functional description text for this module}
 </description>
+
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
 
 ---
 
@@ -146,6 +150,13 @@ Because you are testing a module in isolation, establish the required entry stat
 **1. Forms & Wizards (`form`, `wizard`):**
 - Generate ONE happy path per distinct success outcome.
 - *Conditional UI Check:* If a toggle/dropdown reveals new mandatory fields (`visible_when`), generate a separate test for that conditional branch.
+- **Wizard step coverage (CRITICAL):** If a wizard has multiple steps and any step beyond Step 1 contains its own named field group (e.g., "Address Details", "Family Members", "Identifiers"), generate ONE dedicated positive TC per such step. The TC must:
+  - Navigate to that specific step (include the preceding steps as preconditions or brief navigation steps)
+  - Fill the fields described for that step (not just pass through)
+  - Assert the step's content is visible/saved on the detail page after final submission
+  - **Do NOT collapse all wizard steps into one happy-path TC** — if Steps 2, 3, and 4 each have their own named section in the spec, they each need their own TC.
+- **Wizard in-step identifiers/duplicates:** If a wizard step allows adding identifiers, documents, or similar entries that have a uniqueness constraint, include a TC for that wizard step that also verifies the constraint (e.g., attempting to add a duplicate Document Type+Key pair inside the wizard). This is a different code path from adding the same post-creation on the detail page.
+- **Action dialogs:** If a `state_bound_action_bar` action opens a dialog with its own `fields{}` (e.g., Activate requires Activation Date, Reject requires Reason), generate ONE positive TC per such action-dialog — distinct from the state-transition TC. The TC fills the dialog field and completes the action.
 
 **2. State Machines (`state_bound_action_bar`):**
 - For each unique action available in a specific state, generate ONE test performing that action.
@@ -200,6 +211,19 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 
 ---
 
+**WORKFLOW COVERAGE OBLIGATION (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- Your test cases must **collectively cover every workflow** listed.
+- For each `wf_id`, at least one TC must:
+  - Activate the `conditional_branch` (if not null) — i.e. the test must set up the condition described.
+  - Assert the `on_success` as its `expected_result` (verbatim or as the primary basis for the expected result).
+- Add `"wf_ref": "WF-NNN"` to each TC to identify which workflow it covers.
+- If one TC naturally covers multiple workflows (e.g., the base path overlaps), pick the most specific `wf_ref`.
+- If a TC does not map to any workflow (e.g., a navigation-only test), set `"wf_ref": null`.
+
+---
+
 **OUTPUT — JSON only, no prose, no markdown fencing:**
 
 {
@@ -208,6 +232,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
   "test_cases": [
     {
       "tc_id": "P-001",
+      "wf_ref": "WF-001",
       "test_case": "Short descriptive name",
       "preconditions": ["User logged in as <Role>", "<Prerequisite state>"],
       "steps": ["1. Step one", "2. Step two"],
@@ -224,7 +249,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 }
 
 ------------------------------------------------------------
-[22:29:06] Test-Positive - USER PROMPT
+[14:24:50] Test-Positive - USER PROMPT
 ------------------------------------------------------------
 <module_name>Charges</module_name>
 
@@ -234,71 +259,53 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
   "components": {
     "Charges_Table": {
       "type": "data_table",
-      "columns": [
+      "clickable_columns": [
+        "Name"
+      ],
+      "top_actions": [
         {
-          "name": "Name",
-          "interactive": true,
-          "interaction": "clickable_link",
-          "interaction_result": "opens Charge_Detail_View"
-        },
-        {
-          "name": "Charge Applies To"
-        },
-        {
-          "name": "Is Penalty"
-        },
-        {
-          "name": "Is Active"
-        },
-        {
-          "name": "Is Paid Derived"
+          "element_name": "+ Create Charge",
+          "action_type": "button",
+          "opens": "Create_Charge_Form"
         }
       ],
       "row_actions": [
         {
           "action_name": "Open Detail",
-          "trigger": "click Name link",
-          "on_success": "opens Charge_Detail_View"
-        },
-        {
-          "action_name": "Edit",
-          "on_success": "opens Create_Charge_Form in edit mode"
-        },
-        {
-          "action_name": "Delete",
-          "on_success": "deletes charge definition"
+          "action_type": "link",
+          "target": "Charge_Detail"
         }
       ]
-    },
-    "Create_Charge_Button": {
-      "type": "button",
-      "element_name": "+ Create Charge",
-      "on_click": "opens Create_Charge_Form"
     },
     "Create_Charge_Form": {
       "type": "form",
       "fields": {
         "Charge_Name": {
           "type": "unspecified",
-          "required": true
+          "constraints": [
+            "required"
+          ]
         },
         "Charge_Applies_To": {
           "type": "dropdown",
-          "required": true,
           "options": [
             "Loan",
             "Savings Account",
             "Client",
             "Shares"
+          ],
+          "constraints": [
+            "required"
           ]
         },
         "Currency": {
-          "type": "unspecified",
-          "required": true
+          "type": "dropdown",
+          "constraints": [
+            "required"
+          ]
         },
         "Charge_Time_Type": {
           "type": "dropdown",
-          "required": false,
           "options_map": {
             "Loan": [
               "Disbursement",
@@ -316,11 +323,10 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
               "Overdraft Fee"
             ]
           },
-          "visible_when": "Charge_Applies_To in [Loan, Savings Account]"
+          "visible_when_note": "Options depend on Charge_Applies_To; if Charge_Applies_To is Loan use Loan options, if Savings Account use Savings Account options"
         },
         "Charge_Calculation_Type": {
           "type": "dropdown",
-          "required": false,
           "options": [
             "Flat",
             "Percentage of Amount",
@@ -330,23 +336,21 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
         },
         "Amount": {
           "type": "number",
-          "required": true
+          "constraints": [
+            "required"
+          ]
         },
         "Is_Penalty": {
-          "type": "checkbox",
-          "required": false
+          "type": "checkbox"
         },
         "Is_Active": {
-          "type": "checkbox",
-          "required": false
+          "type": "checkbox"
         },
         "Tax_Group": {
-          "type": "dropdown",
-          "required": false
+          "type": "dropdown"
         },
         "Payment_Mode": {
           "type": "dropdown",
-          "required": false,
           "options": [
             "Regular",
             "Account Transfer"
@@ -360,16 +364,105 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
         }
       ]
     },
-    "Charge_Detail_View": {
+    "Charge_Detail": {
       "type": "detail_view",
       "actions": [
         {
           "action_name": "Edit",
-          "on_success": "opens Create_Charge_Form in edit mode"
+          "action_type": "button",
+          "opens": "Edit_Charge_Form"
         },
         {
           "action_name": "Delete",
-          "on_success": "deletes charge definition"
+          "action_type": "button",
+          "on_success": "deletes charge"
+        }
+      ]
+    },
+    "Edit_Charge_Form": {
+      "type": "form",
+      "fields": {
+        "Charge_Name": {
+          "type": "unspecified",
+          "constraints": [
+            "required"
+          ]
+        },
+        "Charge_Applies_To": {
+          "type": "dropdown",
+          "options": [
+            "Loan",
+            "Savings Account",
+            "Client",
+            "Shares"
+          ],
+          "constraints": [
+            "required"
+          ]
+        },
+        "Currency": {
+          "type": "dropdown",
+          "constraints": [
+            "required"
+          ]
+        },
+        "Charge_Time_Type": {
+          "type": "dropdown",
+          "options_map": {
+            "Loan": [
+              "Disbursement",
+              "Specified Due Date",
+              "Installment Fee",
+              "Overdue Fees",
+              "Tranche Disbursement"
+            ],
+            "Savings Account": [
+              "Specified Due Date",
+              "Savings Activation",
+              "Withdrawal Fee",
+              "Annual Fee",
+              "Monthly Fee",
+              "Overdraft Fee"
+            ]
+          },
+          "visible_when_note": "Options depend on Charge_Applies_To; if Charge_Applies_To is Loan use Loan options, if Savings Account use Savings Account options"
+        },
+        "Charge_Calculation_Type": {
+          "type": "dropdown",
+          "options": [
+            "Flat",
+            "Percentage of Amount",
+            "Percentage of Interest",
+            "Percentage of Total Outstanding"
+          ]
+        },
+        "Amount": {
+          "type": "number",
+          "constraints": [
+            "required"
+          ]
+        },
+        "Is_Penalty": {
+          "type": "checkbox"
+        },
+        "Is_Active": {
+          "type": "checkbox"
+        },
+        "Tax_Group": {
+          "type": "dropdown"
+        },
+        "Payment_Mode": {
+          "type": "dropdown",
+          "options": [
+            "Regular",
+            "Account Transfer"
+          ]
+        }
+      },
+      "submit_actions": [
+        {
+          "element_name": "Save",
+          "on_success": "updates charge"
         }
       ]
     }
@@ -386,10 +479,24 @@ The Charges page displays a data table with columns for Name (clickable link), C
 
 </description>
 
+<workflows>
+WF-001 | Open Create Charge form | actor: <role> | branch: none | terminal: + Create Charge | on_success: opens Create_Charge_Form
+WF-002 | Create Charge — Charge_Applies_To = Loan | actor: <role> | branch: Charge_Applies_To == Loan | terminal: Submit | on_success: creates the charge definition
+WF-003 | Create Charge — Charge_Applies_To = Savings Account | actor: <role> | branch: Charge_Applies_To == Savings Account | terminal: Submit | on_success: creates the charge definition
+WF-004 | Create Charge — Charge_Applies_To = Client or Shares | actor: <role> | branch: Charge_Applies_To == Client OR Charge_Applies_To == Shares | terminal: Submit | on_success: creates the charge definition
+WF-005 | Open Charge detail by clicking Name column | actor: <role> | branch: none | terminal: Click Name | on_success: opens charge detail view
+WF-006 | Open Charge detail via row action | actor: <role> | branch: none | terminal: Open Detail | on_success: opens charge detail view
+WF-007 | Open Edit form from Charge detail | actor: <role> | branch: none | terminal: Edit | on_success: opens Edit_Charge_Form
+WF-008 | Delete charge from detail view | actor: <role> | branch: none | terminal: Delete | on_success: deletes charge
+WF-009 | Edit Charge — Charge_Applies_To = Loan | actor: <role> | branch: Charge_Applies_To == Loan | terminal: Save | on_success: updates charge
+WF-010 | Edit Charge — Charge_Applies_To = Savings Account | actor: <role> | branch: Charge_Applies_To == Savings Account | terminal: Save | on_success: updates charge
+WF-011 | Edit Charge — Charge_Applies_To = Client or Shares | actor: <role> | branch: Charge_Applies_To == Client OR Charge_Applies_To == Shares | terminal: Save | on_success: updates charge
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[22:32:06] Test-Positive - LLM RESPONSE
+[14:27:58] Test-Positive - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Charges",
@@ -397,134 +504,216 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Open Charge detail by clicking Name link",
+      "wf_ref": "WF-001",
+      "test_case": "Open Create Charge form from Charges page",
       "preconditions": [
-        "User logged in as <User with permission to view Charges>",
-        "<existing charge> is present in the Charges table"
+        "User logged in as <role>",
+        "Charges page is open"
       ],
       "steps": [
-        "1. Open the Charges page",
-        "2. Click the Name link for <existing charge> in the Charges table"
+        "1. Click the '+ Create Charge' button in the Charges table top actions"
       ],
-      "expected_result": "Charge Detail view opens showing the Charge Name for <existing charge> and the Edit and Delete actions are visible",
+      "expected_result": "Create Charge form is displayed showing fields: Charge Name, Charge Applies To, Currency, Charge Time Type, Charge Calculation Type, Amount, Is Penalty, Is Active, Tax Group, and Payment Mode",
       "priority": "medium"
     },
     {
       "tc_id": "P-002",
-      "test_case": "Create a new Loan charge (Charge Time Type visible)",
+      "wf_ref": "WF-002",
+      "test_case": "Create a new Charge with Charge_Applies_To = Loan and verify Loan-specific Charge Time Type options",
       "preconditions": [
-        "User logged in as <User with permission to manage Charges>"
+        "User logged in as <role>",
+        "Charges page is open"
       ],
       "steps": [
-        "1. Open the Charges page",
-        "2. Click + Create Charge",
-        "3. Enter <valid charge name> in the Charge Name field",
-        "4. Select 'Loan' from the Charge Applies To dropdown",
-        "5. Verify the Charge Time Type field appears",
-        "6. Select 'Disbursement' from the Charge Time Type dropdown",
-        "7. Select <valid currency> in the Currency field",
-        "8. Select 'Flat' from the Charge Calculation Type dropdown",
-        "9. Enter <valid amount> in the Amount field",
-        "10. (Optional) Check or uncheck Is Penalty and Is Active as desired",
-        "11. Click Submit"
+        "1. Click the '+ Create Charge' button to open the Create Charge form",
+        "2. Enter <Charge Name> in the Charge Name field",
+        "3. Select 'Loan' for Charge Applies To",
+        "4. Select <Currency> from the Currency dropdown",
+        "5. Verify the Charge Time Type dropdown shows Loan options (e.g., Disbursement, Specified Due Date, Installment Fee, Overdue Fees, Tranche Disbursement)",
+        "6. Select <Charge Time Type> from the Charge Time Type dropdown",
+        "7. Select <Charge_Calculation_Type> from the Charge Calculation Type dropdown",
+        "8. Enter <Amount> in the Amount field",
+        "9. (optional) Toggle Is Penalty and Is Active as needed",
+        "10. Select <Payment_Mode> from Payment Mode",
+        "11. Click the 'Submit' button"
       ],
-      "expected_result": "A new row appears in the Charges table with the entered <valid charge name> and 'Loan' shown in the Charge Applies To column",
+      "expected_result": "A new row appears in the Charges table with Name '<Charge Name>' and Charge Applies To 'Loan'. (on_success: creates the charge definition)",
       "priority": "high"
     },
     {
       "tc_id": "P-003",
-      "test_case": "Create a new Client charge (Charge Time Type not shown)",
+      "wf_ref": "WF-003",
+      "test_case": "Create a new Charge with Charge_Applies_To = Savings Account and verify Savings-specific Charge Time Type options",
       "preconditions": [
-        "User logged in as <User with permission to manage Charges>"
+        "User logged in as <role>",
+        "Charges page is open"
       ],
       "steps": [
-        "1. Open the Charges page",
-        "2. Click + Create Charge",
-        "3. Enter <valid charge name> in the Charge Name field",
-        "4. Select 'Client' from the Charge Applies To dropdown",
-        "5. Verify the Charge Time Type field does not appear",
-        "6. Select <valid currency> in the Currency field",
-        "7. Select 'Percentage of Amount' from the Charge Calculation Type dropdown",
-        "8. Enter <valid amount> in the Amount field",
-        "9. Click Submit"
+        "1. Click the '+ Create Charge' button to open the Create Charge form",
+        "2. Enter <Charge Name> in the Charge Name field",
+        "3. Select 'Savings Account' for Charge Applies To",
+        "4. Select <Currency> from the Currency dropdown",
+        "5. Verify the Charge Time Type dropdown shows Savings Account options (e.g., Specified Due Date, Savings Activation, Withdrawal Fee, Annual Fee, Monthly Fee, Overdraft Fee)",
+        "6. Select <Charge Time Type> from the Charge Time Type dropdown",
+        "7. Select <Charge_Calculation_Type> from the Charge Calculation Type dropdown",
+        "8. Enter <Amount> in the Amount field",
+        "9. (optional) Toggle Is Penalty and Is Active as needed",
+        "10. Select <Payment_Mode> from Payment Mode",
+        "11. Click the 'Submit' button"
       ],
-      "expected_result": "A new row appears in the Charges table with the entered <valid charge name> and 'Client' shown in the Charge Applies To column",
+      "expected_result": "A new row appears in the Charges table with Name '<Charge Name>' and Charge Applies To 'Savings Account'. (on_success: creates the charge definition)",
       "priority": "high"
     },
     {
       "tc_id": "P-004",
-      "test_case": "Edit an existing charge from the Detail view and update Is Active",
+      "wf_ref": "WF-004",
+      "test_case": "Create a new Charge with Charge_Applies_To = Client and verify creation",
       "preconditions": [
-        "User logged in as <User with permission to manage Charges>",
-        "<existing charge> exists and its Is Active value is <false>"
+        "User logged in as <role>",
+        "Charges page is open"
       ],
       "steps": [
-        "1. Open the Charges page",
-        "2. Click the Name link for <existing charge> to open its Charge Detail view",
-        "3. Click Edit on the Charge Detail view",
-        "4. In the Create Charge form (edit mode), toggle Is Active to <true>",
-        "5. Click Submit"
+        "1. Click the '+ Create Charge' button to open the Create Charge form",
+        "2. Enter <Charge Name> in the Charge Name field",
+        "3. Select 'Client' for Charge Applies To",
+        "4. Select <Currency> from the Currency dropdown",
+        "5. Select <Charge Time Type> from the Charge Time Type dropdown (as applicable for Client)",
+        "6. Select <Charge_Calculation_Type> from the Charge Calculation Type dropdown",
+        "7. Enter <Amount> in the Amount field",
+        "8. (optional) Toggle Is Penalty and Is Active as needed",
+        "9. Select <Payment_Mode> from Payment Mode",
+        "10. Click the 'Submit' button"
       ],
-      "expected_result": "Charge Detail view shows Is Active = <true> for <existing charge>",
+      "expected_result": "A new row appears in the Charges table with Name '<Charge Name>' and Charge Applies To 'Client'. (on_success: creates the charge definition)",
       "priority": "high"
     },
     {
       "tc_id": "P-005",
-      "test_case": "Open Create Charge form in edit mode via row Edit action",
+      "wf_ref": "WF-005",
+      "test_case": "Open Charge detail by clicking the Name column link",
       "preconditions": [
-        "User logged in as <User with permission to manage Charges>",
-        "<existing charge> is present in the Charges table"
+        "User logged in as <role>",
+        "A charge row exists in the Charges table"
       ],
       "steps": [
-        "1. Open the Charges page",
-        "2. Click the Edit action for <existing charge> in the row actions",
-        "3. Observe the Create Charge form"
+        "1. Click the clickable Name link in the charge's row in the Charges table"
       ],
-      "expected_result": "Create Charge form opens in edit mode with the Charge Name field populated for <existing charge> and the Submit button visible",
+      "expected_result": "The Charge detail view opens showing the charge's Name and fields such as Charge Applies To, Is Penalty, Is Active, and Is Paid Derived, and the actions 'Edit' and 'Delete' are visible",
       "priority": "medium"
     },
     {
       "tc_id": "P-006",
-      "test_case": "Delete a charge using the row Delete action",
+      "wf_ref": "WF-006",
+      "test_case": "Open Charge detail using the row 'Open Detail' action",
       "preconditions": [
-        "User logged in as <User with permission to manage Charges>",
-        "<existing charge> is present in the Charges table"
+        "User logged in as <role>",
+        "A charge row exists in the Charges table"
       ],
       "steps": [
-        "1. Open the Charges page",
-        "2. Click the Delete action for <existing charge> in the row actions",
-        "3. Click Confirm on the Delete dialog"
+        "1. Click the row actions menu for the charge and select 'Open Detail'"
       ],
-      "expected_result": "The row for <existing charge> is no longer present in the Charges table",
-      "priority": "high"
+      "expected_result": "The Charge detail view opens showing the charge's Name and actions including 'Edit' and 'Delete'",
+      "priority": "medium"
     },
     {
       "tc_id": "P-007",
-      "test_case": "Delete a charge from the Charge Detail view",
+      "wf_ref": "WF-007",
+      "test_case": "Open Edit Charge form from Charge detail view",
       "preconditions": [
-        "User logged in as <User with permission to manage Charges>",
-        "<existing charge> is present in the Charges table"
+        "User logged in as <role>",
+        "A charge row exists in the Charges table"
       ],
       "steps": [
-        "1. Open the Charges page",
-        "2. Click the Name link for <existing charge> to open its Charge Detail view",
-        "3. Click Delete on the Charge Detail view",
-        "4. Click Confirm on the Delete dialog"
+        "1. Open the charge detail by clicking the charge Name in the Charges table",
+        "2. Click the 'Edit' button on the Charge detail view"
       ],
-      "expected_result": "The row for <existing charge> is no longer present in the Charges table",
+      "expected_result": "Edit Charge form is displayed with editable fields: Charge Name, Charge Applies To, Currency, Charge Time Type, Charge Calculation Type, Amount, Is Penalty, Is Active, Tax Group, and Payment Mode",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-008",
+      "wf_ref": "WF-008",
+      "test_case": "Delete a charge from the Charge detail view",
+      "preconditions": [
+        "User logged in as <role>",
+        "A charge row exists in the Charges table"
+      ],
+      "steps": [
+        "1. Open the charge detail by clicking the charge Name in the Charges table",
+        "2. Click the 'Delete' button on the Charge detail view"
+      ],
+      "expected_result": "The charge row is no longer present in the Charges table. (on_success: deletes charge)",
       "priority": "high"
+    },
+    {
+      "tc_id": "P-009",
+      "wf_ref": "WF-009",
+      "test_case": "Edit an existing Charge where Charge_Applies_To = Loan and save changes",
+      "preconditions": [
+        "User logged in as <role>",
+        "A charge with Charge Applies To = Loan exists in the Charges table"
+      ],
+      "steps": [
+        "1. Open the charge detail by clicking the charge Name in the Charges table",
+        "2. Click 'Edit' to open the Edit Charge form",
+        "3. Verify the Charge Time Type dropdown shows Loan options (e.g., Disbursement, Specified Due Date, Installment Fee, Overdue Fees, Tranche Disbursement)",
+        "4. Select <Charge Time Type> from the Charge Time Type dropdown",
+        "5. Enter <new Amount> in the Amount field",
+        "6. (optional) Toggle Is Penalty and Is Active as needed",
+        "7. Click the 'Save' button"
+      ],
+      "expected_result": "On the Charge detail view the Amount field shows '<new Amount>' and Charge Time Type shows the selected Loan option. (on_success: updates charge)",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-010",
+      "wf_ref": "WF-010",
+      "test_case": "Edit an existing Charge where Charge_Applies_To = Savings Account and save changes",
+      "preconditions": [
+        "User logged in as <role>",
+        "A charge with Charge Applies To = Savings Account exists in the Charges table"
+      ],
+      "steps": [
+        "1. Open the charge detail by clicking the charge Name in the Charges table",
+        "2. Click 'Edit' to open the Edit Charge form",
+        "3. Verify the Charge Time Type dropdown shows Savings Account options (e.g., Specified Due Date, Savings Activation, Withdrawal Fee, Annual Fee, Monthly Fee, Overdraft Fee)",
+        "4. Select <Charge Time Type> from the Charge Time Type dropdown",
+        "5. Enter <new Amount> in the Amount field",
+        "6. (optional) Toggle Is Penalty and Is Active as needed",
+        "7. Click the 'Save' button"
+      ],
+      "expected_result": "On the Charge detail view the Amount field shows '<new Amount>' and Charge Time Type shows the selected Savings Account option. (on_success: updates charge)",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-011",
+      "wf_ref": "WF-011",
+      "test_case": "Edit an existing Charge where Charge_Applies_To = Client and save changes",
+      "preconditions": [
+        "User logged in as <role>",
+        "A charge with Charge Applies To = Client exists in the Charges table"
+      ],
+      "steps": [
+        "1. Open the charge detail by clicking the charge Name in the Charges table",
+        "2. Click 'Edit' to open the Edit Charge form",
+        "3. Update an editable field such as Amount by entering <new Amount>",
+        "4. (optional) Change other fields as required (e.g., Payment Mode)",
+        "5. Click the 'Save' button"
+      ],
+      "expected_result": "On the Charge detail view the Amount field shows '<new Amount>' (and any other changed fields reflect the new selections). (on_success: updates charge)",
+      "priority": "medium"
     }
   ],
   "summary": {
-    "total": 7,
+    "total": 11,
     "high_priority": 4,
-    "medium_priority": 3,
+    "medium_priority": 7,
     "low_priority": 0
   }
 }
 
 ------------------------------------------------------------
-[22:32:06] Test-Positive - PARSED JSON
+[14:27:58] Test-Positive - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Charges",
@@ -532,128 +721,210 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Open Charge detail by clicking Name link",
+      "wf_ref": "WF-001",
+      "test_case": "Open Create Charge form from Charges page",
       "preconditions": [
-        "User logged in as <User with permission to view Charges>",
-        "<existing charge> is present in the Charges table"
+        "User logged in as <role>",
+        "Charges page is open"
       ],
       "steps": [
-        "1. Open the Charges page",
-        "2. Click the Name link for <existing charge> in the Charges table"
+        "1. Click the '+ Create Charge' button in the Charges table top actions"
       ],
-      "expected_result": "Charge Detail view opens showing the Charge Name for <existing charge> and the Edit and Delete actions are visible",
+      "expected_result": "Create Charge form is displayed showing fields: Charge Name, Charge Applies To, Currency, Charge Time Type, Charge Calculation Type, Amount, Is Penalty, Is Active, Tax Group, and Payment Mode",
       "priority": "medium"
     },
     {
       "tc_id": "P-002",
-      "test_case": "Create a new Loan charge (Charge Time Type visible)",
+      "wf_ref": "WF-002",
+      "test_case": "Create a new Charge with Charge_Applies_To = Loan and verify Loan-specific Charge Time Type options",
       "preconditions": [
-        "User logged in as <User with permission to manage Charges>"
+        "User logged in as <role>",
+        "Charges page is open"
       ],
       "steps": [
-        "1. Open the Charges page",
-        "2. Click + Create Charge",
-        "3. Enter <valid charge name> in the Charge Name field",
-        "4. Select 'Loan' from the Charge Applies To dropdown",
-        "5. Verify the Charge Time Type field appears",
-        "6. Select 'Disbursement' from the Charge Time Type dropdown",
-        "7. Select <valid currency> in the Currency field",
-        "8. Select 'Flat' from the Charge Calculation Type dropdown",
-        "9. Enter <valid amount> in the Amount field",
-        "10. (Optional) Check or uncheck Is Penalty and Is Active as desired",
-        "11. Click Submit"
+        "1. Click the '+ Create Charge' button to open the Create Charge form",
+        "2. Enter <Charge Name> in the Charge Name field",
+        "3. Select 'Loan' for Charge Applies To",
+        "4. Select <Currency> from the Currency dropdown",
+        "5. Verify the Charge Time Type dropdown shows Loan options (e.g., Disbursement, Specified Due Date, Installment Fee, Overdue Fees, Tranche Disbursement)",
+        "6. Select <Charge Time Type> from the Charge Time Type dropdown",
+        "7. Select <Charge_Calculation_Type> from the Charge Calculation Type dropdown",
+        "8. Enter <Amount> in the Amount field",
+        "9. (optional) Toggle Is Penalty and Is Active as needed",
+        "10. Select <Payment_Mode> from Payment Mode",
+        "11. Click the 'Submit' button"
       ],
-      "expected_result": "A new row appears in the Charges table with the entered <valid charge name> and 'Loan' shown in the Charge Applies To column",
+      "expected_result": "A new row appears in the Charges table with Name '<Charge Name>' and Charge Applies To 'Loan'. (on_success: creates the charge definition)",
       "priority": "high"
     },
     {
       "tc_id": "P-003",
-      "test_case": "Create a new Client charge (Charge Time Type not shown)",
+      "wf_ref": "WF-003",
+      "test_case": "Create a new Charge with Charge_Applies_To = Savings Account and verify Savings-specific Charge Time Type options",
       "preconditions": [
-        "User logged in as <User with permission to manage Charges>"
+        "User logged in as <role>",
+        "Charges page is open"
       ],
       "steps": [
-        "1. Open the Charges page",
-        "2. Click + Create Charge",
-        "3. Enter <valid charge name> in the Charge Name field",
-        "4. Select 'Client' from the Charge Applies To dropdown",
-        "5. Verify the Charge Time Type field does not appear",
-        "6. Select <valid currency> in the Currency field",
-        "7. Select 'Percentage of Amount' from the Charge Calculation Type dropdown",
-        "8. Enter <valid amount> in the Amount field",
-        "9. Click Submit"
+        "1. Click the '+ Create Charge' button to open the Create Charge form",
+        "2. Enter <Charge Name> in the Charge Name field",
+        "3. Select 'Savings Account' for Charge Applies To",
+        "4. Select <Currency> from the Currency dropdown",
+        "5. Verify the Charge Time Type dropdown shows Savings Account options (e.g., Specified Due Date, Savings Activation, Withdrawal Fee, Annual Fee, Monthly Fee, Overdraft Fee)",
+        "6. Select <Charge Time Type> from the Charge Time Type dropdown",
+        "7. Select <Charge_Calculation_Type> from the Charge Calculation Type dropdown",
+        "8. Enter <Amount> in the Amount field",
+        "9. (optional) Toggle Is Penalty and Is Active as needed",
+        "10. Select <Payment_Mode> from Payment Mode",
+        "11. Click the 'Submit' button"
       ],
-      "expected_result": "A new row appears in the Charges table with the entered <valid charge name> and 'Client' shown in the Charge Applies To column",
+      "expected_result": "A new row appears in the Charges table with Name '<Charge Name>' and Charge Applies To 'Savings Account'. (on_success: creates the charge definition)",
       "priority": "high"
     },
     {
       "tc_id": "P-004",
-      "test_case": "Edit an existing charge from the Detail view and update Is Active",
+      "wf_ref": "WF-004",
+      "test_case": "Create a new Charge with Charge_Applies_To = Client and verify creation",
       "preconditions": [
-        "User logged in as <User with permission to manage Charges>",
-        "<existing charge> exists and its Is Active value is <false>"
+        "User logged in as <role>",
+        "Charges page is open"
       ],
       "steps": [
-        "1. Open the Charges page",
-        "2. Click the Name link for <existing charge> to open its Charge Detail view",
-        "3. Click Edit on the Charge Detail view",
-        "4. In the Create Charge form (edit mode), toggle Is Active to <true>",
-        "5. Click Submit"
+        "1. Click the '+ Create Charge' button to open the Create Charge form",
+        "2. Enter <Charge Name> in the Charge Name field",
+        "3. Select 'Client' for Charge Applies To",
+        "4. Select <Currency> from the Currency dropdown",
+        "5. Select <Charge Time Type> from the Charge Time Type dropdown (as applicable for Client)",
+        "6. Select <Charge_Calculation_Type> from the Charge Calculation Type dropdown",
+        "7. Enter <Amount> in the Amount field",
+        "8. (optional) Toggle Is Penalty and Is Active as needed",
+        "9. Select <Payment_Mode> from Payment Mode",
+        "10. Click the 'Submit' button"
       ],
-      "expected_result": "Charge Detail view shows Is Active = <true> for <existing charge>",
+      "expected_result": "A new row appears in the Charges table with Name '<Charge Name>' and Charge Applies To 'Client'. (on_success: creates the charge definition)",
       "priority": "high"
     },
     {
       "tc_id": "P-005",
-      "test_case": "Open Create Charge form in edit mode via row Edit action",
+      "wf_ref": "WF-005",
+      "test_case": "Open Charge detail by clicking the Name column link",
       "preconditions": [
-        "User logged in as <User with permission to manage Charges>",
-        "<existing charge> is present in the Charges table"
+        "User logged in as <role>",
+        "A charge row exists in the Charges table"
       ],
       "steps": [
-        "1. Open the Charges page",
-        "2. Click the Edit action for <existing charge> in the row actions",
-        "3. Observe the Create Charge form"
+        "1. Click the clickable Name link in the charge's row in the Charges table"
       ],
-      "expected_result": "Create Charge form opens in edit mode with the Charge Name field populated for <existing charge> and the Submit button visible",
+      "expected_result": "The Charge detail view opens showing the charge's Name and fields such as Charge Applies To, Is Penalty, Is Active, and Is Paid Derived, and the actions 'Edit' and 'Delete' are visible",
       "priority": "medium"
     },
     {
       "tc_id": "P-006",
-      "test_case": "Delete a charge using the row Delete action",
+      "wf_ref": "WF-006",
+      "test_case": "Open Charge detail using the row 'Open Detail' action",
       "preconditions": [
-        "User logged in as <User with permission to manage Charges>",
-        "<existing charge> is present in the Charges table"
+        "User logged in as <role>",
+        "A charge row exists in the Charges table"
       ],
       "steps": [
-        "1. Open the Charges page",
-        "2. Click the Delete action for <existing charge> in the row actions",
-        "3. Click Confirm on the Delete dialog"
+        "1. Click the row actions menu for the charge and select 'Open Detail'"
       ],
-      "expected_result": "The row for <existing charge> is no longer present in the Charges table",
-      "priority": "high"
+      "expected_result": "The Charge detail view opens showing the charge's Name and actions including 'Edit' and 'Delete'",
+      "priority": "medium"
     },
     {
       "tc_id": "P-007",
-      "test_case": "Delete a charge from the Charge Detail view",
+      "wf_ref": "WF-007",
+      "test_case": "Open Edit Charge form from Charge detail view",
       "preconditions": [
-        "User logged in as <User with permission to manage Charges>",
-        "<existing charge> is present in the Charges table"
+        "User logged in as <role>",
+        "A charge row exists in the Charges table"
       ],
       "steps": [
-        "1. Open the Charges page",
-        "2. Click the Name link for <existing charge> to open its Charge Detail view",
-        "3. Click Delete on the Charge Detail view",
-        "4. Click Confirm on the Delete dialog"
+        "1. Open the charge detail by clicking the charge Name in the Charges table",
+        "2. Click the 'Edit' button on the Charge detail view"
       ],
-      "expected_result": "The row for <existing charge> is no longer present in the Charges table",
+      "expected_result": "Edit Charge form is displayed with editable fields: Charge Name, Charge Applies To, Currency, Charge Time Type, Charge Calculation Type, Amount, Is Penalty, Is Active, Tax Group, and Payment Mode",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-008",
+      "wf_ref": "WF-008",
+      "test_case": "Delete a charge from the Charge detail view",
+      "preconditions": [
+        "User logged in as <role>",
+        "A charge row exists in the Charges table"
+      ],
+      "steps": [
+        "1. Open the charge detail by clicking the charge Name in the Charges table",
+        "2. Click the 'Delete' button on the Charge detail view"
+      ],
+      "expected_result": "The charge row is no longer present in the Charges table. (on_success: deletes charge)",
       "priority": "high"
+    },
+    {
+      "tc_id": "P-009",
+      "wf_ref": "WF-009",
+      "test_case": "Edit an existing Charge where Charge_Applies_To = Loan and save changes",
+      "preconditions": [
+        "User logged in as <role>",
+        "A charge with Charge Applies To = Loan exists in the Charges table"
+      ],
+      "steps": [
+        "1. Open the charge detail by clicking the charge Name in the Charges table",
+        "2. Click 'Edit' to open the Edit Charge form",
+        "3. Verify the Charge Time Type dropdown shows Loan options (e.g., Disbursement, Specified Due Date, Installment Fee, Overdue Fees, Tranche Disbursement)",
+        "4. Select <Charge Time Type> from the Charge Time Type dropdown",
+        "5. Enter <new Amount> in the Amount field",
+        "6. (optional) Toggle Is Penalty and Is Active as needed",
+        "7. Click the 'Save' button"
+      ],
+      "expected_result": "On the Charge detail view the Amount field shows '<new Amount>' and Charge Time Type shows the selected Loan option. (on_success: updates charge)",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-010",
+      "wf_ref": "WF-010",
+      "test_case": "Edit an existing Charge where Charge_Applies_To = Savings Account and save changes",
+      "preconditions": [
+        "User logged in as <role>",
+        "A charge with Charge Applies To = Savings Account exists in the Charges table"
+      ],
+      "steps": [
+        "1. Open the charge detail by clicking the charge Name in the Charges table",
+        "2. Click 'Edit' to open the Edit Charge form",
+        "3. Verify the Charge Time Type dropdown shows Savings Account options (e.g., Specified Due Date, Savings Activation, Withdrawal Fee, Annual Fee, Monthly Fee, Overdraft Fee)",
+        "4. Select <Charge Time Type> from the Charge Time Type dropdown",
+        "5. Enter <new Amount> in the Amount field",
+        "6. (optional) Toggle Is Penalty and Is Active as needed",
+        "7. Click the 'Save' button"
+      ],
+      "expected_result": "On the Charge detail view the Amount field shows '<new Amount>' and Charge Time Type shows the selected Savings Account option. (on_success: updates charge)",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-011",
+      "wf_ref": "WF-011",
+      "test_case": "Edit an existing Charge where Charge_Applies_To = Client and save changes",
+      "preconditions": [
+        "User logged in as <role>",
+        "A charge with Charge Applies To = Client exists in the Charges table"
+      ],
+      "steps": [
+        "1. Open the charge detail by clicking the charge Name in the Charges table",
+        "2. Click 'Edit' to open the Edit Charge form",
+        "3. Update an editable field such as Amount by entering <new Amount>",
+        "4. (optional) Change other fields as required (e.g., Payment Mode)",
+        "5. Click the 'Save' button"
+      ],
+      "expected_result": "On the Charge detail view the Amount field shows '<new Amount>' (and any other changed fields reflect the new selections). (on_success: updates charge)",
+      "priority": "medium"
     }
   ],
   "summary": {
-    "total": 7,
+    "total": 11,
     "high_priority": 4,
-    "medium_priority": 3,
+    "medium_priority": 7,
     "low_priority": 0
   }
 }

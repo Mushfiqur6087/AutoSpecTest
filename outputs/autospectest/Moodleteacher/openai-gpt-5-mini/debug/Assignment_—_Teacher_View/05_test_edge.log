@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-22T21:47:19.058169
+DEBUG SESSION STARTED: 2026-05-25T15:28:46.018375
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[21:47:19] Test-Edge - SYSTEM PROMPT
+[15:28:46] Test-Edge - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Edge Case and Boundary Test Generator. You receive (1) a UI-AST JSON for one module and (2) the original functional description. Your job is to produce ONLY boundary and edge case tests — scenarios at the limits of valid/invalid input and unusual-but-plausible user behaviors.
 
@@ -24,6 +24,10 @@ You are NOT producing happy paths (positive prompt) or standard validation failu
 <description>
 {Original functional description text for this module}
 </description>
+
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
 
 ---
 
@@ -176,6 +180,15 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 
 ---
 
+**WORKFLOW-AWARE BOUNDARY SCOPING (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- For each workflow where `conditional_branch` activates a numeric or date field, check if that field has a boundary (a numeric/date threshold in the AST `constraints` or description).
+- If yes, that workflow's branch is a **candidate for a boundary edge test** — add or confirm a boundary TC exists for it.
+- Add `"wf_ref": "WF-NNN"` to each TC that maps to a specific workflow's boundary. Set `"wf_ref": null` for generic input/interaction edge tests.
+
+---
+
 **OUTPUT — JSON only, no prose, no markdown fencing:**
 
 {
@@ -184,6 +197,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": null,
       "subcategory": "boundary | input_edge | interaction_edge | state_edge | data_edge",
       "test_case": "Short descriptive name",
       "preconditions": ["precondition 1"],
@@ -206,7 +220,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 
 
 ------------------------------------------------------------
-[21:47:19] Test-Edge - USER PROMPT
+[15:28:46] Test-Edge - USER PROMPT
 ------------------------------------------------------------
 <module_name>Assignment — Teacher View</module_name>
 
@@ -214,16 +228,23 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 {
   "module_name": "Assignment \u2014 Teacher View",
   "components": {
-    "Grade_Button": {
-      "type": "button",
-      "element_name": "Grade",
-      "on_success": "opens grading interface for individual students"
+    "Assignment_Page_Actions": {
+      "type": "action_bar",
+      "actions": [
+        {
+          "element_name": "Grade",
+          "type": "button",
+          "on_success": "opens grading interface for individual student"
+        }
+      ]
     },
     "Grading_Interface": {
       "type": "modal",
-      "fields": {}
+      "fields": {},
+      "on_open": "opened by Grade button",
+      "on_close": "closes grading interface"
     },
-    "Assignment_Tabs": {
+    "Assignment_Tab_Bar": {
       "type": "tab_container",
       "tabs": [
         {
@@ -261,10 +282,14 @@ The Assignment page (teacher view) displays the assignment's metadata including 
 
 </description>
 
+<workflows>
+WF-001 | Open grading interface via Grade button | actor: <role> | branch: none | terminal: Grade | on_success: opens grading interface for individual student
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[21:49:41] Test-Edge - LLM RESPONSE
+[15:31:06] Test-Edge - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Assignment — Teacher View",
@@ -272,130 +297,72 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "E-001",
-      "subcategory": "boundary",
-      "test_case": "Set Due date to today (boundary for Time remaining)",
+      "wf_ref": "WF-001",
+      "subcategory": "interaction_edge",
+      "test_case": "Rapid multiple clicks on Grade button should not open multiple modals",
       "preconditions": [
         "User is signed in as a teacher",
-        "Assignment page is open in edit mode or contains editable date controls"
+        "Assignment page is loaded and visible with Grade button present"
       ],
       "steps": [
-        "1. Click the control to edit the Due date",
-        "2. Select/tap today's date in the date picker",
-        "3. Click Save / Update assignment"
+        "1. Locate the Grade button in Assignment_Page_Actions",
+        "2. Click the Grade button once",
+        "3. Immediately click the Grade button a second time (within <1s)",
+        "4. Immediately click the Grade button a third time (within <1s of previous)"
       ],
-      "expected_result": "Assignment save succeeds; Grading summary's Time remaining updates to show 0 time remaining (no future time) and is visible on the page",
+      "expected_result": "First click opens the Grading_Interface modal and succeeds; subsequent rapid clicks do not create additional modals — only one Grading_Interface modal is visible and focus remains in that modal (no duplicate modals or duplicate grading interfaces appear).",
       "priority": "medium"
     },
     {
       "tc_id": "E-002",
-      "subcategory": "boundary",
-      "test_case": "Set Due date to one day before today (past boundary)",
+      "wf_ref": null,
+      "subcategory": "input_edge",
+      "test_case": "Very long assignment Description with attachments renders without breaking layout or hiding summary",
       "preconditions": [
-        "User is signed in as a teacher",
-        "Assignment page is open in edit mode or contains editable date controls"
+        "An assignment exists whose Description field contains a very long text content (>>2000 characters) and multiple attached files",
+        "Teacher is signed in and on the Assignment page"
       ],
       "steps": [
-        "1. Click the control to edit the Due date",
-        "2. Select/tap the date that is one day before today's date in the date picker",
-        "3. Click Save / Update assignment"
+        "1. Open the Assignment page for the assignment with a very long Description",
+        "2. Observe the Description area rendering",
+        "3. Scroll through the Description area to the end",
+        "4. Inspect the Grading summary panel (Number of participants, Number of submissions, Needs grading, Visibility, Time remaining) and the tab bar below the summary"
       ],
-      "expected_result": "Assignment save succeeds; Grading summary's Time remaining displays as past due / shows an overdue indicator (negative time remaining) and the overdue state is visible in the summary panel",
-      "priority": "medium"
+      "expected_result": "Description area displays the full long text (no truncation that hides content) and the page remains responsive — rendering the long Description succeeds; attached files are visible in the Description area and the Grading summary panel and tab bar remain visible and functional.",
+      "priority": "low"
     },
     {
       "tc_id": "E-003",
-      "subcategory": "boundary",
-      "test_case": "Set Due date far in the future (large positive time remaining)",
-      "preconditions": [
-        "User is signed in as a teacher",
-        "Assignment page is open in edit mode or contains editable date controls"
-      ],
-      "steps": [
-        "1. Click the control to edit the Due date",
-        "2. Select/tap a date far in the future (several years ahead) in the date picker",
-        "3. Click Save / Update assignment"
-      ],
-      "expected_result": "Assignment save succeeds; Grading summary's Time remaining updates to a large positive duration reflecting the far-future Due date and the updated large duration is visible in the summary panel",
-      "priority": "medium"
-    },
-    {
-      "tc_id": "E-004",
+      "wf_ref": null,
       "subcategory": "input_edge",
-      "test_case": "Save a very long Description (200+ characters) and verify full display",
+      "test_case": "Description containing HTML/JS is sanitized/escaped and does not execute",
       "preconditions": [
-        "User is signed in as a teacher",
-        "Assignment page is open and Description field is editable"
+        "An assignment exists whose Description contains HTML tags and an inline script tag (e.g., '<script>...')</script>",
+        "Teacher is signed in and on the Assignment page"
       ],
       "steps": [
-        "1. Click Edit on the Description",
-        "2. Enter/paste a Description text of 200+ characters into the Description field",
-        "3. Click Save / Update assignment",
-        "4. View the assignment detail page"
+        "1. Open the Assignment page for the assignment containing HTML/JS in the Description",
+        "2. Observe the Description area for rendered HTML and any unexpected behaviors (alerts, popups, navigation)",
+        "3. Attempt to interact with any visible elements that could have been injected from the Description (e.g., click any links that appear in the Description area)"
       ],
-      "expected_result": "Assignment save succeeds; the assignment detail page displays the full Description (no unexpected truncation) and the full text is visible in the Description area",
+      "expected_result": "No script executes and no browser alert/pop-up/navigation is triggered — the Description content is displayed as escaped/sanitized text or safe HTML and this succeeds; any HTML tags are not executed as active scripts and the page remains stable with the Grading summary panel visible.",
       "priority": "medium"
-    },
-    {
-      "tc_id": "E-005",
-      "subcategory": "input_edge",
-      "test_case": "Use special characters and emoji in Description",
-      "preconditions": [
-        "User is signed in as a teacher",
-        "Assignment page is open and Description field is editable"
-      ],
-      "steps": [
-        "1. Click Edit on the Description",
-        "2. Enter text containing special characters, non-ASCII Unicode characters, and emoji into the Description field",
-        "3. Click Save / Update assignment",
-        "4. View the assignment detail page"
-      ],
-      "expected_result": "Assignment save succeeds; the assignment detail page displays the special characters and emoji correctly (visible and not replaced by placeholder characters)",
-      "priority": "low"
-    },
-    {
-      "tc_id": "E-006",
-      "subcategory": "interaction_edge",
-      "test_case": "Double-click the Grade button rapidly to check for duplicate grading modals",
-      "preconditions": [
-        "User is signed in as a teacher",
-        "Assignment page is open and Grade button is visible"
-      ],
-      "steps": [
-        "1. Rapidly double-click (two quick clicks) the Grade button"
-      ],
-      "expected_result": "Only a single Grading interface modal is opened and visible; duplicate modals are not created (action succeeds and only one modal instance is present)",
-      "priority": "low"
-    },
-    {
-      "tc_id": "E-007",
-      "subcategory": "interaction_edge",
-      "test_case": "Click Grade then immediately click the Submissions tab (concurrent UI actions)",
-      "preconditions": [
-        "User is signed in as a teacher",
-        "Assignment page is open and both Grade button and Assignment Tabs are visible"
-      ],
-      "steps": [
-        "1. Click the Grade button",
-        "2. Immediately click the Submissions tab before the grading modal finishes opening"
-      ],
-      "expected_result": "UI remains consistent: the grading modal finishes opening and is visible (one modal) and navigation to Submissions either does not occur while modal is active OR if navigation occurs the modal is dismissible; no duplicated modals or lost UI state occur and the page remains responsive (no error shown)",
-      "priority": "low"
     }
   ],
   "summary": {
-    "total": 7,
-    "boundary": 3,
+    "total": 3,
+    "boundary": 0,
     "input_edge": 2,
-    "interaction_edge": 2,
+    "interaction_edge": 1,
     "state_edge": 0,
     "data_edge": 0,
-    "medium_priority": 4,
-    "low_priority": 3
+    "medium_priority": 2,
+    "low_priority": 1
   }
 }
 
 ------------------------------------------------------------
-[21:49:41] Test-Edge - PARSED JSON
+[15:31:06] Test-Edge - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Assignment \u2014 Teacher View",
@@ -403,124 +370,66 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "E-001",
-      "subcategory": "boundary",
-      "test_case": "Set Due date to today (boundary for Time remaining)",
+      "wf_ref": "WF-001",
+      "subcategory": "interaction_edge",
+      "test_case": "Rapid multiple clicks on Grade button should not open multiple modals",
       "preconditions": [
         "User is signed in as a teacher",
-        "Assignment page is open in edit mode or contains editable date controls"
+        "Assignment page is loaded and visible with Grade button present"
       ],
       "steps": [
-        "1. Click the control to edit the Due date",
-        "2. Select/tap today's date in the date picker",
-        "3. Click Save / Update assignment"
+        "1. Locate the Grade button in Assignment_Page_Actions",
+        "2. Click the Grade button once",
+        "3. Immediately click the Grade button a second time (within <1s)",
+        "4. Immediately click the Grade button a third time (within <1s of previous)"
       ],
-      "expected_result": "Assignment save succeeds; Grading summary's Time remaining updates to show 0 time remaining (no future time) and is visible on the page",
+      "expected_result": "First click opens the Grading_Interface modal and succeeds; subsequent rapid clicks do not create additional modals \u2014 only one Grading_Interface modal is visible and focus remains in that modal (no duplicate modals or duplicate grading interfaces appear).",
       "priority": "medium"
     },
     {
       "tc_id": "E-002",
-      "subcategory": "boundary",
-      "test_case": "Set Due date to one day before today (past boundary)",
+      "wf_ref": null,
+      "subcategory": "input_edge",
+      "test_case": "Very long assignment Description with attachments renders without breaking layout or hiding summary",
       "preconditions": [
-        "User is signed in as a teacher",
-        "Assignment page is open in edit mode or contains editable date controls"
+        "An assignment exists whose Description field contains a very long text content (>>2000 characters) and multiple attached files",
+        "Teacher is signed in and on the Assignment page"
       ],
       "steps": [
-        "1. Click the control to edit the Due date",
-        "2. Select/tap the date that is one day before today's date in the date picker",
-        "3. Click Save / Update assignment"
+        "1. Open the Assignment page for the assignment with a very long Description",
+        "2. Observe the Description area rendering",
+        "3. Scroll through the Description area to the end",
+        "4. Inspect the Grading summary panel (Number of participants, Number of submissions, Needs grading, Visibility, Time remaining) and the tab bar below the summary"
       ],
-      "expected_result": "Assignment save succeeds; Grading summary's Time remaining displays as past due / shows an overdue indicator (negative time remaining) and the overdue state is visible in the summary panel",
-      "priority": "medium"
+      "expected_result": "Description area displays the full long text (no truncation that hides content) and the page remains responsive \u2014 rendering the long Description succeeds; attached files are visible in the Description area and the Grading summary panel and tab bar remain visible and functional.",
+      "priority": "low"
     },
     {
       "tc_id": "E-003",
-      "subcategory": "boundary",
-      "test_case": "Set Due date far in the future (large positive time remaining)",
-      "preconditions": [
-        "User is signed in as a teacher",
-        "Assignment page is open in edit mode or contains editable date controls"
-      ],
-      "steps": [
-        "1. Click the control to edit the Due date",
-        "2. Select/tap a date far in the future (several years ahead) in the date picker",
-        "3. Click Save / Update assignment"
-      ],
-      "expected_result": "Assignment save succeeds; Grading summary's Time remaining updates to a large positive duration reflecting the far-future Due date and the updated large duration is visible in the summary panel",
-      "priority": "medium"
-    },
-    {
-      "tc_id": "E-004",
+      "wf_ref": null,
       "subcategory": "input_edge",
-      "test_case": "Save a very long Description (200+ characters) and verify full display",
+      "test_case": "Description containing HTML/JS is sanitized/escaped and does not execute",
       "preconditions": [
-        "User is signed in as a teacher",
-        "Assignment page is open and Description field is editable"
+        "An assignment exists whose Description contains HTML tags and an inline script tag (e.g., '<script>...')</script>",
+        "Teacher is signed in and on the Assignment page"
       ],
       "steps": [
-        "1. Click Edit on the Description",
-        "2. Enter/paste a Description text of 200+ characters into the Description field",
-        "3. Click Save / Update assignment",
-        "4. View the assignment detail page"
+        "1. Open the Assignment page for the assignment containing HTML/JS in the Description",
+        "2. Observe the Description area for rendered HTML and any unexpected behaviors (alerts, popups, navigation)",
+        "3. Attempt to interact with any visible elements that could have been injected from the Description (e.g., click any links that appear in the Description area)"
       ],
-      "expected_result": "Assignment save succeeds; the assignment detail page displays the full Description (no unexpected truncation) and the full text is visible in the Description area",
+      "expected_result": "No script executes and no browser alert/pop-up/navigation is triggered \u2014 the Description content is displayed as escaped/sanitized text or safe HTML and this succeeds; any HTML tags are not executed as active scripts and the page remains stable with the Grading summary panel visible.",
       "priority": "medium"
-    },
-    {
-      "tc_id": "E-005",
-      "subcategory": "input_edge",
-      "test_case": "Use special characters and emoji in Description",
-      "preconditions": [
-        "User is signed in as a teacher",
-        "Assignment page is open and Description field is editable"
-      ],
-      "steps": [
-        "1. Click Edit on the Description",
-        "2. Enter text containing special characters, non-ASCII Unicode characters, and emoji into the Description field",
-        "3. Click Save / Update assignment",
-        "4. View the assignment detail page"
-      ],
-      "expected_result": "Assignment save succeeds; the assignment detail page displays the special characters and emoji correctly (visible and not replaced by placeholder characters)",
-      "priority": "low"
-    },
-    {
-      "tc_id": "E-006",
-      "subcategory": "interaction_edge",
-      "test_case": "Double-click the Grade button rapidly to check for duplicate grading modals",
-      "preconditions": [
-        "User is signed in as a teacher",
-        "Assignment page is open and Grade button is visible"
-      ],
-      "steps": [
-        "1. Rapidly double-click (two quick clicks) the Grade button"
-      ],
-      "expected_result": "Only a single Grading interface modal is opened and visible; duplicate modals are not created (action succeeds and only one modal instance is present)",
-      "priority": "low"
-    },
-    {
-      "tc_id": "E-007",
-      "subcategory": "interaction_edge",
-      "test_case": "Click Grade then immediately click the Submissions tab (concurrent UI actions)",
-      "preconditions": [
-        "User is signed in as a teacher",
-        "Assignment page is open and both Grade button and Assignment Tabs are visible"
-      ],
-      "steps": [
-        "1. Click the Grade button",
-        "2. Immediately click the Submissions tab before the grading modal finishes opening"
-      ],
-      "expected_result": "UI remains consistent: the grading modal finishes opening and is visible (one modal) and navigation to Submissions either does not occur while modal is active OR if navigation occurs the modal is dismissible; no duplicated modals or lost UI state occur and the page remains responsive (no error shown)",
-      "priority": "low"
     }
   ],
   "summary": {
-    "total": 7,
-    "boundary": 3,
+    "total": 3,
+    "boundary": 0,
     "input_edge": 2,
-    "interaction_edge": 2,
+    "interaction_edge": 1,
     "state_edge": 0,
     "data_edge": 0,
-    "medium_priority": 4,
-    "low_priority": 3
+    "medium_priority": 2,
+    "low_priority": 1
   }
 }

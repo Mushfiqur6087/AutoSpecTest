@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-21T22:29:06.556518
+DEBUG SESSION STARTED: 2026-05-25T14:24:50.745071
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[22:29:06] Test-Edge - SYSTEM PROMPT
+[14:24:50] Test-Edge - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Edge Case and Boundary Test Generator. You receive (1) a UI-AST JSON for one module and (2) the original functional description. Your job is to produce ONLY boundary and edge case tests — scenarios at the limits of valid/invalid input and unusual-but-plausible user behaviors.
 
@@ -25,6 +25,10 @@ You are NOT producing happy paths (positive prompt) or standard validation failu
 {Original functional description text for this module}
 </description>
 
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
+
 ---
 
 **UI-AST REFERENCE — How to Read the AST for Edge Testing:**
@@ -35,7 +39,7 @@ You are NOT producing happy paths (positive prompt) or standard validation failu
 | `repeating_group` with `max` | Test adding exactly `max` entries (should succeed) then one more (should block) |
 | `visible_when` / `required_when` | Edge: trigger condition, fill revealed field with boundary value |
 | `state_bound_action_bar` | State edges: rapid consecutive state transitions, transition from a boundary state |
-| `submit_actions[]` with multiple buttons | Interaction edge: double-click a submit button rapidly |
+
 | `type: "date"` fields | Data edges: today, yesterday, far future, Feb 29 leap year |
 | `type: "file_upload"` | Edge: file exactly at size limit, file at 1 byte over limit |
 
@@ -132,7 +136,6 @@ Pick only the ones that apply to field types present in this module's AST:
 
 Pick only the ones that match component types in this module's AST:
 
-- **Double-click submit** (any form/wizard with a submit button): rapidly double-click the submit button → assert only one record is created; no duplicate row appears in the listing table
 - **Rapid re-submission after redirect** (any form that redirects to a detail page on success): after a successful submit, press the browser back button → assert the creation form is shown blank (not pre-filled) OR the user is redirected to the detail page without a second entity being created
 - **Wizard step skip — enforced navigation** (wizard where steps must be completed sequentially): attempt to click a later step tab directly without completing earlier steps → assert navigation is blocked and the earlier step remains active
 - **Wizard step skip — free navigation** (wizard that allows free tab navigation): navigate to a later step without filling earlier steps → assert the later step displays and returning to the earlier step shows fields blank (no data was lost from the later step)
@@ -173,7 +176,16 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 
 - **High:** None — edge tests are secondary to core functionality
 - **Medium:** Boundary tests at thresholds (financial amounts, date ordering, count limits, file size limits)
-- **Low:** Input edge cases (long text, special chars, whitespace, decimal precision), interaction edge cases (double-click, browser back, wizard skip)
+- **Low:** Input edge cases (long text, special chars, whitespace, decimal precision), interaction edge cases (browser back, wizard skip)
+
+---
+
+**WORKFLOW-AWARE BOUNDARY SCOPING (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- For each workflow where `conditional_branch` activates a numeric or date field, check if that field has a boundary (a numeric/date threshold in the AST `constraints` or description).
+- If yes, that workflow's branch is a **candidate for a boundary edge test** — add or confirm a boundary TC exists for it.
+- Add `"wf_ref": "WF-NNN"` to each TC that maps to a specific workflow's boundary. Set `"wf_ref": null` for generic input/interaction edge tests.
 
 ---
 
@@ -185,6 +197,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": null,
       "subcategory": "boundary | input_edge | interaction_edge | state_edge | data_edge",
       "test_case": "Short descriptive name",
       "preconditions": ["precondition 1"],
@@ -207,7 +220,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 
 
 ------------------------------------------------------------
-[22:29:06] Test-Edge - USER PROMPT
+[14:24:50] Test-Edge - USER PROMPT
 ------------------------------------------------------------
 <module_name>Tax Management</module_name>
 
@@ -228,19 +241,21 @@ If the module has any numeric/date/count threshold in the AST or description, pr
       ],
       "row_actions": [
         {
-          "action_name": "View",
-          "type": "link",
-          "description": "navigates to Tax Component detail via clickable Name link"
+          "action_name": "Open",
+          "action_type": "link",
+          "trigger": "click Name",
+          "on_trigger": "opens Tax Component detail"
         }
       ],
       "toolbar_actions": [
         {
-          "element_name": "unspecified",
-          "opens": "Tax_Component_Form"
+          "element_name": "+ Create Tax Component",
+          "action_name": "Open Create Tax Component Form",
+          "on_trigger": "opens Create_Tax_Component_Form"
         }
       ]
     },
-    "Tax_Component_Form": {
+    "Create_Tax_Component_Form": {
       "type": "form",
       "fields": {
         "Name": {
@@ -266,8 +281,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
           ]
         },
         "Debit_Account": {
-          "type": "unspecified",
-          "description": "select GL account"
+          "type": "search"
         },
         "Credit_Account_Type": {
           "type": "dropdown",
@@ -280,8 +294,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
           ]
         },
         "Credit_Account": {
-          "type": "unspecified",
-          "description": "select GL account"
+          "type": "search"
         },
         "Start_Date": {
           "type": "date",
@@ -292,7 +305,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
       },
       "submit_actions": [
         {
-          "element_name": "unspecified",
+          "element_name": "Create",
           "on_success": "creates tax component"
         }
       ]
@@ -305,19 +318,21 @@ If the module has any numeric/date/count threshold in the AST or description, pr
       ],
       "row_actions": [
         {
-          "action_name": "View",
-          "type": "link",
-          "description": "navigates to Tax Group detail via clickable Name link"
+          "action_name": "Open",
+          "action_type": "link",
+          "trigger": "click Name",
+          "on_trigger": "opens Tax Group detail"
         }
       ],
       "toolbar_actions": [
         {
-          "element_name": "unspecified",
-          "opens": "Tax_Group_Form"
+          "element_name": "+ Create Tax Group",
+          "action_name": "Open Create Tax Group Form",
+          "on_trigger": "opens Create_Tax_Group_Form"
         }
       ]
     },
-    "Tax_Group_Form": {
+    "Create_Tax_Group_Form": {
       "type": "form",
       "fields": {
         "Name": {
@@ -330,8 +345,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
           "type": "repeating_group",
           "item_fields": {
             "Tax_Component": {
-              "type": "unspecified",
-              "description": "select existing Tax Component"
+              "type": "search"
             },
             "Start_Date": {
               "type": "date"
@@ -344,33 +358,39 @@ If the module has any numeric/date/count threshold in the AST or description, pr
       },
       "submit_actions": [
         {
-          "element_name": "unspecified",
+          "element_name": "Create",
           "on_success": "creates tax group"
         }
       ]
     },
-    "Savings_Product_Form": {
+    "Savings_Product_Tax_Settings": {
       "type": "form",
       "fields": {
         "Enable_Withhold_Tax": {
-          "type": "checkbox",
-          "effects": [
-            "when enabled, system automatically applies the configured tax rate on interest income or fees and posts corresponding journal entries to the mapped GL accounts"
-          ]
+          "type": "checkbox"
         },
         "Tax_Group": {
-          "type": "dropdown",
-          "description": "select Tax Group to associate with this product"
+          "type": "search",
+          "required_when": "Enable_Withhold_Tax == true"
         }
+      },
+      "on_change": {
+        "Enable_Withhold_Tax": "when checked, system automatically applies the configured tax rate on interest income and posts the corresponding journal entries to the mapped GL accounts"
       }
     },
-    "Charge_Definition_Form": {
+    "Charge_Definition_Tax_Settings": {
       "type": "form",
       "fields": {
+        "Enable_Tax": {
+          "type": "checkbox"
+        },
         "Tax_Group": {
-          "type": "dropdown",
-          "description": "select Tax Group to associate with this charge definition"
+          "type": "search",
+          "required_when": "Enable_Tax == true"
         }
+      },
+      "on_change": {
+        "Enable_Tax": "when checked, system automatically applies the configured tax rate on fees and posts the corresponding journal entries to the mapped GL accounts"
       }
     }
   }
@@ -388,10 +408,19 @@ The Tax Groups page displays a data table with columns for Name (clickable link)
 
 </description>
 
+<workflows>
+WF-001 | Open Tax Component detail from table row | actor: <role> | branch: none | terminal: Open | on_success: opens Tax Component detail
+WF-002 | Open Create Tax Component form from toolbar | actor: <role> | branch: none | terminal: Open Create Tax Component Form | on_success: opens Create_Tax_Component_Form
+WF-003 | Create Tax Component (submit form) | actor: <role> | branch: none | terminal: Create | on_success: creates tax component
+WF-004 | Open Tax Group detail from table row | actor: <role> | branch: none | terminal: Open | on_success: opens Tax Group detail
+WF-005 | Open Create Tax Group form from toolbar | actor: <role> | branch: none | terminal: Open Create Tax Group Form | on_success: opens Create_Tax_Group_Form
+WF-006 | Create Tax Group (submit form) | actor: <role> | branch: none | terminal: Create | on_success: creates tax group
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[22:35:51] Test-Edge - LLM RESPONSE
+[14:32:35] Test-Edge - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Tax Management",
@@ -399,148 +428,170 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "E-001",
-      "subcategory": "input_edge",
-      "test_case": "Very long Name entered in Tax Component form",
+      "wf_ref": null,
+      "subcategory": "boundary",
+      "test_case": "Savings product: Enable Withhold Tax checked but Tax Group left blank (required_when boundary)",
       "preconditions": [
-        "User is on Tax Components page",
-        "Create Tax Component form is opened"
+        "User is on the Savings Product Tax Settings form for an existing savings product",
+        "Enable_Withhold_Tax is initially unchecked or editable"
       ],
       "steps": [
-        "1. Focus the Name field",
-        "2. Enter a very long string (200+ characters) into the Name field",
-        "3. Enter valid value in Percentage field",
-        "4. Select a Debit Account Type",
-        "5. Select a Debit Account",
-        "6. Select a Credit Account Type",
-        "7. Select a Credit Account",
-        "8. Enter a valid Start Date",
-        "9. Click the submit button"
+        "1. Check the Enable_Withhold_Tax checkbox",
+        "2. Leave the Tax_Group search field empty",
+        "3. Click Save (or equivalent action to persist settings)"
       ],
-      "expected_result": "If the UI enforces a maximum length, the Name field displays an inline error or validation message and submission is blocked (error shown). Otherwise, the form submits successfully; entity is created and the Tax Component detail page/table shows the full entered Name (succeeds).",
-      "priority": "low"
+      "expected_result": "Submission is blocked; Tax_Group displays an inline required-field error and a visible validation message indicating the field is required",
+      "priority": "medium"
     },
     {
       "tc_id": "E-002",
-      "subcategory": "input_edge",
-      "test_case": "Name with leading and trailing whitespace in Tax Group creation",
+      "wf_ref": null,
+      "subcategory": "boundary",
+      "test_case": "Savings product: Enable Withhold Tax checked with Tax Group selected (required_when boundary passes)",
       "preconditions": [
-        "User is on Tax Groups page",
-        "Create Tax Group form is opened"
+        "User is on the Savings Product Tax Settings form for an existing savings product",
+        "A Tax Group exists and is searchable"
       ],
       "steps": [
-        "1. Focus the Name field",
-        "2. Enter a Name value with leading and trailing spaces into the Name field",
-        "3. Add one Tax Component entry in the repeating group (select existing Tax Component)",
-        "4. Enter a valid Start Date for the repeating group item",
-        "5. Click the submit button"
+        "1. Check the Enable_Withhold_Tax checkbox",
+        "2. Use the Tax_Group search to select an existing Tax Group",
+        "3. Click Save (or equivalent action to persist settings)"
       ],
-      "expected_result": "Form submission succeeds and the saved Tax Group Name displayed in the list/detail is trimmed of leading/trailing whitespace (succeeds). If the UI enforces exact-match or whitespace rules, an inline validation error is displayed and submission is blocked (error shown).",
-      "priority": "low"
+      "expected_result": "Save succeeds; settings are persisted and the UI shows the selected Tax Group in the Tax Group field for the savings product",
+      "priority": "medium"
     },
     {
       "tc_id": "E-003",
-      "subcategory": "input_edge",
-      "test_case": "Name with special characters and emoji in Tax Component",
+      "wf_ref": null,
+      "subcategory": "boundary",
+      "test_case": "Charge definition: Enable Tax checked but Tax Group left blank (required_when boundary)",
       "preconditions": [
-        "User is on Tax Components page",
-        "Create Tax Component form is opened"
+        "User is on the Charge Definition Tax Settings form for an existing charge definition",
+        "Enable_Tax is initially unchecked or editable"
       ],
       "steps": [
-        "1. Focus the Name field",
-        "2. Enter a Name containing special characters and emoji into the Name field",
-        "3. Enter valid value in Percentage field",
-        "4. Select required account types and accounts",
-        "5. Enter a valid Start Date",
-        "6. Click the submit button"
+        "1. Check the Enable_Tax checkbox",
+        "2. Leave the Tax_Group search field empty",
+        "3. Click Save (or equivalent action to persist settings)"
       ],
-      "expected_result": "If the system allows unicode/special characters, the form submits successfully and the Tax Component detail/list displays the exact entered characters (succeeds). If special characters are disallowed, an inline error is shown and submission is blocked (error shown).",
-      "priority": "low"
+      "expected_result": "Submission is blocked; Tax_Group displays an inline required-field error and a visible validation message indicating the field is required",
+      "priority": "medium"
     },
     {
       "tc_id": "E-004",
-      "subcategory": "input_edge",
-      "test_case": "Percentage entered with excessive decimal precision",
+      "wf_ref": "WF-003",
+      "subcategory": "data_edge",
+      "test_case": "Create Tax Component with Start Date = <today> (date boundary)",
       "preconditions": [
-        "User is on Tax Components page",
-        "Create Tax Component form is opened"
+        "User is on the Tax Components page",
+        "The + Create Tax Component toolbar button is visible"
       ],
       "steps": [
-        "1. Focus the Percentage field",
-        "2. Enter a numeric percentage with many decimal places into the Percentage field",
-        "3. Fill all other required fields with valid values",
-        "4. Click the submit button"
+        "1. Click + Create Tax Component",
+        "2. Enter a valid value in the Name field",
+        "3. Enter a valid numeric value in the Percentage field",
+        "4. Select a value for Debit_Account_Type",
+        "5. Select a value for Credit_Account_Type",
+        "6. Populate Debit_Account using the search field (if required by UI)",
+        "7. Populate Credit_Account using the search field (if required by UI)",
+        "8. Enter <today> in the Start_Date field",
+        "9. Click Create"
       ],
-      "expected_result": "If the system limits decimal precision, an inline validation error is displayed or the value is rounded to the supported precision and the form succeeds; the Tax Component detail shows the rounded saved value (succeeds or error shown). If no precision limit, the form submits successfully and the exact value is displayed (succeeds).",
+      "expected_result": "Form submits successfully; a tax component is created and the Tax Component detail page (or table row) shows Start Date equal to <today>",
       "priority": "medium"
     },
     {
       "tc_id": "E-005",
-      "subcategory": "interaction_edge",
-      "test_case": "Double-click submit on Create Tax Component form",
+      "wf_ref": "WF-003",
+      "subcategory": "data_edge",
+      "test_case": "Create Tax Component with Start Date = <far future date> (date edge)",
       "preconditions": [
-        "User is on Tax Components page",
-        "Create Tax Component form is opened and all required fields are filled validly"
+        "User is on the Tax Components page",
+        "The + Create Tax Component toolbar button is visible"
       ],
       "steps": [
-        "1. Click the submit button twice rapidly (double-click)"
+        "1. Click + Create Tax Component",
+        "2. Enter a valid value in the Name field",
+        "3. Enter a valid numeric value in the Percentage field",
+        "4. Select a value for Debit_Account_Type",
+        "5. Select a value for Credit_Account_Type",
+        "6. Populate Debit_Account using the search field (if required by UI)",
+        "7. Populate Credit_Account using the search field (if required by UI)",
+        "8. Enter a <far future date> in the Start_Date field",
+        "9. Click Create"
       ],
-      "expected_result": "Only one Tax Component record is created; the UI shows a single new row in the Tax Components table or single detail page (no duplicate records appear) — the second click does not create an additional entity (succeeds).",
+      "expected_result": "Form submits successfully; a tax component is created and the Tax Component detail page (or table row) shows Start Date equal to the entered <far future date>",
       "priority": "medium"
     },
     {
       "tc_id": "E-006",
+      "wf_ref": "WF-003",
       "subcategory": "interaction_edge",
-      "test_case": "Add then remove all Tax Component entries in Tax Group repeating group before submit",
+      "test_case": "Rapid re-submission after Create Tax Component: use browser Back then submit same data again",
       "preconditions": [
-        "User is on Tax Groups page",
-        "Create Tax Group form is opened"
+        "User can create a Tax Component (has permission)",
+        "A dataset for re-using the same field values is prepared"
       ],
       "steps": [
-        "1. Click to add a Tax Components repeating-group item",
-        "2. Select a Tax Component in the new repeating-group item",
-        "3. Enter a Start Date (and End Date if desired) for the item",
-        "4. Click to add a second repeating-group item",
-        "5. Select a Tax Component and enter dates for the second item",
-        "6. Remove the first repeating-group item",
-        "7. Remove the second repeating-group item (so no items remain)",
-        "8. Enter a valid Name in the form",
-        "9. Click the submit button"
+        "1. Create a tax component successfully (perform steps to fill required fields and click Create)",
+        "2. On the Tax Component detail page, click the browser Back button once",
+        "3. On the returned page (creation form or list), re-enter the same values used in step 1 (if the form is shown)",
+        "4. Click Create again"
       ],
-      "expected_result": "Because the AST does not define a minimum required count for Tax Components, submission succeeds and a Tax Group is created with zero associated components; the Tax Groups table shows the new group with no associated components (succeeds). If the UI enforces at least one component, an inline error appears indicating at least one component is required and submission is blocked (error shown).",
+      "expected_result": "Second submission is blocked; only one tax component record with those values appears in the Tax Components table (no duplicate created) and a visible message or validation prevents duplicate creation",
       "priority": "medium"
     },
     {
       "tc_id": "E-007",
-      "subcategory": "data_edge",
-      "test_case": "Start Date entered far in the future for Tax Component",
+      "wf_ref": "WF-006",
+      "subcategory": "interaction_edge",
+      "test_case": "Create Tax Group: add a Tax Component row in repeating group then remove it and submit (repeating_group edge)",
       "preconditions": [
-        "User is on Tax Components page",
-        "Create Tax Component form is opened"
+        "User is on the Tax Groups page",
+        "The + Create Tax Group toolbar button is visible"
       ],
       "steps": [
-        "1. Focus the Start Date field",
-        "2. Enter a date far in the future as the Start Date",
-        "3. Fill all other required fields with valid values",
-        "4. Click the submit button"
+        "1. Click + Create Tax Group",
+        "2. Enter a valid value in the Name field",
+        "3. In the Tax_Components repeating group, click Add (or equivalent) to add a row",
+        "4. In the new row, use the Tax_Component search to select a component",
+        "5. Click the row's Remove/Delete control to remove the added row",
+        "6. Click Create"
       ],
-      "expected_result": "If the system enforces a not-in-future constraint for Start Date, an inline error is shown and submission is blocked (error shown). Otherwise, the form submits successfully and the Tax Component detail/list shows the entered future Start Date (succeeds).",
+      "expected_result": "Form submits successfully; Tax Group is created and the Tax Groups table shows the new group with an empty/none Associated Components value (no components)",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "E-008",
+      "wf_ref": "WF-003",
+      "subcategory": "input_edge",
+      "test_case": "Create Tax Component Name with leading and trailing whitespace (input trimming edge)",
+      "preconditions": [
+        "User is on the Create Tax Component form"
+      ],
+      "steps": [
+        "1. Enter a Name value that includes leading and trailing whitespace",
+        "2. Fill all other required fields with valid values",
+        "3. Click Create"
+      ],
+      "expected_result": "Form submits successfully; Tax Component detail page displays the Name value without leading or trailing whitespace (whitespace is trimmed in saved value)",
       "priority": "low"
     }
   ],
   "summary": {
-    "total": 7,
-    "boundary": 0,
-    "input_edge": 4,
+    "total": 8,
+    "boundary": 3,
+    "input_edge": 1,
     "interaction_edge": 2,
     "state_edge": 0,
-    "data_edge": 1,
-    "medium_priority": 3,
-    "low_priority": 4
+    "data_edge": 2,
+    "medium_priority": 7,
+    "low_priority": 1
   }
 }
 
 ------------------------------------------------------------
-[22:35:51] Test-Edge - PARSED JSON
+[14:32:35] Test-Edge - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Tax Management",
@@ -548,142 +599,164 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "E-001",
-      "subcategory": "input_edge",
-      "test_case": "Very long Name entered in Tax Component form",
+      "wf_ref": null,
+      "subcategory": "boundary",
+      "test_case": "Savings product: Enable Withhold Tax checked but Tax Group left blank (required_when boundary)",
       "preconditions": [
-        "User is on Tax Components page",
-        "Create Tax Component form is opened"
+        "User is on the Savings Product Tax Settings form for an existing savings product",
+        "Enable_Withhold_Tax is initially unchecked or editable"
       ],
       "steps": [
-        "1. Focus the Name field",
-        "2. Enter a very long string (200+ characters) into the Name field",
-        "3. Enter valid value in Percentage field",
-        "4. Select a Debit Account Type",
-        "5. Select a Debit Account",
-        "6. Select a Credit Account Type",
-        "7. Select a Credit Account",
-        "8. Enter a valid Start Date",
-        "9. Click the submit button"
+        "1. Check the Enable_Withhold_Tax checkbox",
+        "2. Leave the Tax_Group search field empty",
+        "3. Click Save (or equivalent action to persist settings)"
       ],
-      "expected_result": "If the UI enforces a maximum length, the Name field displays an inline error or validation message and submission is blocked (error shown). Otherwise, the form submits successfully; entity is created and the Tax Component detail page/table shows the full entered Name (succeeds).",
-      "priority": "low"
+      "expected_result": "Submission is blocked; Tax_Group displays an inline required-field error and a visible validation message indicating the field is required",
+      "priority": "medium"
     },
     {
       "tc_id": "E-002",
-      "subcategory": "input_edge",
-      "test_case": "Name with leading and trailing whitespace in Tax Group creation",
+      "wf_ref": null,
+      "subcategory": "boundary",
+      "test_case": "Savings product: Enable Withhold Tax checked with Tax Group selected (required_when boundary passes)",
       "preconditions": [
-        "User is on Tax Groups page",
-        "Create Tax Group form is opened"
+        "User is on the Savings Product Tax Settings form for an existing savings product",
+        "A Tax Group exists and is searchable"
       ],
       "steps": [
-        "1. Focus the Name field",
-        "2. Enter a Name value with leading and trailing spaces into the Name field",
-        "3. Add one Tax Component entry in the repeating group (select existing Tax Component)",
-        "4. Enter a valid Start Date for the repeating group item",
-        "5. Click the submit button"
+        "1. Check the Enable_Withhold_Tax checkbox",
+        "2. Use the Tax_Group search to select an existing Tax Group",
+        "3. Click Save (or equivalent action to persist settings)"
       ],
-      "expected_result": "Form submission succeeds and the saved Tax Group Name displayed in the list/detail is trimmed of leading/trailing whitespace (succeeds). If the UI enforces exact-match or whitespace rules, an inline validation error is displayed and submission is blocked (error shown).",
-      "priority": "low"
+      "expected_result": "Save succeeds; settings are persisted and the UI shows the selected Tax Group in the Tax Group field for the savings product",
+      "priority": "medium"
     },
     {
       "tc_id": "E-003",
-      "subcategory": "input_edge",
-      "test_case": "Name with special characters and emoji in Tax Component",
+      "wf_ref": null,
+      "subcategory": "boundary",
+      "test_case": "Charge definition: Enable Tax checked but Tax Group left blank (required_when boundary)",
       "preconditions": [
-        "User is on Tax Components page",
-        "Create Tax Component form is opened"
+        "User is on the Charge Definition Tax Settings form for an existing charge definition",
+        "Enable_Tax is initially unchecked or editable"
       ],
       "steps": [
-        "1. Focus the Name field",
-        "2. Enter a Name containing special characters and emoji into the Name field",
-        "3. Enter valid value in Percentage field",
-        "4. Select required account types and accounts",
-        "5. Enter a valid Start Date",
-        "6. Click the submit button"
+        "1. Check the Enable_Tax checkbox",
+        "2. Leave the Tax_Group search field empty",
+        "3. Click Save (or equivalent action to persist settings)"
       ],
-      "expected_result": "If the system allows unicode/special characters, the form submits successfully and the Tax Component detail/list displays the exact entered characters (succeeds). If special characters are disallowed, an inline error is shown and submission is blocked (error shown).",
-      "priority": "low"
+      "expected_result": "Submission is blocked; Tax_Group displays an inline required-field error and a visible validation message indicating the field is required",
+      "priority": "medium"
     },
     {
       "tc_id": "E-004",
-      "subcategory": "input_edge",
-      "test_case": "Percentage entered with excessive decimal precision",
+      "wf_ref": "WF-003",
+      "subcategory": "data_edge",
+      "test_case": "Create Tax Component with Start Date = <today> (date boundary)",
       "preconditions": [
-        "User is on Tax Components page",
-        "Create Tax Component form is opened"
+        "User is on the Tax Components page",
+        "The + Create Tax Component toolbar button is visible"
       ],
       "steps": [
-        "1. Focus the Percentage field",
-        "2. Enter a numeric percentage with many decimal places into the Percentage field",
-        "3. Fill all other required fields with valid values",
-        "4. Click the submit button"
+        "1. Click + Create Tax Component",
+        "2. Enter a valid value in the Name field",
+        "3. Enter a valid numeric value in the Percentage field",
+        "4. Select a value for Debit_Account_Type",
+        "5. Select a value for Credit_Account_Type",
+        "6. Populate Debit_Account using the search field (if required by UI)",
+        "7. Populate Credit_Account using the search field (if required by UI)",
+        "8. Enter <today> in the Start_Date field",
+        "9. Click Create"
       ],
-      "expected_result": "If the system limits decimal precision, an inline validation error is displayed or the value is rounded to the supported precision and the form succeeds; the Tax Component detail shows the rounded saved value (succeeds or error shown). If no precision limit, the form submits successfully and the exact value is displayed (succeeds).",
+      "expected_result": "Form submits successfully; a tax component is created and the Tax Component detail page (or table row) shows Start Date equal to <today>",
       "priority": "medium"
     },
     {
       "tc_id": "E-005",
-      "subcategory": "interaction_edge",
-      "test_case": "Double-click submit on Create Tax Component form",
+      "wf_ref": "WF-003",
+      "subcategory": "data_edge",
+      "test_case": "Create Tax Component with Start Date = <far future date> (date edge)",
       "preconditions": [
-        "User is on Tax Components page",
-        "Create Tax Component form is opened and all required fields are filled validly"
+        "User is on the Tax Components page",
+        "The + Create Tax Component toolbar button is visible"
       ],
       "steps": [
-        "1. Click the submit button twice rapidly (double-click)"
+        "1. Click + Create Tax Component",
+        "2. Enter a valid value in the Name field",
+        "3. Enter a valid numeric value in the Percentage field",
+        "4. Select a value for Debit_Account_Type",
+        "5. Select a value for Credit_Account_Type",
+        "6. Populate Debit_Account using the search field (if required by UI)",
+        "7. Populate Credit_Account using the search field (if required by UI)",
+        "8. Enter a <far future date> in the Start_Date field",
+        "9. Click Create"
       ],
-      "expected_result": "Only one Tax Component record is created; the UI shows a single new row in the Tax Components table or single detail page (no duplicate records appear) \u2014 the second click does not create an additional entity (succeeds).",
+      "expected_result": "Form submits successfully; a tax component is created and the Tax Component detail page (or table row) shows Start Date equal to the entered <far future date>",
       "priority": "medium"
     },
     {
       "tc_id": "E-006",
+      "wf_ref": "WF-003",
       "subcategory": "interaction_edge",
-      "test_case": "Add then remove all Tax Component entries in Tax Group repeating group before submit",
+      "test_case": "Rapid re-submission after Create Tax Component: use browser Back then submit same data again",
       "preconditions": [
-        "User is on Tax Groups page",
-        "Create Tax Group form is opened"
+        "User can create a Tax Component (has permission)",
+        "A dataset for re-using the same field values is prepared"
       ],
       "steps": [
-        "1. Click to add a Tax Components repeating-group item",
-        "2. Select a Tax Component in the new repeating-group item",
-        "3. Enter a Start Date (and End Date if desired) for the item",
-        "4. Click to add a second repeating-group item",
-        "5. Select a Tax Component and enter dates for the second item",
-        "6. Remove the first repeating-group item",
-        "7. Remove the second repeating-group item (so no items remain)",
-        "8. Enter a valid Name in the form",
-        "9. Click the submit button"
+        "1. Create a tax component successfully (perform steps to fill required fields and click Create)",
+        "2. On the Tax Component detail page, click the browser Back button once",
+        "3. On the returned page (creation form or list), re-enter the same values used in step 1 (if the form is shown)",
+        "4. Click Create again"
       ],
-      "expected_result": "Because the AST does not define a minimum required count for Tax Components, submission succeeds and a Tax Group is created with zero associated components; the Tax Groups table shows the new group with no associated components (succeeds). If the UI enforces at least one component, an inline error appears indicating at least one component is required and submission is blocked (error shown).",
+      "expected_result": "Second submission is blocked; only one tax component record with those values appears in the Tax Components table (no duplicate created) and a visible message or validation prevents duplicate creation",
       "priority": "medium"
     },
     {
       "tc_id": "E-007",
-      "subcategory": "data_edge",
-      "test_case": "Start Date entered far in the future for Tax Component",
+      "wf_ref": "WF-006",
+      "subcategory": "interaction_edge",
+      "test_case": "Create Tax Group: add a Tax Component row in repeating group then remove it and submit (repeating_group edge)",
       "preconditions": [
-        "User is on Tax Components page",
-        "Create Tax Component form is opened"
+        "User is on the Tax Groups page",
+        "The + Create Tax Group toolbar button is visible"
       ],
       "steps": [
-        "1. Focus the Start Date field",
-        "2. Enter a date far in the future as the Start Date",
-        "3. Fill all other required fields with valid values",
-        "4. Click the submit button"
+        "1. Click + Create Tax Group",
+        "2. Enter a valid value in the Name field",
+        "3. In the Tax_Components repeating group, click Add (or equivalent) to add a row",
+        "4. In the new row, use the Tax_Component search to select a component",
+        "5. Click the row's Remove/Delete control to remove the added row",
+        "6. Click Create"
       ],
-      "expected_result": "If the system enforces a not-in-future constraint for Start Date, an inline error is shown and submission is blocked (error shown). Otherwise, the form submits successfully and the Tax Component detail/list shows the entered future Start Date (succeeds).",
+      "expected_result": "Form submits successfully; Tax Group is created and the Tax Groups table shows the new group with an empty/none Associated Components value (no components)",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "E-008",
+      "wf_ref": "WF-003",
+      "subcategory": "input_edge",
+      "test_case": "Create Tax Component Name with leading and trailing whitespace (input trimming edge)",
+      "preconditions": [
+        "User is on the Create Tax Component form"
+      ],
+      "steps": [
+        "1. Enter a Name value that includes leading and trailing whitespace",
+        "2. Fill all other required fields with valid values",
+        "3. Click Create"
+      ],
+      "expected_result": "Form submits successfully; Tax Component detail page displays the Name value without leading or trailing whitespace (whitespace is trimmed in saved value)",
       "priority": "low"
     }
   ],
   "summary": {
-    "total": 7,
-    "boundary": 0,
-    "input_edge": 4,
+    "total": 8,
+    "boundary": 3,
+    "input_edge": 1,
     "interaction_edge": 2,
     "state_edge": 0,
-    "data_edge": 1,
-    "medium_priority": 3,
-    "low_priority": 4
+    "data_edge": 2,
+    "medium_priority": 7,
+    "low_priority": 1
   }
 }

@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-22T21:41:13.063536
+DEBUG SESSION STARTED: 2026-05-25T15:09:37.473354
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[21:41:13] Test-Edge - SYSTEM PROMPT
+[15:09:37] Test-Edge - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Edge Case and Boundary Test Generator. You receive (1) a UI-AST JSON for one module and (2) the original functional description. Your job is to produce ONLY boundary and edge case tests — scenarios at the limits of valid/invalid input and unusual-but-plausible user behaviors.
 
@@ -24,6 +24,10 @@ You are NOT producing happy paths (positive prompt) or standard validation failu
 <description>
 {Original functional description text for this module}
 </description>
+
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
 
 ---
 
@@ -176,6 +180,15 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 
 ---
 
+**WORKFLOW-AWARE BOUNDARY SCOPING (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- For each workflow where `conditional_branch` activates a numeric or date field, check if that field has a boundary (a numeric/date threshold in the AST `constraints` or description).
+- If yes, that workflow's branch is a **candidate for a boundary edge test** — add or confirm a boundary TC exists for it.
+- Add `"wf_ref": "WF-NNN"` to each TC that maps to a specific workflow's boundary. Set `"wf_ref": null` for generic input/interaction edge tests.
+
+---
+
 **OUTPUT — JSON only, no prose, no markdown fencing:**
 
 {
@@ -184,6 +197,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": null,
       "subcategory": "boundary | input_edge | interaction_edge | state_edge | data_edge",
       "test_case": "Short descriptive name",
       "preconditions": ["precondition 1"],
@@ -206,7 +220,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 
 
 ------------------------------------------------------------
-[21:41:13] Test-Edge - USER PROMPT
+[15:09:37] Test-Edge - USER PROMPT
 ------------------------------------------------------------
 <module_name>Login</module_name>
 
@@ -230,30 +244,22 @@ If the module has any numeric/date/count threshold in the AST or description, pr
         {
           "element_name": "Log in",
           "type": "button",
-          "constraints": [
-            "both Username and Password must be provided"
-          ],
-          "on_success": "redirects to Dashboard",
-          "on_failure": "shows inline error message; clears Password field; retains Username field"
+          "on_success": "redirects student to Dashboard",
+          "on_failure": "shows inline error message; clears Password field; retains Username"
         }
       ]
     },
     "Lost_Password_Link": {
       "type": "link",
-      "element_name": "Lost password?",
-      "preconditions": [
-        "link disabled on this test site"
-      ]
+      "enabled": false
     },
-    "Access_as_Guest_Button": {
+    "Access_As_Guest_Button": {
       "type": "button",
-      "element_name": "Access as a guest",
-      "on_click": "grants unauthenticated browsing access"
+      "on_success": "grants guest access for unauthenticated browsing"
     },
     "Cookies_Notice_Button": {
       "type": "button",
-      "element_name": "Cookies notice",
-      "on_click": "shows cookie usage information"
+      "on_success": "displays cookie usage information"
     }
   }
 }
@@ -268,10 +274,16 @@ The login page displays a form with two required fields — Username and Passwor
 
 </description>
 
+<workflows>
+WF-001 | Log in with credentials | actor: <role> | branch: none | terminal: Log in | on_success: redirects student to Dashboard
+WF-002 | Access as guest | actor: <role> | branch: none | terminal: Access_As_Guest_Button | on_success: grants guest access for unauthenticated browsing
+WF-003 | View cookies notice | actor: <role> | branch: none | terminal: Cookies_Notice_Button | on_success: displays cookie usage information
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[21:41:37] Test-Edge - LLM RESPONSE
+[15:10:15] Test-Edge - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Login",
@@ -279,81 +291,87 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": "WF-001",
       "subcategory": "input_edge",
-      "test_case": "Very long Username and Password (200+ chars) submission",
+      "test_case": "Very long Username is retained after failed login",
       "preconditions": [
-        "User is on the Login page",
-        "There are no known valid credentials for the input values to be used (submission will be treated as invalid)"
+        "Login page is loaded"
       ],
       "steps": [
-        "1. Enter a very long string (200+ characters) in the Username field",
-        "2. Enter a very long string (200+ characters) in the Password field",
-        "3. Click the 'Log in' button"
+        "1. Focus the Username field",
+        "2. Enter a very long string (200+ characters) in the Username field",
+        "3. Focus the Password field",
+        "4. Enter an incorrect password in the Password field",
+        "5. Click the Log in button"
       ],
-      "expected_result": "Form submission is attempted and is blocked / error shown: an inline error message is displayed; the Password field is cleared; the Username field retains the entered very long string (visible in the Username input)",
+      "expected_result": "Login is blocked; an inline error message is shown. The Password field is cleared. The Username field retains the exact very long string entered (no client-side truncation visible).",
       "priority": "medium"
     },
     {
       "tc_id": "E-002",
+      "wf_ref": "WF-001",
       "subcategory": "input_edge",
-      "test_case": "Username and Password containing only whitespace characters",
+      "test_case": "Username with leading and trailing whitespace is preserved after failed login",
       "preconditions": [
-        "User is on the Login page"
+        "Login page is loaded"
       ],
       "steps": [
-        "1. Enter one or more whitespace characters (e.g., space characters) in the Username field",
-        "2. Enter one or more whitespace characters in the Password field",
-        "3. Click the 'Log in' button"
+        "1. Focus the Username field",
+        "2. Enter a Username value that includes leading and trailing whitespace",
+        "3. Focus the Password field",
+        "4. Enter an incorrect password in the Password field",
+        "5. Click the Log in button"
       ],
-      "expected_result": "Submission is blocked / error shown: inline error message appears indicating credentials must be provided; the Password field is cleared; the Username field retains the exact whitespace characters entered (visible in the input) — demonstrating how the UI treats whitespace-only input",
+      "expected_result": "Login is blocked; an inline error message is shown. The Password field is cleared. The Username field retains the exact value entered including leading and trailing whitespace (visible in the Username input).",
       "priority": "medium"
     },
     {
       "tc_id": "E-003",
-      "subcategory": "input_edge",
-      "test_case": "Username and Password with special characters and Unicode (emoji)",
+      "wf_ref": "WF-001",
+      "subcategory": "interaction_edge",
+      "test_case": "Rapid double submission of Log in leads to a single failure response and cleared password",
       "preconditions": [
-        "User is on the Login page",
-        "There are no known valid credentials for the input values to be used (submission will be treated as invalid)"
+        "Login page is loaded"
       ],
       "steps": [
-        "1. Enter a string containing special characters and Unicode (e.g., emoji, accented letters, symbols) in the Username field",
-        "2. Enter a string containing special characters and Unicode in the Password field",
-        "3. Click the 'Log in' button"
+        "1. Enter an existing Username in the Username field",
+        "2. Enter an incorrect password in the Password field",
+        "3. Click the Log in button",
+        "4. Immediately click the Log in button again (second click occurs before UI response completes)"
       ],
-      "expected_result": "Submission is blocked / error shown: inline error message is displayed; the Password field is cleared; the Username field retains the special-character/Unicode string exactly as entered (visible in the input)",
-      "priority": "low"
+      "expected_result": "Second submission attempt is blocked / ignored; only a single inline error message is shown. The Password field is cleared once. The Username field remains populated. No redirect to Dashboard occurs.",
+      "priority": "medium"
     },
     {
       "tc_id": "E-004",
+      "wf_ref": null,
       "subcategory": "interaction_edge",
-      "test_case": "Access as a guest then navigate back to Login page",
+      "test_case": "Disabled 'Lost password?' link does not navigate",
       "preconditions": [
-        "User is on the Login page"
+        "Login page is loaded"
       ],
       "steps": [
-        "1. Click the 'Access as a guest' button",
-        "2. Observe that unauthenticated browsing access is granted (page content for guest browsing is shown)",
-        "3. Use the browser Back button once"
+        "1. Locate the 'Lost password?' link which is disabled",
+        "2. Click the disabled 'Lost password?' link"
       ],
-      "expected_result": "Guest access succeeds: user is granted unauthenticated browsing access after clicking the button; after pressing Back, the Login page is shown and the Login form fields are empty (Username and Password not pre-filled with prior guest session values)",
+      "expected_result": "Click is blocked; no navigation occurs and no new page or modal is opened. The login form remains displayed unchanged and no error message is shown.",
       "priority": "low"
     }
   ],
   "summary": {
     "total": 4,
     "boundary": 0,
-    "input_edge": 3,
-    "interaction_edge": 1,
+    "input_edge": 2,
+    "interaction_edge": 2,
     "state_edge": 0,
     "data_edge": 0,
-    "medium_priority": 2,
-    "low_priority": 2
+    "medium_priority": 3,
+    "low_priority": 1
   }
 }
 
 ------------------------------------------------------------
-[21:41:37] Test-Edge - PARSED JSON
+[15:10:15] Test-Edge - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Login",
@@ -361,75 +379,81 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": "WF-001",
       "subcategory": "input_edge",
-      "test_case": "Very long Username and Password (200+ chars) submission",
+      "test_case": "Very long Username is retained after failed login",
       "preconditions": [
-        "User is on the Login page",
-        "There are no known valid credentials for the input values to be used (submission will be treated as invalid)"
+        "Login page is loaded"
       ],
       "steps": [
-        "1. Enter a very long string (200+ characters) in the Username field",
-        "2. Enter a very long string (200+ characters) in the Password field",
-        "3. Click the 'Log in' button"
+        "1. Focus the Username field",
+        "2. Enter a very long string (200+ characters) in the Username field",
+        "3. Focus the Password field",
+        "4. Enter an incorrect password in the Password field",
+        "5. Click the Log in button"
       ],
-      "expected_result": "Form submission is attempted and is blocked / error shown: an inline error message is displayed; the Password field is cleared; the Username field retains the entered very long string (visible in the Username input)",
+      "expected_result": "Login is blocked; an inline error message is shown. The Password field is cleared. The Username field retains the exact very long string entered (no client-side truncation visible).",
       "priority": "medium"
     },
     {
       "tc_id": "E-002",
+      "wf_ref": "WF-001",
       "subcategory": "input_edge",
-      "test_case": "Username and Password containing only whitespace characters",
+      "test_case": "Username with leading and trailing whitespace is preserved after failed login",
       "preconditions": [
-        "User is on the Login page"
+        "Login page is loaded"
       ],
       "steps": [
-        "1. Enter one or more whitespace characters (e.g., space characters) in the Username field",
-        "2. Enter one or more whitespace characters in the Password field",
-        "3. Click the 'Log in' button"
+        "1. Focus the Username field",
+        "2. Enter a Username value that includes leading and trailing whitespace",
+        "3. Focus the Password field",
+        "4. Enter an incorrect password in the Password field",
+        "5. Click the Log in button"
       ],
-      "expected_result": "Submission is blocked / error shown: inline error message appears indicating credentials must be provided; the Password field is cleared; the Username field retains the exact whitespace characters entered (visible in the input) \u2014 demonstrating how the UI treats whitespace-only input",
+      "expected_result": "Login is blocked; an inline error message is shown. The Password field is cleared. The Username field retains the exact value entered including leading and trailing whitespace (visible in the Username input).",
       "priority": "medium"
     },
     {
       "tc_id": "E-003",
-      "subcategory": "input_edge",
-      "test_case": "Username and Password with special characters and Unicode (emoji)",
+      "wf_ref": "WF-001",
+      "subcategory": "interaction_edge",
+      "test_case": "Rapid double submission of Log in leads to a single failure response and cleared password",
       "preconditions": [
-        "User is on the Login page",
-        "There are no known valid credentials for the input values to be used (submission will be treated as invalid)"
+        "Login page is loaded"
       ],
       "steps": [
-        "1. Enter a string containing special characters and Unicode (e.g., emoji, accented letters, symbols) in the Username field",
-        "2. Enter a string containing special characters and Unicode in the Password field",
-        "3. Click the 'Log in' button"
+        "1. Enter an existing Username in the Username field",
+        "2. Enter an incorrect password in the Password field",
+        "3. Click the Log in button",
+        "4. Immediately click the Log in button again (second click occurs before UI response completes)"
       ],
-      "expected_result": "Submission is blocked / error shown: inline error message is displayed; the Password field is cleared; the Username field retains the special-character/Unicode string exactly as entered (visible in the input)",
-      "priority": "low"
+      "expected_result": "Second submission attempt is blocked / ignored; only a single inline error message is shown. The Password field is cleared once. The Username field remains populated. No redirect to Dashboard occurs.",
+      "priority": "medium"
     },
     {
       "tc_id": "E-004",
+      "wf_ref": null,
       "subcategory": "interaction_edge",
-      "test_case": "Access as a guest then navigate back to Login page",
+      "test_case": "Disabled 'Lost password?' link does not navigate",
       "preconditions": [
-        "User is on the Login page"
+        "Login page is loaded"
       ],
       "steps": [
-        "1. Click the 'Access as a guest' button",
-        "2. Observe that unauthenticated browsing access is granted (page content for guest browsing is shown)",
-        "3. Use the browser Back button once"
+        "1. Locate the 'Lost password?' link which is disabled",
+        "2. Click the disabled 'Lost password?' link"
       ],
-      "expected_result": "Guest access succeeds: user is granted unauthenticated browsing access after clicking the button; after pressing Back, the Login page is shown and the Login form fields are empty (Username and Password not pre-filled with prior guest session values)",
+      "expected_result": "Click is blocked; no navigation occurs and no new page or modal is opened. The login form remains displayed unchanged and no error message is shown.",
       "priority": "low"
     }
   ],
   "summary": {
     "total": 4,
     "boundary": 0,
-    "input_edge": 3,
-    "interaction_edge": 1,
+    "input_edge": 2,
+    "interaction_edge": 2,
     "state_edge": 0,
     "data_edge": 0,
-    "medium_priority": 2,
-    "low_priority": 2
+    "medium_priority": 3,
+    "low_priority": 1
   }
 }

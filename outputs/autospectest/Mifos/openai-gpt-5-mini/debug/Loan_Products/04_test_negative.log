@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-21T22:29:06.524235
+DEBUG SESSION STARTED: 2026-05-25T14:24:50.722055
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[22:29:06] Test-Negative - SYSTEM PROMPT
+[14:24:50] Test-Negative - SYSTEM PROMPT
 ------------------------------------------------------------
 You are a Negative Test Case Generator. You receive (1) a UI-AST JSON for one module and (2) the original functional description. Your job is to produce ONLY negative test cases — tests where invalid input is provided or business rules are violated, and the system correctly rejects or blocks the action.
 
@@ -22,6 +22,10 @@ You are a Negative Test Case Generator. You receive (1) a UI-AST JSON for one mo
 <description>
 {Original functional description text for this module}
 </description>
+
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
 
 ---
 
@@ -111,6 +115,9 @@ Group required fields by type: `text/unspecified`, `email`, `password`, `number`
 
 Do NOT generate a separate blank-field test for every required field. If 5 text fields are all required, one representative covers them all.
 
+**Action dialog required fields — NOT subject to cross-form deduplication:**
+If a `state_bound_action_bar` action opens a dialog with its own required `fields{}` (e.g., Activate requires Activation Date, Reject requires a Reason, Withdraw requires a Reason, Close requires a Closure Reason), each such dialog is its own testing scope. Generate ONE "leave the required dialog field blank and submit" test per distinct action dialog. These are HIGH priority — they block state transitions and are common defect sites. Do not suppress them because the main wizard already has a blank-field test.
+
 **2. Format violations:**
 
 For fields with type-specific format rules (from AST type or description):
@@ -143,6 +150,10 @@ For each unique `constraints[]` entry in the AST, and for cross-field rules desc
 
 One test per unique constraint. Do not duplicate the same mechanism.
 
+**Constraint timing tests:** If the spec states an action is blocked by a pre-existing system state (e.g., "cannot close with active accounts", "cannot transfer to the same office"), generate TWO tests:
+1. The standard constraint violation test (user opens the dialog, fills required fields, submits → blocked).
+2. A constraint-timing test: user opens the dialog WITHOUT filling required fields → assert whether the block is shown immediately on dialog open (before the user fills anything) OR only on submit. This distinguishes whether the UI enforces the constraint eagerly or lazily. Steps: open the dialog, observe the state → assert what is visible before any interaction. If the spec is silent on timing, generate only the first test.
+
 **5. Precondition violations (auth, role, and state):**
 
 For each `preconditions[]` entry on any action — and for auth/role rules described in the spec:
@@ -154,18 +165,18 @@ For each `preconditions[]` entry on any action — and for auth/role rules descr
 **6. State-machine violations:**
 
 From `state_bound_action_bar` nodes:
-- For each state where an action is NOT listed in `available_actions`, generate one test attempting that action from that state. Example: attempting "Approve" on an entity already in "Active" state.
+- **Every defined state must have at least one wrong-state test.** For each state, identify at least one action that is NOT in its `available_actions` list and generate a test attempting that action from that state.
 - If a state has an empty `available_actions` array, generate one test verifying no action buttons are visible in that state.
-
-One test per unique wrong-state scenario — do not enumerate every action × every invalid state.
+- **Do not stop after 1–2 representative examples** when the module defines 4+ distinct states. The states Active, Pending, Closed, Rejected, and Withdrawn each have different action sets — each must be independently verified.
+- One test per state is sufficient — pick the most distinct unavailable action for that state. Do not enumerate every action × every state (that would be exponential).
 
 ---
 
 **DEDUPLICATION GATE (run before outputting):**
 
-1. **Required field dedup:** Multiple required text fields → ONE representative test, not one per field.
+1. **Required field dedup:** Multiple required text fields in the **same form or dialog** → ONE representative test, not one per field.
 2. **Sub-rule dedup:** A field with multiple validation sub-rules (e.g., password: length + uppercase + lowercase + number + special char) → ONE representative violation test, not one per sub-rule.
-3. **Cross-form dedup:** If two forms in the same module share the same validation mechanism (e.g., both have a required text field) → test it on the primary form only.
+3. **Cross-form dedup:** If two **main forms** in the same module share the same validation mechanism → test it on the primary form only. **Exception: action dialogs are never suppressed by cross-form dedup** — each action dialog with a required field gets its own blank-field test regardless.
 4. **Uniqueness check:** Before outputting, ask for each TC: "Does this test catch a bug that NO other test in this module would catch?" If no → remove it.
 
 ---
@@ -174,9 +185,11 @@ One test per unique wrong-state scenario — do not enumerate every action × ev
 
 - Simple module (login, single form, display page): **2–4 tests**
 - Medium module (standard CRUD form, form with constraints): **4–8 tests**
-- Complex module (state machine, multi-form, wizard with many constraints): **8–12 tests**
+- Complex module (state machine, multi-form, wizard with many constraints): **10–16 tests**
 
-If you exceed these ranges, you are generating redundant tests. Apply the deduplication gate again before outputting.
+For modules with a `state_bound_action_bar` defining 4+ states, the state-machine violation tests alone will produce 4–5 tests. This is expected and correct — do not suppress them to hit a lower target.
+
+If you exceed the upper range, apply the deduplication gate again before outputting.
 
 ---
 
@@ -184,6 +197,17 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
 
 - **High:** State precondition violations, constraint violations that could corrupt data, unauthenticated access, required field representatives
 - **Medium:** Format violations, cross-field validation, numeric bounds, wrong-role access, wrong-state action attempts
+
+---
+
+**WORKFLOW-AWARE FAILURE INJECTION (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- For each workflow that contains a form interaction (terminal action is a submit/save/create/approve button):
+  - Identify the most **critical blocking failure** for that workflow's `conditional_branch`.
+  - If that failure mode is NOT already covered by another workflow's negative test, generate one negative TC for it.
+- **Do NOT generate one negative TC per workflow mechanically.** Apply the existing deduplication gate first — only add a TC if it catches a bug that no other test would catch.
+- Add `"wf_ref": "WF-NNN"` to each TC that maps to a workflow. Set `"wf_ref": null` for generic validation tests.
 
 ---
 
@@ -195,6 +219,7 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
   "test_cases": [
     {
       "tc_id": "N-001",
+      "wf_ref": null,
       "test_case": "Short descriptive name",
       "preconditions": ["precondition 1"],
       "steps": ["1. Step one", "2. Step two"],
@@ -212,7 +237,7 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
 
 
 ------------------------------------------------------------
-[22:29:06] Test-Negative - USER PROMPT
+[14:24:50] Test-Negative - USER PROMPT
 ------------------------------------------------------------
 <module_name>Loan Products</module_name>
 
@@ -220,9 +245,19 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
 {
   "module_name": "Loan Products",
   "components": {
-    "Filter_Bar": {
+    "Loan_Products_Filter_Bar": {
       "type": "filter_bar",
-      "fields": {}
+      "fields": {
+        "Search": {
+          "type": "search",
+          "required": false
+        }
+      }
+    },
+    "Create_Loan_Product_Button": {
+      "type": "button",
+      "element_name": "+ Create Loan Product",
+      "on_click": "opens Create_Loan_Product_Wizard"
     },
     "Loan_Products_Table": {
       "type": "data_table",
@@ -232,22 +267,25 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
         "Expiry Date",
         "Status"
       ],
-      "columns_clickable": [
-        "Name"
-      ],
       "row_actions": [
         {
-          "action_name": "Open_Detail",
-          "trigger": "click_Name_link"
+          "action_name": "Open",
+          "element_type": "link",
+          "target_column": "Name",
+          "on_success": "opens product detail view"
         }
-      ],
-      "bulk_actions": []
+      ]
     },
-    "Create_Loan_Product_Button": {
-      "type": "button",
-      "element_name": "+ Create Loan Product",
-      "action": "opens_wizard",
-      "opens": "Create_Loan_Product_Wizard"
+    "Loan_Product_Detail_View": {
+      "type": "detail_view",
+      "fields": {},
+      "actions": [
+        {
+          "action_name": "Edit",
+          "type": "button",
+          "on_success": "enables edit mode for loan product"
+        }
+      ]
     },
     "Create_Loan_Product_Wizard": {
       "type": "wizard",
@@ -257,21 +295,21 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
           "step_name": "Details",
           "fields": {
             "Product_Name": {
-              "type": "text",
+              "type": "unspecified",
               "required": true,
               "constraints": [
-                "shows inline validation errors"
+                "shows inline validation error when empty"
               ]
             },
             "Short_Name": {
-              "type": "text",
+              "type": "unspecified",
               "required": true,
               "constraints": [
-                "shows inline validation errors"
+                "shows inline validation error when empty"
               ]
             },
             "External_Id": {
-              "type": "text",
+              "type": "unspecified",
               "required": false
             },
             "Fund": {
@@ -291,7 +329,7 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
               "required": false
             },
             "Description": {
-              "type": "text",
+              "type": "unspecified",
               "required": false
             }
           }
@@ -313,9 +351,8 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
               "required": false
             },
             "Principal_Amount": {
-              "type": "object",
-              "required": false,
-              "item_fields": {
+              "type": "group",
+              "fields": {
                 "Minimum": {
                   "type": "number",
                   "required": false
@@ -396,9 +433,8 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
           "step_name": "Terms",
           "fields": {
             "Number_of_Repayments": {
-              "type": "object",
-              "required": false,
-              "item_fields": {
+              "type": "group",
+              "fields": {
                 "Minimum": {
                   "type": "number",
                   "required": false
@@ -414,10 +450,9 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
               }
             },
             "Repaid_Every": {
-              "type": "object",
-              "required": false,
-              "item_fields": {
-                "Value": {
+              "type": "group",
+              "fields": {
+                "Frequency": {
                   "type": "number",
                   "required": false
                 },
@@ -433,9 +468,8 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
               }
             },
             "Nominal_Interest_Rate": {
-              "type": "object",
-              "required": false,
-              "item_fields": {
+              "type": "group",
+              "fields": {
                 "Minimum": {
                   "type": "number",
                   "required": false
@@ -456,19 +490,30 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
           "step_index": 5,
           "step_name": "Charges",
           "fields": {
-            "Charge_Search": {
+            "Charges_Search": {
               "type": "search",
               "required": false
             },
+            "Add_Charge": {
+              "type": "button",
+              "element_name": "Add",
+              "required": false,
+              "on_click": "adds selected predefined charge to Selected_Charges"
+            },
             "Selected_Charges": {
               "type": "repeating_group",
-              "required": false,
               "item_fields": {
                 "Charge": {
                   "type": "unspecified",
                   "required": false
+                },
+                "Remove": {
+                  "type": "button",
+                  "element_name": "Remove",
+                  "on_click": "removes this charge from Selected_Charges"
                 }
-              }
+              },
+              "required": false
             }
           }
         },
@@ -486,56 +531,42 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
                 "Accrual (upfront)"
               ]
             },
-            "GL_Mappings": {
-              "type": "object",
+            "Fund_Source_GL_Account": {
+              "type": "dropdown",
               "required": false,
-              "item_fields": {
-                "Fund_Source": {
-                  "type": "dropdown",
-                  "required": false,
-                  "visible_when": "Accounting_Method != None"
-                },
-                "Loan_Portfolio": {
-                  "type": "dropdown",
-                  "required": false,
-                  "visible_when": "Accounting_Method != None"
-                },
-                "Interest_on_Loans": {
-                  "type": "dropdown",
-                  "required": false,
-                  "visible_when": "Accounting_Method != None"
-                },
-                "Income_from_Fees": {
-                  "type": "dropdown",
-                  "required": false,
-                  "visible_when": "Accounting_Method != None"
-                },
-                "Income_from_Penalties": {
-                  "type": "dropdown",
-                  "required": false,
-                  "visible_when": "Accounting_Method != None"
-                },
-                "Losses_Written_Off": {
-                  "type": "dropdown",
-                  "required": false,
-                  "visible_when": "Accounting_Method != None"
-                },
-                "Overpayment_Liability": {
-                  "type": "dropdown",
-                  "required": false,
-                  "visible_when": "Accounting_Method != None"
-                }
-              }
+              "visible_when": "Accounting_Method != None"
+            },
+            "Loan_Portfolio_GL_Account": {
+              "type": "dropdown",
+              "required": false,
+              "visible_when": "Accounting_Method != None"
+            },
+            "Interest_on_Loans_GL_Account": {
+              "type": "dropdown",
+              "required": false,
+              "visible_when": "Accounting_Method != None"
+            },
+            "Income_from_Fees_GL_Account": {
+              "type": "dropdown",
+              "required": false,
+              "visible_when": "Accounting_Method != None"
+            },
+            "Income_from_Penalties_GL_Account": {
+              "type": "dropdown",
+              "required": false,
+              "visible_when": "Accounting_Method != None"
+            },
+            "Losses_Written_Off_GL_Account": {
+              "type": "dropdown",
+              "required": false,
+              "visible_when": "Accounting_Method != None"
+            },
+            "Overpayment_Liability_GL_Account": {
+              "type": "dropdown",
+              "required": false,
+              "visible_when": "Accounting_Method != None"
             }
           }
-        }
-      ]
-    },
-    "Loan_Product_Detail": {
-      "type": "detail_view",
-      "actions": [
-        {
-          "action_name": "Edit"
         }
       ]
     }
@@ -552,10 +583,18 @@ The Loan Products page displays a filter bar and a data table listing all loan p
 
 </description>
 
+<workflows>
+WF-001 | Open Create Loan Product wizard | actor: <role> | branch: none | terminal: + Create Loan Product | on_success: opens Create_Loan_Product_Wizard
+WF-002 | Open loan product detail from table | actor: <role> | branch: none | terminal: Open | on_success: opens product detail view
+WF-003 | Enter edit mode from loan product detail | actor: <role> | branch: none | terminal: Edit | on_success: enables edit mode for loan product
+WF-004 | Add a predefined charge in Charges step | actor: <role> | branch: none | terminal: Add | on_success: adds selected predefined charge to Selected_Charges
+WF-005 | Remove a selected charge from Selected_Charges | actor: <role> | branch: none | terminal: Remove | on_success: removes this charge from Selected_Charges
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[22:31:05] Test-Negative - LLM RESPONSE
+[14:27:02] Test-Negative - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Loan Products",
@@ -563,74 +602,95 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "N-001",
-      "test_case": "Required text field left blank (representative) - Product Name",
+      "wf_ref": "WF-001",
+      "test_case": "Leave required text field (Product Name) blank and attempt to proceed",
       "preconditions": [
-        "User is on the Loan Products page"
+        "User is logged in and on the Loan Products page"
       ],
       "steps": [
-        "1. Click the '+ Create Loan Product' button to open the Create Loan Product wizard",
+        "1. Click the '+ Create Loan Product' button to open the wizard",
         "2. Leave the Product Name field blank",
         "3. Enter <valid short name> into the Short Name field",
-        "4. Click Next to proceed to Step 2 (Currency)"
+        "4. Click the 'Next' button to proceed to Step 2 (Currency)"
       ],
-      "expected_result": "Product Name field displays an inline validation error indicating it is required; the wizard does not proceed to Step 2 (Currency); no loan product is created.",
+      "expected_result": "Product Name field displays an inline validation error indicating it is required; the wizard does not advance to Step 2; the loan product is not created or saved",
       "priority": "high"
     },
     {
       "tc_id": "N-002",
-      "test_case": "All required fields empty on Details step",
+      "wf_ref": "WF-001",
+      "test_case": "Submit wizard Step 1 with ALL required fields empty",
       "preconditions": [
-        "User is on the Loan Products page"
+        "User is logged in and on the Loan Products page"
       ],
       "steps": [
-        "1. Click the '+ Create Loan Product' button to open the Create Loan Product wizard",
+        "1. Click the '+ Create Loan Product' button to open the wizard",
         "2. Leave the Product Name field blank",
         "3. Leave the Short Name field blank",
-        "4. Click Next to attempt to proceed to Step 2 (Currency)"
+        "4. Click the 'Next' button to attempt to proceed to Step 2 (Currency)"
       ],
-      "expected_result": "Product Name and Short Name fields each display inline validation errors indicating they are required; the wizard does not proceed to Step 2 (Currency); no loan product is created.",
+      "expected_result": "Product Name and Short Name fields each display inline validation errors indicating they are required; the wizard does not advance to Step 2; no loan product is created",
       "priority": "high"
     },
     {
       "tc_id": "N-003",
-      "test_case": "Number field receives non-numeric input - Decimal Places",
+      "wf_ref": "WF-001",
+      "test_case": "Enter non-numeric input into a numeric field (Decimal Places) and attempt to proceed",
       "preconditions": [
-        "User is on the Loan Products page"
+        "User is logged in and on the Loan Products page",
+        "A new Create Loan Product wizard is open and Step 1 required fields are completed with <valid product name> and <valid short name>"
       ],
       "steps": [
-        "1. Click the '+ Create Loan Product' button to open the Create Loan Product wizard",
-        "2. Click Next to navigate to Step 2 (Currency)",
-        "3. Enter <non-numeric input> into the Decimal Places field",
-        "4. Click Next to attempt to proceed to Step 3 (Settings)"
+        "1. From Step 1, click the 'Next' button to navigate to Step 2 (Currency)",
+        "2. Enter <non-numeric input> into the Decimal Places field",
+        "3. Click the 'Next' button to attempt to proceed to Step 3 (Settings)"
       ],
-      "expected_result": "Decimal Places field displays an inline validation error indicating it must be a number (numeric input required); the wizard does not proceed to Step 3 (Settings); no loan product is created.",
+      "expected_result": "Decimal Places field displays an inline validation error indicating it must be a number; the wizard does not advance to Step 3; the loan product is not created",
       "priority": "medium"
     },
     {
       "tc_id": "N-004",
-      "test_case": "Invalid date format in Start Date",
+      "wf_ref": "WF-001",
+      "test_case": "Enter an invalid date in Start Date and attempt to proceed",
       "preconditions": [
-        "User is on the Loan Products page"
+        "User is logged in and on the Loan Products page"
       ],
       "steps": [
-        "1. Click the '+ Create Loan Product' button to open the Create Loan Product wizard",
-        "2. Enter <invalid date format> into the Start Date field on Step 1 (Details)",
-        "3. Click Next to attempt to proceed to Step 2 (Currency)"
+        "1. Click the '+ Create Loan Product' button to open the wizard",
+        "2. Enter <valid product name> into Product Name",
+        "3. Enter <valid short name> into Short Name",
+        "4. Enter <invalid date format> into the Start Date field on Step 1 (Details)",
+        "5. Click the 'Next' button to attempt to proceed to Step 2 (Currency)"
       ],
-      "expected_result": "Start Date field displays an inline validation error indicating the date is invalid or in an incorrect format; the wizard does not proceed to Step 2 (Currency); no loan product is created.",
+      "expected_result": "Start Date field displays an inline validation error indicating the date is invalid or malformed; the wizard does not advance to Step 2; the loan product is not created",
       "priority": "medium"
+    },
+    {
+      "tc_id": "N-005",
+      "wf_ref": "WF-004",
+      "test_case": "Click 'Add' in Charges step without selecting a charge",
+      "preconditions": [
+        "User is logged in and on the Loan Products page",
+        "A new Create Loan Product wizard is open and Steps 1-4 are completed sufficiently to navigate to Step 5 (Charges)"
+      ],
+      "steps": [
+        "1. On Step 5 (Charges), ensure no charge is selected in the Charges_Search control (leave selection empty)",
+        "2. Click the 'Add' button"
+      ],
+      "expected_result": "An inline validation message appears near the Charges_Search or Add control indicating a charge must be selected before adding (e.g. 'Select a charge to add'); no item is added to Selected_Charges and the wizard remains on Step 5",
+      "priority": "high"
     }
   ],
   "summary": {
-    "total": 4,
-    "high_priority": 2,
+    "total": 5,
+    "high_priority": 3,
     "medium_priority": 2,
     "low_priority": 0
   }
 }
 
 ------------------------------------------------------------
-[22:31:05] Test-Negative - PARSED JSON
+[14:27:02] Test-Negative - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Loan Products",
@@ -638,67 +698,88 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "N-001",
-      "test_case": "Required text field left blank (representative) - Product Name",
+      "wf_ref": "WF-001",
+      "test_case": "Leave required text field (Product Name) blank and attempt to proceed",
       "preconditions": [
-        "User is on the Loan Products page"
+        "User is logged in and on the Loan Products page"
       ],
       "steps": [
-        "1. Click the '+ Create Loan Product' button to open the Create Loan Product wizard",
+        "1. Click the '+ Create Loan Product' button to open the wizard",
         "2. Leave the Product Name field blank",
         "3. Enter <valid short name> into the Short Name field",
-        "4. Click Next to proceed to Step 2 (Currency)"
+        "4. Click the 'Next' button to proceed to Step 2 (Currency)"
       ],
-      "expected_result": "Product Name field displays an inline validation error indicating it is required; the wizard does not proceed to Step 2 (Currency); no loan product is created.",
+      "expected_result": "Product Name field displays an inline validation error indicating it is required; the wizard does not advance to Step 2; the loan product is not created or saved",
       "priority": "high"
     },
     {
       "tc_id": "N-002",
-      "test_case": "All required fields empty on Details step",
+      "wf_ref": "WF-001",
+      "test_case": "Submit wizard Step 1 with ALL required fields empty",
       "preconditions": [
-        "User is on the Loan Products page"
+        "User is logged in and on the Loan Products page"
       ],
       "steps": [
-        "1. Click the '+ Create Loan Product' button to open the Create Loan Product wizard",
+        "1. Click the '+ Create Loan Product' button to open the wizard",
         "2. Leave the Product Name field blank",
         "3. Leave the Short Name field blank",
-        "4. Click Next to attempt to proceed to Step 2 (Currency)"
+        "4. Click the 'Next' button to attempt to proceed to Step 2 (Currency)"
       ],
-      "expected_result": "Product Name and Short Name fields each display inline validation errors indicating they are required; the wizard does not proceed to Step 2 (Currency); no loan product is created.",
+      "expected_result": "Product Name and Short Name fields each display inline validation errors indicating they are required; the wizard does not advance to Step 2; no loan product is created",
       "priority": "high"
     },
     {
       "tc_id": "N-003",
-      "test_case": "Number field receives non-numeric input - Decimal Places",
+      "wf_ref": "WF-001",
+      "test_case": "Enter non-numeric input into a numeric field (Decimal Places) and attempt to proceed",
       "preconditions": [
-        "User is on the Loan Products page"
+        "User is logged in and on the Loan Products page",
+        "A new Create Loan Product wizard is open and Step 1 required fields are completed with <valid product name> and <valid short name>"
       ],
       "steps": [
-        "1. Click the '+ Create Loan Product' button to open the Create Loan Product wizard",
-        "2. Click Next to navigate to Step 2 (Currency)",
-        "3. Enter <non-numeric input> into the Decimal Places field",
-        "4. Click Next to attempt to proceed to Step 3 (Settings)"
+        "1. From Step 1, click the 'Next' button to navigate to Step 2 (Currency)",
+        "2. Enter <non-numeric input> into the Decimal Places field",
+        "3. Click the 'Next' button to attempt to proceed to Step 3 (Settings)"
       ],
-      "expected_result": "Decimal Places field displays an inline validation error indicating it must be a number (numeric input required); the wizard does not proceed to Step 3 (Settings); no loan product is created.",
+      "expected_result": "Decimal Places field displays an inline validation error indicating it must be a number; the wizard does not advance to Step 3; the loan product is not created",
       "priority": "medium"
     },
     {
       "tc_id": "N-004",
-      "test_case": "Invalid date format in Start Date",
+      "wf_ref": "WF-001",
+      "test_case": "Enter an invalid date in Start Date and attempt to proceed",
       "preconditions": [
-        "User is on the Loan Products page"
+        "User is logged in and on the Loan Products page"
       ],
       "steps": [
-        "1. Click the '+ Create Loan Product' button to open the Create Loan Product wizard",
-        "2. Enter <invalid date format> into the Start Date field on Step 1 (Details)",
-        "3. Click Next to attempt to proceed to Step 2 (Currency)"
+        "1. Click the '+ Create Loan Product' button to open the wizard",
+        "2. Enter <valid product name> into Product Name",
+        "3. Enter <valid short name> into Short Name",
+        "4. Enter <invalid date format> into the Start Date field on Step 1 (Details)",
+        "5. Click the 'Next' button to attempt to proceed to Step 2 (Currency)"
       ],
-      "expected_result": "Start Date field displays an inline validation error indicating the date is invalid or in an incorrect format; the wizard does not proceed to Step 2 (Currency); no loan product is created.",
+      "expected_result": "Start Date field displays an inline validation error indicating the date is invalid or malformed; the wizard does not advance to Step 2; the loan product is not created",
       "priority": "medium"
+    },
+    {
+      "tc_id": "N-005",
+      "wf_ref": "WF-004",
+      "test_case": "Click 'Add' in Charges step without selecting a charge",
+      "preconditions": [
+        "User is logged in and on the Loan Products page",
+        "A new Create Loan Product wizard is open and Steps 1-4 are completed sufficiently to navigate to Step 5 (Charges)"
+      ],
+      "steps": [
+        "1. On Step 5 (Charges), ensure no charge is selected in the Charges_Search control (leave selection empty)",
+        "2. Click the 'Add' button"
+      ],
+      "expected_result": "An inline validation message appears near the Charges_Search or Add control indicating a charge must be selected before adding (e.g. 'Select a charge to add'); no item is added to Selected_Charges and the wizard remains on Step 5",
+      "priority": "high"
     }
   ],
   "summary": {
-    "total": 4,
-    "high_priority": 2,
+    "total": 5,
+    "high_priority": 3,
     "medium_priority": 2,
     "low_priority": 0
   }

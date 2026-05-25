@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-21T22:29:06.555103
+DEBUG SESSION STARTED: 2026-05-25T14:24:50.743927
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[22:29:06] Test-Negative - SYSTEM PROMPT
+[14:24:50] Test-Negative - SYSTEM PROMPT
 ------------------------------------------------------------
 You are a Negative Test Case Generator. You receive (1) a UI-AST JSON for one module and (2) the original functional description. Your job is to produce ONLY negative test cases — tests where invalid input is provided or business rules are violated, and the system correctly rejects or blocks the action.
 
@@ -22,6 +22,10 @@ You are a Negative Test Case Generator. You receive (1) a UI-AST JSON for one mo
 <description>
 {Original functional description text for this module}
 </description>
+
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
 
 ---
 
@@ -111,6 +115,9 @@ Group required fields by type: `text/unspecified`, `email`, `password`, `number`
 
 Do NOT generate a separate blank-field test for every required field. If 5 text fields are all required, one representative covers them all.
 
+**Action dialog required fields — NOT subject to cross-form deduplication:**
+If a `state_bound_action_bar` action opens a dialog with its own required `fields{}` (e.g., Activate requires Activation Date, Reject requires a Reason, Withdraw requires a Reason, Close requires a Closure Reason), each such dialog is its own testing scope. Generate ONE "leave the required dialog field blank and submit" test per distinct action dialog. These are HIGH priority — they block state transitions and are common defect sites. Do not suppress them because the main wizard already has a blank-field test.
+
 **2. Format violations:**
 
 For fields with type-specific format rules (from AST type or description):
@@ -143,6 +150,10 @@ For each unique `constraints[]` entry in the AST, and for cross-field rules desc
 
 One test per unique constraint. Do not duplicate the same mechanism.
 
+**Constraint timing tests:** If the spec states an action is blocked by a pre-existing system state (e.g., "cannot close with active accounts", "cannot transfer to the same office"), generate TWO tests:
+1. The standard constraint violation test (user opens the dialog, fills required fields, submits → blocked).
+2. A constraint-timing test: user opens the dialog WITHOUT filling required fields → assert whether the block is shown immediately on dialog open (before the user fills anything) OR only on submit. This distinguishes whether the UI enforces the constraint eagerly or lazily. Steps: open the dialog, observe the state → assert what is visible before any interaction. If the spec is silent on timing, generate only the first test.
+
 **5. Precondition violations (auth, role, and state):**
 
 For each `preconditions[]` entry on any action — and for auth/role rules described in the spec:
@@ -154,18 +165,18 @@ For each `preconditions[]` entry on any action — and for auth/role rules descr
 **6. State-machine violations:**
 
 From `state_bound_action_bar` nodes:
-- For each state where an action is NOT listed in `available_actions`, generate one test attempting that action from that state. Example: attempting "Approve" on an entity already in "Active" state.
+- **Every defined state must have at least one wrong-state test.** For each state, identify at least one action that is NOT in its `available_actions` list and generate a test attempting that action from that state.
 - If a state has an empty `available_actions` array, generate one test verifying no action buttons are visible in that state.
-
-One test per unique wrong-state scenario — do not enumerate every action × every invalid state.
+- **Do not stop after 1–2 representative examples** when the module defines 4+ distinct states. The states Active, Pending, Closed, Rejected, and Withdrawn each have different action sets — each must be independently verified.
+- One test per state is sufficient — pick the most distinct unavailable action for that state. Do not enumerate every action × every state (that would be exponential).
 
 ---
 
 **DEDUPLICATION GATE (run before outputting):**
 
-1. **Required field dedup:** Multiple required text fields → ONE representative test, not one per field.
+1. **Required field dedup:** Multiple required text fields in the **same form or dialog** → ONE representative test, not one per field.
 2. **Sub-rule dedup:** A field with multiple validation sub-rules (e.g., password: length + uppercase + lowercase + number + special char) → ONE representative violation test, not one per sub-rule.
-3. **Cross-form dedup:** If two forms in the same module share the same validation mechanism (e.g., both have a required text field) → test it on the primary form only.
+3. **Cross-form dedup:** If two **main forms** in the same module share the same validation mechanism → test it on the primary form only. **Exception: action dialogs are never suppressed by cross-form dedup** — each action dialog with a required field gets its own blank-field test regardless.
 4. **Uniqueness check:** Before outputting, ask for each TC: "Does this test catch a bug that NO other test in this module would catch?" If no → remove it.
 
 ---
@@ -174,9 +185,11 @@ One test per unique wrong-state scenario — do not enumerate every action × ev
 
 - Simple module (login, single form, display page): **2–4 tests**
 - Medium module (standard CRUD form, form with constraints): **4–8 tests**
-- Complex module (state machine, multi-form, wizard with many constraints): **8–12 tests**
+- Complex module (state machine, multi-form, wizard with many constraints): **10–16 tests**
 
-If you exceed these ranges, you are generating redundant tests. Apply the deduplication gate again before outputting.
+For modules with a `state_bound_action_bar` defining 4+ states, the state-machine violation tests alone will produce 4–5 tests. This is expected and correct — do not suppress them to hit a lower target.
+
+If you exceed the upper range, apply the deduplication gate again before outputting.
 
 ---
 
@@ -184,6 +197,17 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
 
 - **High:** State precondition violations, constraint violations that could corrupt data, unauthenticated access, required field representatives
 - **Medium:** Format violations, cross-field validation, numeric bounds, wrong-role access, wrong-state action attempts
+
+---
+
+**WORKFLOW-AWARE FAILURE INJECTION (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- For each workflow that contains a form interaction (terminal action is a submit/save/create/approve button):
+  - Identify the most **critical blocking failure** for that workflow's `conditional_branch`.
+  - If that failure mode is NOT already covered by another workflow's negative test, generate one negative TC for it.
+- **Do NOT generate one negative TC per workflow mechanically.** Apply the existing deduplication gate first — only add a TC if it catches a bug that no other test would catch.
+- Add `"wf_ref": "WF-NNN"` to each TC that maps to a workflow. Set `"wf_ref": null` for generic validation tests.
 
 ---
 
@@ -195,6 +219,7 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
   "test_cases": [
     {
       "tc_id": "N-001",
+      "wf_ref": null,
       "test_case": "Short descriptive name",
       "preconditions": ["precondition 1"],
       "steps": ["1. Step one", "2. Step two"],
@@ -212,7 +237,7 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
 
 
 ------------------------------------------------------------
-[22:29:06] Test-Negative - USER PROMPT
+[14:24:50] Test-Negative - USER PROMPT
 ------------------------------------------------------------
 <module_name>Account Transfers & Standing Instructions</module_name>
 
@@ -267,7 +292,7 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
           "type": "number",
           "required": true,
           "constraints": [
-            "error shown if amount exceeds available balance"
+            "must be <= available balance (error shown if exceeded)"
           ]
         },
         "Transfer_Date": {
@@ -282,11 +307,11 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
       "submit_actions": [
         {
           "element_name": "Submit",
-          "on_success": "processes transfer; debits the source account and credits the destination account"
+          "on_success": "processes transfer; debits source account and credits destination account"
         }
       ]
     },
-    "Standing_Instructions_Page": {
+    "Standing_Instructions_Table": {
       "type": "data_table",
       "columns": [
         "Name",
@@ -299,30 +324,32 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
         "Validity Till",
         "Status"
       ],
-      "status_values": [
-        "Active",
-        "Disabled"
+      "top_actions": [
+        {
+          "element_name": "+ Create Standing Instruction",
+          "opens_form": "Create_Standing_Instruction_Form"
+        }
       ],
-      "create_button": {
-        "element_name": "+ Create Standing Instruction",
-        "action": "opens_form",
-        "opens_form": "Create_Standing_Instruction_Form"
-      },
       "row_actions": [
         {
           "action_name": "Enable",
-          "on_success": "sets status to Active"
+          "preconditions": [
+            "status must be Disabled"
+          ],
+          "on_success": "changes status to Active"
         },
         {
           "action_name": "Disable",
-          "on_success": "sets status to Disabled"
+          "preconditions": [
+            "status must be Active"
+          ],
+          "on_success": "changes status to Disabled"
         },
         {
           "action_name": "Delete",
           "on_success": "removes standing instruction from listing"
         }
-      ],
-      "bulk_actions": []
+      ]
     },
     "Create_Standing_Instruction_Form": {
       "type": "form",
@@ -406,10 +433,18 @@ The Standing Instructions page displays a data table with columns for Name, From
 
 </description>
 
+<workflows>
+WF-001 | Process Account Transfer (Submit) | actor: <role> | branch: none | terminal: Submit | on_success: processes transfer; debits source account and credits destination account
+WF-002 | Create Standing Instruction (Create) | actor: <role> | branch: none | terminal: Create | on_success: creates standing instruction
+WF-003 | Enable Standing Instruction (row action) | actor: <role> | branch: none | terminal: Enable | on_success: changes status to Active
+WF-004 | Disable Standing Instruction (row action) | actor: <role> | branch: none | terminal: Disable | on_success: changes status to Disabled
+WF-005 | Delete Standing Instruction (row action) | actor: <role> | branch: none | terminal: Delete | on_success: removes standing instruction from listing
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[22:35:18] Test-Negative - LLM RESPONSE
+[14:32:00] Test-Negative - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Account Transfers & Standing Instructions",
@@ -417,131 +452,178 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "N-001",
-      "test_case": "Transfer Amount left blank (number required)",
+      "wf_ref": "WF-001",
+      "test_case": "Transfer - leave required number field (Transfer Amount) blank",
       "preconditions": [
-        "User is on the Account Transfers form",
-        "All other fields are filled with valid values except Transfer Amount"
+        "User is on the Account Transfers form"
       ],
       "steps": [
-        "1. Leave the Transfer Amount field blank",
-        "2. Enter <valid date> in the Transfer Date field",
-        "3. Click Submit"
+        "1. Navigate to the Account Transfers form",
+        "2. Leave the Transfer Amount field blank",
+        "3. Enter <valid date> in the Transfer Date field",
+        "4. Click the Submit button"
       ],
-      "expected_result": "Inline validation error appears on the Transfer Amount field indicating it is required; the form does not submit; no transfer is processed and source/destination account balances remain unchanged",
+      "expected_result": "Transfer Amount field displays an inline validation error indicating it is required; form does not submit; no transfer is processed (no debit/credit occurs).",
       "priority": "high"
     },
     {
       "tc_id": "N-002",
-      "test_case": "Transfer Date left blank (date required)",
+      "wf_ref": "WF-001",
+      "test_case": "Transfer - leave required date field (Transfer Date) blank",
       "preconditions": [
-        "User is on the Account Transfers form",
-        "All other fields are filled with valid values except Transfer Date"
+        "User is on the Account Transfers form"
       ],
       "steps": [
-        "1. Enter <valid numeric amount> in the Transfer Amount field",
-        "2. Leave the Transfer Date field blank",
-        "3. Click Submit"
+        "1. Navigate to the Account Transfers form",
+        "2. Enter <valid amount> in the Transfer Amount field",
+        "3. Leave the Transfer Date field blank",
+        "4. Click the Submit button"
       ],
-      "expected_result": "Inline validation error appears on the Transfer Date field indicating it is required; the form does not submit; no transfer is processed and source/destination account balances remain unchanged",
+      "expected_result": "Transfer Date field displays an inline validation error indicating it is required; form does not submit; no transfer is processed (no debit/credit occurs).",
       "priority": "high"
     },
     {
       "tc_id": "N-003",
-      "test_case": "Submit transfer with all required fields empty",
+      "wf_ref": "WF-001",
+      "test_case": "Transfer - submit with ALL required fields empty",
       "preconditions": [
-        "User is on the Account Transfers form",
-        "No required fields are filled"
+        "User is on the Account Transfers form"
       ],
       "steps": [
-        "1. Leave the Transfer Amount field blank",
-        "2. Leave the Transfer Date field blank",
-        "3. Click Submit"
+        "1. Navigate to the Account Transfers form",
+        "2. Leave the Transfer Amount field blank",
+        "3. Leave the Transfer Date field blank",
+        "4. Click the Submit button"
       ],
-      "expected_result": "Inline validation errors appear on the Transfer Amount and Transfer Date fields indicating they are required; the form does not submit; no transfer is processed and source/destination account balances remain unchanged",
+      "expected_result": "Inline validation errors appear on both Transfer Amount and Transfer Date indicating they are required; form does not submit; no transfer is processed (no debit/credit occurs).",
       "priority": "high"
     },
     {
       "tc_id": "N-004",
-      "test_case": "Transfer Amount non-numeric input (number format violation)",
+      "wf_ref": "WF-001",
+      "test_case": "Transfer - Transfer Amount with non-numeric input (invalid number format)",
       "preconditions": [
         "User is on the Account Transfers form"
       ],
       "steps": [
-        "1. Enter <non-numeric input> in the Transfer Amount field",
-        "2. Enter <valid date> in the Transfer Date field",
-        "3. Click Submit"
+        "1. Navigate to the Account Transfers form",
+        "2. Enter <non-numeric input> in the Transfer Amount field",
+        "3. Enter <valid date> in the Transfer Date field",
+        "4. Click the Submit button"
       ],
-      "expected_result": "Transfer Amount field displays an inline validation error indicating the value must be numeric; the form does not submit; no transfer is processed",
+      "expected_result": "Transfer Amount field displays an inline validation error indicating invalid number format (must be numeric); form does not submit; no transfer is processed.",
       "priority": "medium"
     },
     {
       "tc_id": "N-005",
-      "test_case": "Transfer Date invalid/impossible date (date format violation)",
+      "wf_ref": "WF-001",
+      "test_case": "Transfer - Transfer Amount exceeds available balance",
+      "preconditions": [
+        "User is on the Account Transfers form",
+        "Source account has <available balance> less than <amount exceeding available balance>"
+      ],
+      "steps": [
+        "1. Navigate to the Account Transfers form",
+        "2. Enter <amount exceeding available balance> in the Transfer Amount field",
+        "3. Enter <valid date> in the Transfer Date field",
+        "4. Click the Submit button"
+      ],
+      "expected_result": "Transfer Amount field displays an inline validation error indicating the transfer amount exceeds available balance (e.g., 'Transfer amount exceeds available balance'); form does not submit; no debit or credit is performed on any account.",
+      "priority": "high"
+    },
+    {
+      "tc_id": "N-006",
+      "wf_ref": "WF-001",
+      "test_case": "Transfer - invalid Transfer Date format / impossible date",
       "preconditions": [
         "User is on the Account Transfers form"
       ],
       "steps": [
-        "1. Enter <valid numeric amount> in the Transfer Amount field",
-        "2. Enter <invalid or impossible date> in the Transfer Date field",
-        "3. Click Submit"
+        "1. Navigate to the Account Transfers form",
+        "2. Enter <valid amount> in the Transfer Amount field",
+        "3. Enter <invalid date> in the Transfer Date field",
+        "4. Click the Submit button"
       ],
-      "expected_result": "Transfer Date field displays an inline validation error indicating the date is invalid; the form does not submit; no transfer is processed",
+      "expected_result": "Transfer Date field displays an inline validation error indicating invalid date format or impossible date; form does not submit; no transfer is processed.",
       "priority": "medium"
     },
     {
-      "tc_id": "N-006",
-      "test_case": "Transfer amount exceeds available balance (business constraint)",
-      "preconditions": [
-        "User is on the Account Transfers form",
-        "Source account has <available balance> less than the entered transfer amount"
-      ],
-      "steps": [
-        "1. Enter <amount exceeding available balance> in the Transfer Amount field",
-        "2. Enter <valid date> in the Transfer Date field",
-        "3. Click Submit"
-      ],
-      "expected_result": "Inline error appears on the Transfer Amount field indicating the amount exceeds available balance; the form does not submit; no transfer is processed and source account balance remains unchanged",
-      "priority": "high"
-    },
-    {
       "tc_id": "N-007",
-      "test_case": "Standing instruction Name left blank (required)",
+      "wf_ref": "WF-002",
+      "test_case": "Create Standing Instruction - leave required Name field blank",
       "preconditions": [
-        "User is on the Standing Instructions page"
+        "User is on the Standing Instructions page",
+        "Create Standing Instruction form is opened"
       ],
       "steps": [
-        "1. Click + Create Standing Instruction",
-        "2. Leave the Name field blank on the Create Standing Instruction form",
-        "3. Click Create"
+        "1. Click + Create Standing Instruction to open the Create form",
+        "2. Leave the Name field blank",
+        "3. (Optional) Fill other non-required fields with <valid values>",
+        "4. Click the Create button"
       ],
-      "expected_result": "Inline validation error appears on the Name field indicating it is required; the Create action does not submit; no standing instruction is created and the listing is unchanged",
+      "expected_result": "Name field displays an inline validation error indicating it is required; form does not submit; no standing instruction is created and nothing is added to the listing.",
       "priority": "high"
     },
     {
       "tc_id": "N-008",
-      "test_case": "Attempt to Enable a standing instruction that is already Active (wrong-state action)",
+      "wf_ref": "WF-002",
+      "test_case": "Create Standing Instruction - Amount field with non-numeric input",
       "preconditions": [
         "User is on the Standing Instructions page",
-        "A standing instruction row exists with Status = 'Active'"
+        "Create Standing Instruction form is opened"
       ],
       "steps": [
-        "1. Locate the row with Status 'Active' in the Standing Instructions table",
-        "2. Attempt to click the Enable action for that row"
+        "1. Click + Create Standing Instruction to open the Create form",
+        "2. Enter <valid name> in the Name field",
+        "3. Enter <non-numeric input> in the Amount field",
+        "4. Click the Create button"
       ],
-      "expected_result": "Enable action is not available for a row with Status 'Active' (either the Enable button is not present or is disabled); if an enable attempt is made it is blocked and the row Status remains 'Active'",
+      "expected_result": "Amount field displays an inline validation error indicating invalid number format (must be numeric); form does not submit; no standing instruction is created.",
       "priority": "medium"
+    },
+    {
+      "tc_id": "N-009",
+      "wf_ref": "WF-003",
+      "test_case": "Enable action attempted when Standing Instruction status is Active (precondition violation)",
+      "preconditions": [
+        "A standing instruction exists in the listing with Status = 'Active'",
+        "User is on the Standing Instructions page"
+      ],
+      "steps": [
+        "1. Navigate to the Standing Instructions page",
+        "2. Locate the row where Status = 'Active'",
+        "3. Attempt to access/click the Enable row action for that row"
+      ],
+      "expected_result": "Enable action is not available for rows with Status 'Active' (Enable button is not present/enabled in the row actions); no status change occurs and the instruction remains 'Active'.",
+      "priority": "high"
+    },
+    {
+      "tc_id": "N-010",
+      "wf_ref": "WF-004",
+      "test_case": "Disable action attempted when Standing Instruction status is Disabled (precondition violation)",
+      "preconditions": [
+        "A standing instruction exists in the listing with Status = 'Disabled'",
+        "User is on the Standing Instructions page"
+      ],
+      "steps": [
+        "1. Navigate to the Standing Instructions page",
+        "2. Locate the row where Status = 'Disabled'",
+        "3. Attempt to access/click the Disable row action for that row"
+      ],
+      "expected_result": "Disable action is not available for rows with Status 'Disabled' (Disable button is not present/enabled in the row actions); no status change occurs and the instruction remains 'Disabled'.",
+      "priority": "high"
     }
   ],
   "summary": {
-    "total": 8,
-    "high_priority": 5,
+    "total": 10,
+    "high_priority": 7,
     "medium_priority": 3,
     "low_priority": 0
   }
 }
 
 ------------------------------------------------------------
-[22:35:18] Test-Negative - PARSED JSON
+[14:32:00] Test-Negative - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Account Transfers & Standing Instructions",
@@ -549,124 +631,171 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "N-001",
-      "test_case": "Transfer Amount left blank (number required)",
+      "wf_ref": "WF-001",
+      "test_case": "Transfer - leave required number field (Transfer Amount) blank",
       "preconditions": [
-        "User is on the Account Transfers form",
-        "All other fields are filled with valid values except Transfer Amount"
+        "User is on the Account Transfers form"
       ],
       "steps": [
-        "1. Leave the Transfer Amount field blank",
-        "2. Enter <valid date> in the Transfer Date field",
-        "3. Click Submit"
+        "1. Navigate to the Account Transfers form",
+        "2. Leave the Transfer Amount field blank",
+        "3. Enter <valid date> in the Transfer Date field",
+        "4. Click the Submit button"
       ],
-      "expected_result": "Inline validation error appears on the Transfer Amount field indicating it is required; the form does not submit; no transfer is processed and source/destination account balances remain unchanged",
+      "expected_result": "Transfer Amount field displays an inline validation error indicating it is required; form does not submit; no transfer is processed (no debit/credit occurs).",
       "priority": "high"
     },
     {
       "tc_id": "N-002",
-      "test_case": "Transfer Date left blank (date required)",
+      "wf_ref": "WF-001",
+      "test_case": "Transfer - leave required date field (Transfer Date) blank",
       "preconditions": [
-        "User is on the Account Transfers form",
-        "All other fields are filled with valid values except Transfer Date"
+        "User is on the Account Transfers form"
       ],
       "steps": [
-        "1. Enter <valid numeric amount> in the Transfer Amount field",
-        "2. Leave the Transfer Date field blank",
-        "3. Click Submit"
+        "1. Navigate to the Account Transfers form",
+        "2. Enter <valid amount> in the Transfer Amount field",
+        "3. Leave the Transfer Date field blank",
+        "4. Click the Submit button"
       ],
-      "expected_result": "Inline validation error appears on the Transfer Date field indicating it is required; the form does not submit; no transfer is processed and source/destination account balances remain unchanged",
+      "expected_result": "Transfer Date field displays an inline validation error indicating it is required; form does not submit; no transfer is processed (no debit/credit occurs).",
       "priority": "high"
     },
     {
       "tc_id": "N-003",
-      "test_case": "Submit transfer with all required fields empty",
+      "wf_ref": "WF-001",
+      "test_case": "Transfer - submit with ALL required fields empty",
       "preconditions": [
-        "User is on the Account Transfers form",
-        "No required fields are filled"
+        "User is on the Account Transfers form"
       ],
       "steps": [
-        "1. Leave the Transfer Amount field blank",
-        "2. Leave the Transfer Date field blank",
-        "3. Click Submit"
+        "1. Navigate to the Account Transfers form",
+        "2. Leave the Transfer Amount field blank",
+        "3. Leave the Transfer Date field blank",
+        "4. Click the Submit button"
       ],
-      "expected_result": "Inline validation errors appear on the Transfer Amount and Transfer Date fields indicating they are required; the form does not submit; no transfer is processed and source/destination account balances remain unchanged",
+      "expected_result": "Inline validation errors appear on both Transfer Amount and Transfer Date indicating they are required; form does not submit; no transfer is processed (no debit/credit occurs).",
       "priority": "high"
     },
     {
       "tc_id": "N-004",
-      "test_case": "Transfer Amount non-numeric input (number format violation)",
+      "wf_ref": "WF-001",
+      "test_case": "Transfer - Transfer Amount with non-numeric input (invalid number format)",
       "preconditions": [
         "User is on the Account Transfers form"
       ],
       "steps": [
-        "1. Enter <non-numeric input> in the Transfer Amount field",
-        "2. Enter <valid date> in the Transfer Date field",
-        "3. Click Submit"
+        "1. Navigate to the Account Transfers form",
+        "2. Enter <non-numeric input> in the Transfer Amount field",
+        "3. Enter <valid date> in the Transfer Date field",
+        "4. Click the Submit button"
       ],
-      "expected_result": "Transfer Amount field displays an inline validation error indicating the value must be numeric; the form does not submit; no transfer is processed",
+      "expected_result": "Transfer Amount field displays an inline validation error indicating invalid number format (must be numeric); form does not submit; no transfer is processed.",
       "priority": "medium"
     },
     {
       "tc_id": "N-005",
-      "test_case": "Transfer Date invalid/impossible date (date format violation)",
+      "wf_ref": "WF-001",
+      "test_case": "Transfer - Transfer Amount exceeds available balance",
+      "preconditions": [
+        "User is on the Account Transfers form",
+        "Source account has <available balance> less than <amount exceeding available balance>"
+      ],
+      "steps": [
+        "1. Navigate to the Account Transfers form",
+        "2. Enter <amount exceeding available balance> in the Transfer Amount field",
+        "3. Enter <valid date> in the Transfer Date field",
+        "4. Click the Submit button"
+      ],
+      "expected_result": "Transfer Amount field displays an inline validation error indicating the transfer amount exceeds available balance (e.g., 'Transfer amount exceeds available balance'); form does not submit; no debit or credit is performed on any account.",
+      "priority": "high"
+    },
+    {
+      "tc_id": "N-006",
+      "wf_ref": "WF-001",
+      "test_case": "Transfer - invalid Transfer Date format / impossible date",
       "preconditions": [
         "User is on the Account Transfers form"
       ],
       "steps": [
-        "1. Enter <valid numeric amount> in the Transfer Amount field",
-        "2. Enter <invalid or impossible date> in the Transfer Date field",
-        "3. Click Submit"
+        "1. Navigate to the Account Transfers form",
+        "2. Enter <valid amount> in the Transfer Amount field",
+        "3. Enter <invalid date> in the Transfer Date field",
+        "4. Click the Submit button"
       ],
-      "expected_result": "Transfer Date field displays an inline validation error indicating the date is invalid; the form does not submit; no transfer is processed",
+      "expected_result": "Transfer Date field displays an inline validation error indicating invalid date format or impossible date; form does not submit; no transfer is processed.",
       "priority": "medium"
     },
     {
-      "tc_id": "N-006",
-      "test_case": "Transfer amount exceeds available balance (business constraint)",
-      "preconditions": [
-        "User is on the Account Transfers form",
-        "Source account has <available balance> less than the entered transfer amount"
-      ],
-      "steps": [
-        "1. Enter <amount exceeding available balance> in the Transfer Amount field",
-        "2. Enter <valid date> in the Transfer Date field",
-        "3. Click Submit"
-      ],
-      "expected_result": "Inline error appears on the Transfer Amount field indicating the amount exceeds available balance; the form does not submit; no transfer is processed and source account balance remains unchanged",
-      "priority": "high"
-    },
-    {
       "tc_id": "N-007",
-      "test_case": "Standing instruction Name left blank (required)",
+      "wf_ref": "WF-002",
+      "test_case": "Create Standing Instruction - leave required Name field blank",
       "preconditions": [
-        "User is on the Standing Instructions page"
+        "User is on the Standing Instructions page",
+        "Create Standing Instruction form is opened"
       ],
       "steps": [
-        "1. Click + Create Standing Instruction",
-        "2. Leave the Name field blank on the Create Standing Instruction form",
-        "3. Click Create"
+        "1. Click + Create Standing Instruction to open the Create form",
+        "2. Leave the Name field blank",
+        "3. (Optional) Fill other non-required fields with <valid values>",
+        "4. Click the Create button"
       ],
-      "expected_result": "Inline validation error appears on the Name field indicating it is required; the Create action does not submit; no standing instruction is created and the listing is unchanged",
+      "expected_result": "Name field displays an inline validation error indicating it is required; form does not submit; no standing instruction is created and nothing is added to the listing.",
       "priority": "high"
     },
     {
       "tc_id": "N-008",
-      "test_case": "Attempt to Enable a standing instruction that is already Active (wrong-state action)",
+      "wf_ref": "WF-002",
+      "test_case": "Create Standing Instruction - Amount field with non-numeric input",
       "preconditions": [
         "User is on the Standing Instructions page",
-        "A standing instruction row exists with Status = 'Active'"
+        "Create Standing Instruction form is opened"
       ],
       "steps": [
-        "1. Locate the row with Status 'Active' in the Standing Instructions table",
-        "2. Attempt to click the Enable action for that row"
+        "1. Click + Create Standing Instruction to open the Create form",
+        "2. Enter <valid name> in the Name field",
+        "3. Enter <non-numeric input> in the Amount field",
+        "4. Click the Create button"
       ],
-      "expected_result": "Enable action is not available for a row with Status 'Active' (either the Enable button is not present or is disabled); if an enable attempt is made it is blocked and the row Status remains 'Active'",
+      "expected_result": "Amount field displays an inline validation error indicating invalid number format (must be numeric); form does not submit; no standing instruction is created.",
       "priority": "medium"
+    },
+    {
+      "tc_id": "N-009",
+      "wf_ref": "WF-003",
+      "test_case": "Enable action attempted when Standing Instruction status is Active (precondition violation)",
+      "preconditions": [
+        "A standing instruction exists in the listing with Status = 'Active'",
+        "User is on the Standing Instructions page"
+      ],
+      "steps": [
+        "1. Navigate to the Standing Instructions page",
+        "2. Locate the row where Status = 'Active'",
+        "3. Attempt to access/click the Enable row action for that row"
+      ],
+      "expected_result": "Enable action is not available for rows with Status 'Active' (Enable button is not present/enabled in the row actions); no status change occurs and the instruction remains 'Active'.",
+      "priority": "high"
+    },
+    {
+      "tc_id": "N-010",
+      "wf_ref": "WF-004",
+      "test_case": "Disable action attempted when Standing Instruction status is Disabled (precondition violation)",
+      "preconditions": [
+        "A standing instruction exists in the listing with Status = 'Disabled'",
+        "User is on the Standing Instructions page"
+      ],
+      "steps": [
+        "1. Navigate to the Standing Instructions page",
+        "2. Locate the row where Status = 'Disabled'",
+        "3. Attempt to access/click the Disable row action for that row"
+      ],
+      "expected_result": "Disable action is not available for rows with Status 'Disabled' (Disable button is not present/enabled in the row actions); no status change occurs and the instruction remains 'Disabled'.",
+      "priority": "high"
     }
   ],
   "summary": {
-    "total": 8,
-    "high_priority": 5,
+    "total": 10,
+    "high_priority": 7,
     "medium_priority": 3,
     "low_priority": 0
   }

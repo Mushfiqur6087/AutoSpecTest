@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-21T22:54:00.279763
+DEBUG SESSION STARTED: 2026-05-25T14:51:20.263684
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[22:54:00] Test-Negative - SYSTEM PROMPT
+[14:51:20] Test-Negative - SYSTEM PROMPT
 ------------------------------------------------------------
 You are a Negative Test Case Generator. You receive (1) a UI-AST JSON for one module and (2) the original functional description. Your job is to produce ONLY negative test cases — tests where invalid input is provided or business rules are violated, and the system correctly rejects or blocks the action.
 
@@ -22,6 +22,10 @@ You are a Negative Test Case Generator. You receive (1) a UI-AST JSON for one mo
 <description>
 {Original functional description text for this module}
 </description>
+
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
 
 ---
 
@@ -111,6 +115,9 @@ Group required fields by type: `text/unspecified`, `email`, `password`, `number`
 
 Do NOT generate a separate blank-field test for every required field. If 5 text fields are all required, one representative covers them all.
 
+**Action dialog required fields — NOT subject to cross-form deduplication:**
+If a `state_bound_action_bar` action opens a dialog with its own required `fields{}` (e.g., Activate requires Activation Date, Reject requires a Reason, Withdraw requires a Reason, Close requires a Closure Reason), each such dialog is its own testing scope. Generate ONE "leave the required dialog field blank and submit" test per distinct action dialog. These are HIGH priority — they block state transitions and are common defect sites. Do not suppress them because the main wizard already has a blank-field test.
+
 **2. Format violations:**
 
 For fields with type-specific format rules (from AST type or description):
@@ -143,6 +150,10 @@ For each unique `constraints[]` entry in the AST, and for cross-field rules desc
 
 One test per unique constraint. Do not duplicate the same mechanism.
 
+**Constraint timing tests:** If the spec states an action is blocked by a pre-existing system state (e.g., "cannot close with active accounts", "cannot transfer to the same office"), generate TWO tests:
+1. The standard constraint violation test (user opens the dialog, fills required fields, submits → blocked).
+2. A constraint-timing test: user opens the dialog WITHOUT filling required fields → assert whether the block is shown immediately on dialog open (before the user fills anything) OR only on submit. This distinguishes whether the UI enforces the constraint eagerly or lazily. Steps: open the dialog, observe the state → assert what is visible before any interaction. If the spec is silent on timing, generate only the first test.
+
 **5. Precondition violations (auth, role, and state):**
 
 For each `preconditions[]` entry on any action — and for auth/role rules described in the spec:
@@ -154,18 +165,18 @@ For each `preconditions[]` entry on any action — and for auth/role rules descr
 **6. State-machine violations:**
 
 From `state_bound_action_bar` nodes:
-- For each state where an action is NOT listed in `available_actions`, generate one test attempting that action from that state. Example: attempting "Approve" on an entity already in "Active" state.
+- **Every defined state must have at least one wrong-state test.** For each state, identify at least one action that is NOT in its `available_actions` list and generate a test attempting that action from that state.
 - If a state has an empty `available_actions` array, generate one test verifying no action buttons are visible in that state.
-
-One test per unique wrong-state scenario — do not enumerate every action × every invalid state.
+- **Do not stop after 1–2 representative examples** when the module defines 4+ distinct states. The states Active, Pending, Closed, Rejected, and Withdrawn each have different action sets — each must be independently verified.
+- One test per state is sufficient — pick the most distinct unavailable action for that state. Do not enumerate every action × every state (that would be exponential).
 
 ---
 
 **DEDUPLICATION GATE (run before outputting):**
 
-1. **Required field dedup:** Multiple required text fields → ONE representative test, not one per field.
+1. **Required field dedup:** Multiple required text fields in the **same form or dialog** → ONE representative test, not one per field.
 2. **Sub-rule dedup:** A field with multiple validation sub-rules (e.g., password: length + uppercase + lowercase + number + special char) → ONE representative violation test, not one per sub-rule.
-3. **Cross-form dedup:** If two forms in the same module share the same validation mechanism (e.g., both have a required text field) → test it on the primary form only.
+3. **Cross-form dedup:** If two **main forms** in the same module share the same validation mechanism → test it on the primary form only. **Exception: action dialogs are never suppressed by cross-form dedup** — each action dialog with a required field gets its own blank-field test regardless.
 4. **Uniqueness check:** Before outputting, ask for each TC: "Does this test catch a bug that NO other test in this module would catch?" If no → remove it.
 
 ---
@@ -174,9 +185,11 @@ One test per unique wrong-state scenario — do not enumerate every action × ev
 
 - Simple module (login, single form, display page): **2–4 tests**
 - Medium module (standard CRUD form, form with constraints): **4–8 tests**
-- Complex module (state machine, multi-form, wizard with many constraints): **8–12 tests**
+- Complex module (state machine, multi-form, wizard with many constraints): **10–16 tests**
 
-If you exceed these ranges, you are generating redundant tests. Apply the deduplication gate again before outputting.
+For modules with a `state_bound_action_bar` defining 4+ states, the state-machine violation tests alone will produce 4–5 tests. This is expected and correct — do not suppress them to hit a lower target.
+
+If you exceed the upper range, apply the deduplication gate again before outputting.
 
 ---
 
@@ -184,6 +197,17 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
 
 - **High:** State precondition violations, constraint violations that could corrupt data, unauthenticated access, required field representatives
 - **Medium:** Format violations, cross-field validation, numeric bounds, wrong-role access, wrong-state action attempts
+
+---
+
+**WORKFLOW-AWARE FAILURE INJECTION (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- For each workflow that contains a form interaction (terminal action is a submit/save/create/approve button):
+  - Identify the most **critical blocking failure** for that workflow's `conditional_branch`.
+  - If that failure mode is NOT already covered by another workflow's negative test, generate one negative TC for it.
+- **Do NOT generate one negative TC per workflow mechanically.** Apply the existing deduplication gate first — only add a TC if it catches a bug that no other test would catch.
+- Add `"wf_ref": "WF-NNN"` to each TC that maps to a workflow. Set `"wf_ref": null` for generic validation tests.
 
 ---
 
@@ -195,6 +219,7 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
   "test_cases": [
     {
       "tc_id": "N-001",
+      "wf_ref": null,
       "test_case": "Short descriptive name",
       "preconditions": ["precondition 1"],
       "steps": ["1. Step one", "2. Step two"],
@@ -212,7 +237,7 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
 
 
 ------------------------------------------------------------
-[22:54:00] Test-Negative - USER PROMPT
+[14:51:20] Test-Negative - USER PROMPT
 ------------------------------------------------------------
 <module_name>Reviews & Ratings</module_name>
 
@@ -220,80 +245,88 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
 {
   "module_name": "Reviews & Ratings",
   "components": {
-    "Detail_Page_Reviews_Section": {
-      "type": "section",
-      "components": {
-        "Reviews_Filters": {
-          "type": "form",
+    "Reviews_Filters_Form": {
+      "type": "form",
+      "fields": {
+        "Rating": {
+          "type": "dropdown",
+          "required": false
+        },
+        "Date_Range": {
+          "type": "group",
           "fields": {
-            "Rating": {
-              "type": "dropdown"
+            "Start_Date": {
+              "type": "date",
+              "required": false
             },
-            "Date_From": {
-              "type": "date"
-            },
-            "Date_To": {
-              "type": "date"
-            },
-            "Traveler_Type": {
-              "type": "dropdown"
+            "End_Date": {
+              "type": "date",
+              "required": false
             }
           }
         },
-        "Reviews_List": {
-          "type": "data_table",
-          "row_actions": [],
-          "bulk_actions": [],
-          "fields": {}
+        "Traveler_Type": {
+          "type": "dropdown",
+          "required": false
         }
       }
     },
-    "Submit_Review_Form": {
+    "Review_Submission_Form": {
       "type": "form",
       "preconditions": [
         "user must be authenticated",
-        "user must have completed a booking for this item"
+        "user must have completed booking for the item being reviewed"
       ],
       "fields": {
         "Overall_Rating": {
-          "type": "number"
+          "type": "unspecified",
+          "required": true
         },
         "Cleanliness_Rating": {
-          "type": "number"
+          "type": "unspecified",
+          "required": true,
+          "visible_when": "applicable_category_present"
         },
         "Service_Rating": {
-          "type": "number"
+          "type": "unspecified",
+          "required": true,
+          "visible_when": "applicable_category_present"
         },
         "Location_Rating": {
-          "type": "number"
+          "type": "unspecified",
+          "required": true,
+          "visible_when": "applicable_category_present"
         },
-        "Written_Comments": {
-          "type": "unspecified"
+        "Written_Feedback": {
+          "type": "unspecified",
+          "required": false
+        },
+        "Photos": {
+          "type": "file_upload",
+          "required": false
         }
       },
       "submit_actions": [
         {
-          "element_name": "Submit Review",
-          "on_success": "submits review"
+          "on_success": "creates review and associates it with the item"
         }
       ]
     },
-    "Dashboard_Submit_Review_Button": {
-      "type": "button",
-      "element_name": "Write a Review",
+    "Dashboard_Write_Review_Action": {
+      "type": "action",
       "preconditions": [
         "user must be authenticated",
-        "user must have completed a booking for this item"
+        "user must have completed booking for the item being reviewed"
       ],
-      "opens": "Submit_Review_Form"
+      "on_success": "opens review submission form"
     },
-    "Post_Stay_Email_Prompt": {
-      "type": "link",
-      "element_name": "Leave a Review",
+    "Email_Post_Stay_Prompt_Action": {
+      "type": "action",
       "preconditions": [
-        "recipient must have completed a booking for this item"
+        "recipient must have completed booking for the item being reviewed",
+        "recipient must be authenticated or be prompted to authenticate"
       ],
-      "opens": "Submit_Review_Form"
+      "on_success": "opens review submission form"
     }
   }
 }
@@ -308,10 +341,17 @@ Listing pages show an aggregate rating score and total review count for each ite
 
 </description>
 
+<workflows>
+WF-001 | Submit review with category-specific ratings visible | actor: authenticated user who completed booking | branch: applicable_category_present == true | terminal: Submit Review | on_success: creates review and associates it with the item
+WF-002 | Submit review without category-specific ratings visible | actor: authenticated user who completed booking | branch: applicable_category_present == false | terminal: Submit Review | on_success: creates review and associates it with the item
+WF-003 | Open review submission from dashboard action | actor: authenticated user who completed booking | branch: none | terminal: Dashboard_Write_Review_Action | on_success: opens review submission form
+WF-004 | Open review submission from post-stay email prompt | actor: recipient who completed booking (may be prompted to authenticate) | branch: none | terminal: Email_Post_Stay_Prompt_Action | on_success: opens review submission form
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[22:58:29] Test-Negative - LLM RESPONSE
+[14:54:42] Test-Negative - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Reviews & Ratings",
@@ -319,110 +359,124 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "N-001",
-      "test_case": "Attempt to open 'Write a Review' from dashboard while unauthenticated",
+      "wf_ref": "WF-003",
+      "test_case": "Unauthenticated user cannot open Review Submission from dashboard",
       "preconditions": [
-        "user is unauthenticated"
+        "User is not authenticated",
+        "An item exists on the dashboard with a review action"
       ],
       "steps": [
-        "1. Navigate to the item detail or dashboard page where the 'Write a Review' button is shown",
-        "2. Click the 'Write a Review' (Dashboard_Submit_Review_Button) button"
+        "1. Ensure the user is not authenticated (no active session)",
+        "2. Navigate to the item's dashboard/listing page",
+        "3. Click the 'Write Review' action/button for the item"
       ],
-      "expected_result": "User is redirected to the login page or a login prompt is displayed; the Submit_Review_Form does not open and no review submission UI is presented",
+      "expected_result": "The user is redirected to the login page or an authentication modal is displayed; the Review Submission form is not opened; the review action is blocked",
       "priority": "high"
     },
     {
       "tc_id": "N-002",
-      "test_case": "Click 'Write a Review' while authenticated but without a completed booking for the item",
+      "wf_ref": "WF-003",
+      "test_case": "Authenticated user without completed booking cannot access Write Review action",
       "preconditions": [
-        "user is authenticated",
-        "user has NOT completed a booking for this item"
+        "User is authenticated as <user who has NOT completed booking>",
+        "Item exists on the dashboard/listing page"
       ],
       "steps": [
-        "1. Authenticate as a user who has not completed a booking for the item",
-        "2. Navigate to the item detail or dashboard page",
-        "3. Click the 'Write a Review' (Dashboard_Submit_Review_Button) button"
+        "1. Authenticate as <user who has NOT completed booking>",
+        "2. Navigate to the item's dashboard/listing page",
+        "3. Check for visibility of the 'Write Review' action/button for the item",
+        "4. If the button is visible, attempt to click the 'Write Review' button"
       ],
-      "expected_result": "The Submit_Review_Form does not open; a visible blocking notice appears near the control indicating the user must have completed a booking to leave a review (e.g. an inline message next to the button or modal explaining booking requirement); no review can be submitted",
+      "expected_result": "The 'Write Review' action/button is not visible (or is disabled); the Review Submission form cannot be opened; no navigation to the submission form occurs",
       "priority": "high"
     },
     {
       "tc_id": "N-003",
-      "test_case": "Leave required rating field blank (representative numeric field) and attempt to submit",
+      "wf_ref": "WF-002",
+      "test_case": "Submit review with Overall_Rating left blank (categories not applicable)",
       "preconditions": [
-        "user is authenticated",
-        "user has completed a booking for this item",
-        "Submit_Review_Form is opened"
+        "User is authenticated as <user who completed booking>",
+        "Applicable category-specific ratings are NOT visible (applicable_category_present == false)"
       ],
       "steps": [
-        "1. Open the Submit_Review_Form",
-        "2. Leave the Overall_Rating field blank (do not enter a value)",
-        "3. Enter valid values into other fields as needed (e.g., Fill Cleanliness_Rating, Service_Rating, Location_Rating, Written_Comments)",
-        "4. Click the 'Submit Review' button"
+        "1. Authenticate as <user who completed booking>",
+        "2. Open the Review Submission form for the item (via dashboard or email link)",
+        "3. Verify category-specific rating fields are not visible",
+        "4. Leave the Overall_Rating field blank",
+        "5. Click the Submit button on the Review Submission form"
       ],
-      "expected_result": "Inline validation error appears on the Overall_Rating field indicating it is required; the form does not submit and no review is created",
+      "expected_result": "Overall_Rating field displays an inline validation error indicating it is required; the form does not submit; no review is created or associated with the item; user remains on the submission form",
       "priority": "high"
     },
     {
       "tc_id": "N-004",
-      "test_case": "Submit review with ALL required fields empty",
+      "wf_ref": "WF-001",
+      "test_case": "Leave a revealed category rating blank when category-specific ratings are applicable",
       "preconditions": [
-        "user is authenticated",
-        "user has completed a booking for this item",
-        "Submit_Review_Form is opened"
+        "User is authenticated as <user who completed booking>",
+        "Applicable category-specific ratings are visible (applicable_category_present == true)"
       ],
       "steps": [
-        "1. Open the Submit_Review_Form",
-        "2. Leave Overall_Rating blank",
-        "3. Leave Cleanliness_Rating blank",
-        "4. Leave Service_Rating blank",
-        "5. Leave Location_Rating blank",
-        "6. Leave Written_Comments blank",
-        "7. Click the 'Submit Review' button"
+        "1. Authenticate as <user who completed booking>",
+        "2. Open the Review Submission form for the item (via dashboard or email link)",
+        "3. Verify Cleanliness_Rating, Service_Rating, and Location_Rating fields are visible",
+        "4. Fill the Overall_Rating field with <valid overall rating>",
+        "5. Fill the Service_Rating field with <valid service rating>",
+        "6. Fill the Location_Rating field with <valid location rating>",
+        "7. Leave the Cleanliness_Rating field blank",
+        "8. Click the Submit button on the Review Submission form"
       ],
-      "expected_result": "Inline validation errors appear on the rating fields (Overall_Rating, Cleanliness_Rating, Service_Rating, Location_Rating) indicating they are required; the form does not submit and no review is created",
+      "expected_result": "Cleanliness_Rating field displays an inline validation error indicating it is required; the form does not submit; no review is created or associated with the item; user remains on the submission form",
       "priority": "high"
     },
     {
       "tc_id": "N-005",
-      "test_case": "Enter non-numeric value into a numeric rating field and attempt to submit",
+      "wf_ref": "WF-001",
+      "test_case": "Submit with ALL required rating fields empty when category-specific ratings are visible",
       "preconditions": [
-        "user is authenticated",
-        "user has completed a booking for this item",
-        "Submit_Review_Form is opened"
+        "User is authenticated as <user who completed booking>",
+        "Applicable category-specific ratings are visible (applicable_category_present == true)"
       ],
       "steps": [
-        "1. Open the Submit_Review_Form",
-        "2. Enter <non-numeric value> into the Overall_Rating field",
-        "3. Fill other required fields with valid values",
-        "4. Click the 'Submit Review' button"
+        "1. Authenticate as <user who completed booking>",
+        "2. Open the Review Submission form for the item",
+        "3. Verify Overall_Rating, Cleanliness_Rating, Service_Rating, and Location_Rating fields are visible",
+        "4. Leave Overall_Rating blank",
+        "5. Leave Cleanliness_Rating blank",
+        "6. Leave Service_Rating blank",
+        "7. Leave Location_Rating blank",
+        "8. Click the Submit button on the Review Submission form"
       ],
-      "expected_result": "Overall_Rating field displays an inline validation error indicating it must be a numeric rating; the form does not submit and no review is created",
-      "priority": "medium"
+      "expected_result": "Overall_Rating, Cleanliness_Rating, Service_Rating, and Location_Rating each display inline validation errors indicating they are required; the form does not submit; no review is created or associated with the item; user remains on the submission form",
+      "priority": "high"
     },
     {
       "tc_id": "N-006",
-      "test_case": "Attempt to open 'Leave a Review' link from post-stay email without completed booking",
+      "wf_ref": "WF-004",
+      "test_case": "Unauthenticated recipient cannot access Review Submission from post-stay email without authenticating",
       "preconditions": [
-        "recipient is authenticated (or follows link) but has NOT completed a booking for this item"
+        "User is not authenticated",
+        "Recipient has a post-stay email prompt link for the item"
       ],
       "steps": [
-        "1. Open the post-stay email containing the 'Leave a Review' link",
-        "2. Click the 'Leave a Review' (Post_Stay_Email_Prompt) link"
+        "1. Ensure the user is not authenticated",
+        "2. Click the post-stay email prompt link that should open the Review Submission form",
+        "3. Observe the UI behavior after clicking the email link"
       ],
-      "expected_result": "Submit_Review_Form does not open; a blocking notice is shown (e.g., on the page or modal) indicating the recipient must have completed a booking to leave a review; the user is not able to submit a review",
+      "expected_result": "The user is presented with an authentication prompt or redirected to login before the Review Submission form is opened; the submission form is not accessible until the user authenticates; action is blocked until authentication",
       "priority": "high"
     }
   ],
   "summary": {
     "total": 6,
-    "high_priority": 5,
-    "medium_priority": 1,
+    "high_priority": 6,
+    "medium_priority": 0,
     "low_priority": 0
   }
 }
 
 ------------------------------------------------------------
-[22:58:29] Test-Negative - PARSED JSON
+[14:54:42] Test-Negative - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Reviews & Ratings",
@@ -430,104 +484,118 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "N-001",
-      "test_case": "Attempt to open 'Write a Review' from dashboard while unauthenticated",
+      "wf_ref": "WF-003",
+      "test_case": "Unauthenticated user cannot open Review Submission from dashboard",
       "preconditions": [
-        "user is unauthenticated"
+        "User is not authenticated",
+        "An item exists on the dashboard with a review action"
       ],
       "steps": [
-        "1. Navigate to the item detail or dashboard page where the 'Write a Review' button is shown",
-        "2. Click the 'Write a Review' (Dashboard_Submit_Review_Button) button"
+        "1. Ensure the user is not authenticated (no active session)",
+        "2. Navigate to the item's dashboard/listing page",
+        "3. Click the 'Write Review' action/button for the item"
       ],
-      "expected_result": "User is redirected to the login page or a login prompt is displayed; the Submit_Review_Form does not open and no review submission UI is presented",
+      "expected_result": "The user is redirected to the login page or an authentication modal is displayed; the Review Submission form is not opened; the review action is blocked",
       "priority": "high"
     },
     {
       "tc_id": "N-002",
-      "test_case": "Click 'Write a Review' while authenticated but without a completed booking for the item",
+      "wf_ref": "WF-003",
+      "test_case": "Authenticated user without completed booking cannot access Write Review action",
       "preconditions": [
-        "user is authenticated",
-        "user has NOT completed a booking for this item"
+        "User is authenticated as <user who has NOT completed booking>",
+        "Item exists on the dashboard/listing page"
       ],
       "steps": [
-        "1. Authenticate as a user who has not completed a booking for the item",
-        "2. Navigate to the item detail or dashboard page",
-        "3. Click the 'Write a Review' (Dashboard_Submit_Review_Button) button"
+        "1. Authenticate as <user who has NOT completed booking>",
+        "2. Navigate to the item's dashboard/listing page",
+        "3. Check for visibility of the 'Write Review' action/button for the item",
+        "4. If the button is visible, attempt to click the 'Write Review' button"
       ],
-      "expected_result": "The Submit_Review_Form does not open; a visible blocking notice appears near the control indicating the user must have completed a booking to leave a review (e.g. an inline message next to the button or modal explaining booking requirement); no review can be submitted",
+      "expected_result": "The 'Write Review' action/button is not visible (or is disabled); the Review Submission form cannot be opened; no navigation to the submission form occurs",
       "priority": "high"
     },
     {
       "tc_id": "N-003",
-      "test_case": "Leave required rating field blank (representative numeric field) and attempt to submit",
+      "wf_ref": "WF-002",
+      "test_case": "Submit review with Overall_Rating left blank (categories not applicable)",
       "preconditions": [
-        "user is authenticated",
-        "user has completed a booking for this item",
-        "Submit_Review_Form is opened"
+        "User is authenticated as <user who completed booking>",
+        "Applicable category-specific ratings are NOT visible (applicable_category_present == false)"
       ],
       "steps": [
-        "1. Open the Submit_Review_Form",
-        "2. Leave the Overall_Rating field blank (do not enter a value)",
-        "3. Enter valid values into other fields as needed (e.g., Fill Cleanliness_Rating, Service_Rating, Location_Rating, Written_Comments)",
-        "4. Click the 'Submit Review' button"
+        "1. Authenticate as <user who completed booking>",
+        "2. Open the Review Submission form for the item (via dashboard or email link)",
+        "3. Verify category-specific rating fields are not visible",
+        "4. Leave the Overall_Rating field blank",
+        "5. Click the Submit button on the Review Submission form"
       ],
-      "expected_result": "Inline validation error appears on the Overall_Rating field indicating it is required; the form does not submit and no review is created",
+      "expected_result": "Overall_Rating field displays an inline validation error indicating it is required; the form does not submit; no review is created or associated with the item; user remains on the submission form",
       "priority": "high"
     },
     {
       "tc_id": "N-004",
-      "test_case": "Submit review with ALL required fields empty",
+      "wf_ref": "WF-001",
+      "test_case": "Leave a revealed category rating blank when category-specific ratings are applicable",
       "preconditions": [
-        "user is authenticated",
-        "user has completed a booking for this item",
-        "Submit_Review_Form is opened"
+        "User is authenticated as <user who completed booking>",
+        "Applicable category-specific ratings are visible (applicable_category_present == true)"
       ],
       "steps": [
-        "1. Open the Submit_Review_Form",
-        "2. Leave Overall_Rating blank",
-        "3. Leave Cleanliness_Rating blank",
-        "4. Leave Service_Rating blank",
-        "5. Leave Location_Rating blank",
-        "6. Leave Written_Comments blank",
-        "7. Click the 'Submit Review' button"
+        "1. Authenticate as <user who completed booking>",
+        "2. Open the Review Submission form for the item (via dashboard or email link)",
+        "3. Verify Cleanliness_Rating, Service_Rating, and Location_Rating fields are visible",
+        "4. Fill the Overall_Rating field with <valid overall rating>",
+        "5. Fill the Service_Rating field with <valid service rating>",
+        "6. Fill the Location_Rating field with <valid location rating>",
+        "7. Leave the Cleanliness_Rating field blank",
+        "8. Click the Submit button on the Review Submission form"
       ],
-      "expected_result": "Inline validation errors appear on the rating fields (Overall_Rating, Cleanliness_Rating, Service_Rating, Location_Rating) indicating they are required; the form does not submit and no review is created",
+      "expected_result": "Cleanliness_Rating field displays an inline validation error indicating it is required; the form does not submit; no review is created or associated with the item; user remains on the submission form",
       "priority": "high"
     },
     {
       "tc_id": "N-005",
-      "test_case": "Enter non-numeric value into a numeric rating field and attempt to submit",
+      "wf_ref": "WF-001",
+      "test_case": "Submit with ALL required rating fields empty when category-specific ratings are visible",
       "preconditions": [
-        "user is authenticated",
-        "user has completed a booking for this item",
-        "Submit_Review_Form is opened"
+        "User is authenticated as <user who completed booking>",
+        "Applicable category-specific ratings are visible (applicable_category_present == true)"
       ],
       "steps": [
-        "1. Open the Submit_Review_Form",
-        "2. Enter <non-numeric value> into the Overall_Rating field",
-        "3. Fill other required fields with valid values",
-        "4. Click the 'Submit Review' button"
+        "1. Authenticate as <user who completed booking>",
+        "2. Open the Review Submission form for the item",
+        "3. Verify Overall_Rating, Cleanliness_Rating, Service_Rating, and Location_Rating fields are visible",
+        "4. Leave Overall_Rating blank",
+        "5. Leave Cleanliness_Rating blank",
+        "6. Leave Service_Rating blank",
+        "7. Leave Location_Rating blank",
+        "8. Click the Submit button on the Review Submission form"
       ],
-      "expected_result": "Overall_Rating field displays an inline validation error indicating it must be a numeric rating; the form does not submit and no review is created",
-      "priority": "medium"
+      "expected_result": "Overall_Rating, Cleanliness_Rating, Service_Rating, and Location_Rating each display inline validation errors indicating they are required; the form does not submit; no review is created or associated with the item; user remains on the submission form",
+      "priority": "high"
     },
     {
       "tc_id": "N-006",
-      "test_case": "Attempt to open 'Leave a Review' link from post-stay email without completed booking",
+      "wf_ref": "WF-004",
+      "test_case": "Unauthenticated recipient cannot access Review Submission from post-stay email without authenticating",
       "preconditions": [
-        "recipient is authenticated (or follows link) but has NOT completed a booking for this item"
+        "User is not authenticated",
+        "Recipient has a post-stay email prompt link for the item"
       ],
       "steps": [
-        "1. Open the post-stay email containing the 'Leave a Review' link",
-        "2. Click the 'Leave a Review' (Post_Stay_Email_Prompt) link"
+        "1. Ensure the user is not authenticated",
+        "2. Click the post-stay email prompt link that should open the Review Submission form",
+        "3. Observe the UI behavior after clicking the email link"
       ],
-      "expected_result": "Submit_Review_Form does not open; a blocking notice is shown (e.g., on the page or modal) indicating the recipient must have completed a booking to leave a review; the user is not able to submit a review",
+      "expected_result": "The user is presented with an authentication prompt or redirected to login before the Review Submission form is opened; the submission form is not accessible until the user authenticates; action is blocked until authentication",
       "priority": "high"
     }
   ],
   "summary": {
     "total": 6,
-    "high_priority": 5,
-    "medium_priority": 1,
+    "high_priority": 6,
+    "medium_priority": 0,
     "low_priority": 0
   }
 }

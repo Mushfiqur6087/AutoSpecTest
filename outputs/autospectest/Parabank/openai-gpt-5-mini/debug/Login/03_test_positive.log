@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-22T21:31:44.603975
+DEBUG SESSION STARTED: 2026-05-25T15:41:24.111883
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[21:31:44] Test-Positive - SYSTEM PROMPT
+[15:41:24] Test-Positive - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Expert UI Test Case Generator. You receive (1) a UI-AST JSON for one specific module and (2) the original functional description for that module.
 
@@ -24,6 +24,10 @@ Your job is to produce ONLY positive/functional UI test cases — tests where va
 <description>
 {Original functional description text for this module}
 </description>
+
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
 
 ---
 
@@ -146,6 +150,13 @@ Because you are testing a module in isolation, establish the required entry stat
 **1. Forms & Wizards (`form`, `wizard`):**
 - Generate ONE happy path per distinct success outcome.
 - *Conditional UI Check:* If a toggle/dropdown reveals new mandatory fields (`visible_when`), generate a separate test for that conditional branch.
+- **Wizard step coverage (CRITICAL):** If a wizard has multiple steps and any step beyond Step 1 contains its own named field group (e.g., "Address Details", "Family Members", "Identifiers"), generate ONE dedicated positive TC per such step. The TC must:
+  - Navigate to that specific step (include the preceding steps as preconditions or brief navigation steps)
+  - Fill the fields described for that step (not just pass through)
+  - Assert the step's content is visible/saved on the detail page after final submission
+  - **Do NOT collapse all wizard steps into one happy-path TC** — if Steps 2, 3, and 4 each have their own named section in the spec, they each need their own TC.
+- **Wizard in-step identifiers/duplicates:** If a wizard step allows adding identifiers, documents, or similar entries that have a uniqueness constraint, include a TC for that wizard step that also verifies the constraint (e.g., attempting to add a duplicate Document Type+Key pair inside the wizard). This is a different code path from adding the same post-creation on the detail page.
+- **Action dialogs:** If a `state_bound_action_bar` action opens a dialog with its own `fields{}` (e.g., Activate requires Activation Date, Reject requires Reason), generate ONE positive TC per such action-dialog — distinct from the state-transition TC. The TC fills the dialog field and completes the action.
 
 **2. State Machines (`state_bound_action_bar`):**
 - For each unique action available in a specific state, generate ONE test performing that action.
@@ -200,6 +211,19 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 
 ---
 
+**WORKFLOW COVERAGE OBLIGATION (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- Your test cases must **collectively cover every workflow** listed.
+- For each `wf_id`, at least one TC must:
+  - Activate the `conditional_branch` (if not null) — i.e. the test must set up the condition described.
+  - Assert the `on_success` as its `expected_result` (verbatim or as the primary basis for the expected result).
+- Add `"wf_ref": "WF-NNN"` to each TC to identify which workflow it covers.
+- If one TC naturally covers multiple workflows (e.g., the base path overlaps), pick the most specific `wf_ref`.
+- If a TC does not map to any workflow (e.g., a navigation-only test), set `"wf_ref": null`.
+
+---
+
 **OUTPUT — JSON only, no prose, no markdown fencing:**
 
 {
@@ -208,6 +232,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
   "test_cases": [
     {
       "tc_id": "P-001",
+      "wf_ref": "WF-001",
       "test_case": "Short descriptive name",
       "preconditions": ["User logged in as <Role>", "<Prerequisite state>"],
       "steps": ["1. Step one", "2. Step two"],
@@ -224,7 +249,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 }
 
 ------------------------------------------------------------
-[21:31:44] Test-Positive - USER PROMPT
+[15:41:24] Test-Positive - USER PROMPT
 ------------------------------------------------------------
 <module_name>Login</module_name>
 
@@ -239,7 +264,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
           "type": "email",
           "required": true,
           "constraints": [
-            "must be valid email format"
+            "must be a valid email format"
           ]
         },
         "Password": {
@@ -247,10 +272,10 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
           "required": true,
           "constraints": [
             "minimum length 8",
-            "must include at least one uppercase letter",
-            "must include at least one lowercase letter",
-            "must include at least one number",
-            "must include at least one special character"
+            "must contain at least one uppercase letter",
+            "must contain at least one lowercase letter",
+            "must contain at least one number",
+            "must contain at least one special character"
           ]
         }
       },
@@ -258,25 +283,19 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
         {
           "element_name": "Sign In",
           "preconditions": [
-            "secure server-side validation against registered-user database"
+            "credentials are securely validated against the registered-user database"
           ],
           "on_success": "flashes 'Signed in successfully.' and redirects to Accounts Overview page",
-          "on_failure": {
-            "message": "Incorrect email or password. Please try again.",
-            "effects": {
-              "clear_fields": [
-                "Password"
-              ],
-              "allow_retry": true
-            }
-          }
+          "on_failure": "shows 'Incorrect email or password. Please try again', clears Password field and allows another attempt"
+        }
+      ],
+      "links": [
+        {
+          "element_name": "Forgot Password?",
+          "type": "link",
+          "on_click": "navigates to Forgot Password page"
         }
       ]
-    },
-    "Forgot_Password_Link": {
-      "type": "link",
-      "element_name": "Forgot Password?",
-      "on_click": "navigates to Password Reset page"
     }
   }
 }
@@ -288,10 +307,15 @@ The login page contains a login form with two required input fields—Email/User
 
 </description>
 
+<workflows>
+WF-001 | Sign in with credentials | actor: <role> | branch: none | terminal: Sign In | on_success: flashes 'Signed in successfully.' and redirects to Accounts Overview page
+WF-002 | Navigate to Forgot Password | actor: <role> | branch: none | terminal: Forgot Password? | on_success: navigates to Forgot Password page
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[21:31:57] Test-Positive - LLM RESPONSE
+[15:41:44] Test-Positive - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Login",
@@ -299,30 +323,33 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Successful sign in with valid registered credentials",
+      "wf_ref": "WF-001",
+      "test_case": "Sign in with valid credentials",
       "preconditions": [
-        "User is unauthenticated and on the Login page",
-        "A registered user exists with <registered email> and <valid password>",
-        "secure server-side validation against registered-user database"
+        "User account exists with <valid email> and <valid password meeting policy>",
+        "User not authenticated"
       ],
       "steps": [
-        "1. Enter <registered email> in the Email/Username field",
-        "2. Enter <valid password> in the Password field",
-        "3. Click the Sign In button"
+        "1. Navigate to the Login page",
+        "2. Enter <valid email> in the Email/Username field",
+        "3. Enter <valid password meeting policy> in the Password field",
+        "4. Click the Sign In button"
       ],
       "expected_result": "flashes 'Signed in successfully.' and redirects to Accounts Overview page",
       "priority": "high"
     },
     {
       "tc_id": "P-002",
-      "test_case": "Navigate to Password Reset via Forgot Password? link",
+      "wf_ref": "WF-002",
+      "test_case": "Open Forgot Password from login page",
       "preconditions": [
-        "User is on the Login page"
+        "User not authenticated"
       ],
       "steps": [
-        "1. Click the Forgot Password? link"
+        "1. Navigate to the Login page",
+        "2. Click the 'Forgot Password?' link"
       ],
-      "expected_result": "navigates to Password Reset page",
+      "expected_result": "navigates to Forgot Password page",
       "priority": "medium"
     }
   ],
@@ -335,7 +362,7 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
 }
 
 ------------------------------------------------------------
-[21:31:57] Test-Positive - PARSED JSON
+[15:41:44] Test-Positive - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Login",
@@ -343,30 +370,33 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Successful sign in with valid registered credentials",
+      "wf_ref": "WF-001",
+      "test_case": "Sign in with valid credentials",
       "preconditions": [
-        "User is unauthenticated and on the Login page",
-        "A registered user exists with <registered email> and <valid password>",
-        "secure server-side validation against registered-user database"
+        "User account exists with <valid email> and <valid password meeting policy>",
+        "User not authenticated"
       ],
       "steps": [
-        "1. Enter <registered email> in the Email/Username field",
-        "2. Enter <valid password> in the Password field",
-        "3. Click the Sign In button"
+        "1. Navigate to the Login page",
+        "2. Enter <valid email> in the Email/Username field",
+        "3. Enter <valid password meeting policy> in the Password field",
+        "4. Click the Sign In button"
       ],
       "expected_result": "flashes 'Signed in successfully.' and redirects to Accounts Overview page",
       "priority": "high"
     },
     {
       "tc_id": "P-002",
-      "test_case": "Navigate to Password Reset via Forgot Password? link",
+      "wf_ref": "WF-002",
+      "test_case": "Open Forgot Password from login page",
       "preconditions": [
-        "User is on the Login page"
+        "User not authenticated"
       ],
       "steps": [
-        "1. Click the Forgot Password? link"
+        "1. Navigate to the Login page",
+        "2. Click the 'Forgot Password?' link"
       ],
-      "expected_result": "navigates to Password Reset page",
+      "expected_result": "navigates to Forgot Password page",
       "priority": "medium"
     }
   ],

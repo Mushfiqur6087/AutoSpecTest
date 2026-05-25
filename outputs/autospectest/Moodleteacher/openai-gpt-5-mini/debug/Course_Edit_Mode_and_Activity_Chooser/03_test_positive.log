@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-22T21:47:19.045580
+DEBUG SESSION STARTED: 2026-05-25T15:28:46.011747
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[21:47:19] Test-Positive - SYSTEM PROMPT
+[15:28:46] Test-Positive - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Expert UI Test Case Generator. You receive (1) a UI-AST JSON for one specific module and (2) the original functional description for that module.
 
@@ -24,6 +24,10 @@ Your job is to produce ONLY positive/functional UI test cases — tests where va
 <description>
 {Original functional description text for this module}
 </description>
+
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
 
 ---
 
@@ -146,6 +150,13 @@ Because you are testing a module in isolation, establish the required entry stat
 **1. Forms & Wizards (`form`, `wizard`):**
 - Generate ONE happy path per distinct success outcome.
 - *Conditional UI Check:* If a toggle/dropdown reveals new mandatory fields (`visible_when`), generate a separate test for that conditional branch.
+- **Wizard step coverage (CRITICAL):** If a wizard has multiple steps and any step beyond Step 1 contains its own named field group (e.g., "Address Details", "Family Members", "Identifiers"), generate ONE dedicated positive TC per such step. The TC must:
+  - Navigate to that specific step (include the preceding steps as preconditions or brief navigation steps)
+  - Fill the fields described for that step (not just pass through)
+  - Assert the step's content is visible/saved on the detail page after final submission
+  - **Do NOT collapse all wizard steps into one happy-path TC** — if Steps 2, 3, and 4 each have their own named section in the spec, they each need their own TC.
+- **Wizard in-step identifiers/duplicates:** If a wizard step allows adding identifiers, documents, or similar entries that have a uniqueness constraint, include a TC for that wizard step that also verifies the constraint (e.g., attempting to add a duplicate Document Type+Key pair inside the wizard). This is a different code path from adding the same post-creation on the detail page.
+- **Action dialogs:** If a `state_bound_action_bar` action opens a dialog with its own `fields{}` (e.g., Activate requires Activation Date, Reject requires Reason), generate ONE positive TC per such action-dialog — distinct from the state-transition TC. The TC fills the dialog field and completes the action.
 
 **2. State Machines (`state_bound_action_bar`):**
 - For each unique action available in a specific state, generate ONE test performing that action.
@@ -200,6 +211,19 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 
 ---
 
+**WORKFLOW COVERAGE OBLIGATION (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- Your test cases must **collectively cover every workflow** listed.
+- For each `wf_id`, at least one TC must:
+  - Activate the `conditional_branch` (if not null) — i.e. the test must set up the condition described.
+  - Assert the `on_success` as its `expected_result` (verbatim or as the primary basis for the expected result).
+- Add `"wf_ref": "WF-NNN"` to each TC to identify which workflow it covers.
+- If one TC naturally covers multiple workflows (e.g., the base path overlaps), pick the most specific `wf_ref`.
+- If a TC does not map to any workflow (e.g., a navigation-only test), set `"wf_ref": null`.
+
+---
+
 **OUTPUT — JSON only, no prose, no markdown fencing:**
 
 {
@@ -208,6 +232,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
   "test_cases": [
     {
       "tc_id": "P-001",
+      "wf_ref": "WF-001",
       "test_case": "Short descriptive name",
       "preconditions": ["User logged in as <Role>", "<Prerequisite state>"],
       "steps": ["1. Step one", "2. Step two"],
@@ -224,7 +249,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 }
 
 ------------------------------------------------------------
-[21:47:19] Test-Positive - USER PROMPT
+[15:28:46] Test-Positive - USER PROMPT
 ------------------------------------------------------------
 <module_name>Course Edit Mode and Activity Chooser</module_name>
 
@@ -235,100 +260,161 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
     "Edit_Mode_Toggle": {
       "type": "button",
       "element_name": "Turn editing on/off",
-      "on_success": "enables authoring interface; inline controls appear on sections and activities"
+      "on_success": "toggles course page into/out of authoring interface",
+      "state_effects": [
+        "Edit_Mode toggled"
+      ]
     },
     "Course_Sections": {
       "type": "repeating_group",
       "item_fields": {
-        "Section_Quick_Rename": {
+        "Section_Edit_Icon": {
           "type": "button",
-          "element_name": "Inline quick rename (edit icon)",
-          "fields": {}
+          "element_name": "Section inline edit (rename)",
+          "visible_when": "Edit_Mode == On",
+          "fields": {
+            "New_Name": {
+              "type": "unspecified",
+              "required": true
+            }
+          },
+          "on_success": "renames section inline"
         },
         "Section_Menu": {
           "type": "menu",
+          "element_name": "Section three-dot menu",
+          "visible_when": "Edit_Mode == On",
           "available_actions": [
             {
-              "action_name": "Edit"
+              "action_name": "Edit",
+              "on_success": "opens section edit dialog"
             },
             {
-              "action_name": "Duplicate"
+              "action_name": "Duplicate",
+              "on_success": "creates duplicate of section"
             },
             {
-              "action_name": "Hide"
+              "action_name": "Hide",
+              "on_success": "section set to Hidden"
             },
             {
-              "action_name": "Delete"
+              "action_name": "Delete",
+              "on_success": "deletes section"
             },
             {
-              "action_name": "Move"
+              "action_name": "Move",
+              "on_success": "opens move interface for section"
             }
           ]
         },
         "Activities": {
           "type": "repeating_group",
           "item_fields": {
-            "Activity_Quick_Rename": {
+            "Select_For_Bulk": {
+              "type": "checkbox",
+              "visible_when": "Edit_Mode == On",
+              "element_name": "Select activity for bulk actions"
+            },
+            "Activity_Edit_Icon": {
               "type": "button",
-              "element_name": "Inline quick rename (edit icon)",
-              "fields": {}
+              "element_name": "Activity inline edit (rename)",
+              "visible_when": "Edit_Mode == On",
+              "fields": {
+                "New_Name": {
+                  "type": "unspecified",
+                  "required": true
+                }
+              },
+              "on_success": "renames activity inline"
             },
             "Activity_Menu": {
               "type": "menu",
+              "element_name": "Activity three-dot menu",
+              "visible_when": "Edit_Mode == On",
               "available_actions": [
                 {
-                  "action_name": "Edit settings"
+                  "action_name": "Edit settings",
+                  "on_success": "opens activity settings form"
                 },
                 {
-                  "action_name": "Move"
+                  "action_name": "Move",
+                  "on_success": "opens move interface for activity"
                 },
                 {
-                  "action_name": "Duplicate"
+                  "action_name": "Duplicate",
+                  "on_success": "creates duplicate of activity"
                 },
                 {
-                  "action_name": "Hide"
+                  "action_name": "Hide",
+                  "on_success": "activity set to Hidden"
                 },
                 {
-                  "action_name": "Set access restrictions"
+                  "action_name": "Set access restrictions",
+                  "on_success": "opens access restrictions dialog"
                 },
                 {
-                  "action_name": "Delete"
+                  "action_name": "Delete",
+                  "on_success": "deletes activity"
                 }
               ]
-            },
-            "Activity_Selection_Checkbox": {
-              "type": "checkbox",
-              "element_name": "Select activity for bulk actions"
             }
           }
         },
         "Add_Activity_Button": {
           "type": "button",
           "element_name": "+ Add an activity or resource",
-          "on_success": "opens Activity Chooser modal"
+          "visible_when": "Edit_Mode == On",
+          "on_click": "opens Activity_Chooser_Modal"
         },
         "Add_Subsection": {
           "type": "button",
           "element_name": "+ Add a subsection",
-          "on_success": "creates nested subsection for hierarchical content"
+          "visible_when": "Edit_Mode == On",
+          "fields": {
+            "Subsection_Title": {
+              "type": "unspecified",
+              "required": true
+            }
+          },
+          "on_success": "adds nested subsection under this section"
         },
-        "Subsections": {
-          "type": "repeating_group",
-          "item_fields": {}
+        "Section_Move_Handle": {
+          "type": "button",
+          "element_name": "Drag/move handle",
+          "visible_when": "Edit_Mode == On",
+          "on_success": "enables drag-and-drop reordering of section"
         }
       }
     },
     "Bulk_Actions_Toolbar": {
       "type": "toolbar",
-      "visible_when": "Edit_Mode_Toggle == enabled",
-      "description": "Appears for batch operations on multiple selected activities",
-      "bulk_actions": []
+      "visible_when": "Edit_Mode == On",
+      "fields": {
+        "Bulk_Action_Selector": {
+          "type": "unspecified",
+          "element_name": "Choose bulk operation",
+          "constraints": []
+        },
+        "Apply_Bulk_Action": {
+          "type": "button",
+          "element_name": "Apply",
+          "constraints": [
+            "requires at least one activity selected"
+          ],
+          "on_success": "applies chosen bulk operation to selected activities"
+        }
+      }
     },
     "Activity_Chooser_Modal": {
       "type": "modal",
+      "visible_when": "Activity_Chooser_Invoked == true",
+      "preconditions": [
+        "Edit_Mode == On"
+      ],
       "fields": {
         "Category_Filter": {
           "type": "dropdown",
+          "element_name": "Category filter bar",
           "options": [
             "All",
             "Activities",
@@ -337,110 +423,55 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
           ]
         },
         "Search": {
-          "type": "search"
+          "type": "search",
+          "element_name": "Search activities/resources"
         },
-        "Activity_Tiles": {
+        "Tiles": {
           "type": "repeating_group",
-          "options": [
-            "Assignment",
-            "Forum",
-            "Quiz",
-            "File",
-            "Page",
-            "Lesson",
-            "SCORM",
-            "URL",
-            "Workshop"
-          ],
           "item_fields": {
             "Tile_Select": {
               "type": "radio",
-              "required": false,
-              "description": "Select a tile to add"
+              "element_name": "Select activity/resource tile",
+              "constraints": []
+            },
+            "Tile_Name": {
+              "type": "unspecified",
+              "element_name": "Activity/Resource name",
+              "options": [
+                "Assignment",
+                "Forum",
+                "Quiz",
+                "File",
+                "Page",
+                "Lesson",
+                "SCORM",
+                "URL",
+                "Workshop"
+              ]
             },
             "Favorite_Toggle": {
               "type": "checkbox",
-              "element_name": "Star / favorite toggle"
+              "element_name": "Star/favorite toggle",
+              "on_success": "toggles favorite for this tile"
             }
           }
-        },
-        "Add_Button": {
-          "type": "button",
+        }
+      },
+      "submit_actions": [
+        {
           "element_name": "Add",
-          "preconditions": [
-            "a tile must be selected"
+          "enabled_when": "a tile is selected",
+          "constraints": [
+            "requires a tile selected"
           ],
-          "on_success": "opens creation form for the selected activity/resource"
+          "on_success": "opens selected activity's creation form"
+        },
+        {
+          "element_name": "Cancel",
+          "type": "button",
+          "on_success": "closes Activity Chooser modal"
         }
-      }
-    },
-    "Activity_Creation_Forms": {
-      "type": "container",
-      "forms": {
-        "Assignment": {
-          "type": "form",
-          "fields": {},
-          "preconditions": [
-            "opened via Activity Chooser Add"
-          ]
-        },
-        "Forum": {
-          "type": "form",
-          "fields": {},
-          "preconditions": [
-            "opened via Activity Chooser Add"
-          ]
-        },
-        "Quiz": {
-          "type": "form",
-          "fields": {},
-          "preconditions": [
-            "opened via Activity Chooser Add"
-          ]
-        },
-        "File": {
-          "type": "form",
-          "fields": {},
-          "preconditions": [
-            "opened via Activity Chooser Add"
-          ]
-        },
-        "Page": {
-          "type": "form",
-          "fields": {},
-          "preconditions": [
-            "opened via Activity Chooser Add"
-          ]
-        },
-        "Lesson": {
-          "type": "form",
-          "fields": {},
-          "preconditions": [
-            "opened via Activity Chooser Add"
-          ]
-        },
-        "SCORM": {
-          "type": "form",
-          "fields": {},
-          "preconditions": [
-            "opened via Activity Chooser Add"
-          ]
-        },
-        "URL": {
-          "type": "form",
-          "fields": {},
-          "preconditions": [
-            "opened via Activity Chooser Add"
-          ]
-        },
-        "Workshop": {
-          "type": "form",
-          "fields": {},
-          "preconditions": [
-            "opened via Activity Chooser Add"
-          ]
-        }
-      }
+      ]
     }
   }
 }
@@ -455,10 +486,36 @@ Enabling Edit mode turns the Course page into an authoring interface. Each secti
 
 </description>
 
+<workflows>
+WF-001 | Toggle Edit Mode | actor: <role> | branch: none | terminal: Turn editing on/off | on_success: toggles course page into/out of authoring interface
+WF-002 | Inline rename section | actor: <role> | branch: Edit_Mode == On | terminal: Section inline edit (rename) | on_success: renames section inline
+WF-003 | Section menu — Edit | actor: <role> | branch: Edit_Mode == On | terminal: Edit | on_success: opens section edit dialog
+WF-004 | Section menu — Duplicate | actor: <role> | branch: Edit_Mode == On | terminal: Duplicate | on_success: creates duplicate of section
+WF-005 | Section menu — Hide | actor: <role> | branch: Edit_Mode == On | terminal: Hide | on_success: section set to Hidden
+WF-006 | Section menu — Delete | actor: <role> | branch: Edit_Mode == On | terminal: Delete | on_success: deletes section
+WF-007 | Section menu — Move | actor: <role> | branch: Edit_Mode == On | terminal: Move | on_success: opens move interface for section
+WF-008 | Select activity for bulk actions (checkbox) | actor: <role> | branch: Edit_Mode == On | terminal: Select activity for bulk actions | on_success: marks activity as selected for bulk actions
+WF-009 | Inline rename activity | actor: <role> | branch: Edit_Mode == On | terminal: Activity inline edit (rename) | on_success: renames activity inline
+WF-010 | Activity menu — Edit settings | actor: <role> | branch: Edit_Mode == On | terminal: Edit settings | on_success: opens activity settings form
+WF-011 | Activity menu — Move | actor: <role> | branch: Edit_Mode == On | terminal: Move | on_success: opens move interface for activity
+WF-012 | Activity menu — Duplicate | actor: <role> | branch: Edit_Mode == On | terminal: Duplicate | on_success: creates duplicate of activity
+WF-013 | Activity menu — Hide | actor: <role> | branch: Edit_Mode == On | terminal: Hide | on_success: activity set to Hidden
+WF-014 | Activity menu — Set access restrictions | actor: <role> | branch: Edit_Mode == On | terminal: Set access restrictions | on_success: opens access restrictions dialog
+WF-015 | Activity menu — Delete | actor: <role> | branch: Edit_Mode == On | terminal: Delete | on_success: deletes activity
+WF-016 | Open Activity Chooser modal | actor: <role> | branch: Edit_Mode == On | terminal: + Add an activity or resource | on_success: opens Activity_Chooser_Modal
+WF-017 | Add a subsection | actor: <role> | branch: Edit_Mode == On | terminal: + Add a subsection | on_success: adds nested subsection under this section
+WF-018 | Section drag/move handle (start reorder) | actor: <role> | branch: Edit_Mode == On | terminal: Drag/move handle | on_success: enables drag-and-drop reordering of section
+WF-019 | Apply bulk action to selected activities | actor: <role> | branch: Edit_Mode == On AND exists(activity.Select_For_Bulk == true) | terminal: Apply | on_success: applies chosen bulk operation to selected activities
+WF-020 | Activity Chooser — Add selected tile | actor: <role> | branch: Activity_Chooser_Invoked == true AND Tile_Select == true | terminal: Add | on_success: opens selected activity's creation form
+WF-021 | Activity Chooser — Cancel | actor: <role> | branch: Activity_Chooser_Invoked == true | terminal: Cancel | on_success: closes Activity Chooser modal
+WF-022 | Toggle favorite on a tile | actor: <role> | branch: Activity_Chooser_Invoked == true | terminal: Star/favorite toggle | on_success: toggles favorite for this tile
+WF-023 | Select activity/resource tile | actor: <role> | branch: Activity_Chooser_Invoked == true | terminal: Select activity/resource tile | on_success: selects this activity/resource tile (enables Add)
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[21:48:53] Test-Positive - LLM RESPONSE
+[15:30:32] Test-Positive - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Course Edit Mode and Activity Chooser",
@@ -466,195 +523,295 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Enable Edit mode shows inline authoring controls and bulk toolbar",
-      "preconditions": ["User logged in as <Teacher>", "Course page is open"],
+      "wf_ref": "WF-001",
+      "test_case": "Toggle Edit Mode on/off",
+      "preconditions": ["User logged in as <Role>", "Course page is open"],
       "steps": [
-        "1. Click 'Turn editing on' (Edit_Mode_Toggle) on the Course page"
+        "1. Click the 'Turn editing on/off' button"
       ],
-      "expected_result": "enables authoring interface; inline controls appear on sections and activities",
+      "expected_result": "toggles course page into/out of authoring interface",
       "priority": "high"
     },
     {
       "tc_id": "P-002",
-      "test_case": "Open Activity Chooser from a section's Add button",
-      "preconditions": ["User logged in as <Teacher>", "Course page is open"],
+      "wf_ref": "WF-002",
+      "test_case": "Inline rename a section while Edit Mode is on",
+      "preconditions": ["User logged in as <Role>", "Course page is open", "Edit_Mode == On"],
       "steps": [
-        "1. Click 'Turn editing on' to enable edit mode",
-        "2. In a section, click '+ Add an activity or resource' (Add_Activity_Button)"
+        "1. Click the section's inline edit icon",
+        "2. Enter <New section name> into the inline name field",
+        "3. Press Enter to save the inline rename"
       ],
-      "expected_result": "opens Activity Chooser modal",
+      "expected_result": "The section header displays '<New section name>' inline (section is renamed inline)",
       "priority": "high"
     },
     {
       "tc_id": "P-003",
-      "test_case": "Filter Activity Chooser by category",
-      "preconditions": ["User logged in as <Teacher>", "Course page is open"],
+      "wf_ref": "WF-003",
+      "test_case": "Open section edit dialog from section menu",
+      "preconditions": ["User logged in as <Role>", "Course page is open", "Edit_Mode == On"],
       "steps": [
-        "1. Click 'Turn editing on' to enable edit mode",
-        "2. Click '+ Add an activity or resource' to open the Activity Chooser modal",
-        "3. Select '<Activities>' from the Category filter dropdown"
+        "1. Click the section three-dot menu for a section",
+        "2. Select 'Edit' from the menu"
       ],
-      "expected_result": "Activity Chooser displays only tiles matching <Activities> in the tiles grid; unrelated tiles are no longer visible",
-      "priority": "medium"
+      "expected_result": "opens section edit dialog",
+      "priority": "high"
     },
     {
       "tc_id": "P-004",
-      "test_case": "Search activity tiles in Activity Chooser",
-      "preconditions": ["User logged in as <Teacher>", "Course page is open"],
+      "wf_ref": "WF-004",
+      "test_case": "Duplicate a section via section menu",
+      "preconditions": ["User logged in as <Role>", "Course page is open", "Edit_Mode == On"],
       "steps": [
-        "1. Click 'Turn editing on' to enable edit mode",
-        "2. Click '+ Add an activity or resource' to open the Activity Chooser modal",
-        "3. Enter <search term> in the Search field"
+        "1. Click the section three-dot menu for a section",
+        "2. Select 'Duplicate' from the menu"
       ],
-      "expected_result": "Activity tiles grid displays only results matching <search term>; unrelated tiles are no longer visible",
+      "expected_result": "A duplicate section row appears with the same title as the original section",
       "priority": "medium"
     },
     {
       "tc_id": "P-005",
-      "test_case": "Select an activity tile and open its creation form (Assignment)",
-      "preconditions": ["User logged in as <Teacher>", "Course page is open"],
+      "wf_ref": "WF-005",
+      "test_case": "Hide a section via section menu",
+      "preconditions": ["User logged in as <Role>", "Course page is open", "Edit_Mode == On"],
       "steps": [
-        "1. Click 'Turn editing on' to enable edit mode",
-        "2. Click '+ Add an activity or resource' to open the Activity Chooser modal",
-        "3. Select the 'Assignment' tile (Tile_Select)",
-        "4. Click 'Add' in the Activity Chooser"
+        "1. Click the section three-dot menu for a section",
+        "2. Select 'Hide' from the menu"
       ],
-      "expected_result": "The Assignment creation form is displayed",
-      "priority": "high"
+      "expected_result": "section set to Hidden (the section displays a Hidden indicator or is visually marked as hidden)",
+      "priority": "medium"
     },
     {
       "tc_id": "P-006",
-      "test_case": "Mark an activity tile as favorite in the Activity Chooser",
-      "preconditions": ["User logged in as <Teacher>", "Course page is open"],
+      "wf_ref": "WF-006",
+      "test_case": "Delete a section via section menu",
+      "preconditions": ["User logged in as <Role>", "Course page is open", "Edit_Mode == On"],
       "steps": [
-        "1. Click 'Turn editing on' to enable edit mode",
-        "2. Click '+ Add an activity or resource' to open the Activity Chooser modal",
-        "3. Click the Favorite (star) toggle on the 'Quiz' tile"
+        "1. Click the section three-dot menu for a section",
+        "2. Select 'Delete' from the menu",
+        "3. Confirm the deletion in the confirmation dialog"
       ],
-      "expected_result": "The Quiz tile shows favorited state (star highlighted)",
-      "priority": "low"
+      "expected_result": "The section row is no longer present in the sections list",
+      "priority": "medium"
     },
     {
       "tc_id": "P-007",
-      "test_case": "Activity Chooser Add button enables only after selecting a tile",
-      "preconditions": ["User logged in as <Teacher>", "Course page is open"],
+      "wf_ref": "WF-007",
+      "test_case": "Open move interface for a section",
+      "preconditions": ["User logged in as <Role>", "Course page is open", "Edit_Mode == On"],
       "steps": [
-        "1. Click 'Turn editing on' to enable edit mode",
-        "2. Click '+ Add an activity or resource' to open the Activity Chooser modal",
-        "3. Observe the 'Add' button state before selection",
-        "4. Select any activity tile (Tile_Select)"
+        "1. Click the section three-dot menu for a section",
+        "2. Select 'Move' from the menu"
       ],
-      "expected_result": "The Add button becomes enabled after selecting a tile",
-      "priority": "high"
+      "expected_result": "opens move interface for section (the section move UI is visible)",
+      "priority": "medium"
     },
     {
       "tc_id": "P-008",
-      "test_case": "Add a nested subsection using '+ Add a subsection'",
-      "preconditions": ["User logged in as <Teacher>", "Course page is open"],
+      "wf_ref": "WF-008",
+      "test_case": "Select an activity for bulk actions",
+      "preconditions": ["User logged in as <Role>", "Course page is open", "Edit_Mode == On"],
       "steps": [
-        "1. Click 'Turn editing on' to enable edit mode",
-        "2. In a section, click '+ Add a subsection' (Add_Subsection)"
+        "1. Check the 'Select activity for bulk actions' checkbox on an activity row"
       ],
-      "expected_result": "creates nested subsection for hierarchical content",
-      "priority": "high"
+      "expected_result": "Activity row is visually marked as selected (checkbox is checked) and available for bulk actions",
+      "priority": "medium"
     },
     {
       "tc_id": "P-009",
-      "test_case": "Quick rename a section inline",
-      "preconditions": ["User logged in as <Teacher>", "Course page is open"],
+      "wf_ref": "WF-009",
+      "test_case": "Inline rename an activity while Edit Mode is on",
+      "preconditions": ["User logged in as <Role>", "Course page is open", "Edit_Mode == On"],
       "steps": [
-        "1. Click 'Turn editing on' to enable edit mode",
-        "2. Click the inline quick rename (edit icon) on <target section>",
-        "3. Enter <new section name> in the inline editor",
-        "4. Save the inline edit"
+        "1. Click the activity's inline edit icon",
+        "2. Enter <New activity name> into the inline name field",
+        "3. Press Enter to save the inline rename"
       ],
-      "expected_result": "Section title updates to '<new section name>' inline in the section header",
+      "expected_result": "The activity title displays '<New activity name>' inline (activity is renamed inline)",
       "priority": "high"
     },
     {
       "tc_id": "P-010",
-      "test_case": "Quick rename an activity inline",
-      "preconditions": ["User logged in as <Teacher>", "Course page is open"],
+      "wf_ref": "WF-010",
+      "test_case": "Open activity settings from activity menu",
+      "preconditions": ["User logged in as <Role>", "Course page is open", "Edit_Mode == On"],
       "steps": [
-        "1. Click 'Turn editing on' to enable edit mode",
-        "2. Click the inline quick rename (edit icon) on <target activity>",
-        "3. Enter <new activity name> in the inline editor",
-        "4. Save the inline edit"
+        "1. Click the activity three-dot menu for an activity",
+        "2. Select 'Edit settings' from the menu"
       ],
-      "expected_result": "Activity title updates to '<new activity name>' inline within its row",
+      "expected_result": "opens activity settings form (the activity settings form is visible)",
       "priority": "high"
     },
     {
       "tc_id": "P-011",
-      "test_case": "Duplicate a section via the section menu",
-      "preconditions": ["User logged in as <Teacher>", "Course page is open"],
+      "wf_ref": "WF-011",
+      "test_case": "Open move interface for an activity",
+      "preconditions": ["User logged in as <Role>", "Course page is open", "Edit_Mode == On"],
       "steps": [
-        "1. Click 'Turn editing on' to enable edit mode",
-        "2. Click the section three-dot menu on <target section>",
-        "3. Click 'Duplicate' from the section menu"
+        "1. Click the activity three-dot menu for an activity",
+        "2. Select 'Move' from the menu"
       ],
-      "expected_result": "A new section row appears immediately below the original section",
+      "expected_result": "opens move interface for activity (the activity move UI is visible)",
       "priority": "medium"
     },
     {
       "tc_id": "P-012",
-      "test_case": "Duplicate an activity via the activity menu",
-      "preconditions": ["User logged in as <Teacher>", "Course page is open"],
+      "wf_ref": "WF-012",
+      "test_case": "Duplicate an activity via activity menu",
+      "preconditions": ["User logged in as <Role>", "Course page is open", "Edit_Mode == On"],
       "steps": [
-        "1. Click 'Turn editing on' to enable edit mode",
-        "2. Click the activity three-dot menu on <target activity>",
-        "3. Click 'Duplicate' from the activity menu"
+        "1. Click the activity three-dot menu for an activity",
+        "2. Select 'Duplicate' from the menu"
       ],
-      "expected_result": "A duplicate activity row appears immediately below the original activity in the section",
+      "expected_result": "A duplicate activity row appears with the same title as the original activity",
       "priority": "medium"
     },
     {
       "tc_id": "P-013",
-      "test_case": "Hide a section via the section menu",
-      "preconditions": ["User logged in as <Teacher>", "Course page is open"],
+      "wf_ref": "WF-013",
+      "test_case": "Hide an activity via activity menu",
+      "preconditions": ["User logged in as <Role>", "Course page is open", "Edit_Mode == On"],
       "steps": [
-        "1. Click 'Turn editing on' to enable edit mode",
-        "2. Click the section three-dot menu on <target section>",
-        "3. Click 'Hide' from the section menu"
+        "1. Click the activity three-dot menu for an activity",
+        "2. Select 'Hide' from the menu"
       ],
-      "expected_result": "Section row displays a hidden indicator and is visually marked as hidden",
+      "expected_result": "activity set to Hidden (the activity displays a Hidden indicator or is visually marked as hidden)",
       "priority": "medium"
     },
     {
       "tc_id": "P-014",
-      "test_case": "Hide an activity via the activity menu",
-      "preconditions": ["User logged in as <Teacher>", "Course page is open"],
+      "wf_ref": "WF-014",
+      "test_case": "Open access restrictions dialog from activity menu",
+      "preconditions": ["User logged in as <Role>", "Course page is open", "Edit_Mode == On"],
       "steps": [
-        "1. Click 'Turn editing on' to enable edit mode",
-        "2. Click the activity three-dot menu on <target activity>",
-        "3. Click 'Hide' from the activity menu"
+        "1. Click the activity three-dot menu for an activity",
+        "2. Select 'Set access restrictions' from the menu"
       ],
-      "expected_result": "Activity row displays a hidden indicator and is visually marked as hidden",
+      "expected_result": "opens access restrictions dialog (the access restrictions dialog is visible)",
       "priority": "medium"
     },
     {
       "tc_id": "P-015",
-      "test_case": "Open 'Set access restrictions' for an activity",
-      "preconditions": ["User logged in as <Teacher>", "Course page is open"],
+      "wf_ref": "WF-015",
+      "test_case": "Delete an activity via activity menu",
+      "preconditions": ["User logged in as <Role>", "Course page is open", "Edit_Mode == On"],
       "steps": [
-        "1. Click 'Turn editing on' to enable edit mode",
-        "2. Click the activity three-dot menu on <target activity>",
-        "3. Click 'Set access restrictions' from the activity menu"
+        "1. Click the activity three-dot menu for an activity",
+        "2. Select 'Delete' from the menu",
+        "3. Confirm the deletion in the confirmation dialog"
       ],
-      "expected_result": "The Access restrictions panel is displayed for the activity",
+      "expected_result": "The activity row is no longer present in the section's activity list",
       "priority": "medium"
+    },
+    {
+      "tc_id": "P-016",
+      "wf_ref": "WF-016",
+      "test_case": "Open the Activity Chooser modal from a section's Add button",
+      "preconditions": ["User logged in as <Role>", "Course page is open", "Edit_Mode == On"],
+      "steps": [
+        "1. Click '+ Add an activity or resource' at the bottom of a section"
+      ],
+      "expected_result": "opens Activity_Chooser_Modal (Activity Chooser modal is visible)",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-017",
+      "wf_ref": "WF-017",
+      "test_case": "Add a subsection under a section",
+      "preconditions": ["User logged in as <Role>", "Course page is open", "Edit_Mode == On"],
+      "steps": [
+        "1. Click '+ Add a subsection' on a section",
+        "2. Enter <Subsection_Title> in the new subsection title field",
+        "3. Save the subsection"
+      ],
+      "expected_result": "adds nested subsection under this section (a new subsection row appears under the parent section with the entered title)",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-018",
+      "wf_ref": "WF-018",
+      "test_case": "Enable drag-and-drop reordering by interacting with section move handle",
+      "preconditions": ["User logged in as <Role>", "Course page is open", "Edit_Mode == On"],
+      "steps": [
+        "1. Click and hold the section's Drag/move handle",
+        "2. Drag the section to a new position and release"
+      ],
+      "expected_result": "enables drag-and-drop reordering of section (section appears in the new position in the sections list)",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-019",
+      "wf_ref": "WF-019",
+      "test_case": "Apply a bulk action to selected activities",
+      "preconditions": ["User logged in as <Role>", "Course page is open", "Edit_Mode == On", "At least one activity is selected for bulk actions"],
+      "steps": [
+        "1. Select one or more activities using their bulk selection checkboxes",
+        "2. Choose <bulk operation> from the Bulk Action selector in the Bulk Actions toolbar",
+        "3. Click the 'Apply' button in the Bulk Actions toolbar"
+      ],
+      "expected_result": "applies chosen bulk operation to selected activities (selected activities visibly reflect the applied bulk operation, e.g., status badge or visibility changes)",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-020",
+      "wf_ref": "WF-020",
+      "test_case": "Select a tile in Activity Chooser and click Add to open creation form",
+      "preconditions": ["User logged in as <Role>", "Course page is open", "Edit_Mode == On"],
+      "steps": [
+        "1. Click '+ Add an activity or resource' to open the Activity Chooser modal",
+        "2. In the Activity Chooser modal, select a tile by clicking its Tile_Select radio (choose <tile type>)",
+        "3. Click the 'Add' button"
+      ],
+      "expected_result": "opens selected activity's creation form (the selected activity creation form is displayed)",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-021",
+      "wf_ref": "WF-021",
+      "test_case": "Cancel out of the Activity Chooser modal",
+      "preconditions": ["User logged in as <Role>", "Course page is open", "Edit_Mode == On"],
+      "steps": [
+        "1. Click '+ Add an activity or resource' to open the Activity Chooser modal",
+        "2. Click the 'Cancel' button in the Activity Chooser modal"
+      ],
+      "expected_result": "closes Activity Chooser modal (the modal is no longer visible and the course page is shown)",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-022",
+      "wf_ref": "WF-022",
+      "test_case": "Toggle favorite on an Activity Chooser tile",
+      "preconditions": ["User logged in as <Role>", "Course page is open", "Edit_Mode == On"],
+      "steps": [
+        "1. Click '+ Add an activity or resource' to open the Activity Chooser modal",
+        "2. Click the tile's Star/favorite toggle"
+      ],
+      "expected_result": "toggles favorite for this tile (the tile's star icon shows the toggled favorite state)",
+      "priority": "low"
+    },
+    {
+      "tc_id": "P-023",
+      "wf_ref": "WF-023",
+      "test_case": "Select an activity/resource tile enables Add button",
+      "preconditions": ["User logged in as <Role>", "Course page is open", "Edit_Mode == On"],
+      "steps": [
+        "1. Click '+ Add an activity or resource' to open the Activity Chooser modal",
+        "2. Click a tile to select it (Tile_Select)"
+      ],
+      "expected_result": "selects this activity/resource tile (the tile is highlighted/selected) and the 'Add' button becomes enabled",
+      "priority": "high"
     }
   ],
   "summary": {
-    "total": 15,
-    "high_priority": 6,
-    "medium_priority": 8,
+    "total": 23,
+    "high_priority": 9,
+    "medium_priority": 13,
     "low_priority": 1
   }
 }
 
 ------------------------------------------------------------
-[21:48:53] Test-Positive - PARSED JSON
+[15:30:32] Test-Positive - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Course Edit Mode and Activity Chooser",
@@ -662,234 +819,381 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Enable Edit mode shows inline authoring controls and bulk toolbar",
+      "wf_ref": "WF-001",
+      "test_case": "Toggle Edit Mode on/off",
       "preconditions": [
-        "User logged in as <Teacher>",
+        "User logged in as <Role>",
         "Course page is open"
       ],
       "steps": [
-        "1. Click 'Turn editing on' (Edit_Mode_Toggle) on the Course page"
+        "1. Click the 'Turn editing on/off' button"
       ],
-      "expected_result": "enables authoring interface; inline controls appear on sections and activities",
+      "expected_result": "toggles course page into/out of authoring interface",
       "priority": "high"
     },
     {
       "tc_id": "P-002",
-      "test_case": "Open Activity Chooser from a section's Add button",
+      "wf_ref": "WF-002",
+      "test_case": "Inline rename a section while Edit Mode is on",
       "preconditions": [
-        "User logged in as <Teacher>",
-        "Course page is open"
+        "User logged in as <Role>",
+        "Course page is open",
+        "Edit_Mode == On"
       ],
       "steps": [
-        "1. Click 'Turn editing on' to enable edit mode",
-        "2. In a section, click '+ Add an activity or resource' (Add_Activity_Button)"
+        "1. Click the section's inline edit icon",
+        "2. Enter <New section name> into the inline name field",
+        "3. Press Enter to save the inline rename"
       ],
-      "expected_result": "opens Activity Chooser modal",
+      "expected_result": "The section header displays '<New section name>' inline (section is renamed inline)",
       "priority": "high"
     },
     {
       "tc_id": "P-003",
-      "test_case": "Filter Activity Chooser by category",
+      "wf_ref": "WF-003",
+      "test_case": "Open section edit dialog from section menu",
       "preconditions": [
-        "User logged in as <Teacher>",
-        "Course page is open"
+        "User logged in as <Role>",
+        "Course page is open",
+        "Edit_Mode == On"
       ],
       "steps": [
-        "1. Click 'Turn editing on' to enable edit mode",
-        "2. Click '+ Add an activity or resource' to open the Activity Chooser modal",
-        "3. Select '<Activities>' from the Category filter dropdown"
+        "1. Click the section three-dot menu for a section",
+        "2. Select 'Edit' from the menu"
       ],
-      "expected_result": "Activity Chooser displays only tiles matching <Activities> in the tiles grid; unrelated tiles are no longer visible",
-      "priority": "medium"
+      "expected_result": "opens section edit dialog",
+      "priority": "high"
     },
     {
       "tc_id": "P-004",
-      "test_case": "Search activity tiles in Activity Chooser",
+      "wf_ref": "WF-004",
+      "test_case": "Duplicate a section via section menu",
       "preconditions": [
-        "User logged in as <Teacher>",
-        "Course page is open"
+        "User logged in as <Role>",
+        "Course page is open",
+        "Edit_Mode == On"
       ],
       "steps": [
-        "1. Click 'Turn editing on' to enable edit mode",
-        "2. Click '+ Add an activity or resource' to open the Activity Chooser modal",
-        "3. Enter <search term> in the Search field"
+        "1. Click the section three-dot menu for a section",
+        "2. Select 'Duplicate' from the menu"
       ],
-      "expected_result": "Activity tiles grid displays only results matching <search term>; unrelated tiles are no longer visible",
+      "expected_result": "A duplicate section row appears with the same title as the original section",
       "priority": "medium"
     },
     {
       "tc_id": "P-005",
-      "test_case": "Select an activity tile and open its creation form (Assignment)",
+      "wf_ref": "WF-005",
+      "test_case": "Hide a section via section menu",
       "preconditions": [
-        "User logged in as <Teacher>",
-        "Course page is open"
+        "User logged in as <Role>",
+        "Course page is open",
+        "Edit_Mode == On"
       ],
       "steps": [
-        "1. Click 'Turn editing on' to enable edit mode",
-        "2. Click '+ Add an activity or resource' to open the Activity Chooser modal",
-        "3. Select the 'Assignment' tile (Tile_Select)",
-        "4. Click 'Add' in the Activity Chooser"
+        "1. Click the section three-dot menu for a section",
+        "2. Select 'Hide' from the menu"
       ],
-      "expected_result": "The Assignment creation form is displayed",
-      "priority": "high"
+      "expected_result": "section set to Hidden (the section displays a Hidden indicator or is visually marked as hidden)",
+      "priority": "medium"
     },
     {
       "tc_id": "P-006",
-      "test_case": "Mark an activity tile as favorite in the Activity Chooser",
+      "wf_ref": "WF-006",
+      "test_case": "Delete a section via section menu",
       "preconditions": [
-        "User logged in as <Teacher>",
-        "Course page is open"
+        "User logged in as <Role>",
+        "Course page is open",
+        "Edit_Mode == On"
       ],
       "steps": [
-        "1. Click 'Turn editing on' to enable edit mode",
-        "2. Click '+ Add an activity or resource' to open the Activity Chooser modal",
-        "3. Click the Favorite (star) toggle on the 'Quiz' tile"
+        "1. Click the section three-dot menu for a section",
+        "2. Select 'Delete' from the menu",
+        "3. Confirm the deletion in the confirmation dialog"
       ],
-      "expected_result": "The Quiz tile shows favorited state (star highlighted)",
-      "priority": "low"
+      "expected_result": "The section row is no longer present in the sections list",
+      "priority": "medium"
     },
     {
       "tc_id": "P-007",
-      "test_case": "Activity Chooser Add button enables only after selecting a tile",
+      "wf_ref": "WF-007",
+      "test_case": "Open move interface for a section",
       "preconditions": [
-        "User logged in as <Teacher>",
-        "Course page is open"
+        "User logged in as <Role>",
+        "Course page is open",
+        "Edit_Mode == On"
       ],
       "steps": [
-        "1. Click 'Turn editing on' to enable edit mode",
-        "2. Click '+ Add an activity or resource' to open the Activity Chooser modal",
-        "3. Observe the 'Add' button state before selection",
-        "4. Select any activity tile (Tile_Select)"
+        "1. Click the section three-dot menu for a section",
+        "2. Select 'Move' from the menu"
       ],
-      "expected_result": "The Add button becomes enabled after selecting a tile",
-      "priority": "high"
+      "expected_result": "opens move interface for section (the section move UI is visible)",
+      "priority": "medium"
     },
     {
       "tc_id": "P-008",
-      "test_case": "Add a nested subsection using '+ Add a subsection'",
+      "wf_ref": "WF-008",
+      "test_case": "Select an activity for bulk actions",
       "preconditions": [
-        "User logged in as <Teacher>",
-        "Course page is open"
+        "User logged in as <Role>",
+        "Course page is open",
+        "Edit_Mode == On"
       ],
       "steps": [
-        "1. Click 'Turn editing on' to enable edit mode",
-        "2. In a section, click '+ Add a subsection' (Add_Subsection)"
+        "1. Check the 'Select activity for bulk actions' checkbox on an activity row"
       ],
-      "expected_result": "creates nested subsection for hierarchical content",
-      "priority": "high"
+      "expected_result": "Activity row is visually marked as selected (checkbox is checked) and available for bulk actions",
+      "priority": "medium"
     },
     {
       "tc_id": "P-009",
-      "test_case": "Quick rename a section inline",
+      "wf_ref": "WF-009",
+      "test_case": "Inline rename an activity while Edit Mode is on",
       "preconditions": [
-        "User logged in as <Teacher>",
-        "Course page is open"
+        "User logged in as <Role>",
+        "Course page is open",
+        "Edit_Mode == On"
       ],
       "steps": [
-        "1. Click 'Turn editing on' to enable edit mode",
-        "2. Click the inline quick rename (edit icon) on <target section>",
-        "3. Enter <new section name> in the inline editor",
-        "4. Save the inline edit"
+        "1. Click the activity's inline edit icon",
+        "2. Enter <New activity name> into the inline name field",
+        "3. Press Enter to save the inline rename"
       ],
-      "expected_result": "Section title updates to '<new section name>' inline in the section header",
+      "expected_result": "The activity title displays '<New activity name>' inline (activity is renamed inline)",
       "priority": "high"
     },
     {
       "tc_id": "P-010",
-      "test_case": "Quick rename an activity inline",
+      "wf_ref": "WF-010",
+      "test_case": "Open activity settings from activity menu",
       "preconditions": [
-        "User logged in as <Teacher>",
-        "Course page is open"
+        "User logged in as <Role>",
+        "Course page is open",
+        "Edit_Mode == On"
       ],
       "steps": [
-        "1. Click 'Turn editing on' to enable edit mode",
-        "2. Click the inline quick rename (edit icon) on <target activity>",
-        "3. Enter <new activity name> in the inline editor",
-        "4. Save the inline edit"
+        "1. Click the activity three-dot menu for an activity",
+        "2. Select 'Edit settings' from the menu"
       ],
-      "expected_result": "Activity title updates to '<new activity name>' inline within its row",
+      "expected_result": "opens activity settings form (the activity settings form is visible)",
       "priority": "high"
     },
     {
       "tc_id": "P-011",
-      "test_case": "Duplicate a section via the section menu",
+      "wf_ref": "WF-011",
+      "test_case": "Open move interface for an activity",
       "preconditions": [
-        "User logged in as <Teacher>",
-        "Course page is open"
+        "User logged in as <Role>",
+        "Course page is open",
+        "Edit_Mode == On"
       ],
       "steps": [
-        "1. Click 'Turn editing on' to enable edit mode",
-        "2. Click the section three-dot menu on <target section>",
-        "3. Click 'Duplicate' from the section menu"
+        "1. Click the activity three-dot menu for an activity",
+        "2. Select 'Move' from the menu"
       ],
-      "expected_result": "A new section row appears immediately below the original section",
+      "expected_result": "opens move interface for activity (the activity move UI is visible)",
       "priority": "medium"
     },
     {
       "tc_id": "P-012",
-      "test_case": "Duplicate an activity via the activity menu",
+      "wf_ref": "WF-012",
+      "test_case": "Duplicate an activity via activity menu",
       "preconditions": [
-        "User logged in as <Teacher>",
-        "Course page is open"
+        "User logged in as <Role>",
+        "Course page is open",
+        "Edit_Mode == On"
       ],
       "steps": [
-        "1. Click 'Turn editing on' to enable edit mode",
-        "2. Click the activity three-dot menu on <target activity>",
-        "3. Click 'Duplicate' from the activity menu"
+        "1. Click the activity three-dot menu for an activity",
+        "2. Select 'Duplicate' from the menu"
       ],
-      "expected_result": "A duplicate activity row appears immediately below the original activity in the section",
+      "expected_result": "A duplicate activity row appears with the same title as the original activity",
       "priority": "medium"
     },
     {
       "tc_id": "P-013",
-      "test_case": "Hide a section via the section menu",
+      "wf_ref": "WF-013",
+      "test_case": "Hide an activity via activity menu",
       "preconditions": [
-        "User logged in as <Teacher>",
-        "Course page is open"
+        "User logged in as <Role>",
+        "Course page is open",
+        "Edit_Mode == On"
       ],
       "steps": [
-        "1. Click 'Turn editing on' to enable edit mode",
-        "2. Click the section three-dot menu on <target section>",
-        "3. Click 'Hide' from the section menu"
+        "1. Click the activity three-dot menu for an activity",
+        "2. Select 'Hide' from the menu"
       ],
-      "expected_result": "Section row displays a hidden indicator and is visually marked as hidden",
+      "expected_result": "activity set to Hidden (the activity displays a Hidden indicator or is visually marked as hidden)",
       "priority": "medium"
     },
     {
       "tc_id": "P-014",
-      "test_case": "Hide an activity via the activity menu",
+      "wf_ref": "WF-014",
+      "test_case": "Open access restrictions dialog from activity menu",
       "preconditions": [
-        "User logged in as <Teacher>",
-        "Course page is open"
+        "User logged in as <Role>",
+        "Course page is open",
+        "Edit_Mode == On"
       ],
       "steps": [
-        "1. Click 'Turn editing on' to enable edit mode",
-        "2. Click the activity three-dot menu on <target activity>",
-        "3. Click 'Hide' from the activity menu"
+        "1. Click the activity three-dot menu for an activity",
+        "2. Select 'Set access restrictions' from the menu"
       ],
-      "expected_result": "Activity row displays a hidden indicator and is visually marked as hidden",
+      "expected_result": "opens access restrictions dialog (the access restrictions dialog is visible)",
       "priority": "medium"
     },
     {
       "tc_id": "P-015",
-      "test_case": "Open 'Set access restrictions' for an activity",
+      "wf_ref": "WF-015",
+      "test_case": "Delete an activity via activity menu",
       "preconditions": [
-        "User logged in as <Teacher>",
-        "Course page is open"
+        "User logged in as <Role>",
+        "Course page is open",
+        "Edit_Mode == On"
       ],
       "steps": [
-        "1. Click 'Turn editing on' to enable edit mode",
-        "2. Click the activity three-dot menu on <target activity>",
-        "3. Click 'Set access restrictions' from the activity menu"
+        "1. Click the activity three-dot menu for an activity",
+        "2. Select 'Delete' from the menu",
+        "3. Confirm the deletion in the confirmation dialog"
       ],
-      "expected_result": "The Access restrictions panel is displayed for the activity",
+      "expected_result": "The activity row is no longer present in the section's activity list",
       "priority": "medium"
+    },
+    {
+      "tc_id": "P-016",
+      "wf_ref": "WF-016",
+      "test_case": "Open the Activity Chooser modal from a section's Add button",
+      "preconditions": [
+        "User logged in as <Role>",
+        "Course page is open",
+        "Edit_Mode == On"
+      ],
+      "steps": [
+        "1. Click '+ Add an activity or resource' at the bottom of a section"
+      ],
+      "expected_result": "opens Activity_Chooser_Modal (Activity Chooser modal is visible)",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-017",
+      "wf_ref": "WF-017",
+      "test_case": "Add a subsection under a section",
+      "preconditions": [
+        "User logged in as <Role>",
+        "Course page is open",
+        "Edit_Mode == On"
+      ],
+      "steps": [
+        "1. Click '+ Add a subsection' on a section",
+        "2. Enter <Subsection_Title> in the new subsection title field",
+        "3. Save the subsection"
+      ],
+      "expected_result": "adds nested subsection under this section (a new subsection row appears under the parent section with the entered title)",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-018",
+      "wf_ref": "WF-018",
+      "test_case": "Enable drag-and-drop reordering by interacting with section move handle",
+      "preconditions": [
+        "User logged in as <Role>",
+        "Course page is open",
+        "Edit_Mode == On"
+      ],
+      "steps": [
+        "1. Click and hold the section's Drag/move handle",
+        "2. Drag the section to a new position and release"
+      ],
+      "expected_result": "enables drag-and-drop reordering of section (section appears in the new position in the sections list)",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-019",
+      "wf_ref": "WF-019",
+      "test_case": "Apply a bulk action to selected activities",
+      "preconditions": [
+        "User logged in as <Role>",
+        "Course page is open",
+        "Edit_Mode == On",
+        "At least one activity is selected for bulk actions"
+      ],
+      "steps": [
+        "1. Select one or more activities using their bulk selection checkboxes",
+        "2. Choose <bulk operation> from the Bulk Action selector in the Bulk Actions toolbar",
+        "3. Click the 'Apply' button in the Bulk Actions toolbar"
+      ],
+      "expected_result": "applies chosen bulk operation to selected activities (selected activities visibly reflect the applied bulk operation, e.g., status badge or visibility changes)",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-020",
+      "wf_ref": "WF-020",
+      "test_case": "Select a tile in Activity Chooser and click Add to open creation form",
+      "preconditions": [
+        "User logged in as <Role>",
+        "Course page is open",
+        "Edit_Mode == On"
+      ],
+      "steps": [
+        "1. Click '+ Add an activity or resource' to open the Activity Chooser modal",
+        "2. In the Activity Chooser modal, select a tile by clicking its Tile_Select radio (choose <tile type>)",
+        "3. Click the 'Add' button"
+      ],
+      "expected_result": "opens selected activity's creation form (the selected activity creation form is displayed)",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-021",
+      "wf_ref": "WF-021",
+      "test_case": "Cancel out of the Activity Chooser modal",
+      "preconditions": [
+        "User logged in as <Role>",
+        "Course page is open",
+        "Edit_Mode == On"
+      ],
+      "steps": [
+        "1. Click '+ Add an activity or resource' to open the Activity Chooser modal",
+        "2. Click the 'Cancel' button in the Activity Chooser modal"
+      ],
+      "expected_result": "closes Activity Chooser modal (the modal is no longer visible and the course page is shown)",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-022",
+      "wf_ref": "WF-022",
+      "test_case": "Toggle favorite on an Activity Chooser tile",
+      "preconditions": [
+        "User logged in as <Role>",
+        "Course page is open",
+        "Edit_Mode == On"
+      ],
+      "steps": [
+        "1. Click '+ Add an activity or resource' to open the Activity Chooser modal",
+        "2. Click the tile's Star/favorite toggle"
+      ],
+      "expected_result": "toggles favorite for this tile (the tile's star icon shows the toggled favorite state)",
+      "priority": "low"
+    },
+    {
+      "tc_id": "P-023",
+      "wf_ref": "WF-023",
+      "test_case": "Select an activity/resource tile enables Add button",
+      "preconditions": [
+        "User logged in as <Role>",
+        "Course page is open",
+        "Edit_Mode == On"
+      ],
+      "steps": [
+        "1. Click '+ Add an activity or resource' to open the Activity Chooser modal",
+        "2. Click a tile to select it (Tile_Select)"
+      ],
+      "expected_result": "selects this activity/resource tile (the tile is highlighted/selected) and the 'Add' button becomes enabled",
+      "priority": "high"
     }
   ],
   "summary": {
-    "total": 15,
-    "high_priority": 6,
-    "medium_priority": 8,
+    "total": 23,
+    "high_priority": 9,
+    "medium_priority": 13,
     "low_priority": 1
   }
 }

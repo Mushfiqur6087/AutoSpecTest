@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-21T22:54:00.265501
+DEBUG SESSION STARTED: 2026-05-25T14:51:20.252667
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[22:54:00] Test-Edge - SYSTEM PROMPT
+[14:51:20] Test-Edge - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Edge Case and Boundary Test Generator. You receive (1) a UI-AST JSON for one module and (2) the original functional description. Your job is to produce ONLY boundary and edge case tests — scenarios at the limits of valid/invalid input and unusual-but-plausible user behaviors.
 
@@ -25,6 +25,10 @@ You are NOT producing happy paths (positive prompt) or standard validation failu
 {Original functional description text for this module}
 </description>
 
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
+
 ---
 
 **UI-AST REFERENCE — How to Read the AST for Edge Testing:**
@@ -35,7 +39,7 @@ You are NOT producing happy paths (positive prompt) or standard validation failu
 | `repeating_group` with `max` | Test adding exactly `max` entries (should succeed) then one more (should block) |
 | `visible_when` / `required_when` | Edge: trigger condition, fill revealed field with boundary value |
 | `state_bound_action_bar` | State edges: rapid consecutive state transitions, transition from a boundary state |
-| `submit_actions[]` with multiple buttons | Interaction edge: double-click a submit button rapidly |
+
 | `type: "date"` fields | Data edges: today, yesterday, far future, Feb 29 leap year |
 | `type: "file_upload"` | Edge: file exactly at size limit, file at 1 byte over limit |
 
@@ -132,7 +136,6 @@ Pick only the ones that apply to field types present in this module's AST:
 
 Pick only the ones that match component types in this module's AST:
 
-- **Double-click submit** (any form/wizard with a submit button): rapidly double-click the submit button → assert only one record is created; no duplicate row appears in the listing table
 - **Rapid re-submission after redirect** (any form that redirects to a detail page on success): after a successful submit, press the browser back button → assert the creation form is shown blank (not pre-filled) OR the user is redirected to the detail page without a second entity being created
 - **Wizard step skip — enforced navigation** (wizard where steps must be completed sequentially): attempt to click a later step tab directly without completing earlier steps → assert navigation is blocked and the earlier step remains active
 - **Wizard step skip — free navigation** (wizard that allows free tab navigation): navigate to a later step without filling earlier steps → assert the later step displays and returning to the earlier step shows fields blank (no data was lost from the later step)
@@ -173,7 +176,16 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 
 - **High:** None — edge tests are secondary to core functionality
 - **Medium:** Boundary tests at thresholds (financial amounts, date ordering, count limits, file size limits)
-- **Low:** Input edge cases (long text, special chars, whitespace, decimal precision), interaction edge cases (double-click, browser back, wizard skip)
+- **Low:** Input edge cases (long text, special chars, whitespace, decimal precision), interaction edge cases (browser back, wizard skip)
+
+---
+
+**WORKFLOW-AWARE BOUNDARY SCOPING (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- For each workflow where `conditional_branch` activates a numeric or date field, check if that field has a boundary (a numeric/date threshold in the AST `constraints` or description).
+- If yes, that workflow's branch is a **candidate for a boundary edge test** — add or confirm a boundary TC exists for it.
+- Add `"wf_ref": "WF-NNN"` to each TC that maps to a specific workflow's boundary. Set `"wf_ref": null` for generic input/interaction edge tests.
 
 ---
 
@@ -185,6 +197,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": null,
       "subcategory": "boundary | input_edge | interaction_edge | state_edge | data_edge",
       "test_case": "Short descriptive name",
       "preconditions": ["precondition 1"],
@@ -207,7 +220,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 
 
 ------------------------------------------------------------
-[22:54:00] Test-Edge - USER PROMPT
+[14:51:20] Test-Edge - USER PROMPT
 ------------------------------------------------------------
 <module_name>Flights Search & Listing</module_name>
 
@@ -228,38 +241,32 @@ If the module has any numeric/date/count threshold in the AST or description, pr
           ]
         },
         "Departure_City": {
-          "type": "search",
-          "required": true
+          "type": "unspecified",
+          "required": false
         },
         "Arrival_City": {
-          "type": "search",
-          "required": true
+          "type": "unspecified",
+          "required": false
         },
         "Departure_Date": {
           "type": "date",
-          "required": true
+          "required": false
         },
         "Return_Date": {
           "type": "date",
-          "required": false,
-          "visible_when": "Trip_Type == Round-trip"
+          "required": false
         },
-        "Passenger_Count": {
-          "type": "group",
-          "fields": {
-            "Adults": {
-              "type": "number",
-              "required": true
-            },
-            "Children": {
-              "type": "number",
-              "required": false
-            },
-            "Infants": {
-              "type": "number",
-              "required": false
-            }
-          }
+        "Adults": {
+          "type": "number",
+          "required": false
+        },
+        "Children": {
+          "type": "number",
+          "required": false
+        },
+        "Infants": {
+          "type": "number",
+          "required": false
         },
         "Cabin_Class": {
           "type": "dropdown",
@@ -275,76 +282,95 @@ If the module has any numeric/date/count threshold in the AST or description, pr
       "submit_actions": [
         {
           "element_name": "Search",
-          "on_success": "redirects to listing page"
+          "on_success": "redirects to Flights Results page"
         }
       ]
     },
-    "Sidebar_Filters": {
-      "type": "form",
-      "fields": {
-        "Airlines": {
-          "type": "dropdown",
-          "required": false,
-          "multiple": true
+    "Flights_Results_Page": {
+      "type": "page",
+      "components": {
+        "Sidebar_Filters": {
+          "type": "form",
+          "fields": {
+            "Airlines": {
+              "type": "unspecified",
+              "required": false
+            },
+            "Number_of_Stops": {
+              "type": "unspecified",
+              "required": false,
+              "options": [
+                "Non-stop",
+                "1 stop",
+                "2+ stops"
+              ]
+            },
+            "Departure_Time_Range": {
+              "type": "unspecified",
+              "required": false
+            },
+            "Arrival_Time_Range": {
+              "type": "unspecified",
+              "required": false
+            },
+            "Price_Range": {
+              "type": "unspecified",
+              "required": false
+            }
+          }
         },
-        "Number_of_Stops": {
-          "type": "dropdown",
-          "required": false,
+        "Results_List": {
+          "type": "data_table",
+          "columns": [
+            "Airline",
+            "Departure_Time",
+            "Departure_Airport",
+            "Arrival_Time",
+            "Arrival_Airport",
+            "Duration",
+            "Stops",
+            "Price"
+          ],
+          "sortable_columns": [
+            "Price",
+            "Duration",
+            "Departure_Time",
+            "Arrival_Time"
+          ],
+          "row_actions": [
+            {
+              "action_name": "Select",
+              "type": "button"
+            },
+            {
+              "action_name": "Expand",
+              "type": "button",
+              "fields": {
+                "Baggage_Allowance": {
+                  "type": "unspecified"
+                },
+                "Fare_Rules": {
+                  "type": "unspecified"
+                },
+                "Seat_Availability": {
+                  "type": "unspecified"
+                }
+              },
+              "on_success": "expands result to show baggage allowance, fare rules, and seat availability"
+            }
+          ],
+          "bulk_actions": []
+        },
+        "Sort_Controls": {
+          "type": "sort_controls",
           "options": [
-            "Non-stop",
-            "1 stop",
-            "2+ stops"
+            "Price",
+            "Duration",
+            "Departure_Time",
+            "Arrival_Time"
           ]
-        },
-        "Departure_Time_Range": {
-          "type": "unspecified",
-          "required": false
-        },
-        "Arrival_Time_Range": {
-          "type": "unspecified",
-          "required": false
-        },
-        "Price_Range": {
-          "type": "unspecified",
-          "required": false
         }
-      },
-      "actions": [
-        {
-          "element_name": "Apply Filters",
-          "on_success": "filters applied to listing"
-        },
-        {
-          "element_name": "Clear Filters",
-          "on_success": "filters cleared"
-        }
-      ]
-    },
-    "Flights_Listing": {
-      "type": "data_table",
-      "row_expandable": true,
-      "on_row_expand": "reveals additional flight details (baggage allowance, fare rules, seat availability) as passive display",
-      "row_actions": [
-        {
-          "action_name": "Select",
-          "on_success": "flight selected"
-        }
-      ],
-      "sorting_controls": {
-        "type": "dropdown",
-        "options": [
-          "Price",
-          "Duration",
-          "Departure Time",
-          "Arrival Time"
-        ]
-      },
-      "sortable_columns": [
-        "Price",
-        "Duration",
-        "Departure Time",
-        "Arrival Time"
-      ]
+      }
     }
   }
 }
@@ -359,10 +385,16 @@ The flights search form collects trip type (One-way, Round-trip, Multi-city), de
 
 </description>
 
+<workflows>
+WF-001 | Search flights | actor: <role> | branch: none | terminal: Search | on_success: redirects to Flights Results page
+WF-002 | Select a flight from results | actor: <role> | branch: none | terminal: Select | on_success: navigates to booking flow for selected flight
+WF-003 | Expand flight result details | actor: <role> | branch: none | terminal: Expand | on_success: expands result to show baggage allowance, fare rules, and seat availability
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[22:55:54] Test-Edge - LLM RESPONSE
+[14:52:49] Test-Edge - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Flights Search & Listing",
@@ -370,145 +402,159 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": "WF-001",
       "subcategory": "boundary",
-      "test_case": "Round-trip reveals Return_Date and accepts same-day return",
+      "test_case": "Round-trip with same-day return (Return_Date = Departure_Date)",
       "preconditions": [
-        "Flights_Search_Form is visible",
-        "Trip_Type field exists (type: dropdown)",
-        "Departure_Date and Return_Date fields exist (type: date); Return_Date has visible_when = Trip_Type == Round-trip"
+        "User is on the Flights Search page"
       ],
       "steps": [
-        "1. Select Trip_Type = Round-trip",
-        "2. Enter <today> in Departure_Date",
-        "3. Enter <today> in Return_Date (same-day return)",
-        "4. Fill required city search fields with valid entries",
-        "5. Click Search"
+        "1. Select Trip_Type = \"Round-trip\"",
+        "2. Enter Departure_City = <valid city identifier>",
+        "3. Enter Arrival_City = <valid city identifier>",
+        "4. Set Departure_Date = <date D>",
+        "5. Set Return_Date = <date D> (same day as Departure_Date)",
+        "6. Click Search"
       ],
-      "expected_result": "Search submits successfully; user is redirected to the listing page (redirects to listing page) — same-day Return_Date is accepted and search completes (succeeds).",
+      "expected_result": "Form submits successfully; user is redirected to Flights Results page and results for the specified Departure_Date and same-day return are displayed (search succeeds).",
       "priority": "medium"
     },
     {
       "tc_id": "E-002",
+      "wf_ref": "WF-001",
       "subcategory": "boundary",
-      "test_case": "Return_Date value is not applied after switching Trip_Type from Round-trip to One-way",
+      "test_case": "Round-trip where Return_Date is one day before Departure_Date (cross-field past-boundary)",
       "preconditions": [
-        "Flights_Search_Form is visible",
-        "Return_Date has visible_when = Trip_Type == Round-trip"
+        "User is on the Flights Search page"
       ],
       "steps": [
-        "1. Select Trip_Type = Round-trip",
-        "2. Enter <valid date> in Departure_Date",
-        "3. Enter <valid date after Departure_Date> in Return_Date",
-        "4. Switch Trip_Type = One-way (causing Return_Date to become hidden)",
-        "5. Fill required city search fields with valid entries",
+        "1. Select Trip_Type = \"Round-trip\"",
+        "2. Enter Departure_City = <valid city identifier>",
+        "3. Enter Arrival_City = <valid city identifier>",
+        "4. Set Departure_Date = <date D>",
+        "5. Set Return_Date = <date D minus 1 day>",
         "6. Click Search"
       ],
-      "expected_result": "Search submits successfully and returns results for a one-way search (succeeds); the previously-entered Return_Date is not applied in the search because the field was hidden (its value is ignored/cleared).",
+      "expected_result": "Search is blocked; Return_Date field displays an inline error indicating the return date must be on or after the Departure_Date (search is blocked / error shown).",
       "priority": "medium"
     },
     {
       "tc_id": "E-003",
-      "subcategory": "boundary",
-      "test_case": "Departure_Date set to a far-future date is accepted by the search",
+      "wf_ref": "WF-001",
+      "subcategory": "data_edge",
+      "test_case": "Departure_Date set to today",
       "preconditions": [
-        "Flights_Search_Form Departure_Date is type: date"
+        "User is on the Flights Search page"
       ],
       "steps": [
-        "1. Enter <far future date> in Departure_Date",
-        "2. Fill required city search fields with valid entries",
-        "3. Click Search"
+        "1. Enter Departure_City = <valid city identifier>",
+        "2. Enter Arrival_City = <valid city identifier>",
+        "3. Set Departure_Date = <today>",
+        "4. Click Search"
       ],
-      "expected_result": "Search submits successfully and the listing page loads (succeeds); listing page either displays matching flights for the far-future date or displays a 'No flights found' passive message — the search action itself completes successfully.",
+      "expected_result": "Form submits successfully; user is redirected to Flights Results page and flights departing on <today> are displayed (search succeeds).",
       "priority": "medium"
     },
     {
       "tc_id": "E-004",
-      "subcategory": "boundary",
-      "test_case": "Departure_Date set to a past date (yesterday) is rejected",
+      "wf_ref": "WF-001",
+      "subcategory": "data_edge",
+      "test_case": "Departure_Date set to a past date (yesterday)",
       "preconditions": [
-        "Flights_Search_Form Departure_Date is type: date"
+        "User is on the Flights Search page"
       ],
       "steps": [
-        "1. Enter <yesterday> in Departure_Date",
-        "2. Fill required city search fields with valid entries",
-        "3. Click Search"
+        "1. Enter Departure_City = <valid city identifier>",
+        "2. Enter Arrival_City = <valid city identifier>",
+        "3. Set Departure_Date = <yesterday>",
+        "4. Click Search"
       ],
-      "expected_result": "Search is blocked / error shown: an inline error is displayed on the Departure_Date field indicating the date is in the past and the search is not submitted (is blocked / error shown).",
+      "expected_result": "Search is blocked; Departure_Date field displays an inline error indicating departure cannot be in the past (is blocked / error shown).",
       "priority": "medium"
     },
     {
       "tc_id": "E-005",
-      "subcategory": "interaction_edge",
-      "test_case": "Rapid double-click of Search only triggers one search/redirect",
+      "wf_ref": null,
+      "subcategory": "data_edge",
+      "test_case": "Price range filter where min = max (exact-price boundary)",
       "preconditions": [
-        "Flights_Search_Form has a Search submit_actions element that redirects to listing page"
+        "User has performed a search and is on the Flights Results page with results displayed"
       ],
       "steps": [
-        "1. Fill required fields in Flights_Search_Form (Departure_City, Arrival_City, Departure_Date)",
-        "2. Double-click the Search button rapidly (two clicks in quick succession)"
+        "1. Open Sidebar_Filters",
+        "2. Set Price_Range minimum = <price X>",
+        "3. Set Price_Range maximum = <price X> (same value as minimum)",
+        "4. Apply the filters"
       ],
-      "expected_result": "Only one search submission is processed; only one redirect to the listing page occurs and only one set of results load (Second submission attempt is blocked); no duplicate navigations or duplicated result sets appear (succeeds).",
+      "expected_result": "Filter applies successfully; Results_List updates to show only flights priced exactly at <price X>, or displays a 'No results' message if none match (filter application succeeds).",
       "priority": "medium"
     },
     {
       "tc_id": "E-006",
-      "subcategory": "state_edge",
-      "test_case": "Rapid expand/collapse of a listing row remains stable and shows single details panel",
+      "wf_ref": "WF-001",
+      "subcategory": "input_edge",
+      "test_case": "Passengers: set Adults = 0 (zero as numeric edge)",
       "preconditions": [
-        "Flights_Listing rows are row_expandable (reveals additional flight details)"
+        "User is on the Flights Search page"
       ],
       "steps": [
-        "1. From a populated Flights_Listing, identify a single row",
-        "2. Click to expand the row (reveal details)",
-        "3. Immediately collapse the row",
-        "4. Immediately expand the row again (repeat expand/collapse rapidly multiple times)"
+        "1. Enter Adults = 0",
+        "2. Enter Children = 0",
+        "3. Enter Infants = 0",
+        "4. Enter Departure_City = <valid city identifier>",
+        "5. Enter Arrival_City = <valid city identifier>",
+        "6. Click Search"
       ],
-      "expected_result": "Rapid consecutive expand/collapse actions succeed; the details panel shows the expected baggage allowance, fare rules, and seat availability once with no duplicated sections or lingering artifacts (succeeds).",
+      "expected_result": "Search is blocked; Adults field shows an inline error indicating at least one adult is required (is blocked / error shown).",
       "priority": "low"
     },
     {
       "tc_id": "E-007",
-      "subcategory": "interaction_edge",
-      "test_case": "Double-click Select on a flight only triggers a single selection action",
+      "wf_ref": "WF-001",
+      "subcategory": "input_edge",
+      "test_case": "Very long string in Departure_City (text length edge)",
       "preconditions": [
-        "Flights_Listing has row_actions with action_name = Select"
+        "User is on the Flights Search page"
       ],
       "steps": [
-        "1. On a Flights_Listing row, click the Select button twice rapidly"
+        "1. Enter Departure_City = <very long string longer than typical field length>",
+        "2. Enter Arrival_City = <valid city identifier>",
+        "3. Set Departure_Date = <valid date>",
+        "4. Click Search"
       ],
-      "expected_result": "Only one selection action is processed; user-visible confirmation of selection appears only once and subsequent rapid clicks are ignored (Second selection attempt is blocked); no duplicate selection confirmations are shown (succeeds).",
-      "priority": "medium"
+      "expected_result": "Either Search submits successfully (redirects to Flights Results page) and the displayed Departure_City in results is trimmed/normalized to the UI field limit (search succeeds), OR Search is blocked and Departure_City displays an inline error indicating the value exceeds the maximum allowed length (is blocked / error shown).",
+      "priority": "low"
     },
     {
       "tc_id": "E-008",
-      "subcategory": "input_edge",
-      "test_case": "Leading/trailing whitespace in Departure_City is trimmed before search",
+      "wf_ref": "WF-003",
+      "subcategory": "state_edge",
+      "test_case": "Rapid consecutive Expand actions on different result rows",
       "preconditions": [
-        "Departure_City is type: search (free-text/autocomplete field)"
+        "User is on the Flights Results page with at least two result rows visible"
       ],
       "steps": [
-        "1. Enter '  <valid city>  ' (leading and trailing whitespace around a valid city token) into Departure_City",
-        "2. Fill Arrival_City and Departure_Date with valid entries",
-        "3. Click Search"
+        "1. Click Expand on result row 1",
+        "2. Immediately click Expand on result row 2 (within short user action interval)"
       ],
-      "expected_result": "Search submits successfully; the Departure_City input is trimmed of leading/trailing whitespace before submission and the search executes for '<valid city>' (succeeds).",
-      "priority": "low"
+      "expected_result": "Second Expand action succeeds; expanded panels display baggage allowance, fare rules, and seat availability for the expanded results and the UI remains responsive with no JavaScript error visible (expand actions succeed).",
+      "priority": "medium"
     }
   ],
   "summary": {
     "total": 8,
-    "boundary": 4,
-    "input_edge": 1,
-    "interaction_edge": 2,
+    "boundary": 2,
+    "input_edge": 2,
+    "interaction_edge": 0,
     "state_edge": 1,
-    "data_edge": 0,
-    "medium_priority": 5,
-    "low_priority": 3
+    "data_edge": 3,
+    "medium_priority": 6,
+    "low_priority": 2
   }
 }
 
 ------------------------------------------------------------
-[22:55:54] Test-Edge - PARSED JSON
+[14:52:49] Test-Edge - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Flights Search & Listing",
@@ -516,139 +562,153 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": "WF-001",
       "subcategory": "boundary",
-      "test_case": "Round-trip reveals Return_Date and accepts same-day return",
+      "test_case": "Round-trip with same-day return (Return_Date = Departure_Date)",
       "preconditions": [
-        "Flights_Search_Form is visible",
-        "Trip_Type field exists (type: dropdown)",
-        "Departure_Date and Return_Date fields exist (type: date); Return_Date has visible_when = Trip_Type == Round-trip"
+        "User is on the Flights Search page"
       ],
       "steps": [
-        "1. Select Trip_Type = Round-trip",
-        "2. Enter <today> in Departure_Date",
-        "3. Enter <today> in Return_Date (same-day return)",
-        "4. Fill required city search fields with valid entries",
-        "5. Click Search"
+        "1. Select Trip_Type = \"Round-trip\"",
+        "2. Enter Departure_City = <valid city identifier>",
+        "3. Enter Arrival_City = <valid city identifier>",
+        "4. Set Departure_Date = <date D>",
+        "5. Set Return_Date = <date D> (same day as Departure_Date)",
+        "6. Click Search"
       ],
-      "expected_result": "Search submits successfully; user is redirected to the listing page (redirects to listing page) \u2014 same-day Return_Date is accepted and search completes (succeeds).",
+      "expected_result": "Form submits successfully; user is redirected to Flights Results page and results for the specified Departure_Date and same-day return are displayed (search succeeds).",
       "priority": "medium"
     },
     {
       "tc_id": "E-002",
+      "wf_ref": "WF-001",
       "subcategory": "boundary",
-      "test_case": "Return_Date value is not applied after switching Trip_Type from Round-trip to One-way",
+      "test_case": "Round-trip where Return_Date is one day before Departure_Date (cross-field past-boundary)",
       "preconditions": [
-        "Flights_Search_Form is visible",
-        "Return_Date has visible_when = Trip_Type == Round-trip"
+        "User is on the Flights Search page"
       ],
       "steps": [
-        "1. Select Trip_Type = Round-trip",
-        "2. Enter <valid date> in Departure_Date",
-        "3. Enter <valid date after Departure_Date> in Return_Date",
-        "4. Switch Trip_Type = One-way (causing Return_Date to become hidden)",
-        "5. Fill required city search fields with valid entries",
+        "1. Select Trip_Type = \"Round-trip\"",
+        "2. Enter Departure_City = <valid city identifier>",
+        "3. Enter Arrival_City = <valid city identifier>",
+        "4. Set Departure_Date = <date D>",
+        "5. Set Return_Date = <date D minus 1 day>",
         "6. Click Search"
       ],
-      "expected_result": "Search submits successfully and returns results for a one-way search (succeeds); the previously-entered Return_Date is not applied in the search because the field was hidden (its value is ignored/cleared).",
+      "expected_result": "Search is blocked; Return_Date field displays an inline error indicating the return date must be on or after the Departure_Date (search is blocked / error shown).",
       "priority": "medium"
     },
     {
       "tc_id": "E-003",
-      "subcategory": "boundary",
-      "test_case": "Departure_Date set to a far-future date is accepted by the search",
+      "wf_ref": "WF-001",
+      "subcategory": "data_edge",
+      "test_case": "Departure_Date set to today",
       "preconditions": [
-        "Flights_Search_Form Departure_Date is type: date"
+        "User is on the Flights Search page"
       ],
       "steps": [
-        "1. Enter <far future date> in Departure_Date",
-        "2. Fill required city search fields with valid entries",
-        "3. Click Search"
+        "1. Enter Departure_City = <valid city identifier>",
+        "2. Enter Arrival_City = <valid city identifier>",
+        "3. Set Departure_Date = <today>",
+        "4. Click Search"
       ],
-      "expected_result": "Search submits successfully and the listing page loads (succeeds); listing page either displays matching flights for the far-future date or displays a 'No flights found' passive message \u2014 the search action itself completes successfully.",
+      "expected_result": "Form submits successfully; user is redirected to Flights Results page and flights departing on <today> are displayed (search succeeds).",
       "priority": "medium"
     },
     {
       "tc_id": "E-004",
-      "subcategory": "boundary",
-      "test_case": "Departure_Date set to a past date (yesterday) is rejected",
+      "wf_ref": "WF-001",
+      "subcategory": "data_edge",
+      "test_case": "Departure_Date set to a past date (yesterday)",
       "preconditions": [
-        "Flights_Search_Form Departure_Date is type: date"
+        "User is on the Flights Search page"
       ],
       "steps": [
-        "1. Enter <yesterday> in Departure_Date",
-        "2. Fill required city search fields with valid entries",
-        "3. Click Search"
+        "1. Enter Departure_City = <valid city identifier>",
+        "2. Enter Arrival_City = <valid city identifier>",
+        "3. Set Departure_Date = <yesterday>",
+        "4. Click Search"
       ],
-      "expected_result": "Search is blocked / error shown: an inline error is displayed on the Departure_Date field indicating the date is in the past and the search is not submitted (is blocked / error shown).",
+      "expected_result": "Search is blocked; Departure_Date field displays an inline error indicating departure cannot be in the past (is blocked / error shown).",
       "priority": "medium"
     },
     {
       "tc_id": "E-005",
-      "subcategory": "interaction_edge",
-      "test_case": "Rapid double-click of Search only triggers one search/redirect",
+      "wf_ref": null,
+      "subcategory": "data_edge",
+      "test_case": "Price range filter where min = max (exact-price boundary)",
       "preconditions": [
-        "Flights_Search_Form has a Search submit_actions element that redirects to listing page"
+        "User has performed a search and is on the Flights Results page with results displayed"
       ],
       "steps": [
-        "1. Fill required fields in Flights_Search_Form (Departure_City, Arrival_City, Departure_Date)",
-        "2. Double-click the Search button rapidly (two clicks in quick succession)"
+        "1. Open Sidebar_Filters",
+        "2. Set Price_Range minimum = <price X>",
+        "3. Set Price_Range maximum = <price X> (same value as minimum)",
+        "4. Apply the filters"
       ],
-      "expected_result": "Only one search submission is processed; only one redirect to the listing page occurs and only one set of results load (Second submission attempt is blocked); no duplicate navigations or duplicated result sets appear (succeeds).",
+      "expected_result": "Filter applies successfully; Results_List updates to show only flights priced exactly at <price X>, or displays a 'No results' message if none match (filter application succeeds).",
       "priority": "medium"
     },
     {
       "tc_id": "E-006",
-      "subcategory": "state_edge",
-      "test_case": "Rapid expand/collapse of a listing row remains stable and shows single details panel",
+      "wf_ref": "WF-001",
+      "subcategory": "input_edge",
+      "test_case": "Passengers: set Adults = 0 (zero as numeric edge)",
       "preconditions": [
-        "Flights_Listing rows are row_expandable (reveals additional flight details)"
+        "User is on the Flights Search page"
       ],
       "steps": [
-        "1. From a populated Flights_Listing, identify a single row",
-        "2. Click to expand the row (reveal details)",
-        "3. Immediately collapse the row",
-        "4. Immediately expand the row again (repeat expand/collapse rapidly multiple times)"
+        "1. Enter Adults = 0",
+        "2. Enter Children = 0",
+        "3. Enter Infants = 0",
+        "4. Enter Departure_City = <valid city identifier>",
+        "5. Enter Arrival_City = <valid city identifier>",
+        "6. Click Search"
       ],
-      "expected_result": "Rapid consecutive expand/collapse actions succeed; the details panel shows the expected baggage allowance, fare rules, and seat availability once with no duplicated sections or lingering artifacts (succeeds).",
+      "expected_result": "Search is blocked; Adults field shows an inline error indicating at least one adult is required (is blocked / error shown).",
       "priority": "low"
     },
     {
       "tc_id": "E-007",
-      "subcategory": "interaction_edge",
-      "test_case": "Double-click Select on a flight only triggers a single selection action",
+      "wf_ref": "WF-001",
+      "subcategory": "input_edge",
+      "test_case": "Very long string in Departure_City (text length edge)",
       "preconditions": [
-        "Flights_Listing has row_actions with action_name = Select"
+        "User is on the Flights Search page"
       ],
       "steps": [
-        "1. On a Flights_Listing row, click the Select button twice rapidly"
+        "1. Enter Departure_City = <very long string longer than typical field length>",
+        "2. Enter Arrival_City = <valid city identifier>",
+        "3. Set Departure_Date = <valid date>",
+        "4. Click Search"
       ],
-      "expected_result": "Only one selection action is processed; user-visible confirmation of selection appears only once and subsequent rapid clicks are ignored (Second selection attempt is blocked); no duplicate selection confirmations are shown (succeeds).",
-      "priority": "medium"
+      "expected_result": "Either Search submits successfully (redirects to Flights Results page) and the displayed Departure_City in results is trimmed/normalized to the UI field limit (search succeeds), OR Search is blocked and Departure_City displays an inline error indicating the value exceeds the maximum allowed length (is blocked / error shown).",
+      "priority": "low"
     },
     {
       "tc_id": "E-008",
-      "subcategory": "input_edge",
-      "test_case": "Leading/trailing whitespace in Departure_City is trimmed before search",
+      "wf_ref": "WF-003",
+      "subcategory": "state_edge",
+      "test_case": "Rapid consecutive Expand actions on different result rows",
       "preconditions": [
-        "Departure_City is type: search (free-text/autocomplete field)"
+        "User is on the Flights Results page with at least two result rows visible"
       ],
       "steps": [
-        "1. Enter '  <valid city>  ' (leading and trailing whitespace around a valid city token) into Departure_City",
-        "2. Fill Arrival_City and Departure_Date with valid entries",
-        "3. Click Search"
+        "1. Click Expand on result row 1",
+        "2. Immediately click Expand on result row 2 (within short user action interval)"
       ],
-      "expected_result": "Search submits successfully; the Departure_City input is trimmed of leading/trailing whitespace before submission and the search executes for '<valid city>' (succeeds).",
-      "priority": "low"
+      "expected_result": "Second Expand action succeeds; expanded panels display baggage allowance, fare rules, and seat availability for the expanded results and the UI remains responsive with no JavaScript error visible (expand actions succeed).",
+      "priority": "medium"
     }
   ],
   "summary": {
     "total": 8,
-    "boundary": 4,
-    "input_edge": 1,
-    "interaction_edge": 2,
+    "boundary": 2,
+    "input_edge": 2,
+    "interaction_edge": 0,
     "state_edge": 1,
-    "data_edge": 0,
-    "medium_priority": 5,
-    "low_priority": 3
+    "data_edge": 3,
+    "medium_priority": 6,
+    "low_priority": 2
   }
 }

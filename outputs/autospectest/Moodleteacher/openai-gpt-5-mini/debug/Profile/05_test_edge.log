@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-22T21:47:19.060307
+DEBUG SESSION STARTED: 2026-05-25T15:28:46.020115
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[21:47:19] Test-Edge - SYSTEM PROMPT
+[15:28:46] Test-Edge - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Edge Case and Boundary Test Generator. You receive (1) a UI-AST JSON for one module and (2) the original functional description. Your job is to produce ONLY boundary and edge case tests — scenarios at the limits of valid/invalid input and unusual-but-plausible user behaviors.
 
@@ -24,6 +24,10 @@ You are NOT producing happy paths (positive prompt) or standard validation failu
 <description>
 {Original functional description text for this module}
 </description>
+
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
 
 ---
 
@@ -176,6 +180,15 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 
 ---
 
+**WORKFLOW-AWARE BOUNDARY SCOPING (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- For each workflow where `conditional_branch` activates a numeric or date field, check if that field has a boundary (a numeric/date threshold in the AST `constraints` or description).
+- If yes, that workflow's branch is a **candidate for a boundary edge test** — add or confirm a boundary TC exists for it.
+- Add `"wf_ref": "WF-NNN"` to each TC that maps to a specific workflow's boundary. Set `"wf_ref": null` for generic input/interaction edge tests.
+
+---
+
 **OUTPUT — JSON only, no prose, no markdown fencing:**
 
 {
@@ -184,6 +197,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": null,
       "subcategory": "boundary | input_edge | interaction_edge | state_edge | data_edge",
       "test_case": "Short descriptive name",
       "preconditions": ["precondition 1"],
@@ -206,7 +220,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 
 
 ------------------------------------------------------------
-[21:47:19] Test-Edge - USER PROMPT
+[15:28:46] Test-Edge - USER PROMPT
 ------------------------------------------------------------
 <module_name>Profile</module_name>
 
@@ -218,43 +232,34 @@ If the module has any numeric/date/count threshold in the AST or description, pr
       "type": "container",
       "fields": {
         "Message_Button": {
-          "type": "button",
-          "element_name": "Message",
-          "on_success": "opens message composer"
+          "type": "button"
         }
       }
     },
     "User_Details_Card": {
       "type": "card",
       "fields": {
-        "Edit_Profile_Link": {
-          "type": "link",
-          "element_name": "Edit profile",
-          "on_success": "navigates to Edit Profile form"
+        "Edit_Profile": {
+          "type": "link"
         }
       }
     },
     "Privacy_and_Policies_Card": {
       "type": "card",
       "fields": {
-        "Data_Retention_Summary_Link": {
-          "type": "link",
-          "element_name": "Data retention summary",
-          "on_success": "opens Data Retention Summary"
+        "Data_Retention_Summary": {
+          "type": "link"
         }
       }
     },
     "Course_Details_Card": {
       "type": "card",
       "fields": {
-        "Course_Profile_Links": {
+        "Course_Links": {
           "type": "repeating_group",
-          "min": 0,
           "item_fields": {
             "Course_Profile_Link": {
-              "type": "link",
-              "element_name": "Course profile",
-              "on_success": "navigates to Course Profile"
+              "type": "link"
             }
           }
         }
@@ -263,40 +268,48 @@ If the module has any numeric/date/count threshold in the AST or description, pr
     "Miscellaneous_Card": {
       "type": "card",
       "fields": {
-        "Blog_Entries_Link": {
-          "type": "link",
-          "element_name": "Blog entries",
-          "on_success": "navigates to Blog entries list"
+        "Blog_Entries": {
+          "type": "repeating_group",
+          "item_fields": {
+            "Blog_Link": {
+              "type": "link"
+            }
+          }
         },
-        "Forum_Posts_Link": {
-          "type": "link",
-          "element_name": "Forum posts",
-          "on_success": "navigates to Forum posts list"
+        "Forum_Posts": {
+          "type": "repeating_group",
+          "item_fields": {
+            "Forum_Post_Link": {
+              "type": "link"
+            }
+          }
         },
-        "Forum_Discussions_Link": {
-          "type": "link",
-          "element_name": "Forum discussions",
-          "on_success": "navigates to Forum discussions list"
+        "Forum_Discussions": {
+          "type": "repeating_group",
+          "item_fields": {
+            "Forum_Discussion_Link": {
+              "type": "link"
+            }
+          }
         },
-        "Learning_Plans_Link": {
-          "type": "link",
-          "element_name": "Learning plans",
-          "on_success": "navigates to Learning plans list"
+        "Learning_Plans": {
+          "type": "repeating_group",
+          "item_fields": {
+            "Learning_Plan_Link": {
+              "type": "link"
+            }
+          }
         }
       }
     },
     "Reports_Card": {
       "type": "card",
       "fields": {
-        "Browser_Sessions_Link": {
-          "type": "link",
-          "element_name": "Browser sessions",
-          "on_success": "navigates to Browser sessions report"
+        "Browser_Sessions": {
+          "type": "link"
         },
-        "Grades_Overview_Link": {
-          "type": "link",
-          "element_name": "Grades overview",
-          "on_success": "navigates to Grades overview"
+        "Grades_Overview": {
+          "type": "link"
         }
       }
     },
@@ -317,10 +330,23 @@ The Profile page displays the teacher's circular initials icon, full name, a "Me
 
 </description>
 
+<workflows>
+WF-001 | Open messaging composer via Message button | actor: <role> | branch: none | terminal: Message_Button | on_success: Opens messaging composer to send a message to the user
+WF-002 | Navigate to Edit Profile | actor: <role> | branch: none | terminal: Edit_Profile | on_success: Navigates to the Edit profile page
+WF-003 | View Data Retention Summary | actor: <role> | branch: none | terminal: Data_Retention_Summary | on_success: Opens the Data retention summary page or modal
+WF-004 | Open a Course Profile from Course details | actor: <role> | branch: none | terminal: Course_Profile_Link | on_success: Navigates to the selected course's profile page
+WF-005 | Open a Blog entry from Miscellaneous | actor: <role> | branch: none | terminal: Blog_Link | on_success: Navigates to the selected blog entry
+WF-006 | Open a Forum post from Miscellaneous | actor: <role> | branch: none | terminal: Forum_Post_Link | on_success: Navigates to the selected forum post
+WF-007 | Open a Forum discussion from Miscellaneous | actor: <role> | branch: none | terminal: Forum_Discussion_Link | on_success: Navigates to the selected forum discussion
+WF-008 | Open a Learning plan from Miscellaneous | actor: <role> | branch: none | terminal: Learning_Plan_Link | on_success: Navigates to the selected learning plan
+WF-009 | View Browser sessions report | actor: <role> | branch: none | terminal: Browser_Sessions | on_success: Navigates to the Browser sessions report
+WF-010 | View Grades overview report | actor: <role> | branch: none | terminal: Grades_Overview | on_success: Navigates to the Grades overview page
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[21:49:42] Test-Edge - LLM RESPONSE
+[15:31:57] Test-Edge - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Profile",
@@ -328,83 +354,85 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": null,
       "subcategory": "input_edge",
-      "test_case": "Very long profile description via Edit profile (200+ characters)",
+      "test_case": "Very long optional profile description (200+ chars) display/truncation",
       "preconditions": [
-        "User is authenticated and has permission to edit their profile",
-        "User is on the Profile page"
+        "A teacher user exists whose profile description is a string longer than 200 characters"
       ],
       "steps": [
-        "1. Click the 'Edit profile' link",
-        "2. In the profile description textarea, enter a string of <200+ characters>",
-        "3. Click the 'Save' button",
-        "4. Wait for navigation back to the Profile page or profile update to complete"
+        "1. Sign in as any user with permission to view the teacher's profile",
+        "2. Navigate to the teacher's Profile page"
       ],
-      "expected_result": "The Profile page displays the <200+ characters> description in the description area — the update succeeds. If the UI truncates long descriptions, a visible truncation affordance (for example 'Show more' or a vertical scrollbar) is shown in the description area; either full display or clear truncation with a control counts as a visible successful handling of the long input.",
+      "expected_result": "Either the full long profile description is rendered in the Profile page (succeeds) OR the description is truncated and a visible 'Show more' / expansion control is displayed to reveal the rest of the text (succeeds with truncation). The page must not layout-break or hide the description without an affordance.",
       "priority": "medium"
     },
     {
       "tc_id": "E-002",
+      "wf_ref": null,
       "subcategory": "input_edge",
-      "test_case": "Special characters and emoji in full name and description",
+      "test_case": "Profile description with special characters and emoji renders correctly",
       "preconditions": [
-        "User is authenticated and has permission to edit their profile",
-        "User is on the Profile page"
+        "A teacher user exists whose profile description contains a mix of special characters, non-ASCII Unicode, and emoji"
       ],
       "steps": [
-        "1. Click the 'Edit profile' link",
-        "2. In the Full name field, enter a string containing a mix of special characters and emoji (e.g., non-ASCII symbols and emoji)",
-        "3. In the profile description textarea, enter a string containing special characters and emoji",
-        "4. Click the 'Save' button",
-        "5. Wait for navigation back to the Profile page or profile update to complete"
+        "1. Sign in as any user with permission to view the teacher's profile",
+        "2. Navigate to the teacher's Profile page"
       ],
-      "expected_result": "The Profile page displays the Full name and description showing the entered special characters and emoji without UI-breaking rendering — the update succeeds. If the system sanitizes or removes unsupported characters, the sanitized value is shown and an inline notice or tooltip explains character normalization (visible on the edit or profile view).",
+      "expected_result": "The profile description displays the special characters and emoji without truncation-induced corruption or visual layout break (succeeds). If the UI replaces/escapes unsupported characters, a visible placeholder or sanitized text must be shown (succeeds with sanitization).",
       "priority": "low"
     },
     {
       "tc_id": "E-003",
+      "wf_ref": null,
       "subcategory": "input_edge",
-      "test_case": "Leading and trailing whitespace in Full name is handled",
+      "test_case": "Full name containing leading/trailing whitespace is trimmed in display",
       "preconditions": [
-        "User is authenticated and has permission to edit their profile",
-        "User is on the Profile page"
+        "A teacher user exists whose stored full name value includes leading and/or trailing whitespace characters"
       ],
       "steps": [
-        "1. Click the 'Edit profile' link",
-        "2. In the Full name field, enter a name value with leading and trailing whitespace (for example, one or more spaces before and after the visible characters)",
-        "3. Click the 'Save' button",
-        "4. Wait for navigation back to the Profile page or profile update to complete"
+        "1. Sign in as any user with permission to view the teacher's profile",
+        "2. Navigate to the teacher's Profile page"
       ],
-      "expected_result": "Leading and trailing whitespace is trimmed in the displayed Full name on the Profile page and the saved name shows no extra spaces — the update succeeds. If the system rejects leading/trailing whitespace instead of trimming, an inline validation error is shown immediately on the Edit profile form.",
+      "expected_result": "The displayed full name on the Profile page has leading and trailing whitespace removed (trimmed) and shows no visible leading/trailing spaces (succeeds). If the UI intentionally preserves whitespace, it must render visibly and not collapse layout (succeeds with preservation).",
       "priority": "low"
     },
     {
       "tc_id": "E-004",
+      "wf_ref": "WF-001",
       "subcategory": "interaction_edge",
-      "test_case": "Rapid consecutive clicks on 'Message' button do not open duplicate composers",
+      "test_case": "Rapid double-click of Message button does not create duplicate message composers",
       "preconditions": [
-        "User is authenticated and on the Profile page"
+        "Signed-in user who can view the teacher's Profile page"
       ],
       "steps": [
-        "1. From the Profile page, click the 'Message' button once",
-        "2. Immediately (within one second) click the 'Message' button again"
+        "1. Sign in as the user",
+        "2. Navigate to the teacher's Profile page",
+        "3. Click the Message button",
+        "4. Immediately click the Message button again (second click within ~1 second)"
       ],
-      "expected_result": "Only a single message composer instance is opened and visible; the second click either focuses the existing composer or is ignored — no duplicate composer windows or multiple composer overlays appear. The action succeeds without creating duplicate composer instances.",
+      "expected_result": "Only a single messaging composer is visible after the rapid double-click; the second click focuses the existing composer and does not create a duplicate composer window or multiple composer instances (succeeds).",
       "priority": "medium"
     },
     {
       "tc_id": "E-005",
+      "wf_ref": null,
       "subcategory": "data_edge",
-      "test_case": "Profile page rendering when the user has a very large number of course profile links",
+      "test_case": "Login activity exact date and relative-time indicator for today, yesterday, and a future date",
       "preconditions": [
-        "User account is associated with a very large number of courses (a large repeating_group for Course profile links)",
-        "User is authenticated and on the Profile page"
+        "Three teacher users exist with Last access values set to: (a) today's date/time, (b) yesterday's date/time, and (c) a future date/time",
+        "Tester can navigate to each teacher's Profile page"
       ],
       "steps": [
-        "1. Load or refresh the Profile page while the account has the large set of associated course links",
-        "2. Scroll to the Course Details card"
+        "1. Sign in as any user with permission to view profiles",
+        "2. Navigate to the Profile page of the teacher whose Last access = today",
+        "3. Observe the 'Last access' exact date display and the relative time indicator",
+        "4. Navigate to the Profile page of the teacher whose Last access = yesterday",
+        "5. Observe the 'Last access' exact date display and the relative time indicator",
+        "6. Navigate to the Profile page of the teacher whose Last access = a future date",
+        "7. Observe the 'Last access' exact date display and the relative time indicator"
       ],
-      "expected_result": "All course profile links are accessible without UI overlap; the Course Details card either renders all links with an appropriate scrollable area, paginated/listed structure, or a visible 'Show more' control — the page rendering succeeds. If the UI intentionally truncates, an affordance to access the remaining links is visible and usable.",
+      "expected_result": "For the 'today' record, the Profile page displays the exact date/time and a relative-time indicator representing the same-day offset (e.g., 'Today' / 'X minutes/hours ago') (succeeds). For the 'yesterday' record, the Profile page displays the exact date/time and a relative-time indicator representing one day ago (succeeds). For the future-date record, the Profile page still displays the exact future date/time and a relative-time indicator that indicates a future offset (e.g., 'in X days') or explicitly marks the timestamp as future/unexpected (succeeds with future-indicator). No UI layout break or omission of the date/time is acceptable.",
       "priority": "medium"
     }
   ],
@@ -421,7 +449,7 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
 }
 
 ------------------------------------------------------------
-[21:49:42] Test-Edge - PARSED JSON
+[15:31:57] Test-Edge - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Profile",
@@ -429,83 +457,85 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": null,
       "subcategory": "input_edge",
-      "test_case": "Very long profile description via Edit profile (200+ characters)",
+      "test_case": "Very long optional profile description (200+ chars) display/truncation",
       "preconditions": [
-        "User is authenticated and has permission to edit their profile",
-        "User is on the Profile page"
+        "A teacher user exists whose profile description is a string longer than 200 characters"
       ],
       "steps": [
-        "1. Click the 'Edit profile' link",
-        "2. In the profile description textarea, enter a string of <200+ characters>",
-        "3. Click the 'Save' button",
-        "4. Wait for navigation back to the Profile page or profile update to complete"
+        "1. Sign in as any user with permission to view the teacher's profile",
+        "2. Navigate to the teacher's Profile page"
       ],
-      "expected_result": "The Profile page displays the <200+ characters> description in the description area \u2014 the update succeeds. If the UI truncates long descriptions, a visible truncation affordance (for example 'Show more' or a vertical scrollbar) is shown in the description area; either full display or clear truncation with a control counts as a visible successful handling of the long input.",
+      "expected_result": "Either the full long profile description is rendered in the Profile page (succeeds) OR the description is truncated and a visible 'Show more' / expansion control is displayed to reveal the rest of the text (succeeds with truncation). The page must not layout-break or hide the description without an affordance.",
       "priority": "medium"
     },
     {
       "tc_id": "E-002",
+      "wf_ref": null,
       "subcategory": "input_edge",
-      "test_case": "Special characters and emoji in full name and description",
+      "test_case": "Profile description with special characters and emoji renders correctly",
       "preconditions": [
-        "User is authenticated and has permission to edit their profile",
-        "User is on the Profile page"
+        "A teacher user exists whose profile description contains a mix of special characters, non-ASCII Unicode, and emoji"
       ],
       "steps": [
-        "1. Click the 'Edit profile' link",
-        "2. In the Full name field, enter a string containing a mix of special characters and emoji (e.g., non-ASCII symbols and emoji)",
-        "3. In the profile description textarea, enter a string containing special characters and emoji",
-        "4. Click the 'Save' button",
-        "5. Wait for navigation back to the Profile page or profile update to complete"
+        "1. Sign in as any user with permission to view the teacher's profile",
+        "2. Navigate to the teacher's Profile page"
       ],
-      "expected_result": "The Profile page displays the Full name and description showing the entered special characters and emoji without UI-breaking rendering \u2014 the update succeeds. If the system sanitizes or removes unsupported characters, the sanitized value is shown and an inline notice or tooltip explains character normalization (visible on the edit or profile view).",
+      "expected_result": "The profile description displays the special characters and emoji without truncation-induced corruption or visual layout break (succeeds). If the UI replaces/escapes unsupported characters, a visible placeholder or sanitized text must be shown (succeeds with sanitization).",
       "priority": "low"
     },
     {
       "tc_id": "E-003",
+      "wf_ref": null,
       "subcategory": "input_edge",
-      "test_case": "Leading and trailing whitespace in Full name is handled",
+      "test_case": "Full name containing leading/trailing whitespace is trimmed in display",
       "preconditions": [
-        "User is authenticated and has permission to edit their profile",
-        "User is on the Profile page"
+        "A teacher user exists whose stored full name value includes leading and/or trailing whitespace characters"
       ],
       "steps": [
-        "1. Click the 'Edit profile' link",
-        "2. In the Full name field, enter a name value with leading and trailing whitespace (for example, one or more spaces before and after the visible characters)",
-        "3. Click the 'Save' button",
-        "4. Wait for navigation back to the Profile page or profile update to complete"
+        "1. Sign in as any user with permission to view the teacher's profile",
+        "2. Navigate to the teacher's Profile page"
       ],
-      "expected_result": "Leading and trailing whitespace is trimmed in the displayed Full name on the Profile page and the saved name shows no extra spaces \u2014 the update succeeds. If the system rejects leading/trailing whitespace instead of trimming, an inline validation error is shown immediately on the Edit profile form.",
+      "expected_result": "The displayed full name on the Profile page has leading and trailing whitespace removed (trimmed) and shows no visible leading/trailing spaces (succeeds). If the UI intentionally preserves whitespace, it must render visibly and not collapse layout (succeeds with preservation).",
       "priority": "low"
     },
     {
       "tc_id": "E-004",
+      "wf_ref": "WF-001",
       "subcategory": "interaction_edge",
-      "test_case": "Rapid consecutive clicks on 'Message' button do not open duplicate composers",
+      "test_case": "Rapid double-click of Message button does not create duplicate message composers",
       "preconditions": [
-        "User is authenticated and on the Profile page"
+        "Signed-in user who can view the teacher's Profile page"
       ],
       "steps": [
-        "1. From the Profile page, click the 'Message' button once",
-        "2. Immediately (within one second) click the 'Message' button again"
+        "1. Sign in as the user",
+        "2. Navigate to the teacher's Profile page",
+        "3. Click the Message button",
+        "4. Immediately click the Message button again (second click within ~1 second)"
       ],
-      "expected_result": "Only a single message composer instance is opened and visible; the second click either focuses the existing composer or is ignored \u2014 no duplicate composer windows or multiple composer overlays appear. The action succeeds without creating duplicate composer instances.",
+      "expected_result": "Only a single messaging composer is visible after the rapid double-click; the second click focuses the existing composer and does not create a duplicate composer window or multiple composer instances (succeeds).",
       "priority": "medium"
     },
     {
       "tc_id": "E-005",
+      "wf_ref": null,
       "subcategory": "data_edge",
-      "test_case": "Profile page rendering when the user has a very large number of course profile links",
+      "test_case": "Login activity exact date and relative-time indicator for today, yesterday, and a future date",
       "preconditions": [
-        "User account is associated with a very large number of courses (a large repeating_group for Course profile links)",
-        "User is authenticated and on the Profile page"
+        "Three teacher users exist with Last access values set to: (a) today's date/time, (b) yesterday's date/time, and (c) a future date/time",
+        "Tester can navigate to each teacher's Profile page"
       ],
       "steps": [
-        "1. Load or refresh the Profile page while the account has the large set of associated course links",
-        "2. Scroll to the Course Details card"
+        "1. Sign in as any user with permission to view profiles",
+        "2. Navigate to the Profile page of the teacher whose Last access = today",
+        "3. Observe the 'Last access' exact date display and the relative time indicator",
+        "4. Navigate to the Profile page of the teacher whose Last access = yesterday",
+        "5. Observe the 'Last access' exact date display and the relative time indicator",
+        "6. Navigate to the Profile page of the teacher whose Last access = a future date",
+        "7. Observe the 'Last access' exact date display and the relative time indicator"
       ],
-      "expected_result": "All course profile links are accessible without UI overlap; the Course Details card either renders all links with an appropriate scrollable area, paginated/listed structure, or a visible 'Show more' control \u2014 the page rendering succeeds. If the UI intentionally truncates, an affordance to access the remaining links is visible and usable.",
+      "expected_result": "For the 'today' record, the Profile page displays the exact date/time and a relative-time indicator representing the same-day offset (e.g., 'Today' / 'X minutes/hours ago') (succeeds). For the 'yesterday' record, the Profile page displays the exact date/time and a relative-time indicator representing one day ago (succeeds). For the future-date record, the Profile page still displays the exact future date/time and a relative-time indicator that indicates a future offset (e.g., 'in X days') or explicitly marks the timestamp as future/unexpected (succeeds with future-indicator). No UI layout break or omission of the date/time is acceptable.",
       "priority": "medium"
     }
   ],

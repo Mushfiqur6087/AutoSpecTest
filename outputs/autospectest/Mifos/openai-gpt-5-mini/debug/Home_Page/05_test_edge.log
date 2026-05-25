@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-21T22:29:06.505919
+DEBUG SESSION STARTED: 2026-05-25T14:24:50.708646
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[22:29:06] Test-Edge - SYSTEM PROMPT
+[14:24:50] Test-Edge - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Edge Case and Boundary Test Generator. You receive (1) a UI-AST JSON for one module and (2) the original functional description. Your job is to produce ONLY boundary and edge case tests — scenarios at the limits of valid/invalid input and unusual-but-plausible user behaviors.
 
@@ -25,6 +25,10 @@ You are NOT producing happy paths (positive prompt) or standard validation failu
 {Original functional description text for this module}
 </description>
 
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
+
 ---
 
 **UI-AST REFERENCE — How to Read the AST for Edge Testing:**
@@ -35,7 +39,7 @@ You are NOT producing happy paths (positive prompt) or standard validation failu
 | `repeating_group` with `max` | Test adding exactly `max` entries (should succeed) then one more (should block) |
 | `visible_when` / `required_when` | Edge: trigger condition, fill revealed field with boundary value |
 | `state_bound_action_bar` | State edges: rapid consecutive state transitions, transition from a boundary state |
-| `submit_actions[]` with multiple buttons | Interaction edge: double-click a submit button rapidly |
+
 | `type: "date"` fields | Data edges: today, yesterday, far future, Feb 29 leap year |
 | `type: "file_upload"` | Edge: file exactly at size limit, file at 1 byte over limit |
 
@@ -132,7 +136,6 @@ Pick only the ones that apply to field types present in this module's AST:
 
 Pick only the ones that match component types in this module's AST:
 
-- **Double-click submit** (any form/wizard with a submit button): rapidly double-click the submit button → assert only one record is created; no duplicate row appears in the listing table
 - **Rapid re-submission after redirect** (any form that redirects to a detail page on success): after a successful submit, press the browser back button → assert the creation form is shown blank (not pre-filled) OR the user is redirected to the detail page without a second entity being created
 - **Wizard step skip — enforced navigation** (wizard where steps must be completed sequentially): attempt to click a later step tab directly without completing earlier steps → assert navigation is blocked and the earlier step remains active
 - **Wizard step skip — free navigation** (wizard that allows free tab navigation): navigate to a later step without filling earlier steps → assert the later step displays and returning to the earlier step shows fields blank (no data was lost from the later step)
@@ -173,7 +176,16 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 
 - **High:** None — edge tests are secondary to core functionality
 - **Medium:** Boundary tests at thresholds (financial amounts, date ordering, count limits, file size limits)
-- **Low:** Input edge cases (long text, special chars, whitespace, decimal precision), interaction edge cases (double-click, browser back, wizard skip)
+- **Low:** Input edge cases (long text, special chars, whitespace, decimal precision), interaction edge cases (browser back, wizard skip)
+
+---
+
+**WORKFLOW-AWARE BOUNDARY SCOPING (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- For each workflow where `conditional_branch` activates a numeric or date field, check if that field has a boundary (a numeric/date threshold in the AST `constraints` or description).
+- If yes, that workflow's branch is a **candidate for a boundary edge test** — add or confirm a boundary TC exists for it.
+- Add `"wf_ref": "WF-NNN"` to each TC that maps to a specific workflow's boundary. Set `"wf_ref": null` for generic input/interaction edge tests.
 
 ---
 
@@ -185,6 +197,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": null,
       "subcategory": "boundary | input_edge | interaction_edge | state_edge | data_edge",
       "test_case": "Short descriptive name",
       "preconditions": ["precondition 1"],
@@ -207,7 +220,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 
 
 ------------------------------------------------------------
-[22:29:06] Test-Edge - USER PROMPT
+[14:24:50] Test-Edge - USER PROMPT
 ------------------------------------------------------------
 <module_name>Home Page</module_name>
 
@@ -223,23 +236,15 @@ If the module has any numeric/date/count threshold in the AST or description, pr
       "fields": {
         "Search_Activity": {
           "type": "search",
-          "required": false
+          "required": false,
+          "on_submit": "filters recent system activities"
         }
       },
-      "submit_actions": [
-        {
-          "element_name": "Search",
-          "on_success": "filters recent system activities"
-        }
-      ],
       "actions": [
         {
-          "element_name": "Dashboard",
+          "action_name": "Dashboard",
           "type": "button",
-          "on_success": "navigates to Dashboard",
-          "preconditions": [
-            "user must be logged in"
-          ]
+          "on_success": "navigates to Dashboard view"
         }
       ]
     }
@@ -256,10 +261,15 @@ The Home page appears after successful login. The main content area displays a w
 
 </description>
 
+<workflows>
+WF-001 | Search recent activities | actor: <role> | branch: none | terminal: Search_Activity | on_success: filters recent system activities
+WF-002 | Open Dashboard | actor: <role> | branch: none | terminal: Dashboard | on_success: navigates to Dashboard view
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[22:29:35] Test-Edge - LLM RESPONSE
+[14:25:17] Test-Edge - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Home Page",
@@ -267,67 +277,87 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": "WF-001",
       "subcategory": "input_edge",
-      "test_case": "Very long search string (200+ characters) in Search Activity",
+      "test_case": "Very long search query in Search_Activity",
       "preconditions": [
-        "User is logged in",
-        "Home Page is displayed with Search Activity input visible"
+        "user must be logged in",
+        "Home page is displayed with Search_Activity input visible"
       ],
       "steps": [
-        "1. Focus the Search Activity input",
-        "2. Enter a very long string (200+ characters) into the Search Activity input, including no special control characters",
-        "3. Click the Search button"
+        "1. Focus the Search_Activity input",
+        "2. Type a very long string (200+ characters) into Search_Activity",
+        "3. Press Enter or click the Search button to submit the search"
       ],
-      "expected_result": "Search submits successfully; the activity list updates (may show results or no results) and the UI remains responsive. The Search Activity input displays the entered long string (not silently truncated) or shows a visible truncation indicator if the UI intentionally truncates input. (Pass = search succeeds or shows a clear truncation indicator.)",
-      "priority": "low"
+      "expected_result": "Search submission succeeds: the results area updates to show filtered activities. The Search_Activity input either displays the full entered query (if accepted) or displays a visibly truncated value (if UI enforces a length limit); in both cases the results correspond to the visible query and the UI does not crash or freeze.",
+      "priority": "medium"
     },
     {
       "tc_id": "E-002",
+      "wf_ref": "WF-001",
       "subcategory": "input_edge",
-      "test_case": "Search Activity with special characters, emoji, and leading/trailing whitespace",
+      "test_case": "Special characters and emoji in Search_Activity",
       "preconditions": [
-        "User is logged in",
-        "Home Page is displayed with Search Activity input visible"
+        "user must be logged in",
+        "Home page is displayed with Search_Activity input visible"
       ],
       "steps": [
-        "1. Focus the Search Activity input",
-        "2. Enter a search string that includes special characters and emoji and has leading and trailing whitespace",
-        "3. Click the Search button"
+        "1. Focus the Search_Activity input",
+        "2. Enter a search string containing a mix of special characters and emoji into Search_Activity",
+        "3. Press Enter or click the Search button to submit the search"
       ],
-      "expected_result": "Search submits successfully; the activity list updates (may show results or no results). Leading/trailing whitespace is either trimmed in the visible Search Activity input after submission or a visible result shows the trimmed value. Special characters and emoji are preserved in the displayed search term or an inline error is shown if such characters are unsupported (in which case an error is shown). The test is considered passing if the search operation succeeds with a visible, deterministic handling of whitespace and special characters.",
-      "priority": "low"
+      "expected_result": "Search submission succeeds: the results area updates without UI errors. The Search_Activity input displays the entered characters if allowed or a sanitized version if the UI strips unsafe characters; either way the UI remains responsive and shows filtered results (no crash or unhandled error message shown).",
+      "priority": "medium"
     },
     {
       "tc_id": "E-003",
-      "subcategory": "interaction_edge",
-      "test_case": "Rapid double-click of Search button",
+      "wf_ref": "WF-001",
+      "subcategory": "input_edge",
+      "test_case": "Leading and trailing whitespace in Search_Activity is trimmed",
       "preconditions": [
-        "User is logged in",
-        "Home Page is displayed with Search Activity input visible",
-        "Search Activity input has at least one character"
+        "user must be logged in",
+        "Home page is displayed with Search_Activity input visible"
       ],
       "steps": [
-        "1. Enter a non-empty value into the Search Activity input",
-        "2. Rapidly double-click the Search button (two clicks in quick succession)"
+        "1. Focus the Search_Activity input",
+        "2. Enter a valid search term with leading and trailing spaces into Search_Activity",
+        "3. Press Enter or click the Search button to submit the search"
       ],
-      "expected_result": "Only one search operation is applied and the activity list updates once; no duplicate entries or repeated UI side-effects appear. The double-click does not create duplicate results or multiple visible filter applications — the search succeeds once.",
+      "expected_result": "Search submission succeeds: the application trims leading and trailing whitespace from the query before filtering. The Search_Activity input (after submit or on the results view) displays the trimmed value (no leading/trailing spaces) and the results correspond to the trimmed query.",
       "priority": "medium"
+    },
+    {
+      "tc_id": "E-004",
+      "wf_ref": "WF-002",
+      "subcategory": "interaction_edge",
+      "test_case": "Rapid double-click of Dashboard button",
+      "preconditions": [
+        "user must be logged in",
+        "Home page is displayed with Dashboard button visible"
+      ],
+      "steps": [
+        "1. Ensure the Home page is visible",
+        "2. Click the Dashboard button once",
+        "3. Immediately click the Dashboard button a second time (rapid double-click)"
+      ],
+      "expected_result": "Navigation to Dashboard succeeds once: the application navigates to the Dashboard view and the second rapid click is ignored (no duplicate navigation or duplicate UI artifacts). The user ends up on the Dashboard view and only a single Dashboard view navigation is recorded in the UI (no error dialog shown).",
+      "priority": "low"
     }
   ],
   "summary": {
-    "total": 3,
+    "total": 4,
     "boundary": 0,
-    "input_edge": 2,
+    "input_edge": 3,
     "interaction_edge": 1,
     "state_edge": 0,
     "data_edge": 0,
-    "medium_priority": 1,
-    "low_priority": 2
+    "medium_priority": 3,
+    "low_priority": 1
   }
 }
 
 ------------------------------------------------------------
-[22:29:35] Test-Edge - PARSED JSON
+[14:25:17] Test-Edge - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Home Page",
@@ -335,61 +365,81 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": "WF-001",
       "subcategory": "input_edge",
-      "test_case": "Very long search string (200+ characters) in Search Activity",
+      "test_case": "Very long search query in Search_Activity",
       "preconditions": [
-        "User is logged in",
-        "Home Page is displayed with Search Activity input visible"
+        "user must be logged in",
+        "Home page is displayed with Search_Activity input visible"
       ],
       "steps": [
-        "1. Focus the Search Activity input",
-        "2. Enter a very long string (200+ characters) into the Search Activity input, including no special control characters",
-        "3. Click the Search button"
+        "1. Focus the Search_Activity input",
+        "2. Type a very long string (200+ characters) into Search_Activity",
+        "3. Press Enter or click the Search button to submit the search"
       ],
-      "expected_result": "Search submits successfully; the activity list updates (may show results or no results) and the UI remains responsive. The Search Activity input displays the entered long string (not silently truncated) or shows a visible truncation indicator if the UI intentionally truncates input. (Pass = search succeeds or shows a clear truncation indicator.)",
-      "priority": "low"
+      "expected_result": "Search submission succeeds: the results area updates to show filtered activities. The Search_Activity input either displays the full entered query (if accepted) or displays a visibly truncated value (if UI enforces a length limit); in both cases the results correspond to the visible query and the UI does not crash or freeze.",
+      "priority": "medium"
     },
     {
       "tc_id": "E-002",
+      "wf_ref": "WF-001",
       "subcategory": "input_edge",
-      "test_case": "Search Activity with special characters, emoji, and leading/trailing whitespace",
+      "test_case": "Special characters and emoji in Search_Activity",
       "preconditions": [
-        "User is logged in",
-        "Home Page is displayed with Search Activity input visible"
+        "user must be logged in",
+        "Home page is displayed with Search_Activity input visible"
       ],
       "steps": [
-        "1. Focus the Search Activity input",
-        "2. Enter a search string that includes special characters and emoji and has leading and trailing whitespace",
-        "3. Click the Search button"
+        "1. Focus the Search_Activity input",
+        "2. Enter a search string containing a mix of special characters and emoji into Search_Activity",
+        "3. Press Enter or click the Search button to submit the search"
       ],
-      "expected_result": "Search submits successfully; the activity list updates (may show results or no results). Leading/trailing whitespace is either trimmed in the visible Search Activity input after submission or a visible result shows the trimmed value. Special characters and emoji are preserved in the displayed search term or an inline error is shown if such characters are unsupported (in which case an error is shown). The test is considered passing if the search operation succeeds with a visible, deterministic handling of whitespace and special characters.",
-      "priority": "low"
+      "expected_result": "Search submission succeeds: the results area updates without UI errors. The Search_Activity input displays the entered characters if allowed or a sanitized version if the UI strips unsafe characters; either way the UI remains responsive and shows filtered results (no crash or unhandled error message shown).",
+      "priority": "medium"
     },
     {
       "tc_id": "E-003",
-      "subcategory": "interaction_edge",
-      "test_case": "Rapid double-click of Search button",
+      "wf_ref": "WF-001",
+      "subcategory": "input_edge",
+      "test_case": "Leading and trailing whitespace in Search_Activity is trimmed",
       "preconditions": [
-        "User is logged in",
-        "Home Page is displayed with Search Activity input visible",
-        "Search Activity input has at least one character"
+        "user must be logged in",
+        "Home page is displayed with Search_Activity input visible"
       ],
       "steps": [
-        "1. Enter a non-empty value into the Search Activity input",
-        "2. Rapidly double-click the Search button (two clicks in quick succession)"
+        "1. Focus the Search_Activity input",
+        "2. Enter a valid search term with leading and trailing spaces into Search_Activity",
+        "3. Press Enter or click the Search button to submit the search"
       ],
-      "expected_result": "Only one search operation is applied and the activity list updates once; no duplicate entries or repeated UI side-effects appear. The double-click does not create duplicate results or multiple visible filter applications \u2014 the search succeeds once.",
+      "expected_result": "Search submission succeeds: the application trims leading and trailing whitespace from the query before filtering. The Search_Activity input (after submit or on the results view) displays the trimmed value (no leading/trailing spaces) and the results correspond to the trimmed query.",
       "priority": "medium"
+    },
+    {
+      "tc_id": "E-004",
+      "wf_ref": "WF-002",
+      "subcategory": "interaction_edge",
+      "test_case": "Rapid double-click of Dashboard button",
+      "preconditions": [
+        "user must be logged in",
+        "Home page is displayed with Dashboard button visible"
+      ],
+      "steps": [
+        "1. Ensure the Home page is visible",
+        "2. Click the Dashboard button once",
+        "3. Immediately click the Dashboard button a second time (rapid double-click)"
+      ],
+      "expected_result": "Navigation to Dashboard succeeds once: the application navigates to the Dashboard view and the second rapid click is ignored (no duplicate navigation or duplicate UI artifacts). The user ends up on the Dashboard view and only a single Dashboard view navigation is recorded in the UI (no error dialog shown).",
+      "priority": "low"
     }
   ],
   "summary": {
-    "total": 3,
+    "total": 4,
     "boundary": 0,
-    "input_edge": 2,
+    "input_edge": 3,
     "interaction_edge": 1,
     "state_edge": 0,
     "data_edge": 0,
-    "medium_priority": 1,
-    "low_priority": 2
+    "medium_priority": 3,
+    "low_priority": 1
   }
 }

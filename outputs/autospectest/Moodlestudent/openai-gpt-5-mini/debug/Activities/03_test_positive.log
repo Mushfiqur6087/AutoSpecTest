@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-22T21:41:13.086246
+DEBUG SESSION STARTED: 2026-05-25T15:09:37.494516
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[21:41:13] Test-Positive - SYSTEM PROMPT
+[15:09:37] Test-Positive - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Expert UI Test Case Generator. You receive (1) a UI-AST JSON for one specific module and (2) the original functional description for that module.
 
@@ -24,6 +24,10 @@ Your job is to produce ONLY positive/functional UI test cases — tests where va
 <description>
 {Original functional description text for this module}
 </description>
+
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
 
 ---
 
@@ -146,6 +150,13 @@ Because you are testing a module in isolation, establish the required entry stat
 **1. Forms & Wizards (`form`, `wizard`):**
 - Generate ONE happy path per distinct success outcome.
 - *Conditional UI Check:* If a toggle/dropdown reveals new mandatory fields (`visible_when`), generate a separate test for that conditional branch.
+- **Wizard step coverage (CRITICAL):** If a wizard has multiple steps and any step beyond Step 1 contains its own named field group (e.g., "Address Details", "Family Members", "Identifiers"), generate ONE dedicated positive TC per such step. The TC must:
+  - Navigate to that specific step (include the preceding steps as preconditions or brief navigation steps)
+  - Fill the fields described for that step (not just pass through)
+  - Assert the step's content is visible/saved on the detail page after final submission
+  - **Do NOT collapse all wizard steps into one happy-path TC** — if Steps 2, 3, and 4 each have their own named section in the spec, they each need their own TC.
+- **Wizard in-step identifiers/duplicates:** If a wizard step allows adding identifiers, documents, or similar entries that have a uniqueness constraint, include a TC for that wizard step that also verifies the constraint (e.g., attempting to add a duplicate Document Type+Key pair inside the wizard). This is a different code path from adding the same post-creation on the detail page.
+- **Action dialogs:** If a `state_bound_action_bar` action opens a dialog with its own `fields{}` (e.g., Activate requires Activation Date, Reject requires Reason), generate ONE positive TC per such action-dialog — distinct from the state-transition TC. The TC fills the dialog field and completes the action.
 
 **2. State Machines (`state_bound_action_bar`):**
 - For each unique action available in a specific state, generate ONE test performing that action.
@@ -200,6 +211,19 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 
 ---
 
+**WORKFLOW COVERAGE OBLIGATION (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- Your test cases must **collectively cover every workflow** listed.
+- For each `wf_id`, at least one TC must:
+  - Activate the `conditional_branch` (if not null) — i.e. the test must set up the condition described.
+  - Assert the `on_success` as its `expected_result` (verbatim or as the primary basis for the expected result).
+- Add `"wf_ref": "WF-NNN"` to each TC to identify which workflow it covers.
+- If one TC naturally covers multiple workflows (e.g., the base path overlaps), pick the most specific `wf_ref`.
+- If a TC does not map to any workflow (e.g., a navigation-only test), set `"wf_ref": null`.
+
+---
+
 **OUTPUT — JSON only, no prose, no markdown fencing:**
 
 {
@@ -208,6 +232,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
   "test_cases": [
     {
       "tc_id": "P-001",
+      "wf_ref": "WF-001",
       "test_case": "Short descriptive name",
       "preconditions": ["User logged in as <Role>", "<Prerequisite state>"],
       "steps": ["1. Step one", "2. Step two"],
@@ -224,7 +249,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 }
 
 ------------------------------------------------------------
-[21:41:13] Test-Positive - USER PROMPT
+[15:09:37] Test-Positive - USER PROMPT
 ------------------------------------------------------------
 <module_name>Activities</module_name>
 
@@ -232,60 +257,109 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 {
   "module_name": "Activities",
   "components": {
-    "Activities_Accordion": {
-      "type": "accordion",
+    "Activities_Page": {
+      "type": "page",
       "sections": [
         {
           "section_name": "Assignments",
-          "collapsible": true,
-          "default_expanded": true,
+          "type": "collapsible_section",
+          "expanded": true,
+          "toggle_action": {
+            "action_name": "Toggle Assignments Section"
+          },
           "content": {
-            "fields": {
-              "Assignments_Table": {
+            "type": "data_table",
+            "columns": [
+              {
+                "name": "Name",
+                "type": "link",
+                "required": false,
+                "on_success": "navigates to activity page"
+              },
+              {
+                "name": "Due date",
+                "type": "date",
+                "required": false
+              },
+              {
+                "name": "Submission status",
+                "type": "unspecified",
+                "required": false
+              }
+            ],
+            "row_actions": [],
+            "bulk_actions": []
+          }
+        },
+        {
+          "section_name": "Forums",
+          "type": "collapsible_section",
+          "expanded": false,
+          "toggle_action": {
+            "action_name": "Toggle Forums Section"
+          },
+          "content": {
+            "type": "data_table",
+            "columns": [
+              {
+                "name": "Name",
+                "type": "link",
+                "required": false,
+                "on_success": "navigates to activity page"
+              }
+            ],
+            "row_actions": [],
+            "bulk_actions": []
+          }
+        },
+        {
+          "section_name": "Resources",
+          "type": "collapsible_section",
+          "expanded": false,
+          "toggle_action": {
+            "action_name": "Toggle Resources Section"
+          },
+          "content": {
+            "type": "data_table",
+            "columns": [
+              {
+                "name": "Name",
+                "type": "link",
+                "required": false,
+                "on_success": "navigates to activity page"
+              }
+            ],
+            "row_actions": [],
+            "bulk_actions": []
+          }
+        },
+        {
+          "section_name": "Additional_Activity_Types",
+          "type": "repeating_group",
+          "item_fields": {
+            "Activity_Type_Section": {
+              "type": "collapsible_section",
+              "expanded": false,
+              "toggle_action": {
+                "action_name": "Toggle Activity Type Section"
+              },
+              "content": {
                 "type": "data_table",
-                "columns": {
-                  "Name": {
+                "columns": [
+                  {
+                    "name": "Name",
                     "type": "link",
-                    "show_parent_section_below": true,
-                    "on_click": "navigates to activity page"
-                  },
-                  "Due_Date": {
-                    "type": "date"
-                  },
-                  "Submission_Status": {
-                    "type": "status"
+                    "required": false,
+                    "on_success": "navigates to activity page"
                   }
-                },
+                ],
                 "row_actions": [],
                 "bulk_actions": []
               }
             }
           }
-        },
-        {
-          "section_name": "Forums",
-          "collapsible": true,
-          "default_expanded": false,
-          "content": {
-            "fields": {}
-          }
-        },
-        {
-          "section_name": "Resources",
-          "collapsible": true,
-          "default_expanded": false,
-          "content": {
-            "fields": {}
-          }
         }
-      ],
-      "additional_section_template": {
-        "collapsible": true,
-        "default_expanded": false,
-        "content": {
-          "fields": {}
-        }
-      }
+      ]
     }
   }
 }
@@ -300,10 +374,17 @@ The Activities page provides a consolidated overview of every activity in the co
 
 </description>
 
+<workflows>
+WF-001 | Open an activity in Assignments | actor: <role> | branch: none | terminal: Name | on_success: navigates to activity page
+WF-002 | Open an activity in Forums | actor: <role> | branch: Forums_Section == collapsed | terminal: Name | on_success: navigates to activity page
+WF-003 | Open an activity in Resources | actor: <role> | branch: Resources_Section == collapsed | terminal: Name | on_success: navigates to activity page
+WF-004 | Open an activity in an Additional Activity Type | actor: <role> | branch: Activity_Type_Section == collapsed | terminal: Name | on_success: navigates to activity page
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[21:42:21] Test-Positive - LLM RESPONSE
+[15:11:19] Test-Positive - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Activities",
@@ -311,72 +392,94 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Assignments section is expanded by default and shows the assignments table",
+      "wf_ref": "WF-001",
+      "test_case": "Open an assignment from the expanded Assignments table",
       "preconditions": [
-        "User logged in as <Student>",
-        "<At least one assignment exists in the course>"
+        "User logged in as <role>",
+        "Activities page is open",
+        "Assignments section is expanded and contains an activity row"
       ],
       "steps": [
-        "1. Navigate to the Activities page"
+        "1. In the Assignments table, click the <target activity> Name link"
       ],
-      "expected_result": "Assignments section is expanded by default; the Assignments table is visible with columns Name, Due date, and Submission status, and at least one row is listed with a clickable Name link",
-      "priority": "medium"
+      "expected_result": "navigates to activity page",
+      "priority": "high"
     },
     {
       "tc_id": "P-002",
-      "test_case": "Clicking an assignment Name opens that activity's page",
+      "wf_ref": "WF-002",
+      "test_case": "Expand Forums section and open a forum activity",
       "preconditions": [
-        "User logged in as <Student>",
-        "<At least one assignment exists in the course with a visible Name link>"
+        "User logged in as <role>",
+        "Activities page is open",
+        "Forums section is collapsed and contains an activity row"
       ],
       "steps": [
-        "1. Navigate to the Activities page",
-        "2. Click the Name link for <assignment> in the Assignments table"
+        "1. Click 'Toggle Forums Section' to expand the Forums section",
+        "2. In the Forums table, click the <target activity> Name link"
       ],
-      "expected_result": "The activity detail page for <assignment> is displayed (the browser navigates to the activity page); the activity page header shows <assignment>",
+      "expected_result": "navigates to activity page",
       "priority": "high"
     },
     {
       "tc_id": "P-003",
-      "test_case": "Collapsed activity sections (Forums and Resources) expand when their arrows are clicked",
+      "wf_ref": "WF-003",
+      "test_case": "Expand Resources section and open a resource activity",
       "preconditions": [
-        "User logged in as <Student>",
-        "<Forums and Resources sections exist in the course Activities accordion>"
+        "User logged in as <role>",
+        "Activities page is open",
+        "Resources section is collapsed and contains an activity row"
       ],
       "steps": [
-        "1. Navigate to the Activities page",
-        "2. Click the expand arrow on the Forums section",
-        "3. Click the expand arrow on the Resources section"
+        "1. Click 'Toggle Resources Section' to expand the Resources section",
+        "2. In the Resources table, click the <target activity> Name link"
       ],
-      "expected_result": "Forums section expands and its content area becomes visible; Resources section expands and its content area becomes visible",
-      "priority": "medium"
+      "expected_result": "navigates to activity page",
+      "priority": "high"
     },
     {
       "tc_id": "P-004",
-      "test_case": "An additional activity type appears as a collapsed, expandable section",
+      "wf_ref": "WF-004",
+      "test_case": "Expand an existing Additional Activity Type section and open its activity",
       "preconditions": [
-        "User logged in as <Student>",
-        "<An additional activity type <activity type> exists in the course>"
+        "User logged in as <role>",
+        "Activities page is open",
+        "At least one Additional Activity Type section exists and is collapsed"
       ],
       "steps": [
-        "1. Navigate to the Activities page",
-        "2. Locate the additional <activity type> section in the accordion",
-        "3. Click the expand arrow on the <activity type> section"
+        "1. Click 'Toggle Activity Type Section' on the existing Additional Activity Type to expand it",
+        "2. In the expanded Additional Activity Type table, click the <target activity> Name link"
       ],
-      "expected_result": "An additional <activity type> section appears collapsed in the Activities accordion; after clicking its expand arrow the <activity type> content area becomes visible",
-      "priority": "low"
+      "expected_result": "navigates to activity page",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-005",
+      "wf_ref": null,
+      "test_case": "Add a new Additional Activity Type row, expand it, and open its activity",
+      "preconditions": [
+        "User logged in as <role>",
+        "Activities page is open"
+      ],
+      "steps": [
+        "1. Click 'Add Row' to create a new Additional Activity Type section",
+        "2. Click 'Toggle Activity Type Section' on the new Additional Activity Type to expand it",
+        "3. In the new Additional Activity Type table, click the <new activity> Name link"
+      ],
+      "expected_result": "navigates to activity page",
+      "priority": "medium"
     }
   ],
   "summary": {
-    "total": 4,
-    "high_priority": 1,
-    "medium_priority": 2,
-    "low_priority": 1
+    "total": 5,
+    "high_priority": 4,
+    "medium_priority": 1,
+    "low_priority": 0
   }
 }
 
 ------------------------------------------------------------
-[21:42:21] Test-Positive - PARSED JSON
+[15:11:19] Test-Positive - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Activities",
@@ -384,66 +487,88 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Assignments section is expanded by default and shows the assignments table",
+      "wf_ref": "WF-001",
+      "test_case": "Open an assignment from the expanded Assignments table",
       "preconditions": [
-        "User logged in as <Student>",
-        "<At least one assignment exists in the course>"
+        "User logged in as <role>",
+        "Activities page is open",
+        "Assignments section is expanded and contains an activity row"
       ],
       "steps": [
-        "1. Navigate to the Activities page"
+        "1. In the Assignments table, click the <target activity> Name link"
       ],
-      "expected_result": "Assignments section is expanded by default; the Assignments table is visible with columns Name, Due date, and Submission status, and at least one row is listed with a clickable Name link",
-      "priority": "medium"
+      "expected_result": "navigates to activity page",
+      "priority": "high"
     },
     {
       "tc_id": "P-002",
-      "test_case": "Clicking an assignment Name opens that activity's page",
+      "wf_ref": "WF-002",
+      "test_case": "Expand Forums section and open a forum activity",
       "preconditions": [
-        "User logged in as <Student>",
-        "<At least one assignment exists in the course with a visible Name link>"
+        "User logged in as <role>",
+        "Activities page is open",
+        "Forums section is collapsed and contains an activity row"
       ],
       "steps": [
-        "1. Navigate to the Activities page",
-        "2. Click the Name link for <assignment> in the Assignments table"
+        "1. Click 'Toggle Forums Section' to expand the Forums section",
+        "2. In the Forums table, click the <target activity> Name link"
       ],
-      "expected_result": "The activity detail page for <assignment> is displayed (the browser navigates to the activity page); the activity page header shows <assignment>",
+      "expected_result": "navigates to activity page",
       "priority": "high"
     },
     {
       "tc_id": "P-003",
-      "test_case": "Collapsed activity sections (Forums and Resources) expand when their arrows are clicked",
+      "wf_ref": "WF-003",
+      "test_case": "Expand Resources section and open a resource activity",
       "preconditions": [
-        "User logged in as <Student>",
-        "<Forums and Resources sections exist in the course Activities accordion>"
+        "User logged in as <role>",
+        "Activities page is open",
+        "Resources section is collapsed and contains an activity row"
       ],
       "steps": [
-        "1. Navigate to the Activities page",
-        "2. Click the expand arrow on the Forums section",
-        "3. Click the expand arrow on the Resources section"
+        "1. Click 'Toggle Resources Section' to expand the Resources section",
+        "2. In the Resources table, click the <target activity> Name link"
       ],
-      "expected_result": "Forums section expands and its content area becomes visible; Resources section expands and its content area becomes visible",
-      "priority": "medium"
+      "expected_result": "navigates to activity page",
+      "priority": "high"
     },
     {
       "tc_id": "P-004",
-      "test_case": "An additional activity type appears as a collapsed, expandable section",
+      "wf_ref": "WF-004",
+      "test_case": "Expand an existing Additional Activity Type section and open its activity",
       "preconditions": [
-        "User logged in as <Student>",
-        "<An additional activity type <activity type> exists in the course>"
+        "User logged in as <role>",
+        "Activities page is open",
+        "At least one Additional Activity Type section exists and is collapsed"
       ],
       "steps": [
-        "1. Navigate to the Activities page",
-        "2. Locate the additional <activity type> section in the accordion",
-        "3. Click the expand arrow on the <activity type> section"
+        "1. Click 'Toggle Activity Type Section' on the existing Additional Activity Type to expand it",
+        "2. In the expanded Additional Activity Type table, click the <target activity> Name link"
       ],
-      "expected_result": "An additional <activity type> section appears collapsed in the Activities accordion; after clicking its expand arrow the <activity type> content area becomes visible",
-      "priority": "low"
+      "expected_result": "navigates to activity page",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-005",
+      "wf_ref": null,
+      "test_case": "Add a new Additional Activity Type row, expand it, and open its activity",
+      "preconditions": [
+        "User logged in as <role>",
+        "Activities page is open"
+      ],
+      "steps": [
+        "1. Click 'Add Row' to create a new Additional Activity Type section",
+        "2. Click 'Toggle Activity Type Section' on the new Additional Activity Type to expand it",
+        "3. In the new Additional Activity Type table, click the <new activity> Name link"
+      ],
+      "expected_result": "navigates to activity page",
+      "priority": "medium"
     }
   ],
   "summary": {
-    "total": 4,
-    "high_priority": 1,
-    "medium_priority": 2,
-    "low_priority": 1
+    "total": 5,
+    "high_priority": 4,
+    "medium_priority": 1,
+    "low_priority": 0
   }
 }

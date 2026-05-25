@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-21T22:54:00.269426
+DEBUG SESSION STARTED: 2026-05-25T14:51:20.256928
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[22:54:00] Test-Negative - SYSTEM PROMPT
+[14:51:20] Test-Negative - SYSTEM PROMPT
 ------------------------------------------------------------
 You are a Negative Test Case Generator. You receive (1) a UI-AST JSON for one module and (2) the original functional description. Your job is to produce ONLY negative test cases — tests where invalid input is provided or business rules are violated, and the system correctly rejects or blocks the action.
 
@@ -22,6 +22,10 @@ You are a Negative Test Case Generator. You receive (1) a UI-AST JSON for one mo
 <description>
 {Original functional description text for this module}
 </description>
+
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
 
 ---
 
@@ -111,6 +115,9 @@ Group required fields by type: `text/unspecified`, `email`, `password`, `number`
 
 Do NOT generate a separate blank-field test for every required field. If 5 text fields are all required, one representative covers them all.
 
+**Action dialog required fields — NOT subject to cross-form deduplication:**
+If a `state_bound_action_bar` action opens a dialog with its own required `fields{}` (e.g., Activate requires Activation Date, Reject requires a Reason, Withdraw requires a Reason, Close requires a Closure Reason), each such dialog is its own testing scope. Generate ONE "leave the required dialog field blank and submit" test per distinct action dialog. These are HIGH priority — they block state transitions and are common defect sites. Do not suppress them because the main wizard already has a blank-field test.
+
 **2. Format violations:**
 
 For fields with type-specific format rules (from AST type or description):
@@ -143,6 +150,10 @@ For each unique `constraints[]` entry in the AST, and for cross-field rules desc
 
 One test per unique constraint. Do not duplicate the same mechanism.
 
+**Constraint timing tests:** If the spec states an action is blocked by a pre-existing system state (e.g., "cannot close with active accounts", "cannot transfer to the same office"), generate TWO tests:
+1. The standard constraint violation test (user opens the dialog, fills required fields, submits → blocked).
+2. A constraint-timing test: user opens the dialog WITHOUT filling required fields → assert whether the block is shown immediately on dialog open (before the user fills anything) OR only on submit. This distinguishes whether the UI enforces the constraint eagerly or lazily. Steps: open the dialog, observe the state → assert what is visible before any interaction. If the spec is silent on timing, generate only the first test.
+
 **5. Precondition violations (auth, role, and state):**
 
 For each `preconditions[]` entry on any action — and for auth/role rules described in the spec:
@@ -154,18 +165,18 @@ For each `preconditions[]` entry on any action — and for auth/role rules descr
 **6. State-machine violations:**
 
 From `state_bound_action_bar` nodes:
-- For each state where an action is NOT listed in `available_actions`, generate one test attempting that action from that state. Example: attempting "Approve" on an entity already in "Active" state.
+- **Every defined state must have at least one wrong-state test.** For each state, identify at least one action that is NOT in its `available_actions` list and generate a test attempting that action from that state.
 - If a state has an empty `available_actions` array, generate one test verifying no action buttons are visible in that state.
-
-One test per unique wrong-state scenario — do not enumerate every action × every invalid state.
+- **Do not stop after 1–2 representative examples** when the module defines 4+ distinct states. The states Active, Pending, Closed, Rejected, and Withdrawn each have different action sets — each must be independently verified.
+- One test per state is sufficient — pick the most distinct unavailable action for that state. Do not enumerate every action × every state (that would be exponential).
 
 ---
 
 **DEDUPLICATION GATE (run before outputting):**
 
-1. **Required field dedup:** Multiple required text fields → ONE representative test, not one per field.
+1. **Required field dedup:** Multiple required text fields in the **same form or dialog** → ONE representative test, not one per field.
 2. **Sub-rule dedup:** A field with multiple validation sub-rules (e.g., password: length + uppercase + lowercase + number + special char) → ONE representative violation test, not one per sub-rule.
-3. **Cross-form dedup:** If two forms in the same module share the same validation mechanism (e.g., both have a required text field) → test it on the primary form only.
+3. **Cross-form dedup:** If two **main forms** in the same module share the same validation mechanism → test it on the primary form only. **Exception: action dialogs are never suppressed by cross-form dedup** — each action dialog with a required field gets its own blank-field test regardless.
 4. **Uniqueness check:** Before outputting, ask for each TC: "Does this test catch a bug that NO other test in this module would catch?" If no → remove it.
 
 ---
@@ -174,9 +185,11 @@ One test per unique wrong-state scenario — do not enumerate every action × ev
 
 - Simple module (login, single form, display page): **2–4 tests**
 - Medium module (standard CRUD form, form with constraints): **4–8 tests**
-- Complex module (state machine, multi-form, wizard with many constraints): **8–12 tests**
+- Complex module (state machine, multi-form, wizard with many constraints): **10–16 tests**
 
-If you exceed these ranges, you are generating redundant tests. Apply the deduplication gate again before outputting.
+For modules with a `state_bound_action_bar` defining 4+ states, the state-machine violation tests alone will produce 4–5 tests. This is expected and correct — do not suppress them to hit a lower target.
+
+If you exceed the upper range, apply the deduplication gate again before outputting.
 
 ---
 
@@ -184,6 +197,17 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
 
 - **High:** State precondition violations, constraint violations that could corrupt data, unauthenticated access, required field representatives
 - **Medium:** Format violations, cross-field validation, numeric bounds, wrong-role access, wrong-state action attempts
+
+---
+
+**WORKFLOW-AWARE FAILURE INJECTION (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- For each workflow that contains a form interaction (terminal action is a submit/save/create/approve button):
+  - Identify the most **critical blocking failure** for that workflow's `conditional_branch`.
+  - If that failure mode is NOT already covered by another workflow's negative test, generate one negative TC for it.
+- **Do NOT generate one negative TC per workflow mechanically.** Apply the existing deduplication gate first — only add a TC if it catches a bug that no other test would catch.
+- Add `"wf_ref": "WF-NNN"` to each TC that maps to a workflow. Set `"wf_ref": null` for generic validation tests.
 
 ---
 
@@ -195,6 +219,7 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
   "test_cases": [
     {
       "tc_id": "N-001",
+      "wf_ref": null,
       "test_case": "Short descriptive name",
       "preconditions": ["precondition 1"],
       "steps": ["1. Step one", "2. Step two"],
@@ -212,7 +237,7 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
 
 
 ------------------------------------------------------------
-[22:54:00] Test-Negative - USER PROMPT
+[14:51:20] Test-Negative - USER PROMPT
 ------------------------------------------------------------
 <module_name>Cars Search & Listing</module_name>
 
@@ -223,139 +248,97 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
     "Car_Search_Form": {
       "type": "form",
       "fields": {
-        "Pick_Up_Location": {
-          "type": "search"
+        "Pick-up_Location": {
+          "type": "unspecified",
+          "required": false
         },
-        "Drop_Off_Location": {
-          "type": "search"
+        "Drop-off_Location": {
+          "type": "unspecified",
+          "required": false
         },
-        "Pick_Up_Date": {
-          "type": "date"
+        "Pick-up_Date": {
+          "type": "date",
+          "required": false
         },
-        "Pick_Up_Time": {
-          "type": "unspecified"
+        "Drop-off_Date": {
+          "type": "date",
+          "required": false
         },
-        "Drop_Off_Date": {
-          "type": "date"
+        "Pick-up_Time": {
+          "type": "time",
+          "required": false
         },
-        "Drop_Off_Time": {
-          "type": "unspecified"
+        "Drop-off_Time": {
+          "type": "time",
+          "required": false
         },
         "Driver_Age": {
-          "type": "number"
+          "type": "number",
+          "required": false
         }
       },
-      "constraints": [
-        "Drop_Off_Date >= Pick_Up_Date"
-      ],
       "submit_actions": [
         {
-          "element_name": "Search",
-          "on_success": "redirects to Listing_Page"
+          "element_name": "unspecified",
+          "on_success": "redirects to listing page"
         }
       ]
     },
-    "Listing_Page": {
-      "type": "page",
-      "components": {
-        "Sidebar_Filters": {
-          "type": "panel",
-          "on_change": "updates results dynamically",
-          "fields": {
-            "Car_Type": {
-              "type": "multiselect",
-              "options": [
-                "Economy",
-                "Compact",
-                "SUV",
-                "Luxury",
-                "Van"
-              ]
-            },
-            "Transmission": {
-              "type": "multiselect",
-              "options": [
-                "Automatic",
-                "Manual"
-              ]
-            },
-            "Fuel_Policy": {
-              "type": "multiselect"
-            },
-            "Rental_Company": {
-              "type": "multiselect"
-            },
-            "Price_Range": {
-              "type": "unspecified"
-            }
-          }
+    "Sidebar_Filters": {
+      "type": "form",
+      "on_change": "updates results dynamically",
+      "fields": {
+        "Car_Type": {
+          "type": "unspecified",
+          "required": false,
+          "options": [
+            "Economy",
+            "Compact",
+            "SUV",
+            "Luxury",
+            "Van"
+          ]
         },
-        "Vehicles_List": {
-          "type": "grouped_list",
-          "grouped_by": "Car_Type",
-          "item_fields": {
-            "Vehicle_Image": {
-              "type": "image"
-            },
-            "Make_and_Model": {
-              "type": "text"
-            },
-            "Transmission_Type": {
-              "type": "text",
-              "options": [
-                "Automatic",
-                "Manual"
-              ]
-            },
-            "Fuel_Policy": {
-              "type": "text"
-            },
-            "Seating_Capacity": {
-              "type": "number"
-            },
-            "Luggage_Capacity": {
-              "type": "number"
-            },
-            "Features": {
-              "type": "list",
-              "items": [
-                "AC",
-                "GPS",
-                "etc."
-              ]
-            },
-            "Price_Per_Day": {
-              "type": "currency"
-            },
-            "Total_Rental_Cost": {
-              "type": "currency",
-              "computed": "Price_Per_Day * rental_days"
-            },
-            "Book_Now": {
-              "type": "button",
-              "element_name": "Book Now",
-              "on_success": "initiates booking flow"
-            }
-          },
-          "groups": {
-            "Economy": {
-              "items": []
-            },
-            "Compact": {
-              "items": []
-            },
-            "SUV": {
-              "items": []
-            },
-            "Luxury": {
-              "items": []
-            },
-            "Van": {
-              "items": []
-            }
-          }
+        "Transmission": {
+          "type": "unspecified",
+          "required": false,
+          "options": [
+            "Automatic",
+            "Manual"
+          ]
+        },
+        "Fuel_Policy": {
+          "type": "unspecified",
+          "required": false
+        },
+        "Rental_Company": {
+          "type": "unspecified",
+          "required": false
+        },
+        "Price_Range": {
+          "type": "range",
+          "required": false
         }
       }
+    },
+    "Vehicle_Listings": {
+      "type": "grouped_list",
+      "group_by": "category",
+      "groups": [
+        "Economy",
+        "Compact",
+        "SUV",
+        "Luxury",
+        "Van"
+      ],
+      "row_actions": [
+        {
+          "action_name": "Book Now",
+          "type": "button",
+          "on_click": "initiates booking for selected vehicle"
+        }
+      ],
+      "notes": "Each listing displays make/model, transmission, fuel policy, seating, luggage, features, price per day and total cost for the selected period (display-only, not represented here)."
     }
   }
 }
@@ -370,10 +353,15 @@ The car rental search form collects pick-up and drop-off location, pick-up and d
 
 </description>
 
+<workflows>
+WF-001 | Submit car search form | actor: <role> | branch: none | terminal: unspecified | on_success: redirects to listing page
+WF-002 | Book Now from listing | actor: <role> | branch: none | terminal: Book Now | on_success: initiates booking for selected vehicle
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[22:56:31] Test-Negative - LLM RESPONSE
+[14:53:09] Test-Negative - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Cars Search & Listing",
@@ -381,86 +369,119 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "N-001",
-      "test_case": "Drop-off date earlier than pick-up date (constraint violation)",
-      "preconditions": [],
-      "steps": [
-        "1. Enter <Pick_Up_Date> in the Pick_Up_Date field",
-        "2. Enter <Drop_Off_Date before Pick_Up_Date> in the Drop_Off_Date field",
-        "3. Click the Search button"
+      "wf_ref": "WF-001",
+      "test_case": "Submit search with invalid Pick-up Date format",
+      "preconditions": [
+        "User is on the Car Search form page"
       ],
-      "expected_result": "Inline validation error appears on the Drop_Off_Date field indicating it must be the same as or after Pick_Up_Date; the form does not submit and the user is not redirected to the Listing_Page",
+      "steps": [
+        "1. Enter <invalid date format> into the Pick-up_Date field",
+        "2. Fill or leave other fields as needed",
+        "3. Click the search/submit button on the Car Search form"
+      ],
+      "expected_result": "Pick-up Date field displays an inline validation error indicating an invalid date format; the form does not submit and the user is not redirected to the listing page",
       "priority": "high"
     },
     {
       "tc_id": "N-002",
-      "test_case": "Invalid date format in pick-up date",
-      "preconditions": [],
-      "steps": [
-        "1. Enter <invalid date format> in the Pick_Up_Date field",
-        "2. Click the Search button"
+      "wf_ref": "WF-001",
+      "test_case": "Submit search with invalid Pick-up Time format",
+      "preconditions": [
+        "User is on the Car Search form page"
       ],
-      "expected_result": "Pick_Up_Date field displays an inline validation error indicating an invalid date format; the form does not submit and the user remains on the search form (no redirect to Listing_Page)",
-      "priority": "medium"
+      "steps": [
+        "1. Enter <invalid time format> into the Pick-up_Time field",
+        "2. Fill or leave other fields as needed",
+        "3. Click the search/submit button on the Car Search form"
+      ],
+      "expected_result": "Pick-up Time field displays an inline validation error indicating an invalid time format; the form does not submit and the user is not redirected to the listing page",
+      "priority": "high"
     },
     {
       "tc_id": "N-003",
-      "test_case": "Non-numeric input in Driver_Age field",
-      "preconditions": [],
-      "steps": [
-        "1. Enter <non-numeric input> in the Driver_Age field",
-        "2. Click the Search button"
+      "wf_ref": "WF-001",
+      "test_case": "Submit search with non-numeric Driver Age",
+      "preconditions": [
+        "User is on the Car Search form page"
       ],
-      "expected_result": "Driver_Age field displays an inline validation error indicating a numeric value is required; the form does not submit and the user is not redirected to the Listing_Page",
-      "priority": "medium"
+      "steps": [
+        "1. Enter <non-numeric value> into the Driver_Age field",
+        "2. Fill or leave other fields as needed",
+        "3. Click the search/submit button on the Car Search form"
+      ],
+      "expected_result": "Driver Age field displays an inline validation error indicating a numeric value is required; the form does not submit and the user is not redirected to the listing page",
+      "priority": "high"
     },
     {
       "tc_id": "N-004",
-      "test_case": "Missing Drop_Off_Date when Pick_Up_Date is provided (incomplete date pair for rental period)",
-      "preconditions": [],
-      "steps": [
-        "1. Enter <Pick_Up_Date> in the Pick_Up_Date field",
-        "2. Leave the Drop_Off_Date field blank",
-        "3. Click the Search button"
+      "wf_ref": "WF-001",
+      "test_case": "Submit search where Drop-off Date/Time is before Pick-up Date/Time",
+      "preconditions": [
+        "User is on the Car Search form page"
       ],
-      "expected_result": "Inline validation error appears on the Drop_Off_Date field indicating it is required to determine the rental period; the form does not submit and the user is not redirected to the Listing_Page",
+      "steps": [
+        "1. Enter <pick-up date> into the Pick-up_Date field",
+        "2. Enter <earlier drop-off date> into the Drop-off_Date field (or same date with Drop-off_Time earlier than Pick-up_Time)",
+        "3. Enter times if necessary to create a drop-off datetime earlier than the pick-up datetime",
+        "4. Click the search/submit button on the Car Search form"
+      ],
+      "expected_result": "Drop-off Date/Time fields display an inline validation error indicating the drop-off must be after the pick-up (date/time); the form does not submit and the user is not redirected to the listing page",
       "priority": "high"
     },
     {
       "tc_id": "N-005",
-      "test_case": "No 'Book Now' action when search returns zero vehicles",
+      "wf_ref": null,
+      "test_case": "Set Price Range with minimum greater than maximum in Sidebar Filters",
       "preconditions": [
-        "User performs a search that yields zero vehicles (search criteria produce no matches)"
+        "User has a search result set visible (listing page or after a search) so sidebar filters are available"
       ],
       "steps": [
-        "1. Fill the search form with criteria that will produce no matching vehicles (e.g. select a combination of location, dates and filters known to return no results)",
-        "2. Click the Search button",
-        "3. Inspect the Vehicles_List section on the Listing_Page"
+        "1. In the Sidebar_Filters, set the Price_Range minimum to <value A>",
+        "2. Set the Price_Range maximum to <value B> where <value A> is greater than <value B>",
+        "3. Observe the filter behavior (do not perform any other interactions)"
       ],
-      "expected_result": "Vehicles_List displays no items and no 'Book Now' buttons are visible; user cannot initiate the booking flow and no booking is started",
-      "priority": "high"
+      "expected_result": "Price Range control shows an inline validation error indicating the minimum cannot be greater than the maximum; filters are not applied and the displayed results remain unchanged",
+      "priority": "medium"
     },
     {
       "tc_id": "N-006",
-      "test_case": "Invalid time format in Pick_Up_Time",
-      "preconditions": [],
-      "steps": [
-        "1. Enter <invalid time format> in the Pick_Up_Time field",
-        "2. Click the Search button"
+      "wf_ref": "WF-002",
+      "test_case": "Attempt to initiate 'Book Now' from the listing page without first performing a search",
+      "preconditions": [
+        "User navigates directly to the Listing page URL without having submitted the Car Search form"
       ],
-      "expected_result": "Pick_Up_Time field shows an inline validation error indicating an invalid time format; the form does not submit and the user is not redirected to the Listing_Page",
+      "steps": [
+        "1. Open the Listing page URL directly in the browser without performing a search",
+        "2. Attempt to click the Book Now button on any vehicle listing"
+      ],
+      "expected_result": "Access is blocked: the application redirects the user to the Car Search form or prevents the Book Now action from initiating a booking (Book Now is not actionable); no booking flow is started",
+      "priority": "high"
+    },
+    {
+      "tc_id": "N-007",
+      "wf_ref": null,
+      "test_case": "Enter non-numeric characters into Price Range controls",
+      "preconditions": [
+        "User has search results visible and the Sidebar Filters are interactive"
+      ],
+      "steps": [
+        "1. Enter <non-numeric value> into the Price_Range minimum input",
+        "2. Observe the filter behavior (do not change other filters)"
+      ],
+      "expected_result": "Price Range minimum input displays an inline validation error indicating a numeric value is required; the invalid filter is not applied and results remain unchanged",
       "priority": "medium"
     }
   ],
   "summary": {
-    "total": 6,
-    "high_priority": 3,
-    "medium_priority": 3,
+    "total": 7,
+    "high_priority": 5,
+    "medium_priority": 2,
     "low_priority": 0
   }
 }
 
 ------------------------------------------------------------
-[22:56:31] Test-Negative - PARSED JSON
+[14:53:09] Test-Negative - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Cars Search & Listing",
@@ -468,80 +489,113 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "N-001",
-      "test_case": "Drop-off date earlier than pick-up date (constraint violation)",
-      "preconditions": [],
-      "steps": [
-        "1. Enter <Pick_Up_Date> in the Pick_Up_Date field",
-        "2. Enter <Drop_Off_Date before Pick_Up_Date> in the Drop_Off_Date field",
-        "3. Click the Search button"
+      "wf_ref": "WF-001",
+      "test_case": "Submit search with invalid Pick-up Date format",
+      "preconditions": [
+        "User is on the Car Search form page"
       ],
-      "expected_result": "Inline validation error appears on the Drop_Off_Date field indicating it must be the same as or after Pick_Up_Date; the form does not submit and the user is not redirected to the Listing_Page",
+      "steps": [
+        "1. Enter <invalid date format> into the Pick-up_Date field",
+        "2. Fill or leave other fields as needed",
+        "3. Click the search/submit button on the Car Search form"
+      ],
+      "expected_result": "Pick-up Date field displays an inline validation error indicating an invalid date format; the form does not submit and the user is not redirected to the listing page",
       "priority": "high"
     },
     {
       "tc_id": "N-002",
-      "test_case": "Invalid date format in pick-up date",
-      "preconditions": [],
-      "steps": [
-        "1. Enter <invalid date format> in the Pick_Up_Date field",
-        "2. Click the Search button"
+      "wf_ref": "WF-001",
+      "test_case": "Submit search with invalid Pick-up Time format",
+      "preconditions": [
+        "User is on the Car Search form page"
       ],
-      "expected_result": "Pick_Up_Date field displays an inline validation error indicating an invalid date format; the form does not submit and the user remains on the search form (no redirect to Listing_Page)",
-      "priority": "medium"
+      "steps": [
+        "1. Enter <invalid time format> into the Pick-up_Time field",
+        "2. Fill or leave other fields as needed",
+        "3. Click the search/submit button on the Car Search form"
+      ],
+      "expected_result": "Pick-up Time field displays an inline validation error indicating an invalid time format; the form does not submit and the user is not redirected to the listing page",
+      "priority": "high"
     },
     {
       "tc_id": "N-003",
-      "test_case": "Non-numeric input in Driver_Age field",
-      "preconditions": [],
-      "steps": [
-        "1. Enter <non-numeric input> in the Driver_Age field",
-        "2. Click the Search button"
+      "wf_ref": "WF-001",
+      "test_case": "Submit search with non-numeric Driver Age",
+      "preconditions": [
+        "User is on the Car Search form page"
       ],
-      "expected_result": "Driver_Age field displays an inline validation error indicating a numeric value is required; the form does not submit and the user is not redirected to the Listing_Page",
-      "priority": "medium"
+      "steps": [
+        "1. Enter <non-numeric value> into the Driver_Age field",
+        "2. Fill or leave other fields as needed",
+        "3. Click the search/submit button on the Car Search form"
+      ],
+      "expected_result": "Driver Age field displays an inline validation error indicating a numeric value is required; the form does not submit and the user is not redirected to the listing page",
+      "priority": "high"
     },
     {
       "tc_id": "N-004",
-      "test_case": "Missing Drop_Off_Date when Pick_Up_Date is provided (incomplete date pair for rental period)",
-      "preconditions": [],
-      "steps": [
-        "1. Enter <Pick_Up_Date> in the Pick_Up_Date field",
-        "2. Leave the Drop_Off_Date field blank",
-        "3. Click the Search button"
+      "wf_ref": "WF-001",
+      "test_case": "Submit search where Drop-off Date/Time is before Pick-up Date/Time",
+      "preconditions": [
+        "User is on the Car Search form page"
       ],
-      "expected_result": "Inline validation error appears on the Drop_Off_Date field indicating it is required to determine the rental period; the form does not submit and the user is not redirected to the Listing_Page",
+      "steps": [
+        "1. Enter <pick-up date> into the Pick-up_Date field",
+        "2. Enter <earlier drop-off date> into the Drop-off_Date field (or same date with Drop-off_Time earlier than Pick-up_Time)",
+        "3. Enter times if necessary to create a drop-off datetime earlier than the pick-up datetime",
+        "4. Click the search/submit button on the Car Search form"
+      ],
+      "expected_result": "Drop-off Date/Time fields display an inline validation error indicating the drop-off must be after the pick-up (date/time); the form does not submit and the user is not redirected to the listing page",
       "priority": "high"
     },
     {
       "tc_id": "N-005",
-      "test_case": "No 'Book Now' action when search returns zero vehicles",
+      "wf_ref": null,
+      "test_case": "Set Price Range with minimum greater than maximum in Sidebar Filters",
       "preconditions": [
-        "User performs a search that yields zero vehicles (search criteria produce no matches)"
+        "User has a search result set visible (listing page or after a search) so sidebar filters are available"
       ],
       "steps": [
-        "1. Fill the search form with criteria that will produce no matching vehicles (e.g. select a combination of location, dates and filters known to return no results)",
-        "2. Click the Search button",
-        "3. Inspect the Vehicles_List section on the Listing_Page"
+        "1. In the Sidebar_Filters, set the Price_Range minimum to <value A>",
+        "2. Set the Price_Range maximum to <value B> where <value A> is greater than <value B>",
+        "3. Observe the filter behavior (do not perform any other interactions)"
       ],
-      "expected_result": "Vehicles_List displays no items and no 'Book Now' buttons are visible; user cannot initiate the booking flow and no booking is started",
-      "priority": "high"
+      "expected_result": "Price Range control shows an inline validation error indicating the minimum cannot be greater than the maximum; filters are not applied and the displayed results remain unchanged",
+      "priority": "medium"
     },
     {
       "tc_id": "N-006",
-      "test_case": "Invalid time format in Pick_Up_Time",
-      "preconditions": [],
-      "steps": [
-        "1. Enter <invalid time format> in the Pick_Up_Time field",
-        "2. Click the Search button"
+      "wf_ref": "WF-002",
+      "test_case": "Attempt to initiate 'Book Now' from the listing page without first performing a search",
+      "preconditions": [
+        "User navigates directly to the Listing page URL without having submitted the Car Search form"
       ],
-      "expected_result": "Pick_Up_Time field shows an inline validation error indicating an invalid time format; the form does not submit and the user is not redirected to the Listing_Page",
+      "steps": [
+        "1. Open the Listing page URL directly in the browser without performing a search",
+        "2. Attempt to click the Book Now button on any vehicle listing"
+      ],
+      "expected_result": "Access is blocked: the application redirects the user to the Car Search form or prevents the Book Now action from initiating a booking (Book Now is not actionable); no booking flow is started",
+      "priority": "high"
+    },
+    {
+      "tc_id": "N-007",
+      "wf_ref": null,
+      "test_case": "Enter non-numeric characters into Price Range controls",
+      "preconditions": [
+        "User has search results visible and the Sidebar Filters are interactive"
+      ],
+      "steps": [
+        "1. Enter <non-numeric value> into the Price_Range minimum input",
+        "2. Observe the filter behavior (do not change other filters)"
+      ],
+      "expected_result": "Price Range minimum input displays an inline validation error indicating a numeric value is required; the invalid filter is not applied and results remain unchanged",
       "priority": "medium"
     }
   ],
   "summary": {
-    "total": 6,
-    "high_priority": 3,
-    "medium_priority": 3,
+    "total": 7,
+    "high_priority": 5,
+    "medium_priority": 2,
     "low_priority": 0
   }
 }

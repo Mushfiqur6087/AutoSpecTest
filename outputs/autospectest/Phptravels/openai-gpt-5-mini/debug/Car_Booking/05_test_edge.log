@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-21T22:54:00.271432
+DEBUG SESSION STARTED: 2026-05-25T14:51:20.257963
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[22:54:00] Test-Edge - SYSTEM PROMPT
+[14:51:20] Test-Edge - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Edge Case and Boundary Test Generator. You receive (1) a UI-AST JSON for one module and (2) the original functional description. Your job is to produce ONLY boundary and edge case tests — scenarios at the limits of valid/invalid input and unusual-but-plausible user behaviors.
 
@@ -25,6 +25,10 @@ You are NOT producing happy paths (positive prompt) or standard validation failu
 {Original functional description text for this module}
 </description>
 
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
+
 ---
 
 **UI-AST REFERENCE — How to Read the AST for Edge Testing:**
@@ -35,7 +39,7 @@ You are NOT producing happy paths (positive prompt) or standard validation failu
 | `repeating_group` with `max` | Test adding exactly `max` entries (should succeed) then one more (should block) |
 | `visible_when` / `required_when` | Edge: trigger condition, fill revealed field with boundary value |
 | `state_bound_action_bar` | State edges: rapid consecutive state transitions, transition from a boundary state |
-| `submit_actions[]` with multiple buttons | Interaction edge: double-click a submit button rapidly |
+
 | `type: "date"` fields | Data edges: today, yesterday, far future, Feb 29 leap year |
 | `type: "file_upload"` | Edge: file exactly at size limit, file at 1 byte over limit |
 
@@ -132,7 +136,6 @@ Pick only the ones that apply to field types present in this module's AST:
 
 Pick only the ones that match component types in this module's AST:
 
-- **Double-click submit** (any form/wizard with a submit button): rapidly double-click the submit button → assert only one record is created; no duplicate row appears in the listing table
 - **Rapid re-submission after redirect** (any form that redirects to a detail page on success): after a successful submit, press the browser back button → assert the creation form is shown blank (not pre-filled) OR the user is redirected to the detail page without a second entity being created
 - **Wizard step skip — enforced navigation** (wizard where steps must be completed sequentially): attempt to click a later step tab directly without completing earlier steps → assert navigation is blocked and the earlier step remains active
 - **Wizard step skip — free navigation** (wizard that allows free tab navigation): navigate to a later step without filling earlier steps → assert the later step displays and returning to the earlier step shows fields blank (no data was lost from the later step)
@@ -173,7 +176,16 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 
 - **High:** None — edge tests are secondary to core functionality
 - **Medium:** Boundary tests at thresholds (financial amounts, date ordering, count limits, file size limits)
-- **Low:** Input edge cases (long text, special chars, whitespace, decimal precision), interaction edge cases (double-click, browser back, wizard skip)
+- **Low:** Input edge cases (long text, special chars, whitespace, decimal precision), interaction edge cases (browser back, wizard skip)
+
+---
+
+**WORKFLOW-AWARE BOUNDARY SCOPING (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- For each workflow where `conditional_branch` activates a numeric or date field, check if that field has a boundary (a numeric/date threshold in the AST `constraints` or description).
+- If yes, that workflow's branch is a **candidate for a boundary edge test** — add or confirm a boundary TC exists for it.
+- Add `"wf_ref": "WF-NNN"` to each TC that maps to a specific workflow's boundary. Set `"wf_ref": null` for generic input/interaction edge tests.
 
 ---
 
@@ -185,6 +197,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": null,
       "subcategory": "boundary | input_edge | interaction_edge | state_edge | data_edge",
       "test_case": "Short descriptive name",
       "preconditions": ["precondition 1"],
@@ -207,7 +220,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 
 
 ------------------------------------------------------------
-[22:54:00] Test-Edge - USER PROMPT
+[14:51:20] Test-Edge - USER PROMPT
 ------------------------------------------------------------
 <module_name>Car Booking</module_name>
 
@@ -222,7 +235,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
           "type": "unspecified",
           "required": true
         },
-        "Age": {
+        "Driver_Age": {
           "type": "number",
           "required": true
         },
@@ -236,7 +249,10 @@ If the module has any numeric/date/count threshold in the AST or description, pr
         },
         "Email": {
           "type": "email",
-          "required": true
+          "required": true,
+          "constraints": [
+            "must be a valid email address"
+          ]
         },
         "Phone_Number": {
           "type": "unspecified",
@@ -258,6 +274,11 @@ If the module has any numeric/date/count threshold in the AST or description, pr
           "type": "dropdown",
           "required": true
         },
+        "Review_Terms": {
+          "type": "link",
+          "required": false,
+          "on_click": "displays terms covering fuel policy, mileage limits, damage liability, and cancellation"
+        },
         "Accept_Terms": {
           "type": "checkbox",
           "required": true,
@@ -266,18 +287,20 @@ If the module has any numeric/date/count threshold in the AST or description, pr
           ]
         }
       },
+      "constraints": [
+        "invalid fields show inline errors and block progression"
+      ],
       "submit_actions": [
         {
           "element_name": "Confirm Booking",
           "type": "button",
           "preconditions": [
-            "Accept_Terms must be accepted"
+            "Accept_Terms == true"
           ],
           "constraints": [
-            "all fields must be valid"
+            "invalid fields show inline errors and block progression"
           ],
-          "on_success": "proceeds to payment",
-          "on_failure": "displays inline errors and blocks progression"
+          "on_success": "proceeds to payment"
         }
       ]
     }
@@ -294,10 +317,14 @@ The car booking page displays selected vehicle details, rental period, pick-up a
 
 </description>
 
+<workflows>
+WF-001 | Confirm booking after accepting terms with valid fields | actor: <role> | branch: Accept_Terms == true | terminal: Confirm Booking | on_success: proceeds to payment
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[22:57:07] Test-Edge - LLM RESPONSE
+[14:53:29] Test-Edge - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Car Booking",
@@ -305,100 +332,87 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": null,
       "subcategory": "input_edge",
-      "test_case": "Driver Full Name with leading and trailing whitespace is trimmed on save",
+      "test_case": "Email field: unicode/emoji characters in address local-part triggers email validation",
       "preconditions": [
-        "Car Booking page open with a vehicle selected and rental details visible",
-        "User is on the booking form"
+        "Car Booking form is open"
       ],
       "steps": [
-        "1. Enter <name with leading and trailing spaces> in the Driver_Full_Name field",
-        "2. Enter <valid age> in the Age field",
-        "3. Enter <valid license number> in the License_Number field",
-        "4. Select <valid country> in the License_Issue_Country dropdown",
-        "5. Enter <valid email> in the Email field",
-        "6. Enter <valid phone number> in the Phone_Number field",
-        "7. Select an option in the Insurance_Plan dropdown",
-        "8. Check Accept_Terms",
-        "9. Click Confirm Booking"
+        "1. Focus the Email field",
+        "2. Enter an email address containing emoji/unicode characters in the local-part into the Email field (do not fill other fields)",
+        "3. Move focus out of the Email field (blur)"
       ],
-      "expected_result": "Form submission succeeds and proceeds to payment; the booking summary/confirmation displays Driver_Full_Name with leading and trailing whitespace removed (trimmed).",
-      "priority": "low"
-    },
-    {
-      "tc_id": "E-002",
-      "subcategory": "boundary",
-      "test_case": "Confirm Booking remains disabled / blocked until Accept_Terms is checked",
-      "preconditions": [
-        "Car Booking page open with a vehicle selected and rental details visible",
-        "User is on the booking form"
-      ],
-      "steps": [
-        "1. Enter <valid full name> in the Driver_Full_Name field",
-        "2. Enter <valid age> in the Age field",
-        "3. Enter <valid license number> in the License_Number field",
-        "4. Select <valid country> in the License_Issue_Country dropdown",
-        "5. Enter <valid email> in the Email field",
-        "6. Enter <valid phone number> in the Phone_Number field",
-        "7. Select an option in the Insurance_Plan dropdown",
-        "8. Ensure Accept_Terms is unchecked",
-        "9. Attempt to click Confirm Booking"
-      ],
-      "expected_result": "Click is blocked; Confirm Booking cannot be activated while Accept_Terms is unchecked. An inline indicator/message near the checkbox displays the constraint text: \"must be checked to enable Confirm Booking\" (progression is blocked / error shown).",
+      "expected_result": "Email field displays an inline error reading \"must be a valid email address\" and progression is blocked for that invalid value (is blocked / error shown)",
       "priority": "medium"
     },
     {
-      "tc_id": "E-003",
-      "subcategory": "interaction_edge",
-      "test_case": "Rapid double-click of Confirm Booking prevents duplicate bookings",
+      "tc_id": "E-002",
+      "wf_ref": null,
+      "subcategory": "input_edge",
+      "test_case": "Driver full name: very long free-text input (200+ / 300+ chars) retained or visibly handled",
       "preconditions": [
-        "Car Booking page open with a vehicle selected and rental details visible",
-        "All required fields are filled with valid values",
-        "Accept_Terms is checked"
+        "Car Booking form is open"
       ],
       "steps": [
-        "1. Click Confirm Booking twice rapidly (double-click) within a short interval"
+        "1. Focus the Driver_Full_Name field",
+        "2. Enter a very long string of 300+ characters into Driver_Full_Name",
+        "3. Move focus out of the Driver_Full_Name field (blur)"
       ],
-      "expected_result": "First submission succeeds and proceeds to payment; the second rapid click is ignored/blocked and does not create a duplicate booking. Only one booking record appears in the booking list/confirmation and only a single redirect to payment occurs (second attempt is blocked / error shown if the UI displays duplicate-prevention feedback).",
+      "expected_result": "The field accepts the long input with no inline error shown; the entered text remains visible in the Driver_Full_Name input (succeeds)",
+      "priority": "low"
+    },
+    {
+      "tc_id": "E-003",
+      "wf_ref": null,
+      "subcategory": "input_edge",
+      "test_case": "License number: leading and trailing whitespace behavior on blur and submit",
+      "preconditions": [
+        "Car Booking form is open"
+      ],
+      "steps": [
+        "1. Focus the License_Number field",
+        "2. Enter a license string with leading and trailing spaces into License_Number (e.g. prepended and appended whitespace around a valid license-like token)",
+        "3. Move focus out of the License_Number field (blur)",
+        "4. Fill all other required fields with syntactically valid values",
+        "5. Check Accept_Terms",
+        "6. Click Confirm Booking"
+      ],
+      "expected_result": "On blur the UI trims leading/trailing whitespace from the License_Number input so the field shows the trimmed value; submission proceeds and booking advances to payment when all required fields are valid and Accept_Terms is checked (succeeds)",
       "priority": "medium"
     },
     {
       "tc_id": "E-004",
-      "subcategory": "input_edge",
-      "test_case": "Very long License Number input (>200 characters) is rejected with visible error",
+      "wf_ref": "WF-001",
+      "subcategory": "interaction_edge",
+      "test_case": "Rapid toggle Accept_Terms then immediate Confirm Booking click (boundary of enabling)",
       "preconditions": [
-        "Car Booking page open with a vehicle selected and rental details visible",
-        "User is on the booking form"
+        "Car Booking form is open",
+        "All required fields (Driver_Full_Name, Driver_Age, License_Number, License_Issue_Country, Email, Phone_Number, Insurance_Plan) are filled with syntactically valid values except Accept_Terms is initially unchecked"
       ],
       "steps": [
-        "1. Enter <very long string of 200+ characters> in the License_Number field",
-        "2. Enter <valid full name> in the Driver_Full_Name field",
-        "3. Enter <valid age> in the Age field",
-        "4. Select <valid country> in the License_Issue_Country dropdown",
-        "5. Enter <valid email> in the Email field",
-        "6. Enter <valid phone number> in the Phone_Number field",
-        "7. Select an option in the Insurance_Plan dropdown",
-        "8. Check Accept_Terms",
-        "9. Click Confirm Booking"
+        "1. Check the Accept_Terms checkbox",
+        "2. Immediately click the Confirm Booking button (no additional delay)",
+        "3. Observe resulting navigation or inline messages"
       ],
-      "expected_result": "Form submission is blocked; an inline error is shown next to License_Number indicating the input exceeds allowed length (progression is blocked / error shown).",
-      "priority": "low"
+      "expected_result": "Because Accept_Terms is checked at the moment of click, the form submission succeeds and proceeds to payment (succeeds)",
+      "priority": "medium"
     }
   ],
   "summary": {
     "total": 4,
-    "boundary": 1,
-    "input_edge": 2,
+    "boundary": 0,
+    "input_edge": 3,
     "interaction_edge": 1,
     "state_edge": 0,
     "data_edge": 0,
-    "medium_priority": 2,
-    "low_priority": 2
+    "medium_priority": 3,
+    "low_priority": 1
   }
 }
 
 ------------------------------------------------------------
-[22:57:07] Test-Edge - PARSED JSON
+[14:53:29] Test-Edge - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Car Booking",
@@ -406,94 +420,81 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": null,
       "subcategory": "input_edge",
-      "test_case": "Driver Full Name with leading and trailing whitespace is trimmed on save",
+      "test_case": "Email field: unicode/emoji characters in address local-part triggers email validation",
       "preconditions": [
-        "Car Booking page open with a vehicle selected and rental details visible",
-        "User is on the booking form"
+        "Car Booking form is open"
       ],
       "steps": [
-        "1. Enter <name with leading and trailing spaces> in the Driver_Full_Name field",
-        "2. Enter <valid age> in the Age field",
-        "3. Enter <valid license number> in the License_Number field",
-        "4. Select <valid country> in the License_Issue_Country dropdown",
-        "5. Enter <valid email> in the Email field",
-        "6. Enter <valid phone number> in the Phone_Number field",
-        "7. Select an option in the Insurance_Plan dropdown",
-        "8. Check Accept_Terms",
-        "9. Click Confirm Booking"
+        "1. Focus the Email field",
+        "2. Enter an email address containing emoji/unicode characters in the local-part into the Email field (do not fill other fields)",
+        "3. Move focus out of the Email field (blur)"
       ],
-      "expected_result": "Form submission succeeds and proceeds to payment; the booking summary/confirmation displays Driver_Full_Name with leading and trailing whitespace removed (trimmed).",
-      "priority": "low"
-    },
-    {
-      "tc_id": "E-002",
-      "subcategory": "boundary",
-      "test_case": "Confirm Booking remains disabled / blocked until Accept_Terms is checked",
-      "preconditions": [
-        "Car Booking page open with a vehicle selected and rental details visible",
-        "User is on the booking form"
-      ],
-      "steps": [
-        "1. Enter <valid full name> in the Driver_Full_Name field",
-        "2. Enter <valid age> in the Age field",
-        "3. Enter <valid license number> in the License_Number field",
-        "4. Select <valid country> in the License_Issue_Country dropdown",
-        "5. Enter <valid email> in the Email field",
-        "6. Enter <valid phone number> in the Phone_Number field",
-        "7. Select an option in the Insurance_Plan dropdown",
-        "8. Ensure Accept_Terms is unchecked",
-        "9. Attempt to click Confirm Booking"
-      ],
-      "expected_result": "Click is blocked; Confirm Booking cannot be activated while Accept_Terms is unchecked. An inline indicator/message near the checkbox displays the constraint text: \"must be checked to enable Confirm Booking\" (progression is blocked / error shown).",
+      "expected_result": "Email field displays an inline error reading \"must be a valid email address\" and progression is blocked for that invalid value (is blocked / error shown)",
       "priority": "medium"
     },
     {
-      "tc_id": "E-003",
-      "subcategory": "interaction_edge",
-      "test_case": "Rapid double-click of Confirm Booking prevents duplicate bookings",
+      "tc_id": "E-002",
+      "wf_ref": null,
+      "subcategory": "input_edge",
+      "test_case": "Driver full name: very long free-text input (200+ / 300+ chars) retained or visibly handled",
       "preconditions": [
-        "Car Booking page open with a vehicle selected and rental details visible",
-        "All required fields are filled with valid values",
-        "Accept_Terms is checked"
+        "Car Booking form is open"
       ],
       "steps": [
-        "1. Click Confirm Booking twice rapidly (double-click) within a short interval"
+        "1. Focus the Driver_Full_Name field",
+        "2. Enter a very long string of 300+ characters into Driver_Full_Name",
+        "3. Move focus out of the Driver_Full_Name field (blur)"
       ],
-      "expected_result": "First submission succeeds and proceeds to payment; the second rapid click is ignored/blocked and does not create a duplicate booking. Only one booking record appears in the booking list/confirmation and only a single redirect to payment occurs (second attempt is blocked / error shown if the UI displays duplicate-prevention feedback).",
+      "expected_result": "The field accepts the long input with no inline error shown; the entered text remains visible in the Driver_Full_Name input (succeeds)",
+      "priority": "low"
+    },
+    {
+      "tc_id": "E-003",
+      "wf_ref": null,
+      "subcategory": "input_edge",
+      "test_case": "License number: leading and trailing whitespace behavior on blur and submit",
+      "preconditions": [
+        "Car Booking form is open"
+      ],
+      "steps": [
+        "1. Focus the License_Number field",
+        "2. Enter a license string with leading and trailing spaces into License_Number (e.g. prepended and appended whitespace around a valid license-like token)",
+        "3. Move focus out of the License_Number field (blur)",
+        "4. Fill all other required fields with syntactically valid values",
+        "5. Check Accept_Terms",
+        "6. Click Confirm Booking"
+      ],
+      "expected_result": "On blur the UI trims leading/trailing whitespace from the License_Number input so the field shows the trimmed value; submission proceeds and booking advances to payment when all required fields are valid and Accept_Terms is checked (succeeds)",
       "priority": "medium"
     },
     {
       "tc_id": "E-004",
-      "subcategory": "input_edge",
-      "test_case": "Very long License Number input (>200 characters) is rejected with visible error",
+      "wf_ref": "WF-001",
+      "subcategory": "interaction_edge",
+      "test_case": "Rapid toggle Accept_Terms then immediate Confirm Booking click (boundary of enabling)",
       "preconditions": [
-        "Car Booking page open with a vehicle selected and rental details visible",
-        "User is on the booking form"
+        "Car Booking form is open",
+        "All required fields (Driver_Full_Name, Driver_Age, License_Number, License_Issue_Country, Email, Phone_Number, Insurance_Plan) are filled with syntactically valid values except Accept_Terms is initially unchecked"
       ],
       "steps": [
-        "1. Enter <very long string of 200+ characters> in the License_Number field",
-        "2. Enter <valid full name> in the Driver_Full_Name field",
-        "3. Enter <valid age> in the Age field",
-        "4. Select <valid country> in the License_Issue_Country dropdown",
-        "5. Enter <valid email> in the Email field",
-        "6. Enter <valid phone number> in the Phone_Number field",
-        "7. Select an option in the Insurance_Plan dropdown",
-        "8. Check Accept_Terms",
-        "9. Click Confirm Booking"
+        "1. Check the Accept_Terms checkbox",
+        "2. Immediately click the Confirm Booking button (no additional delay)",
+        "3. Observe resulting navigation or inline messages"
       ],
-      "expected_result": "Form submission is blocked; an inline error is shown next to License_Number indicating the input exceeds allowed length (progression is blocked / error shown).",
-      "priority": "low"
+      "expected_result": "Because Accept_Terms is checked at the moment of click, the form submission succeeds and proceeds to payment (succeeds)",
+      "priority": "medium"
     }
   ],
   "summary": {
     "total": 4,
-    "boundary": 1,
-    "input_edge": 2,
+    "boundary": 0,
+    "input_edge": 3,
     "interaction_edge": 1,
     "state_edge": 0,
     "data_edge": 0,
-    "medium_priority": 2,
-    "low_priority": 2
+    "medium_priority": 3,
+    "low_priority": 1
   }
 }

@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-21T22:54:00.278225
+DEBUG SESSION STARTED: 2026-05-25T14:51:20.262168
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[22:54:00] Test-Positive - SYSTEM PROMPT
+[14:51:20] Test-Positive - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Expert UI Test Case Generator. You receive (1) a UI-AST JSON for one specific module and (2) the original functional description for that module.
 
@@ -24,6 +24,10 @@ Your job is to produce ONLY positive/functional UI test cases — tests where va
 <description>
 {Original functional description text for this module}
 </description>
+
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
 
 ---
 
@@ -146,6 +150,13 @@ Because you are testing a module in isolation, establish the required entry stat
 **1. Forms & Wizards (`form`, `wizard`):**
 - Generate ONE happy path per distinct success outcome.
 - *Conditional UI Check:* If a toggle/dropdown reveals new mandatory fields (`visible_when`), generate a separate test for that conditional branch.
+- **Wizard step coverage (CRITICAL):** If a wizard has multiple steps and any step beyond Step 1 contains its own named field group (e.g., "Address Details", "Family Members", "Identifiers"), generate ONE dedicated positive TC per such step. The TC must:
+  - Navigate to that specific step (include the preceding steps as preconditions or brief navigation steps)
+  - Fill the fields described for that step (not just pass through)
+  - Assert the step's content is visible/saved on the detail page after final submission
+  - **Do NOT collapse all wizard steps into one happy-path TC** — if Steps 2, 3, and 4 each have their own named section in the spec, they each need their own TC.
+- **Wizard in-step identifiers/duplicates:** If a wizard step allows adding identifiers, documents, or similar entries that have a uniqueness constraint, include a TC for that wizard step that also verifies the constraint (e.g., attempting to add a duplicate Document Type+Key pair inside the wizard). This is a different code path from adding the same post-creation on the detail page.
+- **Action dialogs:** If a `state_bound_action_bar` action opens a dialog with its own `fields{}` (e.g., Activate requires Activation Date, Reject requires Reason), generate ONE positive TC per such action-dialog — distinct from the state-transition TC. The TC fills the dialog field and completes the action.
 
 **2. State Machines (`state_bound_action_bar`):**
 - For each unique action available in a specific state, generate ONE test performing that action.
@@ -200,6 +211,19 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 
 ---
 
+**WORKFLOW COVERAGE OBLIGATION (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- Your test cases must **collectively cover every workflow** listed.
+- For each `wf_id`, at least one TC must:
+  - Activate the `conditional_branch` (if not null) — i.e. the test must set up the condition described.
+  - Assert the `on_success` as its `expected_result` (verbatim or as the primary basis for the expected result).
+- Add `"wf_ref": "WF-NNN"` to each TC to identify which workflow it covers.
+- If one TC naturally covers multiple workflows (e.g., the base path overlaps), pick the most specific `wf_ref`.
+- If a TC does not map to any workflow (e.g., a navigation-only test), set `"wf_ref": null`.
+
+---
+
 **OUTPUT — JSON only, no prose, no markdown fencing:**
 
 {
@@ -208,6 +232,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
   "test_cases": [
     {
       "tc_id": "P-001",
+      "wf_ref": "WF-001",
       "test_case": "Short descriptive name",
       "preconditions": ["User logged in as <Role>", "<Prerequisite state>"],
       "steps": ["1. Step one", "2. Step two"],
@@ -224,7 +249,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 }
 
 ------------------------------------------------------------
-[22:54:00] Test-Positive - USER PROMPT
+[14:51:20] Test-Positive - USER PROMPT
 ------------------------------------------------------------
 <module_name>Search & Filters</module_name>
 
@@ -233,7 +258,8 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
   "module_name": "Search & Filters",
   "components": {
     "Filter_Sidebar": {
-      "type": "filter_sidebar",
+      "type": "sidebar",
+      "position": "left",
       "sections": [
         {
           "section_name": "Common Filters",
@@ -241,182 +267,177 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
           "fields": {
             "Price_Range": {
               "type": "unspecified",
-              "control": "slider",
+              "widget": "slider",
               "required": false,
-              "on_change": "updates results dynamically and updates result count"
+              "on_change": "updates results dynamically and updates Result_Count"
             },
-            "Rating": {
+            "Star_Or_Review_Rating": {
               "type": "unspecified",
-              "control": "star_or_review_selector",
               "required": false,
-              "on_change": "updates results dynamically and updates result count"
+              "on_change": "updates results dynamically and updates Result_Count"
             }
           }
         },
         {
           "section_name": "Hotels Filters",
           "collapsible": true,
-          "visible_when": "listing_type == Hotels",
+          "visible_when": "Listing_Type == Hotels",
           "fields": {
             "Facilities_Amenities": {
-              "type": "unspecified",
-              "control": "multi_select_checkboxes",
+              "type": "dropdown",
               "required": false,
-              "on_change": "updates results dynamically and updates result count"
+              "on_change": "updates results dynamically and updates Result_Count"
             },
             "Hotel_Type": {
               "type": "dropdown",
               "required": false,
-              "on_change": "updates results dynamically and updates result count"
+              "on_change": "updates results dynamically and updates Result_Count"
             },
             "Board_Basis": {
               "type": "dropdown",
               "required": false,
-              "on_change": "updates results dynamically and updates result count"
+              "on_change": "updates results dynamically and updates Result_Count"
             },
             "Location_Area": {
-              "type": "search",
+              "type": "unspecified",
               "required": false,
-              "on_change": "updates results dynamically and updates result count"
+              "on_change": "updates results dynamically and updates Result_Count"
             }
           }
         },
         {
           "section_name": "Flights Filters",
           "collapsible": true,
-          "visible_when": "listing_type == Flights",
+          "visible_when": "Listing_Type == Flights",
           "fields": {
             "Airlines": {
-              "type": "unspecified",
-              "control": "multi_select",
+              "type": "dropdown",
               "required": false,
-              "on_change": "updates results dynamically and updates result count"
+              "on_change": "updates results dynamically and updates Result_Count"
             },
             "Number_of_Stops": {
-              "type": "unspecified",
-              "control": "dropdown_or_radio",
+              "type": "dropdown",
               "required": false,
-              "on_change": "updates results dynamically and updates result count"
+              "on_change": "updates results dynamically and updates Result_Count"
             },
             "Departure_Time_Range": {
               "type": "unspecified",
-              "control": "time_range_slider",
+              "widget": "time_range",
               "required": false,
-              "on_change": "updates results dynamically and updates result count"
+              "on_change": "updates results dynamically and updates Result_Count"
             },
             "Arrival_Time_Range": {
               "type": "unspecified",
-              "control": "time_range_slider",
+              "widget": "time_range",
               "required": false,
-              "on_change": "updates results dynamically and updates result count"
+              "on_change": "updates results dynamically and updates Result_Count"
             }
           }
         },
         {
           "section_name": "Tours Filters",
           "collapsible": true,
-          "visible_when": "listing_type == Tours",
+          "visible_when": "Listing_Type == Tours",
           "fields": {
             "Tour_Type": {
               "type": "dropdown",
               "required": false,
-              "on_change": "updates results dynamically and updates result count"
+              "on_change": "updates results dynamically and updates Result_Count"
             },
             "Duration": {
               "type": "unspecified",
-              "control": "range_or_dropdown",
               "required": false,
-              "on_change": "updates results dynamically and updates result count"
+              "on_change": "updates results dynamically and updates Result_Count"
             },
             "Departure_Dates": {
               "type": "unspecified",
-              "control": "date_range",
+              "widget": "date_picker",
               "required": false,
-              "on_change": "updates results dynamically and updates result count"
+              "on_change": "updates results dynamically and updates Result_Count"
             }
           }
         },
         {
           "section_name": "Cars Filters",
           "collapsible": true,
-          "visible_when": "listing_type == Cars",
+          "visible_when": "Listing_Type == Cars",
           "fields": {
             "Car_Type": {
               "type": "dropdown",
               "required": false,
-              "on_change": "updates results dynamically and updates result count"
+              "on_change": "updates results dynamically and updates Result_Count"
             },
             "Transmission": {
               "type": "dropdown",
               "required": false,
-              "on_change": "updates results dynamically and updates result count"
+              "on_change": "updates results dynamically and updates Result_Count"
             },
             "Fuel_Policy": {
               "type": "dropdown",
               "required": false,
-              "on_change": "updates results dynamically and updates result count"
+              "on_change": "updates results dynamically and updates Result_Count"
             },
             "Rental_Company": {
               "type": "dropdown",
               "required": false,
-              "on_change": "updates results dynamically and updates result count"
+              "on_change": "updates results dynamically and updates Result_Count"
             }
           }
         }
-      ]
-    },
-    "Active_Filters_Summary": {
-      "type": "active_filters_summary",
-      "location": "top_of_results",
-      "fields": {
-        "Active_Filters": {
-          "type": "repeating_group",
-          "item_fields": {
-            "Filter_Tag_Label": {
-              "type": "unspecified",
-              "required": false
-            },
-            "Remove_Filter": {
-              "type": "button",
-              "element_name": "Remove_Filter",
-              "on_click": "removes the filter and updates results dynamically and updates result count",
-              "on_success": "filter removed and results updated"
-            }
-          }
-        },
+      ],
+      "controls": {
         "Reset_All_Filters": {
           "type": "button",
-          "element_name": "Reset_All_Filters",
-          "on_click": "clears all filters and updates results dynamically and updates result count",
-          "on_success": "all filters cleared and results updated"
+          "element_name": "Reset all filters",
+          "on_click": "clears all filters and updates results and Result_Count"
+        }
+      }
+    },
+    "Active_Filters_Summary": {
+      "type": "component",
+      "location": "top_of_results",
+      "items": {
+        "type": "repeating_group",
+        "item_fields": {
+          "label": {
+            "type": "unspecified"
+          },
+          "remove": {
+            "type": "button",
+            "element_name": "Remove filter",
+            "on_click": "removes this filter and updates results and Result_Count"
+          }
+        }
+      },
+      "controls": {
+        "Reset_All": {
+          "type": "button",
+          "element_name": "Reset all filters",
+          "on_click": "clears all filters and updates results and Result_Count"
         }
       }
     },
     "Sorting_Controls": {
-      "type": "sorting_controls",
-      "location": "above_results_grid",
+      "type": "controls",
+      "location": "above_results",
       "fields": {
         "Sort_By": {
           "type": "dropdown",
           "required": false,
-          "on_change": "updates results dynamically and updates result order"
-        },
-        "Sort_Order": {
-          "type": "unspecified",
-          "control": "toggle_asc_desc",
-          "required": false,
-          "on_change": "updates results dynamically and updates result order"
+          "on_change": "reorders results"
         }
       }
     },
     "Results_Grid": {
-      "type": "data_table",
-      "interaction": {
-        "updates_on_filter_change": true,
-        "update_consequence": "results and result count update dynamically when filters or sorting change"
+      "type": "results_grid",
+      "updates": "dynamically on filter changes",
+      "behaviors": {
+        "on_filters_change": "updates results dynamically and updates Result_Count; active filters summary updates accordingly"
       },
-      "row_actions": [],
-      "bulk_actions": []
+      "result_count_behavior": {
+        "updates_when": "any filter changes",
+        "on_update": "display updated count"
+      }
     }
   }
 }
@@ -431,10 +452,33 @@ All listing pages include a left sidebar with collapsible filter sections and so
 
 </description>
 
+<workflows>
+WF-001 | Adjust price range slider | actor: <role> | branch: none | terminal: Adjust Price_Range | on_success: updates results dynamically and updates Result_Count
+WF-002 | Set star or review rating | actor: <role> | branch: none | terminal: Set Star_Or_Review_Rating | on_success: updates results dynamically and updates Result_Count
+WF-003 | Set hotels - facilities/amenities filter | actor: <role> | branch: Listing_Type == Hotels | terminal: Set Facilities_Amenities | on_success: updates results dynamically and updates Result_Count
+WF-004 | Set hotels - hotel type filter | actor: <role> | branch: Listing_Type == Hotels | terminal: Set Hotel_Type | on_success: updates results dynamically and updates Result_Count
+WF-005 | Set hotels - board basis filter | actor: <role> | branch: Listing_Type == Hotels | terminal: Set Board_Basis | on_success: updates results dynamically and updates Result_Count
+WF-006 | Set hotels - location/area filter | actor: <role> | branch: Listing_Type == Hotels | terminal: Set Location_Area | on_success: updates results dynamically and updates Result_Count
+WF-007 | Set flights - airlines filter | actor: <role> | branch: Listing_Type == Flights | terminal: Set Airlines | on_success: updates results dynamically and updates Result_Count
+WF-008 | Set flights - number of stops filter | actor: <role> | branch: Listing_Type == Flights | terminal: Set Number_of_Stops | on_success: updates results dynamically and updates Result_Count
+WF-009 | Set flights - departure time range | actor: <role> | branch: Listing_Type == Flights | terminal: Set Departure_Time_Range | on_success: updates results dynamically and updates Result_Count
+WF-010 | Set flights - arrival time range | actor: <role> | branch: Listing_Type == Flights | terminal: Set Arrival_Time_Range | on_success: updates results dynamically and updates Result_Count
+WF-011 | Set tours - tour type filter | actor: <role> | branch: Listing_Type == Tours | terminal: Set Tour_Type | on_success: updates results dynamically and updates Result_Count
+WF-012 | Set tours - duration filter | actor: <role> | branch: Listing_Type == Tours | terminal: Set Duration | on_success: updates results dynamically and updates Result_Count
+WF-013 | Set tours - departure dates | actor: <role> | branch: Listing_Type == Tours | terminal: Set Departure_Dates | on_success: updates results dynamically and updates Result_Count
+WF-014 | Set cars - car type filter | actor: <role> | branch: Listing_Type == Cars | terminal: Set Car_Type | on_success: updates results dynamically and updates Result_Count
+WF-015 | Set cars - transmission filter | actor: <role> | branch: Listing_Type == Cars | terminal: Set Transmission | on_success: updates results dynamically and updates Result_Count
+WF-016 | Set cars - fuel policy filter | actor: <role> | branch: Listing_Type == Cars | terminal: Set Fuel_Policy | on_success: updates results dynamically and updates Result_Count
+WF-017 | Set cars - rental company filter | actor: <role> | branch: Listing_Type == Cars | terminal: Set Rental_Company | on_success: updates results dynamically and updates Result_Count
+WF-018 | Reset all filters (sidebar or summary) | actor: <role> | branch: none | terminal: Reset all filters | on_success: clears all filters and updates results and Result_Count
+WF-019 | Remove an active filter from summary | actor: <role> | branch: none | terminal: Remove filter | on_success: removes this filter and updates results and Result_Count
+WF-020 | Change sorting (Sort_By) | actor: <role> | branch: none | terminal: Set Sort_By | on_success: reorders results
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[22:58:21] Test-Positive - LLM RESPONSE
+[14:54:37] Test-Positive - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Search & Filters",
@@ -442,139 +486,353 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Price range slider updates results dynamically",
+      "wf_ref": "WF-001",
+      "test_case": "Adjust Price Range slider updates results and result count",
       "preconditions": [
-        "User logged in as <User>",
-        "Listings page is open"
+        "User logged in as <role>",
+        "Listing page is open (any Listing_Type)",
+        "Filter sidebar is visible"
       ],
       "steps": [
-        "1. Expand the 'Common Filters' section if it is collapsed",
-        "2. Adjust the Price Range slider to select <desired price range>"
+        "1. Move the Price Range slider to select <price range>",
+        "2. Observe the Results grid and Result_Count"
       ],
-      "expected_result": "Results grid displays only rows with prices within <desired price range>; the visible result count above the grid updates to reflect the filtered set",
+      "expected_result": "Results grid refreshes to show only items within <price range>; Result_Count displays the updated number and Active Filters Summary shows a Price Range filter chip reflecting <price range>",
       "priority": "high"
     },
     {
       "tc_id": "P-002",
-      "test_case": "Rating selector filters results and shows active filter tag",
+      "wf_ref": "WF-002",
+      "test_case": "Set star or review rating updates results and result count",
       "preconditions": [
-        "User logged in as <User>",
-        "Listings page is open"
+        "User logged in as <role>",
+        "Listing page is open (any Listing_Type)",
+        "Filter sidebar is visible"
       ],
       "steps": [
-        "1. Expand the 'Common Filters' section",
-        "2. Select <minimum rating> using the Rating control (star/review selector)"
+        "1. Select <star or review rating> in the Star or Review Rating control",
+        "2. Observe the Results grid and Result_Count"
       ],
-      "expected_result": "Results grid displays only items with rating >= <minimum rating>; Active Filters summary shows a filter tag with label '<minimum rating> stars' and the result count updates accordingly",
+      "expected_result": "Results grid refreshes to show only items matching <star or review rating>; Result_Count displays the updated number and Active Filters Summary shows a rating filter chip for <star or review rating>",
       "priority": "high"
     },
     {
       "tc_id": "P-003",
-      "test_case": "Hotels filters section visible for Hotels and selecting a facility updates results",
+      "wf_ref": "WF-003",
+      "test_case": "Set Hotels facilities/amenities filter updates results and result count",
       "preconditions": [
-        "User logged in as <User>",
-        "Listings page for <Hotels> is open"
+        "User logged in as <role>",
+        "Listing page is open with Listing_Type == Hotels",
+        "Filter sidebar is visible"
       ],
       "steps": [
-        "1. Expand the 'Hotels Filters' section",
-        "2. Check <facility> in the Facilities/Amenities multi-select checkboxes"
+        "1. Expand the 'Hotels Filters' section if collapsed",
+        "2. Select <amenity> from the Facilities/Amenities dropdown",
+        "3. Observe the Results grid and Result_Count"
       ],
-      "expected_result": "The 'Hotels Filters' section is visible; Results grid displays only hotel listings that include <facility>; Active Filters summary shows a filter tag for <facility> and the visible result count updates",
-      "priority": "medium"
+      "expected_result": "Results grid refreshes to show only hotels offering <amenity>; Result_Count displays the updated number and Active Filters Summary shows a 'Facilities: <amenity>' filter chip",
+      "priority": "high"
     },
     {
       "tc_id": "P-004",
-      "test_case": "Flights filters section visible for Flights and selecting number of stops updates results",
+      "wf_ref": "WF-004",
+      "test_case": "Set Hotels hotel type filter updates results and result count",
       "preconditions": [
-        "User logged in as <User>",
-        "Listings page for <Flights> is open"
+        "User logged in as <role>",
+        "Listing page is open with Listing_Type == Hotels",
+        "Filter sidebar is visible"
       ],
       "steps": [
-        "1. Expand the 'Flights Filters' section",
-        "2. Select <number of stops> from the Number of Stops control"
+        "1. Expand the 'Hotels Filters' section if collapsed",
+        "2. Select <hotel type> from the Hotel Type dropdown",
+        "3. Observe the Results grid and Result_Count"
       ],
-      "expected_result": "The 'Flights Filters' section is visible; Results grid displays only flight listings matching <number of stops>; Active Filters summary shows a filter tag for <number of stops> and the visible result count updates",
-      "priority": "medium"
+      "expected_result": "Results grid refreshes to show only hotels of type <hotel type>; Result_Count displays the updated number and Active Filters Summary shows a 'Hotel Type: <hotel type>' filter chip",
+      "priority": "high"
     },
     {
       "tc_id": "P-005",
-      "test_case": "Tours filters section visible for Tours and selecting departure date range updates results",
+      "wf_ref": "WF-005",
+      "test_case": "Set Hotels board basis filter updates results and result count",
       "preconditions": [
-        "User logged in as <User>",
-        "Listings page for <Tours> is open"
+        "User logged in as <role>",
+        "Listing page is open with Listing_Type == Hotels",
+        "Filter sidebar is visible"
       ],
       "steps": [
-        "1. Expand the 'Tours Filters' section",
-        "2. Enter a Departure Dates range from <start date> to <end date> using the date range control"
+        "1. Expand the 'Hotels Filters' section if collapsed",
+        "2. Select <board basis> from the Board Basis dropdown",
+        "3. Observe the Results grid and Result_Count"
       ],
-      "expected_result": "The 'Tours Filters' section is visible; Results grid displays only tours with departure dates between <start date> and <end date>; Active Filters summary shows a filter tag for the selected departure dates and the visible result count updates",
-      "priority": "medium"
+      "expected_result": "Results grid refreshes to show only hotels with board basis <board basis>; Result_Count displays the updated number and Active Filters Summary shows a 'Board Basis: <board basis>' filter chip",
+      "priority": "high"
     },
     {
       "tc_id": "P-006",
-      "test_case": "Cars filters section visible for Cars and selecting transmission updates results",
+      "wf_ref": "WF-006",
+      "test_case": "Set Hotels location/area filter updates results and result count",
       "preconditions": [
-        "User logged in as <User>",
-        "Listings page for <Cars> is open"
+        "User logged in as <role>",
+        "Listing page is open with Listing_Type == Hotels",
+        "Filter sidebar is visible"
       ],
       "steps": [
-        "1. Expand the 'Cars Filters' section",
-        "2. Select <Transmission> from the Transmission dropdown"
+        "1. Expand the 'Hotels Filters' section if collapsed",
+        "2. Enter or select <location area> in the Location/Area control",
+        "3. Observe the Results grid and Result_Count"
       ],
-      "expected_result": "The 'Cars Filters' section is visible; Results grid displays only car listings with transmission type <Transmission>; Active Filters summary shows a filter tag for <Transmission> and the visible result count updates",
-      "priority": "medium"
+      "expected_result": "Results grid refreshes to show only hotels in <location area>; Result_Count displays the updated number and Active Filters Summary shows a 'Location: <location area>' filter chip",
+      "priority": "high"
     },
     {
       "tc_id": "P-007",
-      "test_case": "Removing a single active filter updates results",
+      "wf_ref": "WF-007",
+      "test_case": "Set Flights airlines filter updates results and result count",
       "preconditions": [
-        "User logged in as <User>",
-        "Listings page is open with an active filter tag '<Filter Tag>' present in Active Filters"
+        "User logged in as <role>",
+        "Listing page is open with Listing_Type == Flights",
+        "Filter sidebar is visible"
       ],
       "steps": [
-        "1. Click the Remove button on the '<Filter Tag>' in the Active Filters summary"
+        "1. Expand the 'Flights Filters' section if collapsed",
+        "2. Select <airline> from the Airlines dropdown",
+        "3. Observe the Results grid and Result_Count"
       ],
-      "expected_result": "filter removed and results updated; the Active Filters summary no longer shows the '<Filter Tag>' and the Results grid updates to show items that no longer match that removed filter; the visible result count updates accordingly",
+      "expected_result": "Results grid refreshes to show only flights operated by <airline>; Result_Count displays the updated number and Active Filters Summary shows an 'Airlines: <airline>' filter chip",
       "priority": "high"
     },
     {
       "tc_id": "P-008",
-      "test_case": "Reset All Filters clears all filters and restores unfiltered results",
+      "wf_ref": "WF-008",
+      "test_case": "Set Flights number of stops filter updates results and result count",
       "preconditions": [
-        "User logged in as <User>",
-        "Listings page is open with multiple active filters applied"
+        "User logged in as <role>",
+        "Listing page is open with Listing_Type == Flights",
+        "Filter sidebar is visible"
       ],
       "steps": [
-        "1. Click the 'Reset All Filters' button in the Active Filters summary"
+        "1. Expand the 'Flights Filters' section if collapsed",
+        "2. Select <number of stops> from the Number of Stops dropdown",
+        "3. Observe the Results grid and Result_Count"
       ],
-      "expected_result": "all filters cleared and results updated; the Active Filters summary shows no filter tags and the Results grid displays the unfiltered listings with the result count updated to the full set",
+      "expected_result": "Results grid refreshes to show only flights with <number of stops>; Result_Count displays the updated number and Active Filters Summary shows a 'Stops: <number of stops>' filter chip",
       "priority": "high"
     },
     {
       "tc_id": "P-009",
-      "test_case": "Sorting controls reorder results dynamically",
+      "wf_ref": "WF-009",
+      "test_case": "Set Flights departure time range updates results and result count",
       "preconditions": [
-        "User logged in as <User>",
-        "Listings page is open with multiple results displayed"
+        "User logged in as <role>",
+        "Listing page is open with Listing_Type == Flights",
+        "Filter sidebar is visible"
       ],
       "steps": [
-        "1. Select <Sort criterion> from the Sort By dropdown in the Sorting Controls",
-        "2. Toggle the Sort Order control to <ascending or descending> if needed"
+        "1. Expand the 'Flights Filters' section if collapsed",
+        "2. Use the Departure Time Range time_range widget to set <departure time range>",
+        "3. Observe the Results grid and Result_Count"
       ],
-      "expected_result": "Results grid is reordered by <Sort criterion> in <ascending or descending> order (as selected); the visible result count remains the same while the ordering of rows in the grid changes accordingly",
+      "expected_result": "Results grid refreshes to show only flights departing within <departure time range>; Result_Count displays the updated number and Active Filters Summary shows a 'Departure Time: <departure time range>' filter chip",
       "priority": "high"
+    },
+    {
+      "tc_id": "P-010",
+      "wf_ref": "WF-010",
+      "test_case": "Set Flights arrival time range updates results and result count",
+      "preconditions": [
+        "User logged in as <role>",
+        "Listing page is open with Listing_Type == Flights",
+        "Filter sidebar is visible"
+      ],
+      "steps": [
+        "1. Expand the 'Flights Filters' section if collapsed",
+        "2. Use the Arrival Time Range time_range widget to set <arrival time range>",
+        "3. Observe the Results grid and Result_Count"
+      ],
+      "expected_result": "Results grid refreshes to show only flights arriving within <arrival time range>; Result_Count displays the updated number and Active Filters Summary shows an 'Arrival Time: <arrival time range>' filter chip",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-011",
+      "wf_ref": "WF-011",
+      "test_case": "Set Tours tour type filter updates results and result count",
+      "preconditions": [
+        "User logged in as <role>",
+        "Listing page is open with Listing_Type == Tours",
+        "Filter sidebar is visible"
+      ],
+      "steps": [
+        "1. Expand the 'Tours Filters' section if collapsed",
+        "2. Select <tour type> from the Tour Type dropdown",
+        "3. Observe the Results grid and Result_Count"
+      ],
+      "expected_result": "Results grid refreshes to show only tours of type <tour type>; Result_Count displays the updated number and Active Filters Summary shows a 'Tour Type: <tour type>' filter chip",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-012",
+      "wf_ref": "WF-012",
+      "test_case": "Set Tours duration filter updates results and result count",
+      "preconditions": [
+        "User logged in as <role>",
+        "Listing page is open with Listing_Type == Tours",
+        "Filter sidebar is visible"
+      ],
+      "steps": [
+        "1. Expand the 'Tours Filters' section if collapsed",
+        "2. Set <duration> in the Duration control",
+        "3. Observe the Results grid and Result_Count"
+      ],
+      "expected_result": "Results grid refreshes to show only tours with duration matching <duration>; Result_Count displays the updated number and Active Filters Summary shows a 'Duration: <duration>' filter chip",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-013",
+      "wf_ref": "WF-013",
+      "test_case": "Set Tours departure dates filter updates results and result count",
+      "preconditions": [
+        "User logged in as <role>",
+        "Listing page is open with Listing_Type == Tours",
+        "Filter sidebar is visible"
+      ],
+      "steps": [
+        "1. Expand the 'Tours Filters' section if collapsed",
+        "2. Pick <departure date> using the Departure Dates date_picker",
+        "3. Observe the Results grid and Result_Count"
+      ],
+      "expected_result": "Results grid refreshes to show only tours departing on <departure date>; Result_Count displays the updated number and Active Filters Summary shows a 'Departure Date: <departure date>' filter chip",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-014",
+      "wf_ref": "WF-014",
+      "test_case": "Set Cars car type filter updates results and result count",
+      "preconditions": [
+        "User logged in as <role>",
+        "Listing page is open with Listing_Type == Cars",
+        "Filter sidebar is visible"
+      ],
+      "steps": [
+        "1. Expand the 'Cars Filters' section if collapsed",
+        "2. Select <car type> from the Car Type dropdown",
+        "3. Observe the Results grid and Result_Count"
+      ],
+      "expected_result": "Results grid refreshes to show only cars of type <car type>; Result_Count displays the updated number and Active Filters Summary shows a 'Car Type: <car type>' filter chip",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-015",
+      "wf_ref": "WF-015",
+      "test_case": "Set Cars transmission filter updates results and result count",
+      "preconditions": [
+        "User logged in as <role>",
+        "Listing page is open with Listing_Type == Cars",
+        "Filter sidebar is visible"
+      ],
+      "steps": [
+        "1. Expand the 'Cars Filters' section if collapsed",
+        "2. Select <transmission> from the Transmission dropdown",
+        "3. Observe the Results grid and Result_Count"
+      ],
+      "expected_result": "Results grid refreshes to show only cars with transmission <transmission>; Result_Count displays the updated number and Active Filters Summary shows a 'Transmission: <transmission>' filter chip",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-016",
+      "wf_ref": "WF-016",
+      "test_case": "Set Cars fuel policy filter updates results and result count",
+      "preconditions": [
+        "User logged in as <role>",
+        "Listing page is open with Listing_Type == Cars",
+        "Filter sidebar is visible"
+      ],
+      "steps": [
+        "1. Expand the 'Cars Filters' section if collapsed",
+        "2. Select <fuel policy> from the Fuel Policy dropdown",
+        "3. Observe the Results grid and Result_Count"
+      ],
+      "expected_result": "Results grid refreshes to show only cars with fuel policy <fuel policy>; Result_Count displays the updated number and Active Filters Summary shows a 'Fuel Policy: <fuel policy>' filter chip",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-017",
+      "wf_ref": "WF-017",
+      "test_case": "Set Cars rental company filter updates results and result count",
+      "preconditions": [
+        "User logged in as <role>",
+        "Listing page is open with Listing_Type == Cars",
+        "Filter sidebar is visible"
+      ],
+      "steps": [
+        "1. Expand the 'Cars Filters' section if collapsed",
+        "2. Select <rental company> from the Rental Company dropdown",
+        "3. Observe the Results grid and Result_Count"
+      ],
+      "expected_result": "Results grid refreshes to show only cars from <rental company>; Result_Count displays the updated number and Active Filters Summary shows a 'Rental Company: <rental company>' filter chip",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-018",
+      "wf_ref": "WF-018",
+      "test_case": "Reset all filters clears filters and restores results and result count",
+      "preconditions": [
+        "User logged in as <role>",
+        "Listing page is open (any Listing_Type)",
+        "Filter sidebar is visible",
+        "At least two filters are active and visible in Active Filters Summary"
+      ],
+      "steps": [
+        "1. Click the 'Reset all filters' button in the Filter sidebar",
+        "2. Observe the Active Filters Summary, Results grid, and Result_Count"
+      ],
+      "expected_result": "All active filter chips are removed from Active Filters Summary; Filters controls in the sidebar are cleared to their default state; Results grid displays the unfiltered list and Result_Count displays the updated number reflecting cleared filters",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-019",
+      "wf_ref": "WF-019",
+      "test_case": "Remove a single active filter from summary updates results and result count",
+      "preconditions": [
+        "User logged in as <role>",
+        "Listing page is open (any Listing_Type)",
+        "Filter sidebar is visible",
+        "At least one filter is active and present as a chip in Active Filters Summary (labeled <label>)"
+      ],
+      "steps": [
+        "1. Click the Remove filter button on the Active Filters Summary chip labeled <label>",
+        "2. Observe the Active Filters Summary, Results grid, and Result_Count"
+      ],
+      "expected_result": "The '<label>' filter chip is removed from Active Filters Summary; Results grid refreshes to exclude that filter and Result_Count displays the updated number",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-020",
+      "wf_ref": "WF-020",
+      "test_case": "Change Sort_By reorders results",
+      "preconditions": [
+        "User logged in as <role>",
+        "Listing page is open (any Listing_Type)",
+        "Sorting controls are visible above results"
+      ],
+      "steps": [
+        "1. Open the Sort By dropdown",
+        "2. Select <sort option> from the Sort By dropdown",
+        "3. Observe the Results grid ordering and the Sort By control state"
+      ],
+      "expected_result": "Results grid reorders according to <sort option>; the Sort By control shows <sort option> as the selected option and the visible ordering of result items updates accordingly",
+      "priority": "medium"
     }
   ],
   "summary": {
-    "total": 9,
-    "high_priority": 5,
-    "medium_priority": 4,
+    "total": 20,
+    "high_priority": 19,
+    "medium_priority": 1,
     "low_priority": 0
   }
 }
 
 ------------------------------------------------------------
-[22:58:21] Test-Positive - PARSED JSON
+[14:54:37] Test-Positive - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Search & Filters",
@@ -582,133 +840,347 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Price range slider updates results dynamically",
+      "wf_ref": "WF-001",
+      "test_case": "Adjust Price Range slider updates results and result count",
       "preconditions": [
-        "User logged in as <User>",
-        "Listings page is open"
+        "User logged in as <role>",
+        "Listing page is open (any Listing_Type)",
+        "Filter sidebar is visible"
       ],
       "steps": [
-        "1. Expand the 'Common Filters' section if it is collapsed",
-        "2. Adjust the Price Range slider to select <desired price range>"
+        "1. Move the Price Range slider to select <price range>",
+        "2. Observe the Results grid and Result_Count"
       ],
-      "expected_result": "Results grid displays only rows with prices within <desired price range>; the visible result count above the grid updates to reflect the filtered set",
+      "expected_result": "Results grid refreshes to show only items within <price range>; Result_Count displays the updated number and Active Filters Summary shows a Price Range filter chip reflecting <price range>",
       "priority": "high"
     },
     {
       "tc_id": "P-002",
-      "test_case": "Rating selector filters results and shows active filter tag",
+      "wf_ref": "WF-002",
+      "test_case": "Set star or review rating updates results and result count",
       "preconditions": [
-        "User logged in as <User>",
-        "Listings page is open"
+        "User logged in as <role>",
+        "Listing page is open (any Listing_Type)",
+        "Filter sidebar is visible"
       ],
       "steps": [
-        "1. Expand the 'Common Filters' section",
-        "2. Select <minimum rating> using the Rating control (star/review selector)"
+        "1. Select <star or review rating> in the Star or Review Rating control",
+        "2. Observe the Results grid and Result_Count"
       ],
-      "expected_result": "Results grid displays only items with rating >= <minimum rating>; Active Filters summary shows a filter tag with label '<minimum rating> stars' and the result count updates accordingly",
+      "expected_result": "Results grid refreshes to show only items matching <star or review rating>; Result_Count displays the updated number and Active Filters Summary shows a rating filter chip for <star or review rating>",
       "priority": "high"
     },
     {
       "tc_id": "P-003",
-      "test_case": "Hotels filters section visible for Hotels and selecting a facility updates results",
+      "wf_ref": "WF-003",
+      "test_case": "Set Hotels facilities/amenities filter updates results and result count",
       "preconditions": [
-        "User logged in as <User>",
-        "Listings page for <Hotels> is open"
+        "User logged in as <role>",
+        "Listing page is open with Listing_Type == Hotels",
+        "Filter sidebar is visible"
       ],
       "steps": [
-        "1. Expand the 'Hotels Filters' section",
-        "2. Check <facility> in the Facilities/Amenities multi-select checkboxes"
+        "1. Expand the 'Hotels Filters' section if collapsed",
+        "2. Select <amenity> from the Facilities/Amenities dropdown",
+        "3. Observe the Results grid and Result_Count"
       ],
-      "expected_result": "The 'Hotels Filters' section is visible; Results grid displays only hotel listings that include <facility>; Active Filters summary shows a filter tag for <facility> and the visible result count updates",
-      "priority": "medium"
+      "expected_result": "Results grid refreshes to show only hotels offering <amenity>; Result_Count displays the updated number and Active Filters Summary shows a 'Facilities: <amenity>' filter chip",
+      "priority": "high"
     },
     {
       "tc_id": "P-004",
-      "test_case": "Flights filters section visible for Flights and selecting number of stops updates results",
+      "wf_ref": "WF-004",
+      "test_case": "Set Hotels hotel type filter updates results and result count",
       "preconditions": [
-        "User logged in as <User>",
-        "Listings page for <Flights> is open"
+        "User logged in as <role>",
+        "Listing page is open with Listing_Type == Hotels",
+        "Filter sidebar is visible"
       ],
       "steps": [
-        "1. Expand the 'Flights Filters' section",
-        "2. Select <number of stops> from the Number of Stops control"
+        "1. Expand the 'Hotels Filters' section if collapsed",
+        "2. Select <hotel type> from the Hotel Type dropdown",
+        "3. Observe the Results grid and Result_Count"
       ],
-      "expected_result": "The 'Flights Filters' section is visible; Results grid displays only flight listings matching <number of stops>; Active Filters summary shows a filter tag for <number of stops> and the visible result count updates",
-      "priority": "medium"
+      "expected_result": "Results grid refreshes to show only hotels of type <hotel type>; Result_Count displays the updated number and Active Filters Summary shows a 'Hotel Type: <hotel type>' filter chip",
+      "priority": "high"
     },
     {
       "tc_id": "P-005",
-      "test_case": "Tours filters section visible for Tours and selecting departure date range updates results",
+      "wf_ref": "WF-005",
+      "test_case": "Set Hotels board basis filter updates results and result count",
       "preconditions": [
-        "User logged in as <User>",
-        "Listings page for <Tours> is open"
+        "User logged in as <role>",
+        "Listing page is open with Listing_Type == Hotels",
+        "Filter sidebar is visible"
       ],
       "steps": [
-        "1. Expand the 'Tours Filters' section",
-        "2. Enter a Departure Dates range from <start date> to <end date> using the date range control"
+        "1. Expand the 'Hotels Filters' section if collapsed",
+        "2. Select <board basis> from the Board Basis dropdown",
+        "3. Observe the Results grid and Result_Count"
       ],
-      "expected_result": "The 'Tours Filters' section is visible; Results grid displays only tours with departure dates between <start date> and <end date>; Active Filters summary shows a filter tag for the selected departure dates and the visible result count updates",
-      "priority": "medium"
+      "expected_result": "Results grid refreshes to show only hotels with board basis <board basis>; Result_Count displays the updated number and Active Filters Summary shows a 'Board Basis: <board basis>' filter chip",
+      "priority": "high"
     },
     {
       "tc_id": "P-006",
-      "test_case": "Cars filters section visible for Cars and selecting transmission updates results",
+      "wf_ref": "WF-006",
+      "test_case": "Set Hotels location/area filter updates results and result count",
       "preconditions": [
-        "User logged in as <User>",
-        "Listings page for <Cars> is open"
+        "User logged in as <role>",
+        "Listing page is open with Listing_Type == Hotels",
+        "Filter sidebar is visible"
       ],
       "steps": [
-        "1. Expand the 'Cars Filters' section",
-        "2. Select <Transmission> from the Transmission dropdown"
+        "1. Expand the 'Hotels Filters' section if collapsed",
+        "2. Enter or select <location area> in the Location/Area control",
+        "3. Observe the Results grid and Result_Count"
       ],
-      "expected_result": "The 'Cars Filters' section is visible; Results grid displays only car listings with transmission type <Transmission>; Active Filters summary shows a filter tag for <Transmission> and the visible result count updates",
-      "priority": "medium"
+      "expected_result": "Results grid refreshes to show only hotels in <location area>; Result_Count displays the updated number and Active Filters Summary shows a 'Location: <location area>' filter chip",
+      "priority": "high"
     },
     {
       "tc_id": "P-007",
-      "test_case": "Removing a single active filter updates results",
+      "wf_ref": "WF-007",
+      "test_case": "Set Flights airlines filter updates results and result count",
       "preconditions": [
-        "User logged in as <User>",
-        "Listings page is open with an active filter tag '<Filter Tag>' present in Active Filters"
+        "User logged in as <role>",
+        "Listing page is open with Listing_Type == Flights",
+        "Filter sidebar is visible"
       ],
       "steps": [
-        "1. Click the Remove button on the '<Filter Tag>' in the Active Filters summary"
+        "1. Expand the 'Flights Filters' section if collapsed",
+        "2. Select <airline> from the Airlines dropdown",
+        "3. Observe the Results grid and Result_Count"
       ],
-      "expected_result": "filter removed and results updated; the Active Filters summary no longer shows the '<Filter Tag>' and the Results grid updates to show items that no longer match that removed filter; the visible result count updates accordingly",
+      "expected_result": "Results grid refreshes to show only flights operated by <airline>; Result_Count displays the updated number and Active Filters Summary shows an 'Airlines: <airline>' filter chip",
       "priority": "high"
     },
     {
       "tc_id": "P-008",
-      "test_case": "Reset All Filters clears all filters and restores unfiltered results",
+      "wf_ref": "WF-008",
+      "test_case": "Set Flights number of stops filter updates results and result count",
       "preconditions": [
-        "User logged in as <User>",
-        "Listings page is open with multiple active filters applied"
+        "User logged in as <role>",
+        "Listing page is open with Listing_Type == Flights",
+        "Filter sidebar is visible"
       ],
       "steps": [
-        "1. Click the 'Reset All Filters' button in the Active Filters summary"
+        "1. Expand the 'Flights Filters' section if collapsed",
+        "2. Select <number of stops> from the Number of Stops dropdown",
+        "3. Observe the Results grid and Result_Count"
       ],
-      "expected_result": "all filters cleared and results updated; the Active Filters summary shows no filter tags and the Results grid displays the unfiltered listings with the result count updated to the full set",
+      "expected_result": "Results grid refreshes to show only flights with <number of stops>; Result_Count displays the updated number and Active Filters Summary shows a 'Stops: <number of stops>' filter chip",
       "priority": "high"
     },
     {
       "tc_id": "P-009",
-      "test_case": "Sorting controls reorder results dynamically",
+      "wf_ref": "WF-009",
+      "test_case": "Set Flights departure time range updates results and result count",
       "preconditions": [
-        "User logged in as <User>",
-        "Listings page is open with multiple results displayed"
+        "User logged in as <role>",
+        "Listing page is open with Listing_Type == Flights",
+        "Filter sidebar is visible"
       ],
       "steps": [
-        "1. Select <Sort criterion> from the Sort By dropdown in the Sorting Controls",
-        "2. Toggle the Sort Order control to <ascending or descending> if needed"
+        "1. Expand the 'Flights Filters' section if collapsed",
+        "2. Use the Departure Time Range time_range widget to set <departure time range>",
+        "3. Observe the Results grid and Result_Count"
       ],
-      "expected_result": "Results grid is reordered by <Sort criterion> in <ascending or descending> order (as selected); the visible result count remains the same while the ordering of rows in the grid changes accordingly",
+      "expected_result": "Results grid refreshes to show only flights departing within <departure time range>; Result_Count displays the updated number and Active Filters Summary shows a 'Departure Time: <departure time range>' filter chip",
       "priority": "high"
+    },
+    {
+      "tc_id": "P-010",
+      "wf_ref": "WF-010",
+      "test_case": "Set Flights arrival time range updates results and result count",
+      "preconditions": [
+        "User logged in as <role>",
+        "Listing page is open with Listing_Type == Flights",
+        "Filter sidebar is visible"
+      ],
+      "steps": [
+        "1. Expand the 'Flights Filters' section if collapsed",
+        "2. Use the Arrival Time Range time_range widget to set <arrival time range>",
+        "3. Observe the Results grid and Result_Count"
+      ],
+      "expected_result": "Results grid refreshes to show only flights arriving within <arrival time range>; Result_Count displays the updated number and Active Filters Summary shows an 'Arrival Time: <arrival time range>' filter chip",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-011",
+      "wf_ref": "WF-011",
+      "test_case": "Set Tours tour type filter updates results and result count",
+      "preconditions": [
+        "User logged in as <role>",
+        "Listing page is open with Listing_Type == Tours",
+        "Filter sidebar is visible"
+      ],
+      "steps": [
+        "1. Expand the 'Tours Filters' section if collapsed",
+        "2. Select <tour type> from the Tour Type dropdown",
+        "3. Observe the Results grid and Result_Count"
+      ],
+      "expected_result": "Results grid refreshes to show only tours of type <tour type>; Result_Count displays the updated number and Active Filters Summary shows a 'Tour Type: <tour type>' filter chip",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-012",
+      "wf_ref": "WF-012",
+      "test_case": "Set Tours duration filter updates results and result count",
+      "preconditions": [
+        "User logged in as <role>",
+        "Listing page is open with Listing_Type == Tours",
+        "Filter sidebar is visible"
+      ],
+      "steps": [
+        "1. Expand the 'Tours Filters' section if collapsed",
+        "2. Set <duration> in the Duration control",
+        "3. Observe the Results grid and Result_Count"
+      ],
+      "expected_result": "Results grid refreshes to show only tours with duration matching <duration>; Result_Count displays the updated number and Active Filters Summary shows a 'Duration: <duration>' filter chip",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-013",
+      "wf_ref": "WF-013",
+      "test_case": "Set Tours departure dates filter updates results and result count",
+      "preconditions": [
+        "User logged in as <role>",
+        "Listing page is open with Listing_Type == Tours",
+        "Filter sidebar is visible"
+      ],
+      "steps": [
+        "1. Expand the 'Tours Filters' section if collapsed",
+        "2. Pick <departure date> using the Departure Dates date_picker",
+        "3. Observe the Results grid and Result_Count"
+      ],
+      "expected_result": "Results grid refreshes to show only tours departing on <departure date>; Result_Count displays the updated number and Active Filters Summary shows a 'Departure Date: <departure date>' filter chip",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-014",
+      "wf_ref": "WF-014",
+      "test_case": "Set Cars car type filter updates results and result count",
+      "preconditions": [
+        "User logged in as <role>",
+        "Listing page is open with Listing_Type == Cars",
+        "Filter sidebar is visible"
+      ],
+      "steps": [
+        "1. Expand the 'Cars Filters' section if collapsed",
+        "2. Select <car type> from the Car Type dropdown",
+        "3. Observe the Results grid and Result_Count"
+      ],
+      "expected_result": "Results grid refreshes to show only cars of type <car type>; Result_Count displays the updated number and Active Filters Summary shows a 'Car Type: <car type>' filter chip",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-015",
+      "wf_ref": "WF-015",
+      "test_case": "Set Cars transmission filter updates results and result count",
+      "preconditions": [
+        "User logged in as <role>",
+        "Listing page is open with Listing_Type == Cars",
+        "Filter sidebar is visible"
+      ],
+      "steps": [
+        "1. Expand the 'Cars Filters' section if collapsed",
+        "2. Select <transmission> from the Transmission dropdown",
+        "3. Observe the Results grid and Result_Count"
+      ],
+      "expected_result": "Results grid refreshes to show only cars with transmission <transmission>; Result_Count displays the updated number and Active Filters Summary shows a 'Transmission: <transmission>' filter chip",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-016",
+      "wf_ref": "WF-016",
+      "test_case": "Set Cars fuel policy filter updates results and result count",
+      "preconditions": [
+        "User logged in as <role>",
+        "Listing page is open with Listing_Type == Cars",
+        "Filter sidebar is visible"
+      ],
+      "steps": [
+        "1. Expand the 'Cars Filters' section if collapsed",
+        "2. Select <fuel policy> from the Fuel Policy dropdown",
+        "3. Observe the Results grid and Result_Count"
+      ],
+      "expected_result": "Results grid refreshes to show only cars with fuel policy <fuel policy>; Result_Count displays the updated number and Active Filters Summary shows a 'Fuel Policy: <fuel policy>' filter chip",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-017",
+      "wf_ref": "WF-017",
+      "test_case": "Set Cars rental company filter updates results and result count",
+      "preconditions": [
+        "User logged in as <role>",
+        "Listing page is open with Listing_Type == Cars",
+        "Filter sidebar is visible"
+      ],
+      "steps": [
+        "1. Expand the 'Cars Filters' section if collapsed",
+        "2. Select <rental company> from the Rental Company dropdown",
+        "3. Observe the Results grid and Result_Count"
+      ],
+      "expected_result": "Results grid refreshes to show only cars from <rental company>; Result_Count displays the updated number and Active Filters Summary shows a 'Rental Company: <rental company>' filter chip",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-018",
+      "wf_ref": "WF-018",
+      "test_case": "Reset all filters clears filters and restores results and result count",
+      "preconditions": [
+        "User logged in as <role>",
+        "Listing page is open (any Listing_Type)",
+        "Filter sidebar is visible",
+        "At least two filters are active and visible in Active Filters Summary"
+      ],
+      "steps": [
+        "1. Click the 'Reset all filters' button in the Filter sidebar",
+        "2. Observe the Active Filters Summary, Results grid, and Result_Count"
+      ],
+      "expected_result": "All active filter chips are removed from Active Filters Summary; Filters controls in the sidebar are cleared to their default state; Results grid displays the unfiltered list and Result_Count displays the updated number reflecting cleared filters",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-019",
+      "wf_ref": "WF-019",
+      "test_case": "Remove a single active filter from summary updates results and result count",
+      "preconditions": [
+        "User logged in as <role>",
+        "Listing page is open (any Listing_Type)",
+        "Filter sidebar is visible",
+        "At least one filter is active and present as a chip in Active Filters Summary (labeled <label>)"
+      ],
+      "steps": [
+        "1. Click the Remove filter button on the Active Filters Summary chip labeled <label>",
+        "2. Observe the Active Filters Summary, Results grid, and Result_Count"
+      ],
+      "expected_result": "The '<label>' filter chip is removed from Active Filters Summary; Results grid refreshes to exclude that filter and Result_Count displays the updated number",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-020",
+      "wf_ref": "WF-020",
+      "test_case": "Change Sort_By reorders results",
+      "preconditions": [
+        "User logged in as <role>",
+        "Listing page is open (any Listing_Type)",
+        "Sorting controls are visible above results"
+      ],
+      "steps": [
+        "1. Open the Sort By dropdown",
+        "2. Select <sort option> from the Sort By dropdown",
+        "3. Observe the Results grid ordering and the Sort By control state"
+      ],
+      "expected_result": "Results grid reorders according to <sort option>; the Sort By control shows <sort option> as the selected option and the visible ordering of result items updates accordingly",
+      "priority": "medium"
     }
   ],
   "summary": {
-    "total": 9,
-    "high_priority": 5,
-    "medium_priority": 4,
+    "total": 20,
+    "high_priority": 19,
+    "medium_priority": 1,
     "low_priority": 0
   }
 }

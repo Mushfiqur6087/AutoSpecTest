@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-22T21:31:44.627556
+DEBUG SESSION STARTED: 2026-05-25T15:41:24.133678
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[21:31:44] Test-Negative - SYSTEM PROMPT
+[15:41:24] Test-Negative - SYSTEM PROMPT
 ------------------------------------------------------------
 You are a Negative Test Case Generator. You receive (1) a UI-AST JSON for one module and (2) the original functional description. Your job is to produce ONLY negative test cases — tests where invalid input is provided or business rules are violated, and the system correctly rejects or blocks the action.
 
@@ -22,6 +22,10 @@ You are a Negative Test Case Generator. You receive (1) a UI-AST JSON for one mo
 <description>
 {Original functional description text for this module}
 </description>
+
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
 
 ---
 
@@ -111,6 +115,9 @@ Group required fields by type: `text/unspecified`, `email`, `password`, `number`
 
 Do NOT generate a separate blank-field test for every required field. If 5 text fields are all required, one representative covers them all.
 
+**Action dialog required fields — NOT subject to cross-form deduplication:**
+If a `state_bound_action_bar` action opens a dialog with its own required `fields{}` (e.g., Activate requires Activation Date, Reject requires a Reason, Withdraw requires a Reason, Close requires a Closure Reason), each such dialog is its own testing scope. Generate ONE "leave the required dialog field blank and submit" test per distinct action dialog. These are HIGH priority — they block state transitions and are common defect sites. Do not suppress them because the main wizard already has a blank-field test.
+
 **2. Format violations:**
 
 For fields with type-specific format rules (from AST type or description):
@@ -143,6 +150,10 @@ For each unique `constraints[]` entry in the AST, and for cross-field rules desc
 
 One test per unique constraint. Do not duplicate the same mechanism.
 
+**Constraint timing tests:** If the spec states an action is blocked by a pre-existing system state (e.g., "cannot close with active accounts", "cannot transfer to the same office"), generate TWO tests:
+1. The standard constraint violation test (user opens the dialog, fills required fields, submits → blocked).
+2. A constraint-timing test: user opens the dialog WITHOUT filling required fields → assert whether the block is shown immediately on dialog open (before the user fills anything) OR only on submit. This distinguishes whether the UI enforces the constraint eagerly or lazily. Steps: open the dialog, observe the state → assert what is visible before any interaction. If the spec is silent on timing, generate only the first test.
+
 **5. Precondition violations (auth, role, and state):**
 
 For each `preconditions[]` entry on any action — and for auth/role rules described in the spec:
@@ -154,18 +165,18 @@ For each `preconditions[]` entry on any action — and for auth/role rules descr
 **6. State-machine violations:**
 
 From `state_bound_action_bar` nodes:
-- For each state where an action is NOT listed in `available_actions`, generate one test attempting that action from that state. Example: attempting "Approve" on an entity already in "Active" state.
+- **Every defined state must have at least one wrong-state test.** For each state, identify at least one action that is NOT in its `available_actions` list and generate a test attempting that action from that state.
 - If a state has an empty `available_actions` array, generate one test verifying no action buttons are visible in that state.
-
-One test per unique wrong-state scenario — do not enumerate every action × every invalid state.
+- **Do not stop after 1–2 representative examples** when the module defines 4+ distinct states. The states Active, Pending, Closed, Rejected, and Withdrawn each have different action sets — each must be independently verified.
+- One test per state is sufficient — pick the most distinct unavailable action for that state. Do not enumerate every action × every state (that would be exponential).
 
 ---
 
 **DEDUPLICATION GATE (run before outputting):**
 
-1. **Required field dedup:** Multiple required text fields → ONE representative test, not one per field.
+1. **Required field dedup:** Multiple required text fields in the **same form or dialog** → ONE representative test, not one per field.
 2. **Sub-rule dedup:** A field with multiple validation sub-rules (e.g., password: length + uppercase + lowercase + number + special char) → ONE representative violation test, not one per sub-rule.
-3. **Cross-form dedup:** If two forms in the same module share the same validation mechanism (e.g., both have a required text field) → test it on the primary form only.
+3. **Cross-form dedup:** If two **main forms** in the same module share the same validation mechanism → test it on the primary form only. **Exception: action dialogs are never suppressed by cross-form dedup** — each action dialog with a required field gets its own blank-field test regardless.
 4. **Uniqueness check:** Before outputting, ask for each TC: "Does this test catch a bug that NO other test in this module would catch?" If no → remove it.
 
 ---
@@ -174,9 +185,11 @@ One test per unique wrong-state scenario — do not enumerate every action × ev
 
 - Simple module (login, single form, display page): **2–4 tests**
 - Medium module (standard CRUD form, form with constraints): **4–8 tests**
-- Complex module (state machine, multi-form, wizard with many constraints): **8–12 tests**
+- Complex module (state machine, multi-form, wizard with many constraints): **10–16 tests**
 
-If you exceed these ranges, you are generating redundant tests. Apply the deduplication gate again before outputting.
+For modules with a `state_bound_action_bar` defining 4+ states, the state-machine violation tests alone will produce 4–5 tests. This is expected and correct — do not suppress them to hit a lower target.
+
+If you exceed the upper range, apply the deduplication gate again before outputting.
 
 ---
 
@@ -184,6 +197,17 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
 
 - **High:** State precondition violations, constraint violations that could corrupt data, unauthenticated access, required field representatives
 - **Medium:** Format violations, cross-field validation, numeric bounds, wrong-role access, wrong-state action attempts
+
+---
+
+**WORKFLOW-AWARE FAILURE INJECTION (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- For each workflow that contains a form interaction (terminal action is a submit/save/create/approve button):
+  - Identify the most **critical blocking failure** for that workflow's `conditional_branch`.
+  - If that failure mode is NOT already covered by another workflow's negative test, generate one negative TC for it.
+- **Do NOT generate one negative TC per workflow mechanically.** Apply the existing deduplication gate first — only add a TC if it catches a bug that no other test would catch.
+- Add `"wf_ref": "WF-NNN"` to each TC that maps to a workflow. Set `"wf_ref": null` for generic validation tests.
 
 ---
 
@@ -195,6 +219,7 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
   "test_cases": [
     {
       "tc_id": "N-001",
+      "wf_ref": null,
       "test_case": "Short descriptive name",
       "preconditions": ["precondition 1"],
       "steps": ["1. Step one", "2. Step two"],
@@ -212,7 +237,7 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
 
 
 ------------------------------------------------------------
-[21:31:44] Test-Negative - USER PROMPT
+[15:41:24] Test-Negative - USER PROMPT
 ------------------------------------------------------------
 <module_name>Request Loan</module_name>
 
@@ -220,80 +245,63 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
 {
   "module_name": "Request Loan",
   "components": {
-    "Request_Loan_Form": {
+    "Loan_Request_Form": {
       "type": "form",
       "fields": {
         "Loan_Type": {
           "type": "radio",
           "required": true,
           "options": [
-            {
-              "label": "Personal",
-              "value": "Personal",
-              "interest_rate": "unspecified"
-            },
-            {
-              "label": "Auto",
-              "value": "Auto",
-              "interest_rate": "unspecified"
-            },
-            {
-              "label": "Home",
-              "value": "Home",
-              "interest_rate": "unspecified"
-            }
+            "Personal",
+            "Auto",
+            "Home"
           ]
         },
         "Loan_Amount": {
           "type": "number",
           "required": true,
           "constraints": [
-            "when Loan_Type == Personal: min 1000, max 50000",
-            "when Loan_Type == Auto: min 5000, max 75000",
-            "when Loan_Type == Home: min 50000, max 500000",
+            "when Loan_Type == Personal => min 1000",
+            "when Loan_Type == Personal => max 50000",
+            "when Loan_Type == Auto => min 5000",
+            "when Loan_Type == Auto => max 75000",
+            "when Loan_Type == Home => min 50000",
+            "when Loan_Type == Home => max 500000",
             "must be a positive number"
           ]
         },
-        "Down_Payment_Amount": {
+        "Down_Payment": {
           "type": "number",
           "required": true,
           "constraints": [
             "must be less than Loan_Amount",
-            "must be >= 10% of Loan_Amount"
+            "must be >= 0",
+            "minimum 10% down payment is required by the credit engine for approval (enforced during credit simulation on submit)"
           ]
         },
         "Collateral_Account": {
           "type": "dropdown",
-          "required": false,
+          "required": true,
           "constraints": [
-            "selected account balance must be >= 20% of Loan_Amount",
-            "sufficient collateral funds required (account balance check)"
+            "selected account balance must be sufficient to cover required collateral value",
+            "required collateral value = 0.20 * Loan_Amount",
+            "collateral sufficiency validated before approval"
           ]
         }
       },
       "submit_actions": [
         {
-          "element_name": "Request Loan",
+          "element_name": "Submit Application",
           "type": "button",
           "constraints": [
-            "validates Loan_Amount against type-specific ranges (see Loan_Amount.constraints)",
-            "validates Down_Payment_Amount < Loan_Amount",
-            "validates Down_Payment_Amount >= 10% of Loan_Amount",
-            "validates Collateral_Account balance >= 20% of Loan_Amount"
+            "validates Loan_Amount ranges per Loan_Type (see Loan_Amount.constraints)",
+            "validates Down_Payment < Loan_Amount",
+            "validates Collateral_Account.balance >= 0.20 * Loan_Amount",
+            "simulated approval: credit engine returns approval with 80% probability",
+            "credit engine enforces minimum 10% down payment for approval"
           ],
-          "credit_engine": {
-            "approval_rate": 0.8,
-            "min_down_payment_percent": 10,
-            "behavior": "simulates approval/denial; returns specific denial reason on failure",
-            "denial_reasons": [
-              "Insufficient credit history",
-              "Inadequate collateral value",
-              "Down payment too low",
-              "Loan amount out of allowed range"
-            ]
-          },
-          "on_success": "Loan approved and created successfully! Returns account details. Note: in this mock system no actual balance debits occur.",
-          "on_failure": "Loan denied. Returns specific denial reason such as 'Insufficient credit history' or 'Inadequate collateral value'."
+          "on_success": "Loan approved and created successfully! returns loan account details; no actual balance debits occur",
+          "on_failure": "Loan denied; system surfaces specific reasons such as 'Insufficient credit history' or 'Inadequate collateral value'"
         }
       ]
     }
@@ -307,10 +315,23 @@ The loan page has interactive loan type cards (Personal, Auto, Home) with intere
 
 </description>
 
+<workflows>
+WF-001 | Submit valid Personal loan application (meets ranges, down payment and collateral) | actor: <role> | branch: Loan_Type == Personal AND Loan_Amount >= 1000 AND Loan_Amount <= 50000 AND Down_Payment < Loan_Amount AND Down_Payment >= 0.10 * Loan_Amount AND Collateral_Account.balance >= 0.20 * Loan_Amount | terminal: Submit Application | on_success: Loan approved and created successfully! returns loan account details; no actual balance debits occur
+WF-002 | Submit valid Auto loan application (meets ranges, down payment and collateral) | actor: <role> | branch: Loan_Type == Auto AND Loan_Amount >= 5000 AND Loan_Amount <= 75000 AND Down_Payment < Loan_Amount AND Down_Payment >= 0.10 * Loan_Amount AND Collateral_Account.balance >= 0.20 * Loan_Amount | terminal: Submit Application | on_success: Loan approved and created successfully! returns loan account details; no actual balance debits occur
+WF-003 | Submit valid Home loan application (meets ranges, down payment and collateral) | actor: <role> | branch: Loan_Type == Home AND Loan_Amount >= 50000 AND Loan_Amount <= 500000 AND Down_Payment < Loan_Amount AND Down_Payment >= 0.10 * Loan_Amount AND Collateral_Account.balance >= 0.20 * Loan_Amount | terminal: Submit Application | on_success: Loan approved and created successfully! returns loan account details; no actual balance debits occur
+WF-004 | Submit Personal loan with Loan_Amount out of allowed range | actor: <role> | branch: Loan_Type == Personal AND (Loan_Amount < 1000 OR Loan_Amount > 50000) | terminal: Submit Application | on_success: Loan denied; system surfaces specific reasons such as 'Insufficient credit history' or 'Inadequate collateral value'
+WF-005 | Submit Auto loan with Loan_Amount out of allowed range | actor: <role> | branch: Loan_Type == Auto AND (Loan_Amount < 5000 OR Loan_Amount > 75000) | terminal: Submit Application | on_success: Loan denied; system surfaces specific reasons such as 'Insufficient credit history' or 'Inadequate collateral value'
+WF-006 | Submit Home loan with Loan_Amount out of allowed range | actor: <role> | branch: Loan_Type == Home AND (Loan_Amount < 50000 OR Loan_Amount > 500000) | terminal: Submit Application | on_success: Loan denied; system surfaces specific reasons such as 'Insufficient credit history' or 'Inadequate collateral value'
+WF-007 | Submit with Down_Payment greater than or equal to Loan_Amount (invalid) | actor: <role> | branch: Down_Payment >= Loan_Amount | terminal: Submit Application | on_success: Loan denied; system surfaces specific reasons such as 'Insufficient credit history' or 'Inadequate collateral value'
+WF-008 | Submit with Down_Payment below minimum 10% of Loan_Amount (credit engine enforces minimum) | actor: <role> | branch: Down_Payment < 0.10 * Loan_Amount | terminal: Submit Application | on_success: Loan denied; system surfaces specific reasons such as 'Insufficient credit history' or 'Inadequate collateral value'
+WF-009 | Submit with Collateral_Account balance insufficient for required 20% collateral | actor: <role> | branch: Collateral_Account.balance < 0.20 * Loan_Amount | terminal: Submit Application | on_success: Loan denied; system surfaces specific reasons such as 'Insufficient credit history' or 'Inadequate collateral value'
+WF-010 | Submit with non-positive Loan_Amount (invalid) | actor: <role> | branch: Loan_Amount <= 0 | terminal: Submit Application | on_success: Loan denied; system surfaces specific reasons such as 'Insufficient credit history' or 'Inadequate collateral value'
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[21:33:17] Test-Negative - LLM RESPONSE
+[15:43:25] Test-Negative - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Request Loan",
@@ -318,128 +339,219 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "N-001",
-      "test_case": "Leave required Loan Type (radio) blank and submit",
-      "preconditions": ["User is on the Request Loan page"],
-      "steps": [
-        "1. Do not select any option in the Loan_Type radio group",
-        "2. Enter valid values for other required fields: enter <valid Loan Amount>, enter <valid Down Payment Amount>",
-        "3. Click the 'Request Loan' button"
+      "wf_ref": null,
+      "test_case": "Submit with Loan_Type (radio) left unselected",
+      "preconditions": [
+        "Loan request page is open"
       ],
-      "expected_result": "Inline validation error appears on the Loan_Type field indicating it is required; form does not submit; no loan is created or submitted",
+      "steps": [
+        "1. Leave the Loan_Type unselected",
+        "2. Enter <valid loan amount within the selected type's range> in the Loan_Amount field",
+        "3. Enter <valid down payment amount less than Loan_Amount> in the Down_Payment field",
+        "4. Select <Collateral_Account with sufficient balance> in the Collateral_Account dropdown",
+        "5. Click the Submit Application button"
+      ],
+      "expected_result": "Inline validation error appears on the Loan_Type field indicating it is required; the form does not submit and no loan is created.",
       "priority": "high"
     },
     {
       "tc_id": "N-002",
-      "test_case": "Leave required numeric field Loan Amount blank and submit (number representative)",
-      "preconditions": ["User is on the Request Loan page", "Loan_Type is selected as <Loan Type>"],
-      "steps": [
-        "1. Select <Loan Type> in the Loan_Type radio group",
-        "2. Leave the Loan_Amount field blank",
-        "3. Enter a valid Down_Payment_Amount",
-        "4. Click the 'Request Loan' button"
+      "wf_ref": null,
+      "test_case": "Submit with numeric required field Loan_Amount left blank",
+      "preconditions": [
+        "Loan request page is open"
       ],
-      "expected_result": "Inline validation error appears on the Loan_Amount field indicating it is required and must be a positive number; form does not submit; no loan is created",
+      "steps": [
+        "1. Select Loan_Type 'Personal'",
+        "2. Leave the Loan_Amount field blank",
+        "3. Enter <valid down payment amount less than Loan_Amount> in the Down_Payment field",
+        "4. Select <Collateral_Account with sufficient balance> in the Collateral_Account dropdown",
+        "5. Click the Submit Application button"
+      ],
+      "expected_result": "Inline validation error appears on the Loan_Amount field indicating it is required; the form does not submit and no loan is created.",
       "priority": "high"
     },
     {
       "tc_id": "N-003",
-      "test_case": "Submit form with ALL required fields empty",
-      "preconditions": ["User is on the Request Loan page"],
-      "steps": [
-        "1. Leave Loan_Type unselected",
-        "2. Leave Loan_Amount blank",
-        "3. Leave Down_Payment_Amount blank",
-        "4. Click the 'Request Loan' button"
+      "wf_ref": null,
+      "test_case": "Submit with Collateral_Account (dropdown) left unselected",
+      "preconditions": [
+        "Loan request page is open"
       ],
-      "expected_result": "Inline validation errors appear on Loan_Type, Loan_Amount, and Down_Payment_Amount indicating they are required; form does not submit; no loan is created",
+      "steps": [
+        "1. Select Loan_Type 'Auto'",
+        "2. Enter <valid loan amount within Auto range> in the Loan_Amount field",
+        "3. Enter <valid down payment amount less than Loan_Amount> in the Down_Payment field",
+        "4. Leave the Collateral_Account dropdown unselected",
+        "5. Click the Submit Application button"
+      ],
+      "expected_result": "Inline validation error appears on the Collateral_Account field indicating it is required; the form does not submit and no loan is created.",
       "priority": "high"
     },
     {
       "tc_id": "N-004",
-      "test_case": "Loan Amount below type-specific minimum is rejected",
-      "preconditions": ["User is on the Request Loan page"],
-      "steps": [
-        "1. Select Loan_Type as <Personal>",
-        "2. Enter <amount below minimum> in the Loan_Amount field (below Personal min of 1000)",
-        "3. Enter a Down_Payment_Amount that otherwise meets Down_Payment constraints (e.g., >=10% of entered Loan_Amount)",
-        "4. Click the 'Request Loan' button"
+      "wf_ref": null,
+      "test_case": "Submit with ALL required fields empty",
+      "preconditions": [
+        "Loan request page is open"
       ],
-      "expected_result": "Inline validation error appears on the Loan_Amount field indicating the amount is below the allowed range for Personal loans (must be between 1000 and 50000); form does not submit; no loan is created",
+      "steps": [
+        "1. Leave Loan_Type unselected",
+        "2. Leave Loan_Amount blank",
+        "3. Leave Down_Payment blank",
+        "4. Leave Collateral_Account unselected",
+        "5. Click the Submit Application button"
+      ],
+      "expected_result": "Inline validation errors appear on Loan_Type, Loan_Amount, Down_Payment and Collateral_Account indicating they are required; the form does not submit and no loan is created.",
       "priority": "high"
     },
     {
       "tc_id": "N-005",
-      "test_case": "Loan Amount above type-specific maximum is rejected",
-      "preconditions": ["User is on the Request Loan page"],
-      "steps": [
-        "1. Select Loan_Type as <Home>",
-        "2. Enter <amount exceeding maximum> in the Loan_Amount field (above Home max of 500000)",
-        "3. Enter a Down_Payment_Amount that otherwise meets Down_Payment constraints (e.g., >=10% of entered Loan_Amount)",
-        "4. Click the 'Request Loan' button"
+      "wf_ref": "WF-004",
+      "test_case": "Submit Personal loan with Loan_Amount outside allowed Personal range",
+      "preconditions": [
+        "Loan request page is open"
       ],
-      "expected_result": "Inline validation error appears on the Loan_Amount field indicating the amount is above the allowed range for Home loans (must be between 50000 and 500000); form does not submit; no loan is created",
+      "steps": [
+        "1. Select Loan_Type 'Personal'",
+        "2. Enter <amount outside Personal allowed range> in the Loan_Amount field",
+        "3. Enter <valid down payment amount less than Loan_Amount and >= 10% of Loan_Amount> in the Down_Payment field",
+        "4. Select <Collateral_Account with balance >= 20% of Loan_Amount> in the Collateral_Account dropdown",
+        "5. Click the Submit Application button"
+      ],
+      "expected_result": "Loan_Amount field displays an inline validation error indicating the value is outside the allowed range for Personal loans (Personal range: 1,000–50,000); the form does not submit and no loan is created.",
       "priority": "high"
     },
     {
       "tc_id": "N-006",
-      "test_case": "Down Payment equal to or greater than Loan Amount (must be less than Loan Amount)",
-      "preconditions": ["User is on the Request Loan page", "Loan_Type is selected as <Loan Type>"],
-      "steps": [
-        "1. Enter <valid Loan Amount> in the Loan_Amount field",
-        "2. Enter <Down Payment >= Loan Amount> in the Down_Payment_Amount field",
-        "3. Click the 'Request Loan' button"
+      "wf_ref": "WF-005",
+      "test_case": "Submit Auto loan with Loan_Amount outside allowed Auto range",
+      "preconditions": [
+        "Loan request page is open"
       ],
-      "expected_result": "Inline validation error appears on the Down_Payment_Amount field indicating it must be less than the Loan_Amount; form does not submit; no loan is created",
+      "steps": [
+        "1. Select Loan_Type 'Auto'",
+        "2. Enter <amount outside Auto allowed range> in the Loan_Amount field",
+        "3. Enter <valid down payment amount less than Loan_Amount and >= 10% of Loan_Amount> in the Down_Payment field",
+        "4. Select <Collateral_Account with balance >= 20% of Loan_Amount> in the Collateral_Account dropdown",
+        "5. Click the Submit Application button"
+      ],
+      "expected_result": "Loan_Amount field displays an inline validation error indicating the value is outside the allowed range for Auto loans (Auto range: 5,000–75,000); the form does not submit and no loan is created.",
       "priority": "high"
     },
     {
       "tc_id": "N-007",
-      "test_case": "Down Payment below minimum percentage (less than 10% of Loan Amount)",
-      "preconditions": ["User is on the Request Loan page", "Loan_Type is selected as <Loan Type>"],
-      "steps": [
-        "1. Enter <valid Loan Amount> in the Loan_Amount field",
-        "2. Enter <amount less than 10% of Loan_Amount> in the Down_Payment_Amount field",
-        "3. Click the 'Request Loan' button"
+      "wf_ref": "WF-006",
+      "test_case": "Submit Home loan with Loan_Amount outside allowed Home range",
+      "preconditions": [
+        "Loan request page is open"
       ],
-      "expected_result": "Inline validation error appears on the Down_Payment_Amount field indicating the down payment is below the minimum required (must be >= 10% of Loan_Amount); form does not submit; no loan is created",
+      "steps": [
+        "1. Select Loan_Type 'Home'",
+        "2. Enter <amount outside Home allowed range> in the Loan_Amount field",
+        "3. Enter <valid down payment amount less than Loan_Amount and >= 10% of Loan_Amount> in the Down_Payment field",
+        "4. Select <Collateral_Account with balance >= 20% of Loan_Amount> in the Collateral_Account dropdown",
+        "5. Click the Submit Application button"
+      ],
+      "expected_result": "Loan_Amount field displays an inline validation error indicating the value is outside the allowed range for Home loans (Home range: 50,000–500,000); the form does not submit and no loan is created.",
       "priority": "high"
     },
     {
       "tc_id": "N-008",
-      "test_case": "Selected Collateral Account balance below required 20% of Loan Amount is rejected",
-      "preconditions": ["User is on the Request Loan page", "Loan_Type is selected as <Loan Type>", "User has a collateral account <Collateral Account with balance less than 20% of <Loan_Amount>>"],
-      "steps": [
-        "1. Enter <valid Loan Amount> in the Loan_Amount field",
-        "2. Enter a Down_Payment_Amount that meets the >=10% rule",
-        "3. Select <Collateral Account with insufficient balance> in the Collateral_Account dropdown",
-        "4. Click the 'Request Loan' button"
+      "wf_ref": "WF-007",
+      "test_case": "Submit with Down_Payment greater than or equal to Loan_Amount (invalid)",
+      "preconditions": [
+        "Loan request page is open"
       ],
-      "expected_result": "Inline validation error appears on the Collateral_Account field indicating the selected account balance is insufficient (must be >= 20% of Loan_Amount); form does not submit; no loan is created",
+      "steps": [
+        "1. Select Loan_Type 'Personal'",
+        "2. Enter <valid loan amount> in the Loan_Amount field",
+        "3. Enter <down payment amount greater than or equal to Loan_Amount> in the Down_Payment field",
+        "4. Select <Collateral_Account with sufficient balance> in the Collateral_Account dropdown",
+        "5. Click the Submit Application button"
+      ],
+      "expected_result": "Down_Payment field displays an inline validation error indicating it must be less than the Loan_Amount; the form does not submit and no loan is created.",
       "priority": "high"
     },
     {
       "tc_id": "N-009",
-      "test_case": "Non-numeric input entered into numeric Loan Amount field is rejected (format violation)",
-      "preconditions": ["User is on the Request Loan page", "Loan_Type is selected as <Loan Type>"],
-      "steps": [
-        "1. Enter <non-numeric input> in the Loan_Amount field",
-        "2. Enter a valid Down_Payment_Amount",
-        "3. Click the 'Request Loan' button"
+      "wf_ref": "WF-008",
+      "test_case": "Submit with Down_Payment below minimum 10% (credit engine enforces minimum during simulation)",
+      "preconditions": [
+        "Loan request page is open",
+        "Collateral_Account selected has balance >= 20% of the Loan_Amount"
       ],
-      "expected_result": "Inline validation error appears on the Loan_Amount field indicating the value must be a number (positive numeric format required); form does not submit; no loan is created",
+      "steps": [
+        "1. Select Loan_Type 'Auto'",
+        "2. Enter <valid loan amount within Auto range> in the Loan_Amount field",
+        "3. Enter <down payment amount less than 10% of Loan_Amount but less than Loan_Amount> in the Down_Payment field",
+        "4. Select <Collateral_Account with balance >= 20% of Loan_Amount> in the Collateral_Account dropdown",
+        "5. Click the Submit Application button"
+      ],
+      "expected_result": "On submit the credit engine simulation denies approval due to insufficient down payment; the UI displays an error indicating the down payment is below the 10% minimum required for approval; no loan is created.",
+      "priority": "high"
+    },
+    {
+      "tc_id": "N-010",
+      "wf_ref": "WF-009",
+      "test_case": "Submit with Collateral_Account balance insufficient for required 20% collateral",
+      "preconditions": [
+        "Loan request page is open",
+        "A Collateral_Account exists whose balance is less than 20% of the intended Loan_Amount"
+      ],
+      "steps": [
+        "1. Select Loan_Type 'Home'",
+        "2. Enter <valid loan amount within Home range> in the Loan_Amount field",
+        "3. Enter <valid down payment amount >= 10% of Loan_Amount and less than Loan_Amount> in the Down_Payment field",
+        "4. Select <Collateral_Account with balance less than 20% of Loan_Amount> in the Collateral_Account dropdown",
+        "5. Click the Submit Application button"
+      ],
+      "expected_result": "Collateral_Account field displays an inline validation error indicating the selected account balance is insufficient to cover the required collateral (20% of Loan_Amount); the form does not submit and no loan is created.",
+      "priority": "high"
+    },
+    {
+      "tc_id": "N-011",
+      "wf_ref": "WF-010",
+      "test_case": "Submit with non-positive Loan_Amount (zero or negative)",
+      "preconditions": [
+        "Loan request page is open"
+      ],
+      "steps": [
+        "1. Select Loan_Type 'Personal'",
+        "2. Enter <non-positive amount (0 or negative)> in the Loan_Amount field",
+        "3. Enter <valid down payment amount less than Loan_Amount if applicable> in the Down_Payment field",
+        "4. Select <Collateral_Account with sufficient balance> in the Collateral_Account dropdown",
+        "5. Click the Submit Application button"
+      ],
+      "expected_result": "Loan_Amount field displays an inline validation error indicating the value must be a positive number; the form does not submit and no loan is created.",
+      "priority": "high"
+    },
+    {
+      "tc_id": "N-012",
+      "wf_ref": null,
+      "test_case": "Enter non-numeric input into Loan_Amount (format violation)",
+      "preconditions": [
+        "Loan request page is open"
+      ],
+      "steps": [
+        "1. Select Loan_Type 'Auto'",
+        "2. Attempt to enter <non-numeric input> into the Loan_Amount field",
+        "3. Click the Submit Application button"
+      ],
+      "expected_result": "Loan_Amount field displays an inline validation error indicating a numeric value is required (non-numeric input is rejected); the form does not submit and no loan is created.",
       "priority": "medium"
     }
   ],
   "summary": {
-    "total": 9,
-    "high_priority": 8,
+    "total": 12,
+    "high_priority": 11,
     "medium_priority": 1,
     "low_priority": 0
   }
 }
 
 ------------------------------------------------------------
-[21:33:17] Test-Negative - PARSED JSON
+[15:43:25] Test-Negative - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Request Loan",
@@ -447,145 +559,212 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "N-001",
-      "test_case": "Leave required Loan Type (radio) blank and submit",
+      "wf_ref": null,
+      "test_case": "Submit with Loan_Type (radio) left unselected",
       "preconditions": [
-        "User is on the Request Loan page"
+        "Loan request page is open"
       ],
       "steps": [
-        "1. Do not select any option in the Loan_Type radio group",
-        "2. Enter valid values for other required fields: enter <valid Loan Amount>, enter <valid Down Payment Amount>",
-        "3. Click the 'Request Loan' button"
+        "1. Leave the Loan_Type unselected",
+        "2. Enter <valid loan amount within the selected type's range> in the Loan_Amount field",
+        "3. Enter <valid down payment amount less than Loan_Amount> in the Down_Payment field",
+        "4. Select <Collateral_Account with sufficient balance> in the Collateral_Account dropdown",
+        "5. Click the Submit Application button"
       ],
-      "expected_result": "Inline validation error appears on the Loan_Type field indicating it is required; form does not submit; no loan is created or submitted",
+      "expected_result": "Inline validation error appears on the Loan_Type field indicating it is required; the form does not submit and no loan is created.",
       "priority": "high"
     },
     {
       "tc_id": "N-002",
-      "test_case": "Leave required numeric field Loan Amount blank and submit (number representative)",
+      "wf_ref": null,
+      "test_case": "Submit with numeric required field Loan_Amount left blank",
       "preconditions": [
-        "User is on the Request Loan page",
-        "Loan_Type is selected as <Loan Type>"
+        "Loan request page is open"
       ],
       "steps": [
-        "1. Select <Loan Type> in the Loan_Type radio group",
+        "1. Select Loan_Type 'Personal'",
         "2. Leave the Loan_Amount field blank",
-        "3. Enter a valid Down_Payment_Amount",
-        "4. Click the 'Request Loan' button"
+        "3. Enter <valid down payment amount less than Loan_Amount> in the Down_Payment field",
+        "4. Select <Collateral_Account with sufficient balance> in the Collateral_Account dropdown",
+        "5. Click the Submit Application button"
       ],
-      "expected_result": "Inline validation error appears on the Loan_Amount field indicating it is required and must be a positive number; form does not submit; no loan is created",
+      "expected_result": "Inline validation error appears on the Loan_Amount field indicating it is required; the form does not submit and no loan is created.",
       "priority": "high"
     },
     {
       "tc_id": "N-003",
-      "test_case": "Submit form with ALL required fields empty",
+      "wf_ref": null,
+      "test_case": "Submit with Collateral_Account (dropdown) left unselected",
       "preconditions": [
-        "User is on the Request Loan page"
+        "Loan request page is open"
       ],
       "steps": [
-        "1. Leave Loan_Type unselected",
-        "2. Leave Loan_Amount blank",
-        "3. Leave Down_Payment_Amount blank",
-        "4. Click the 'Request Loan' button"
+        "1. Select Loan_Type 'Auto'",
+        "2. Enter <valid loan amount within Auto range> in the Loan_Amount field",
+        "3. Enter <valid down payment amount less than Loan_Amount> in the Down_Payment field",
+        "4. Leave the Collateral_Account dropdown unselected",
+        "5. Click the Submit Application button"
       ],
-      "expected_result": "Inline validation errors appear on Loan_Type, Loan_Amount, and Down_Payment_Amount indicating they are required; form does not submit; no loan is created",
+      "expected_result": "Inline validation error appears on the Collateral_Account field indicating it is required; the form does not submit and no loan is created.",
       "priority": "high"
     },
     {
       "tc_id": "N-004",
-      "test_case": "Loan Amount below type-specific minimum is rejected",
+      "wf_ref": null,
+      "test_case": "Submit with ALL required fields empty",
       "preconditions": [
-        "User is on the Request Loan page"
+        "Loan request page is open"
       ],
       "steps": [
-        "1. Select Loan_Type as <Personal>",
-        "2. Enter <amount below minimum> in the Loan_Amount field (below Personal min of 1000)",
-        "3. Enter a Down_Payment_Amount that otherwise meets Down_Payment constraints (e.g., >=10% of entered Loan_Amount)",
-        "4. Click the 'Request Loan' button"
+        "1. Leave Loan_Type unselected",
+        "2. Leave Loan_Amount blank",
+        "3. Leave Down_Payment blank",
+        "4. Leave Collateral_Account unselected",
+        "5. Click the Submit Application button"
       ],
-      "expected_result": "Inline validation error appears on the Loan_Amount field indicating the amount is below the allowed range for Personal loans (must be between 1000 and 50000); form does not submit; no loan is created",
+      "expected_result": "Inline validation errors appear on Loan_Type, Loan_Amount, Down_Payment and Collateral_Account indicating they are required; the form does not submit and no loan is created.",
       "priority": "high"
     },
     {
       "tc_id": "N-005",
-      "test_case": "Loan Amount above type-specific maximum is rejected",
+      "wf_ref": "WF-004",
+      "test_case": "Submit Personal loan with Loan_Amount outside allowed Personal range",
       "preconditions": [
-        "User is on the Request Loan page"
+        "Loan request page is open"
       ],
       "steps": [
-        "1. Select Loan_Type as <Home>",
-        "2. Enter <amount exceeding maximum> in the Loan_Amount field (above Home max of 500000)",
-        "3. Enter a Down_Payment_Amount that otherwise meets Down_Payment constraints (e.g., >=10% of entered Loan_Amount)",
-        "4. Click the 'Request Loan' button"
+        "1. Select Loan_Type 'Personal'",
+        "2. Enter <amount outside Personal allowed range> in the Loan_Amount field",
+        "3. Enter <valid down payment amount less than Loan_Amount and >= 10% of Loan_Amount> in the Down_Payment field",
+        "4. Select <Collateral_Account with balance >= 20% of Loan_Amount> in the Collateral_Account dropdown",
+        "5. Click the Submit Application button"
       ],
-      "expected_result": "Inline validation error appears on the Loan_Amount field indicating the amount is above the allowed range for Home loans (must be between 50000 and 500000); form does not submit; no loan is created",
+      "expected_result": "Loan_Amount field displays an inline validation error indicating the value is outside the allowed range for Personal loans (Personal range: 1,000\u201350,000); the form does not submit and no loan is created.",
       "priority": "high"
     },
     {
       "tc_id": "N-006",
-      "test_case": "Down Payment equal to or greater than Loan Amount (must be less than Loan Amount)",
+      "wf_ref": "WF-005",
+      "test_case": "Submit Auto loan with Loan_Amount outside allowed Auto range",
       "preconditions": [
-        "User is on the Request Loan page",
-        "Loan_Type is selected as <Loan Type>"
+        "Loan request page is open"
       ],
       "steps": [
-        "1. Enter <valid Loan Amount> in the Loan_Amount field",
-        "2. Enter <Down Payment >= Loan Amount> in the Down_Payment_Amount field",
-        "3. Click the 'Request Loan' button"
+        "1. Select Loan_Type 'Auto'",
+        "2. Enter <amount outside Auto allowed range> in the Loan_Amount field",
+        "3. Enter <valid down payment amount less than Loan_Amount and >= 10% of Loan_Amount> in the Down_Payment field",
+        "4. Select <Collateral_Account with balance >= 20% of Loan_Amount> in the Collateral_Account dropdown",
+        "5. Click the Submit Application button"
       ],
-      "expected_result": "Inline validation error appears on the Down_Payment_Amount field indicating it must be less than the Loan_Amount; form does not submit; no loan is created",
+      "expected_result": "Loan_Amount field displays an inline validation error indicating the value is outside the allowed range for Auto loans (Auto range: 5,000\u201375,000); the form does not submit and no loan is created.",
       "priority": "high"
     },
     {
       "tc_id": "N-007",
-      "test_case": "Down Payment below minimum percentage (less than 10% of Loan Amount)",
+      "wf_ref": "WF-006",
+      "test_case": "Submit Home loan with Loan_Amount outside allowed Home range",
       "preconditions": [
-        "User is on the Request Loan page",
-        "Loan_Type is selected as <Loan Type>"
+        "Loan request page is open"
       ],
       "steps": [
-        "1. Enter <valid Loan Amount> in the Loan_Amount field",
-        "2. Enter <amount less than 10% of Loan_Amount> in the Down_Payment_Amount field",
-        "3. Click the 'Request Loan' button"
+        "1. Select Loan_Type 'Home'",
+        "2. Enter <amount outside Home allowed range> in the Loan_Amount field",
+        "3. Enter <valid down payment amount less than Loan_Amount and >= 10% of Loan_Amount> in the Down_Payment field",
+        "4. Select <Collateral_Account with balance >= 20% of Loan_Amount> in the Collateral_Account dropdown",
+        "5. Click the Submit Application button"
       ],
-      "expected_result": "Inline validation error appears on the Down_Payment_Amount field indicating the down payment is below the minimum required (must be >= 10% of Loan_Amount); form does not submit; no loan is created",
+      "expected_result": "Loan_Amount field displays an inline validation error indicating the value is outside the allowed range for Home loans (Home range: 50,000\u2013500,000); the form does not submit and no loan is created.",
       "priority": "high"
     },
     {
       "tc_id": "N-008",
-      "test_case": "Selected Collateral Account balance below required 20% of Loan Amount is rejected",
+      "wf_ref": "WF-007",
+      "test_case": "Submit with Down_Payment greater than or equal to Loan_Amount (invalid)",
       "preconditions": [
-        "User is on the Request Loan page",
-        "Loan_Type is selected as <Loan Type>",
-        "User has a collateral account <Collateral Account with balance less than 20% of <Loan_Amount>>"
+        "Loan request page is open"
       ],
       "steps": [
-        "1. Enter <valid Loan Amount> in the Loan_Amount field",
-        "2. Enter a Down_Payment_Amount that meets the >=10% rule",
-        "3. Select <Collateral Account with insufficient balance> in the Collateral_Account dropdown",
-        "4. Click the 'Request Loan' button"
+        "1. Select Loan_Type 'Personal'",
+        "2. Enter <valid loan amount> in the Loan_Amount field",
+        "3. Enter <down payment amount greater than or equal to Loan_Amount> in the Down_Payment field",
+        "4. Select <Collateral_Account with sufficient balance> in the Collateral_Account dropdown",
+        "5. Click the Submit Application button"
       ],
-      "expected_result": "Inline validation error appears on the Collateral_Account field indicating the selected account balance is insufficient (must be >= 20% of Loan_Amount); form does not submit; no loan is created",
+      "expected_result": "Down_Payment field displays an inline validation error indicating it must be less than the Loan_Amount; the form does not submit and no loan is created.",
       "priority": "high"
     },
     {
       "tc_id": "N-009",
-      "test_case": "Non-numeric input entered into numeric Loan Amount field is rejected (format violation)",
+      "wf_ref": "WF-008",
+      "test_case": "Submit with Down_Payment below minimum 10% (credit engine enforces minimum during simulation)",
       "preconditions": [
-        "User is on the Request Loan page",
-        "Loan_Type is selected as <Loan Type>"
+        "Loan request page is open",
+        "Collateral_Account selected has balance >= 20% of the Loan_Amount"
       ],
       "steps": [
-        "1. Enter <non-numeric input> in the Loan_Amount field",
-        "2. Enter a valid Down_Payment_Amount",
-        "3. Click the 'Request Loan' button"
+        "1. Select Loan_Type 'Auto'",
+        "2. Enter <valid loan amount within Auto range> in the Loan_Amount field",
+        "3. Enter <down payment amount less than 10% of Loan_Amount but less than Loan_Amount> in the Down_Payment field",
+        "4. Select <Collateral_Account with balance >= 20% of Loan_Amount> in the Collateral_Account dropdown",
+        "5. Click the Submit Application button"
       ],
-      "expected_result": "Inline validation error appears on the Loan_Amount field indicating the value must be a number (positive numeric format required); form does not submit; no loan is created",
+      "expected_result": "On submit the credit engine simulation denies approval due to insufficient down payment; the UI displays an error indicating the down payment is below the 10% minimum required for approval; no loan is created.",
+      "priority": "high"
+    },
+    {
+      "tc_id": "N-010",
+      "wf_ref": "WF-009",
+      "test_case": "Submit with Collateral_Account balance insufficient for required 20% collateral",
+      "preconditions": [
+        "Loan request page is open",
+        "A Collateral_Account exists whose balance is less than 20% of the intended Loan_Amount"
+      ],
+      "steps": [
+        "1. Select Loan_Type 'Home'",
+        "2. Enter <valid loan amount within Home range> in the Loan_Amount field",
+        "3. Enter <valid down payment amount >= 10% of Loan_Amount and less than Loan_Amount> in the Down_Payment field",
+        "4. Select <Collateral_Account with balance less than 20% of Loan_Amount> in the Collateral_Account dropdown",
+        "5. Click the Submit Application button"
+      ],
+      "expected_result": "Collateral_Account field displays an inline validation error indicating the selected account balance is insufficient to cover the required collateral (20% of Loan_Amount); the form does not submit and no loan is created.",
+      "priority": "high"
+    },
+    {
+      "tc_id": "N-011",
+      "wf_ref": "WF-010",
+      "test_case": "Submit with non-positive Loan_Amount (zero or negative)",
+      "preconditions": [
+        "Loan request page is open"
+      ],
+      "steps": [
+        "1. Select Loan_Type 'Personal'",
+        "2. Enter <non-positive amount (0 or negative)> in the Loan_Amount field",
+        "3. Enter <valid down payment amount less than Loan_Amount if applicable> in the Down_Payment field",
+        "4. Select <Collateral_Account with sufficient balance> in the Collateral_Account dropdown",
+        "5. Click the Submit Application button"
+      ],
+      "expected_result": "Loan_Amount field displays an inline validation error indicating the value must be a positive number; the form does not submit and no loan is created.",
+      "priority": "high"
+    },
+    {
+      "tc_id": "N-012",
+      "wf_ref": null,
+      "test_case": "Enter non-numeric input into Loan_Amount (format violation)",
+      "preconditions": [
+        "Loan request page is open"
+      ],
+      "steps": [
+        "1. Select Loan_Type 'Auto'",
+        "2. Attempt to enter <non-numeric input> into the Loan_Amount field",
+        "3. Click the Submit Application button"
+      ],
+      "expected_result": "Loan_Amount field displays an inline validation error indicating a numeric value is required (non-numeric input is rejected); the form does not submit and no loan is created.",
       "priority": "medium"
     }
   ],
   "summary": {
-    "total": 9,
-    "high_priority": 8,
+    "total": 12,
+    "high_priority": 11,
     "medium_priority": 1,
     "low_priority": 0
   }

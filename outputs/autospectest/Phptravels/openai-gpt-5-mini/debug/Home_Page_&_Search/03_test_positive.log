@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-21T22:54:00.217098
+DEBUG SESSION STARTED: 2026-05-25T14:51:20.226133
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[22:54:00] Test-Positive - SYSTEM PROMPT
+[14:51:20] Test-Positive - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Expert UI Test Case Generator. You receive (1) a UI-AST JSON for one specific module and (2) the original functional description for that module.
 
@@ -24,6 +24,10 @@ Your job is to produce ONLY positive/functional UI test cases — tests where va
 <description>
 {Original functional description text for this module}
 </description>
+
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
 
 ---
 
@@ -146,6 +150,13 @@ Because you are testing a module in isolation, establish the required entry stat
 **1. Forms & Wizards (`form`, `wizard`):**
 - Generate ONE happy path per distinct success outcome.
 - *Conditional UI Check:* If a toggle/dropdown reveals new mandatory fields (`visible_when`), generate a separate test for that conditional branch.
+- **Wizard step coverage (CRITICAL):** If a wizard has multiple steps and any step beyond Step 1 contains its own named field group (e.g., "Address Details", "Family Members", "Identifiers"), generate ONE dedicated positive TC per such step. The TC must:
+  - Navigate to that specific step (include the preceding steps as preconditions or brief navigation steps)
+  - Fill the fields described for that step (not just pass through)
+  - Assert the step's content is visible/saved on the detail page after final submission
+  - **Do NOT collapse all wizard steps into one happy-path TC** — if Steps 2, 3, and 4 each have their own named section in the spec, they each need their own TC.
+- **Wizard in-step identifiers/duplicates:** If a wizard step allows adding identifiers, documents, or similar entries that have a uniqueness constraint, include a TC for that wizard step that also verifies the constraint (e.g., attempting to add a duplicate Document Type+Key pair inside the wizard). This is a different code path from adding the same post-creation on the detail page.
+- **Action dialogs:** If a `state_bound_action_bar` action opens a dialog with its own `fields{}` (e.g., Activate requires Activation Date, Reject requires Reason), generate ONE positive TC per such action-dialog — distinct from the state-transition TC. The TC fills the dialog field and completes the action.
 
 **2. State Machines (`state_bound_action_bar`):**
 - For each unique action available in a specific state, generate ONE test performing that action.
@@ -200,6 +211,19 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 
 ---
 
+**WORKFLOW COVERAGE OBLIGATION (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- Your test cases must **collectively cover every workflow** listed.
+- For each `wf_id`, at least one TC must:
+  - Activate the `conditional_branch` (if not null) — i.e. the test must set up the condition described.
+  - Assert the `on_success` as its `expected_result` (verbatim or as the primary basis for the expected result).
+- Add `"wf_ref": "WF-NNN"` to each TC to identify which workflow it covers.
+- If one TC naturally covers multiple workflows (e.g., the base path overlaps), pick the most specific `wf_ref`.
+- If a TC does not map to any workflow (e.g., a navigation-only test), set `"wf_ref": null`.
+
+---
+
 **OUTPUT — JSON only, no prose, no markdown fencing:**
 
 {
@@ -208,6 +232,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
   "test_cases": [
     {
       "tc_id": "P-001",
+      "wf_ref": "WF-001",
       "test_case": "Short descriptive name",
       "preconditions": ["User logged in as <Role>", "<Prerequisite state>"],
       "steps": ["1. Step one", "2. Step two"],
@@ -224,7 +249,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 }
 
 ------------------------------------------------------------
-[22:54:00] Test-Positive - USER PROMPT
+[14:51:20] Test-Positive - USER PROMPT
 ------------------------------------------------------------
 <module_name>Home Page & Search</module_name>
 
@@ -239,22 +264,28 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
           "tab_name": "Hotels",
           "fields": {
             "Destination": {
-              "type": "search"
+              "type": "unspecified",
+              "required": null
             },
-            "Check_In_Date": {
-              "type": "date"
+            "Check_in_Date": {
+              "type": "date",
+              "required": null
             },
-            "Check_Out_Date": {
-              "type": "date"
+            "Check_out_Date": {
+              "type": "date",
+              "required": null
             },
             "Number_of_Rooms": {
-              "type": "number"
+              "type": "number",
+              "required": null
             },
             "Adults": {
-              "type": "number"
+              "type": "number",
+              "required": null
             },
             "Children": {
-              "type": "number"
+              "type": "number",
+              "required": null
             }
           }
         },
@@ -263,6 +294,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
           "fields": {
             "Trip_Type": {
               "type": "dropdown",
+              "required": null,
               "options": [
                 "One-way",
                 "Round-trip",
@@ -270,28 +302,36 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
               ]
             },
             "Departure_City": {
-              "type": "search"
+              "type": "unspecified",
+              "required": null
             },
             "Arrival_City": {
-              "type": "search"
+              "type": "unspecified",
+              "required": null
             },
             "Departure_Date": {
-              "type": "date"
+              "type": "date",
+              "required": null
             },
             "Return_Date": {
-              "type": "date"
+              "type": "date",
+              "required": null
             },
             "Adults": {
-              "type": "number"
+              "type": "number",
+              "required": null
             },
             "Children": {
-              "type": "number"
+              "type": "number",
+              "required": null
             },
             "Infants": {
-              "type": "number"
+              "type": "number",
+              "required": null
             },
             "Cabin_Class": {
               "type": "dropdown",
+              "required": null,
               "options": [
                 "Economy",
                 "Premium Economy",
@@ -305,36 +345,45 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
           "tab_name": "Tours",
           "fields": {
             "Destination": {
-              "type": "search"
+              "type": "unspecified",
+              "required": null
             },
             "Travel_Start_Date": {
-              "type": "date"
+              "type": "date",
+              "required": null
             },
             "Travel_End_Date": {
-              "type": "date"
+              "type": "date",
+              "required": null
             }
           }
         },
         {
           "tab_name": "Cars",
           "fields": {
-            "Pick_Up_Location": {
-              "type": "search"
+            "Pick_up_Location": {
+              "type": "unspecified",
+              "required": null
             },
-            "Drop_Off_Location": {
-              "type": "search"
+            "Drop_off_Location": {
+              "type": "unspecified",
+              "required": null
             },
-            "Pick_Up_Date": {
-              "type": "date"
+            "Pick_up_Date": {
+              "type": "date",
+              "required": null
             },
-            "Pick_Up_Time": {
-              "type": "unspecified"
+            "Pick_up_Time": {
+              "type": "time",
+              "required": null
             },
-            "Drop_Off_Date": {
-              "type": "date"
+            "Drop_off_Date": {
+              "type": "date",
+              "required": null
             },
-            "Drop_Off_Time": {
-              "type": "unspecified"
+            "Drop_off_Time": {
+              "type": "time",
+              "required": null
             }
           }
         }
@@ -342,15 +391,18 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
       "submit_actions": [
         {
           "element_name": "Search",
+          "type": "button",
           "constraints": [
-            "validates that all required fields for the active tab are filled"
+            "validates required fields for active tab"
           ],
-          "on_success": "redirects to corresponding results listing page",
-          "on_failure": "shows inline field errors on invalid fields"
+          "on_validation_error": "shows inline errors on invalid fields",
+          "on_success_by_tab": {
+            "Hotels": "redirects to Hotels results listing page",
+            "Flights": "redirects to Flights results listing page",
+            "Tours": "redirects to Tours results listing page",
+            "Cars": "redirects to Cars results listing page"
+          }
         }
-      ],
-      "interaction_notes": [
-        "clicking a tab switches the visible search fields to that service type"
       ]
     }
   }
@@ -366,10 +418,17 @@ The home page features a prominent search widget with four tabs: Hotels, Flights
 
 </description>
 
+<workflows>
+WF-001 | Search from Hotels tab | actor: <role> | branch: components.Search_Widget.active_tab == 'Hotels' | terminal: Search | on_success: redirects to Hotels results listing page
+WF-002 | Search from Flights tab | actor: <role> | branch: components.Search_Widget.active_tab == 'Flights' | terminal: Search | on_success: redirects to Flights results listing page
+WF-003 | Search from Tours tab | actor: <role> | branch: components.Search_Widget.active_tab == 'Tours' | terminal: Search | on_success: redirects to Tours results listing page
+WF-004 | Search from Cars tab | actor: <role> | branch: components.Search_Widget.active_tab == 'Cars' | terminal: Search | on_success: redirects to Cars results listing page
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[22:54:25] Test-Positive - LLM RESPONSE
+[14:51:38] Test-Positive - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Home Page & Search",
@@ -377,106 +436,98 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Navigate between Hotels, Flights, Tours and Cars tabs and verify visible fields",
+      "wf_ref": "WF-001",
+      "test_case": "Search from Hotels tab with valid hotel search criteria",
       "preconditions": [
-        "Home page is open"
+        "User logged in as <role>",
+        "Home page is open and Search widget is visible"
       ],
       "steps": [
-        "1. Click the 'Hotels' tab",
-        "2. Click the 'Flights' tab",
-        "3. Click the 'Tours' tab",
-        "4. Click the 'Cars' tab"
+        "1. Click the 'Hotels' tab in the Search widget",
+        "2. Enter <destination> in the Destination field",
+        "3. Enter <check-in date> in the Check_in_Date field",
+        "4. Enter <check-out date> in the Check_out_Date field",
+        "5. Enter <number of rooms> in the Number_of_Rooms field",
+        "6. Enter <adults> in the Adults field",
+        "7. Click the Search button"
       ],
-      "expected_result": "Hotels tab shows Destination, Check-In Date, Check-Out Date, Number of Rooms, Adults, and Children fields; Flights tab shows Trip Type, Departure City, Arrival City, Departure Date, Return Date, Adults, Children, Infants, and Cabin Class fields; Tours tab shows Destination, Travel Start Date, and Travel End Date fields; Cars tab shows Pick Up Location, Drop Off Location, Pick Up Date, Pick Up Time, Drop Off Date, and Drop Off Time fields.",
-      "priority": "medium"
+      "expected_result": "redirects to Hotels results listing page",
+      "priority": "high"
     },
     {
       "tc_id": "P-002",
-      "test_case": "Perform a Hotels search with all required fields filled",
+      "wf_ref": "WF-002",
+      "test_case": "Search from Flights tab with valid flight search criteria",
       "preconditions": [
-        "Home page is open"
+        "User logged in as <role>",
+        "Home page is open and Search widget is visible"
       ],
       "steps": [
-        "1. Click the 'Hotels' tab",
-        "2. Enter <destination> into the Destination field",
-        "3. Enter <check-in date> into the Check-In Date field",
-        "4. Enter <check-out date> into the Check-Out Date field",
-        "5. Enter <number of rooms> into the Number of Rooms field",
-        "6. Enter <number of adults> into the Adults field",
-        "7. Enter <number of children> into the Children field",
-        "8. Click the Search button"
+        "1. Click the 'Flights' tab in the Search widget",
+        "2. Select <trip type> from the Trip_Type dropdown",
+        "3. Enter <departure city> in the Departure_City field",
+        "4. Enter <arrival city> in the Arrival_City field",
+        "5. Enter <departure date> in the Departure_Date field",
+        "6. Enter <return date> in the Return_Date field",
+        "7. Enter <adults> in the Adults field",
+        "8. Enter <children> in the Children field",
+        "9. Enter <infants> in the Infants field",
+        "10. Select <cabin class> from the Cabin_Class dropdown",
+        "11. Click the Search button"
       ],
-      "expected_result": "redirects to corresponding results listing page",
+      "expected_result": "redirects to Flights results listing page",
       "priority": "high"
     },
     {
       "tc_id": "P-003",
-      "test_case": "Perform a Flights Round-trip search with all required fields filled",
+      "wf_ref": "WF-003",
+      "test_case": "Search from Tours tab with valid tour search criteria",
       "preconditions": [
-        "Home page is open"
+        "User logged in as <role>",
+        "Home page is open and Search widget is visible"
       ],
       "steps": [
-        "1. Click the 'Flights' tab",
-        "2. Select 'Round-trip' from the Trip Type dropdown",
-        "3. Enter <departure city> into the Departure City search field and select a matching result",
-        "4. Enter <arrival city> into the Arrival City search field and select a matching result",
-        "5. Enter <departure date> into the Departure Date field",
-        "6. Enter <return date> into the Return Date field",
-        "7. Enter <number of adults> into the Adults field",
-        "8. Enter <number of children> into the Children field",
-        "9. Enter <number of infants> into the Infants field",
-        "10. Select 'Business' from the Cabin Class dropdown",
-        "11. Click the Search button"
+        "1. Click the 'Tours' tab in the Search widget",
+        "2. Enter <destination> in the Destination field",
+        "3. Enter <travel start date> in the Travel_Start_Date field",
+        "4. Enter <travel end date> in the Travel_End_Date field",
+        "5. Click the Search button"
       ],
-      "expected_result": "redirects to corresponding results listing page",
+      "expected_result": "redirects to Tours results listing page",
       "priority": "high"
     },
     {
       "tc_id": "P-004",
-      "test_case": "Perform a Tours search with destination and travel date range",
+      "wf_ref": "WF-004",
+      "test_case": "Search from Cars tab with valid car rental search criteria",
       "preconditions": [
-        "Home page is open"
+        "User logged in as <role>",
+        "Home page is open and Search widget is visible"
       ],
       "steps": [
-        "1. Click the 'Tours' tab",
-        "2. Enter <destination> into the Destination field",
-        "3. Enter <travel start date> into the Travel Start Date field",
-        "4. Enter <travel end date> into the Travel End Date field",
-        "5. Click the Search button"
-      ],
-      "expected_result": "redirects to corresponding results listing page",
-      "priority": "high"
-    },
-    {
-      "tc_id": "P-005",
-      "test_case": "Perform a Cars search with pick-up/drop-off locations and dates/times",
-      "preconditions": [
-        "Home page is open"
-      ],
-      "steps": [
-        "1. Click the 'Cars' tab",
-        "2. Enter <pick-up location> into the Pick Up Location search field and select a matching result",
-        "3. Enter <drop-off location> into the Drop Off Location search field and select a matching result",
-        "4. Enter <pick-up date> into the Pick Up Date field",
-        "5. Enter <pick-up time> into the Pick Up Time field",
-        "6. Enter <drop-off date> into the Drop Off Date field",
-        "7. Enter <drop-off time> into the Drop Off Time field",
+        "1. Click the 'Cars' tab in the Search widget",
+        "2. Enter <pick-up location> in the Pick_up_Location field",
+        "3. Enter <drop-off location> in the Drop_off_Location field",
+        "4. Enter <pick-up date> in the Pick_up_Date field",
+        "5. Enter <pick-up time> in the Pick_up_Time field",
+        "6. Enter <drop-off date> in the Drop_off_Date field",
+        "7. Enter <drop-off time> in the Drop_off_Time field",
         "8. Click the Search button"
       ],
-      "expected_result": "redirects to corresponding results listing page",
+      "expected_result": "redirects to Cars results listing page",
       "priority": "high"
     }
   ],
   "summary": {
-    "total": 5,
+    "total": 4,
     "high_priority": 4,
-    "medium_priority": 1,
+    "medium_priority": 0,
     "low_priority": 0
   }
 }
 
 ------------------------------------------------------------
-[22:54:25] Test-Positive - PARSED JSON
+[14:51:38] Test-Positive - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Home Page & Search",
@@ -484,100 +535,92 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Navigate between Hotels, Flights, Tours and Cars tabs and verify visible fields",
+      "wf_ref": "WF-001",
+      "test_case": "Search from Hotels tab with valid hotel search criteria",
       "preconditions": [
-        "Home page is open"
+        "User logged in as <role>",
+        "Home page is open and Search widget is visible"
       ],
       "steps": [
-        "1. Click the 'Hotels' tab",
-        "2. Click the 'Flights' tab",
-        "3. Click the 'Tours' tab",
-        "4. Click the 'Cars' tab"
+        "1. Click the 'Hotels' tab in the Search widget",
+        "2. Enter <destination> in the Destination field",
+        "3. Enter <check-in date> in the Check_in_Date field",
+        "4. Enter <check-out date> in the Check_out_Date field",
+        "5. Enter <number of rooms> in the Number_of_Rooms field",
+        "6. Enter <adults> in the Adults field",
+        "7. Click the Search button"
       ],
-      "expected_result": "Hotels tab shows Destination, Check-In Date, Check-Out Date, Number of Rooms, Adults, and Children fields; Flights tab shows Trip Type, Departure City, Arrival City, Departure Date, Return Date, Adults, Children, Infants, and Cabin Class fields; Tours tab shows Destination, Travel Start Date, and Travel End Date fields; Cars tab shows Pick Up Location, Drop Off Location, Pick Up Date, Pick Up Time, Drop Off Date, and Drop Off Time fields.",
-      "priority": "medium"
+      "expected_result": "redirects to Hotels results listing page",
+      "priority": "high"
     },
     {
       "tc_id": "P-002",
-      "test_case": "Perform a Hotels search with all required fields filled",
+      "wf_ref": "WF-002",
+      "test_case": "Search from Flights tab with valid flight search criteria",
       "preconditions": [
-        "Home page is open"
+        "User logged in as <role>",
+        "Home page is open and Search widget is visible"
       ],
       "steps": [
-        "1. Click the 'Hotels' tab",
-        "2. Enter <destination> into the Destination field",
-        "3. Enter <check-in date> into the Check-In Date field",
-        "4. Enter <check-out date> into the Check-Out Date field",
-        "5. Enter <number of rooms> into the Number of Rooms field",
-        "6. Enter <number of adults> into the Adults field",
-        "7. Enter <number of children> into the Children field",
-        "8. Click the Search button"
+        "1. Click the 'Flights' tab in the Search widget",
+        "2. Select <trip type> from the Trip_Type dropdown",
+        "3. Enter <departure city> in the Departure_City field",
+        "4. Enter <arrival city> in the Arrival_City field",
+        "5. Enter <departure date> in the Departure_Date field",
+        "6. Enter <return date> in the Return_Date field",
+        "7. Enter <adults> in the Adults field",
+        "8. Enter <children> in the Children field",
+        "9. Enter <infants> in the Infants field",
+        "10. Select <cabin class> from the Cabin_Class dropdown",
+        "11. Click the Search button"
       ],
-      "expected_result": "redirects to corresponding results listing page",
+      "expected_result": "redirects to Flights results listing page",
       "priority": "high"
     },
     {
       "tc_id": "P-003",
-      "test_case": "Perform a Flights Round-trip search with all required fields filled",
+      "wf_ref": "WF-003",
+      "test_case": "Search from Tours tab with valid tour search criteria",
       "preconditions": [
-        "Home page is open"
+        "User logged in as <role>",
+        "Home page is open and Search widget is visible"
       ],
       "steps": [
-        "1. Click the 'Flights' tab",
-        "2. Select 'Round-trip' from the Trip Type dropdown",
-        "3. Enter <departure city> into the Departure City search field and select a matching result",
-        "4. Enter <arrival city> into the Arrival City search field and select a matching result",
-        "5. Enter <departure date> into the Departure Date field",
-        "6. Enter <return date> into the Return Date field",
-        "7. Enter <number of adults> into the Adults field",
-        "8. Enter <number of children> into the Children field",
-        "9. Enter <number of infants> into the Infants field",
-        "10. Select 'Business' from the Cabin Class dropdown",
-        "11. Click the Search button"
+        "1. Click the 'Tours' tab in the Search widget",
+        "2. Enter <destination> in the Destination field",
+        "3. Enter <travel start date> in the Travel_Start_Date field",
+        "4. Enter <travel end date> in the Travel_End_Date field",
+        "5. Click the Search button"
       ],
-      "expected_result": "redirects to corresponding results listing page",
+      "expected_result": "redirects to Tours results listing page",
       "priority": "high"
     },
     {
       "tc_id": "P-004",
-      "test_case": "Perform a Tours search with destination and travel date range",
+      "wf_ref": "WF-004",
+      "test_case": "Search from Cars tab with valid car rental search criteria",
       "preconditions": [
-        "Home page is open"
+        "User logged in as <role>",
+        "Home page is open and Search widget is visible"
       ],
       "steps": [
-        "1. Click the 'Tours' tab",
-        "2. Enter <destination> into the Destination field",
-        "3. Enter <travel start date> into the Travel Start Date field",
-        "4. Enter <travel end date> into the Travel End Date field",
-        "5. Click the Search button"
-      ],
-      "expected_result": "redirects to corresponding results listing page",
-      "priority": "high"
-    },
-    {
-      "tc_id": "P-005",
-      "test_case": "Perform a Cars search with pick-up/drop-off locations and dates/times",
-      "preconditions": [
-        "Home page is open"
-      ],
-      "steps": [
-        "1. Click the 'Cars' tab",
-        "2. Enter <pick-up location> into the Pick Up Location search field and select a matching result",
-        "3. Enter <drop-off location> into the Drop Off Location search field and select a matching result",
-        "4. Enter <pick-up date> into the Pick Up Date field",
-        "5. Enter <pick-up time> into the Pick Up Time field",
-        "6. Enter <drop-off date> into the Drop Off Date field",
-        "7. Enter <drop-off time> into the Drop Off Time field",
+        "1. Click the 'Cars' tab in the Search widget",
+        "2. Enter <pick-up location> in the Pick_up_Location field",
+        "3. Enter <drop-off location> in the Drop_off_Location field",
+        "4. Enter <pick-up date> in the Pick_up_Date field",
+        "5. Enter <pick-up time> in the Pick_up_Time field",
+        "6. Enter <drop-off date> in the Drop_off_Date field",
+        "7. Enter <drop-off time> in the Drop_off_Time field",
         "8. Click the Search button"
       ],
-      "expected_result": "redirects to corresponding results listing page",
+      "expected_result": "redirects to Cars results listing page",
       "priority": "high"
     }
   ],
   "summary": {
-    "total": 5,
+    "total": 4,
     "high_priority": 4,
-    "medium_priority": 1,
+    "medium_priority": 0,
     "low_priority": 0
   }
 }

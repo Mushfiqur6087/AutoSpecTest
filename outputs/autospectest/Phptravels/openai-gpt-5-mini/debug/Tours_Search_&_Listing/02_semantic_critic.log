@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-21T22:50:10.010733
+DEBUG SESSION STARTED: 2026-05-25T14:45:09.070619
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[22:50:37] Semantic Critic - SYSTEM PROMPT
+[14:45:35] Semantic Critic - SYSTEM PROMPT
 ------------------------------------------------------------
 You are a UI-AST Semantic Critic. You receive (1) a raw functional description and (2) a generated UI-AST JSON.
 
@@ -106,7 +106,7 @@ Output ONLY the JSON object. No explanation, no markdown fencing, no preamble.
 
 
 ------------------------------------------------------------
-[22:50:37] Semantic Critic - USER PROMPT
+[14:45:35] Semantic Critic - USER PROMPT
 ------------------------------------------------------------
 <description>
 
@@ -146,13 +146,12 @@ The tours search form collects destination, travel dates, tour type (Adventure, 
             "Wildlife"
           ]
         },
-        "Duration_Min_Days": {
+        "Duration": {
           "type": "number",
-          "required": false
-        },
-        "Duration_Max_Days": {
-          "type": "number",
-          "required": false
+          "required": false,
+          "constraints": [
+            "must be a positive integer if provided"
+          ]
         },
         "Budget_Min": {
           "type": "number",
@@ -163,10 +162,13 @@ The tours search form collects destination, travel dates, tour type (Adventure, 
           "required": false
         }
       },
+      "constraints": [
+        "Travel_End_Date >= Travel_Start_Date",
+        "Budget_Max >= Budget_Min"
+      ],
       "submit_actions": [
         {
           "element_name": "Search",
-          "type": "button",
           "on_success": "redirects to Tours Listing page"
         }
       ]
@@ -174,7 +176,7 @@ The tours search form collects destination, travel dates, tour type (Adventure, 
     "Tours_Listing_Page": {
       "type": "page",
       "components": {
-        "Filters_Sidebar": {
+        "Sidebar_Filters": {
           "type": "form",
           "fields": {
             "Destination": {
@@ -199,13 +201,12 @@ The tours search form collects destination, travel dates, tour type (Adventure, 
               "type": "number",
               "required": false
             },
-            "Duration_Min_Days": {
+            "Duration": {
               "type": "number",
-              "required": false
-            },
-            "Duration_Max_Days": {
-              "type": "number",
-              "required": false
+              "required": false,
+              "constraints": [
+                "must be a positive integer if provided"
+              ]
             },
             "Departure_Start_Date": {
               "type": "date",
@@ -215,7 +216,11 @@ The tours search form collects destination, travel dates, tour type (Adventure, 
               "type": "date",
               "required": false
             }
-          }
+          },
+          "constraints": [
+            "Departure_End_Date >= Departure_Start_Date",
+            "Price_Max >= Price_Min"
+          ]
         },
         "Sort_Control": {
           "type": "dropdown",
@@ -227,10 +232,14 @@ The tours search form collects destination, travel dates, tour type (Adventure, 
             "Rating"
           ]
         },
-        "Results_List": {
-          "type": "list",
-          "description": "Card-based results (cards are passive displays per spec)",
-          "sortable_options": [
+        "Tours_Card_List": {
+          "type": "card_list",
+          "card_click_action": {
+            "action_name": "View Details",
+            "type": "link",
+            "on_success": "navigates to Tour Detail page"
+          },
+          "sortable_by": [
             "Popularity",
             "Price",
             "Duration",
@@ -246,23 +255,249 @@ The tours search form collects destination, travel dates, tour type (Adventure, 
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[22:51:19] Semantic Critic - LLM RESPONSE
+[14:46:18] Semantic Critic - LLM RESPONSE
+------------------------------------------------------------
+{
+  "verdict": "retry",
+  "summary": "Reject: card fields required by the listing are missing, and the AST includes multiple inferred constraints and actions that are not present in the description (too many phantoms).",
+  "missing": [
+    "Tours_Listing_Page.components.Tours_Card_List.card_fields.Image",
+    "Tours_Listing_Page.components.Tours_Card_List.card_fields.Name",
+    "Tours_Listing_Page.components.Tours_Card_List.card_fields.Destination",
+    "Tours_Listing_Page.components.Tours_Card_List.card_fields.Duration",
+    "Tours_Listing_Page.components.Tours_Card_List.card_fields.Starting_Price_Per_Person",
+    "Tours_Listing_Page.components.Tours_Card_List.card_fields.Brief_Description",
+    "Tours_Listing_Page.components.Tours_Card_List.card_fields.Availability_Status",
+    "Tours_Listing_Page.components.Tours_Card_List.card_fields.Traveler_Rating"
+  ],
+  "phantoms": [
+    "Tours_Search_Form.constraints[0] (Travel_End_Date >= Travel_Start_Date constraint not specified in description)",
+    "Tours_Search_Form.constraints[1] (Budget_Max >= Budget_Min constraint not specified in description)",
+    "Tours_Search_Form.fields.Duration.constraints[0] (Duration 'must be a positive integer' constraint not specified in description)",
+    "Tours_Listing_Page.components.Sidebar_Filters.constraints[0] (Departure_End_Date >= Departure_Start_Date constraint not specified in description)",
+    "Tours_Listing_Page.components.Sidebar_Filters.constraints[1] (Price_Max >= Price_Min constraint not specified in description)",
+    "Tours_Listing_Page.components.Sidebar_Filters.fields.Duration.constraints[0] (Duration 'must be a positive integer' constraint not specified in description)",
+    "Tours_Listing_Page.components.Tours_Card_List.card_click_action (View Details/card click action not mentioned in description)",
+    "Tours_Listing_Page.components.Tours_Card_List.sortable_by (card_list 'sortable_by' property inferred but description only specifies a global sort control)"
+  ],
+  "fixes": [
+    "Add explicit card field definitions under Tours_Listing_Page.components.Tours_Card_List.card_fields: include Image, Name, Destination, Duration, Starting_Price_Per_Person, Brief_Description, Availability_Status, Traveler_Rating (each as display fields; no additional interactive constraints unless described).",
+    "Remove the inferred constraints from Tours_Search_Form.constraints array; do not add Travel_End_Date >= Travel_Start_Date or Budget_Max >= Budget_Min unless the description explicitly requires validation rules.",
+    "Remove the inferred 'must be a positive integer' constraint from Tours_Search_Form.fields.Duration.constraints and from Tours_Listing_Page.components.Sidebar_Filters.fields.Duration.constraints unless the description explicitly states this validation.",
+    "Remove the inferred constraints array from Tours_Listing_Page.components.Sidebar_Filters (Departure_End_Date >= Departure_Start_Date and Price_Max >= Price_Min) unless those validation rules are explicitly specified.",
+    "Remove Tours_Listing_Page.components.Tours_Card_List.card_click_action unless the description explicitly states that cards are clickable or have a 'View Details' action; if cards should navigate, add only if described.",
+    "Remove Tours_Listing_Page.components.Tours_Card_List.sortable_by (duplicative/inferred). Keep only the Sort_Control component to represent sorting options as described."
+  ]
+}
+
+------------------------------------------------------------
+[14:46:18] Semantic Critic - PARSED JSON
+------------------------------------------------------------
+{
+  "verdict": "retry",
+  "summary": "Reject: card fields required by the listing are missing, and the AST includes multiple inferred constraints and actions that are not present in the description (too many phantoms).",
+  "missing": [
+    "Tours_Listing_Page.components.Tours_Card_List.card_fields.Image",
+    "Tours_Listing_Page.components.Tours_Card_List.card_fields.Name",
+    "Tours_Listing_Page.components.Tours_Card_List.card_fields.Destination",
+    "Tours_Listing_Page.components.Tours_Card_List.card_fields.Duration",
+    "Tours_Listing_Page.components.Tours_Card_List.card_fields.Starting_Price_Per_Person",
+    "Tours_Listing_Page.components.Tours_Card_List.card_fields.Brief_Description",
+    "Tours_Listing_Page.components.Tours_Card_List.card_fields.Availability_Status",
+    "Tours_Listing_Page.components.Tours_Card_List.card_fields.Traveler_Rating"
+  ],
+  "phantoms": [
+    "Tours_Search_Form.constraints[0] (Travel_End_Date >= Travel_Start_Date constraint not specified in description)",
+    "Tours_Search_Form.constraints[1] (Budget_Max >= Budget_Min constraint not specified in description)",
+    "Tours_Search_Form.fields.Duration.constraints[0] (Duration 'must be a positive integer' constraint not specified in description)",
+    "Tours_Listing_Page.components.Sidebar_Filters.constraints[0] (Departure_End_Date >= Departure_Start_Date constraint not specified in description)",
+    "Tours_Listing_Page.components.Sidebar_Filters.constraints[1] (Price_Max >= Price_Min constraint not specified in description)",
+    "Tours_Listing_Page.components.Sidebar_Filters.fields.Duration.constraints[0] (Duration 'must be a positive integer' constraint not specified in description)",
+    "Tours_Listing_Page.components.Tours_Card_List.card_click_action (View Details/card click action not mentioned in description)",
+    "Tours_Listing_Page.components.Tours_Card_List.sortable_by (card_list 'sortable_by' property inferred but description only specifies a global sort control)"
+  ],
+  "fixes": [
+    "Add explicit card field definitions under Tours_Listing_Page.components.Tours_Card_List.card_fields: include Image, Name, Destination, Duration, Starting_Price_Per_Person, Brief_Description, Availability_Status, Traveler_Rating (each as display fields; no additional interactive constraints unless described).",
+    "Remove the inferred constraints from Tours_Search_Form.constraints array; do not add Travel_End_Date >= Travel_Start_Date or Budget_Max >= Budget_Min unless the description explicitly requires validation rules.",
+    "Remove the inferred 'must be a positive integer' constraint from Tours_Search_Form.fields.Duration.constraints and from Tours_Listing_Page.components.Sidebar_Filters.fields.Duration.constraints unless the description explicitly states this validation.",
+    "Remove the inferred constraints array from Tours_Listing_Page.components.Sidebar_Filters (Departure_End_Date >= Departure_Start_Date and Price_Max >= Price_Min) unless those validation rules are explicitly specified.",
+    "Remove Tours_Listing_Page.components.Tours_Card_List.card_click_action unless the description explicitly states that cards are clickable or have a 'View Details' action; if cards should navigate, add only if described.",
+    "Remove Tours_Listing_Page.components.Tours_Card_List.sortable_by (duplicative/inferred). Keep only the Sort_Control component to represent sorting options as described."
+  ]
+}
+
+------------------------------------------------------------
+[14:46:50] Semantic Critic - USER PROMPT
+------------------------------------------------------------
+<description>
+
+The tours search form collects destination, travel dates, tour type (Adventure, Cultural, Cruise, Wildlife, etc.), duration, and budget range. On success, users are redirected to the listing page, where each card shows tour image, name, destination, duration, starting price per person, a brief description, availability status, and traveler rating. Sidebar filters include destination, tour type, price range, duration, and departure dates. Results can be sorted by popularity, price, duration, or rating.
+
+---
+
+
+</description>
+
+<ast>
+{
+  "module_name": "Tours Search & Listing",
+  "components": {
+    "Tours_Search_Form": {
+      "type": "form",
+      "fields": {
+        "Destination": {
+          "type": "unspecified",
+          "required": false
+        },
+        "Travel_Start_Date": {
+          "type": "date",
+          "required": false
+        },
+        "Travel_End_Date": {
+          "type": "date",
+          "required": false
+        },
+        "Tour_Type": {
+          "type": "dropdown",
+          "required": false,
+          "options": [
+            "Adventure",
+            "Cultural",
+            "Cruise",
+            "Wildlife"
+          ]
+        },
+        "Duration": {
+          "type": "unspecified",
+          "required": false
+        },
+        "Budget_Min": {
+          "type": "number",
+          "required": false
+        },
+        "Budget_Max": {
+          "type": "number",
+          "required": false
+        }
+      },
+      "submit_actions": [
+        {
+          "element_name": "Search",
+          "on_success": "redirects to Tours_Listing_Page"
+        }
+      ]
+    },
+    "Tours_Listing_Page": {
+      "type": "page",
+      "components": {
+        "Sidebar_Filters": {
+          "type": "form",
+          "fields": {
+            "Destination": {
+              "type": "unspecified",
+              "required": false
+            },
+            "Tour_Type": {
+              "type": "dropdown",
+              "required": false,
+              "options": [
+                "Adventure",
+                "Cultural",
+                "Cruise",
+                "Wildlife"
+              ]
+            },
+            "Price_Min": {
+              "type": "number",
+              "required": false
+            },
+            "Price_Max": {
+              "type": "number",
+              "required": false
+            },
+            "Duration": {
+              "type": "unspecified",
+              "required": false
+            },
+            "Departure_Start_Date": {
+              "type": "date",
+              "required": false
+            },
+            "Departure_End_Date": {
+              "type": "date",
+              "required": false
+            }
+          }
+        },
+        "Sort_Control": {
+          "type": "dropdown",
+          "element_name": "Sort_By",
+          "options": [
+            "Popularity",
+            "Price",
+            "Duration",
+            "Rating"
+          ]
+        },
+        "Tours_Card_List": {
+          "type": "card_list",
+          "card_fields": {
+            "Image": {
+              "type": "unspecified"
+            },
+            "Name": {
+              "type": "unspecified"
+            },
+            "Destination": {
+              "type": "unspecified"
+            },
+            "Duration": {
+              "type": "unspecified"
+            },
+            "Starting_Price_Per_Person": {
+              "type": "number"
+            },
+            "Brief_Description": {
+              "type": "unspecified"
+            },
+            "Availability_Status": {
+              "type": "unspecified"
+            },
+            "Traveler_Rating": {
+              "type": "unspecified"
+            }
+          }
+        }
+      }
+    }
+  }
+}
+</ast>
+
+IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
+
+------------------------------------------------------------
+[14:47:05] Semantic Critic - LLM RESPONSE
 ------------------------------------------------------------
 {
   "verdict": "yes",
-  "summary": "AST correctly captures the search form fields, submit redirect, listing page sidebar filters, and sorting controls with no extraneous interactive elements.",
+  "summary": "AST matches the described interactive elements (search form fields, submit redirect, sidebar filters, sorting, and listing cards); only a minor invented control name for the submit button was added.",
   "missing": [],
-  "phantoms": [],
+  "phantoms": [
+    "Tours_Search_Form.submit_actions[0].element_name (Search button name not specified in description)"
+  ],
   "fixes": []
 }
 
 ------------------------------------------------------------
-[22:51:19] Semantic Critic - PARSED JSON
+[14:47:05] Semantic Critic - PARSED JSON
 ------------------------------------------------------------
 {
   "verdict": "yes",
-  "summary": "AST correctly captures the search form fields, submit redirect, listing page sidebar filters, and sorting controls with no extraneous interactive elements.",
+  "summary": "AST matches the described interactive elements (search form fields, submit redirect, sidebar filters, sorting, and listing cards); only a minor invented control name for the submit button was added.",
   "missing": [],
-  "phantoms": [],
+  "phantoms": [
+    "Tours_Search_Form.submit_actions[0].element_name (Search button name not specified in description)"
+  ],
   "fixes": []
 }

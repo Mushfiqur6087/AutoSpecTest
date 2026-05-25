@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-21T22:54:00.279105
+DEBUG SESSION STARTED: 2026-05-25T14:51:20.262831
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[22:54:00] Test-Edge - SYSTEM PROMPT
+[14:51:20] Test-Edge - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Edge Case and Boundary Test Generator. You receive (1) a UI-AST JSON for one module and (2) the original functional description. Your job is to produce ONLY boundary and edge case tests — scenarios at the limits of valid/invalid input and unusual-but-plausible user behaviors.
 
@@ -25,6 +25,10 @@ You are NOT producing happy paths (positive prompt) or standard validation failu
 {Original functional description text for this module}
 </description>
 
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
+
 ---
 
 **UI-AST REFERENCE — How to Read the AST for Edge Testing:**
@@ -35,7 +39,7 @@ You are NOT producing happy paths (positive prompt) or standard validation failu
 | `repeating_group` with `max` | Test adding exactly `max` entries (should succeed) then one more (should block) |
 | `visible_when` / `required_when` | Edge: trigger condition, fill revealed field with boundary value |
 | `state_bound_action_bar` | State edges: rapid consecutive state transitions, transition from a boundary state |
-| `submit_actions[]` with multiple buttons | Interaction edge: double-click a submit button rapidly |
+
 | `type: "date"` fields | Data edges: today, yesterday, far future, Feb 29 leap year |
 | `type: "file_upload"` | Edge: file exactly at size limit, file at 1 byte over limit |
 
@@ -132,7 +136,6 @@ Pick only the ones that apply to field types present in this module's AST:
 
 Pick only the ones that match component types in this module's AST:
 
-- **Double-click submit** (any form/wizard with a submit button): rapidly double-click the submit button → assert only one record is created; no duplicate row appears in the listing table
 - **Rapid re-submission after redirect** (any form that redirects to a detail page on success): after a successful submit, press the browser back button → assert the creation form is shown blank (not pre-filled) OR the user is redirected to the detail page without a second entity being created
 - **Wizard step skip — enforced navigation** (wizard where steps must be completed sequentially): attempt to click a later step tab directly without completing earlier steps → assert navigation is blocked and the earlier step remains active
 - **Wizard step skip — free navigation** (wizard that allows free tab navigation): navigate to a later step without filling earlier steps → assert the later step displays and returning to the earlier step shows fields blank (no data was lost from the later step)
@@ -173,7 +176,16 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 
 - **High:** None — edge tests are secondary to core functionality
 - **Medium:** Boundary tests at thresholds (financial amounts, date ordering, count limits, file size limits)
-- **Low:** Input edge cases (long text, special chars, whitespace, decimal precision), interaction edge cases (double-click, browser back, wizard skip)
+- **Low:** Input edge cases (long text, special chars, whitespace, decimal precision), interaction edge cases (browser back, wizard skip)
+
+---
+
+**WORKFLOW-AWARE BOUNDARY SCOPING (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- For each workflow where `conditional_branch` activates a numeric or date field, check if that field has a boundary (a numeric/date threshold in the AST `constraints` or description).
+- If yes, that workflow's branch is a **candidate for a boundary edge test** — add or confirm a boundary TC exists for it.
+- Add `"wf_ref": "WF-NNN"` to each TC that maps to a specific workflow's boundary. Set `"wf_ref": null` for generic input/interaction edge tests.
 
 ---
 
@@ -185,6 +197,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": null,
       "subcategory": "boundary | input_edge | interaction_edge | state_edge | data_edge",
       "test_case": "Short descriptive name",
       "preconditions": ["precondition 1"],
@@ -207,7 +220,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 
 
 ------------------------------------------------------------
-[22:54:00] Test-Edge - USER PROMPT
+[14:51:20] Test-Edge - USER PROMPT
 ------------------------------------------------------------
 <module_name>Search & Filters</module_name>
 
@@ -216,7 +229,8 @@ If the module has any numeric/date/count threshold in the AST or description, pr
   "module_name": "Search & Filters",
   "components": {
     "Filter_Sidebar": {
-      "type": "filter_sidebar",
+      "type": "sidebar",
+      "position": "left",
       "sections": [
         {
           "section_name": "Common Filters",
@@ -224,182 +238,177 @@ If the module has any numeric/date/count threshold in the AST or description, pr
           "fields": {
             "Price_Range": {
               "type": "unspecified",
-              "control": "slider",
+              "widget": "slider",
               "required": false,
-              "on_change": "updates results dynamically and updates result count"
+              "on_change": "updates results dynamically and updates Result_Count"
             },
-            "Rating": {
+            "Star_Or_Review_Rating": {
               "type": "unspecified",
-              "control": "star_or_review_selector",
               "required": false,
-              "on_change": "updates results dynamically and updates result count"
+              "on_change": "updates results dynamically and updates Result_Count"
             }
           }
         },
         {
           "section_name": "Hotels Filters",
           "collapsible": true,
-          "visible_when": "listing_type == Hotels",
+          "visible_when": "Listing_Type == Hotels",
           "fields": {
             "Facilities_Amenities": {
-              "type": "unspecified",
-              "control": "multi_select_checkboxes",
+              "type": "dropdown",
               "required": false,
-              "on_change": "updates results dynamically and updates result count"
+              "on_change": "updates results dynamically and updates Result_Count"
             },
             "Hotel_Type": {
               "type": "dropdown",
               "required": false,
-              "on_change": "updates results dynamically and updates result count"
+              "on_change": "updates results dynamically and updates Result_Count"
             },
             "Board_Basis": {
               "type": "dropdown",
               "required": false,
-              "on_change": "updates results dynamically and updates result count"
+              "on_change": "updates results dynamically and updates Result_Count"
             },
             "Location_Area": {
-              "type": "search",
+              "type": "unspecified",
               "required": false,
-              "on_change": "updates results dynamically and updates result count"
+              "on_change": "updates results dynamically and updates Result_Count"
             }
           }
         },
         {
           "section_name": "Flights Filters",
           "collapsible": true,
-          "visible_when": "listing_type == Flights",
+          "visible_when": "Listing_Type == Flights",
           "fields": {
             "Airlines": {
-              "type": "unspecified",
-              "control": "multi_select",
+              "type": "dropdown",
               "required": false,
-              "on_change": "updates results dynamically and updates result count"
+              "on_change": "updates results dynamically and updates Result_Count"
             },
             "Number_of_Stops": {
-              "type": "unspecified",
-              "control": "dropdown_or_radio",
+              "type": "dropdown",
               "required": false,
-              "on_change": "updates results dynamically and updates result count"
+              "on_change": "updates results dynamically and updates Result_Count"
             },
             "Departure_Time_Range": {
               "type": "unspecified",
-              "control": "time_range_slider",
+              "widget": "time_range",
               "required": false,
-              "on_change": "updates results dynamically and updates result count"
+              "on_change": "updates results dynamically and updates Result_Count"
             },
             "Arrival_Time_Range": {
               "type": "unspecified",
-              "control": "time_range_slider",
+              "widget": "time_range",
               "required": false,
-              "on_change": "updates results dynamically and updates result count"
+              "on_change": "updates results dynamically and updates Result_Count"
             }
           }
         },
         {
           "section_name": "Tours Filters",
           "collapsible": true,
-          "visible_when": "listing_type == Tours",
+          "visible_when": "Listing_Type == Tours",
           "fields": {
             "Tour_Type": {
               "type": "dropdown",
               "required": false,
-              "on_change": "updates results dynamically and updates result count"
+              "on_change": "updates results dynamically and updates Result_Count"
             },
             "Duration": {
               "type": "unspecified",
-              "control": "range_or_dropdown",
               "required": false,
-              "on_change": "updates results dynamically and updates result count"
+              "on_change": "updates results dynamically and updates Result_Count"
             },
             "Departure_Dates": {
               "type": "unspecified",
-              "control": "date_range",
+              "widget": "date_picker",
               "required": false,
-              "on_change": "updates results dynamically and updates result count"
+              "on_change": "updates results dynamically and updates Result_Count"
             }
           }
         },
         {
           "section_name": "Cars Filters",
           "collapsible": true,
-          "visible_when": "listing_type == Cars",
+          "visible_when": "Listing_Type == Cars",
           "fields": {
             "Car_Type": {
               "type": "dropdown",
               "required": false,
-              "on_change": "updates results dynamically and updates result count"
+              "on_change": "updates results dynamically and updates Result_Count"
             },
             "Transmission": {
               "type": "dropdown",
               "required": false,
-              "on_change": "updates results dynamically and updates result count"
+              "on_change": "updates results dynamically and updates Result_Count"
             },
             "Fuel_Policy": {
               "type": "dropdown",
               "required": false,
-              "on_change": "updates results dynamically and updates result count"
+              "on_change": "updates results dynamically and updates Result_Count"
             },
             "Rental_Company": {
               "type": "dropdown",
               "required": false,
-              "on_change": "updates results dynamically and updates result count"
+              "on_change": "updates results dynamically and updates Result_Count"
             }
           }
         }
-      ]
-    },
-    "Active_Filters_Summary": {
-      "type": "active_filters_summary",
-      "location": "top_of_results",
-      "fields": {
-        "Active_Filters": {
-          "type": "repeating_group",
-          "item_fields": {
-            "Filter_Tag_Label": {
-              "type": "unspecified",
-              "required": false
-            },
-            "Remove_Filter": {
-              "type": "button",
-              "element_name": "Remove_Filter",
-              "on_click": "removes the filter and updates results dynamically and updates result count",
-              "on_success": "filter removed and results updated"
-            }
-          }
-        },
+      ],
+      "controls": {
         "Reset_All_Filters": {
           "type": "button",
-          "element_name": "Reset_All_Filters",
-          "on_click": "clears all filters and updates results dynamically and updates result count",
-          "on_success": "all filters cleared and results updated"
+          "element_name": "Reset all filters",
+          "on_click": "clears all filters and updates results and Result_Count"
+        }
+      }
+    },
+    "Active_Filters_Summary": {
+      "type": "component",
+      "location": "top_of_results",
+      "items": {
+        "type": "repeating_group",
+        "item_fields": {
+          "label": {
+            "type": "unspecified"
+          },
+          "remove": {
+            "type": "button",
+            "element_name": "Remove filter",
+            "on_click": "removes this filter and updates results and Result_Count"
+          }
+        }
+      },
+      "controls": {
+        "Reset_All": {
+          "type": "button",
+          "element_name": "Reset all filters",
+          "on_click": "clears all filters and updates results and Result_Count"
         }
       }
     },
     "Sorting_Controls": {
-      "type": "sorting_controls",
-      "location": "above_results_grid",
+      "type": "controls",
+      "location": "above_results",
       "fields": {
         "Sort_By": {
           "type": "dropdown",
           "required": false,
-          "on_change": "updates results dynamically and updates result order"
-        },
-        "Sort_Order": {
-          "type": "unspecified",
-          "control": "toggle_asc_desc",
-          "required": false,
-          "on_change": "updates results dynamically and updates result order"
+          "on_change": "reorders results"
         }
       }
     },
     "Results_Grid": {
-      "type": "data_table",
-      "interaction": {
-        "updates_on_filter_change": true,
-        "update_consequence": "results and result count update dynamically when filters or sorting change"
+      "type": "results_grid",
+      "updates": "dynamically on filter changes",
+      "behaviors": {
+        "on_filters_change": "updates results dynamically and updates Result_Count; active filters summary updates accordingly"
       },
-      "row_actions": [],
-      "bulk_actions": []
+      "result_count_behavior": {
+        "updates_when": "any filter changes",
+        "on_update": "display updated count"
+      }
     }
   }
 }
@@ -414,10 +423,33 @@ All listing pages include a left sidebar with collapsible filter sections and so
 
 </description>
 
+<workflows>
+WF-001 | Adjust price range slider | actor: <role> | branch: none | terminal: Adjust Price_Range | on_success: updates results dynamically and updates Result_Count
+WF-002 | Set star or review rating | actor: <role> | branch: none | terminal: Set Star_Or_Review_Rating | on_success: updates results dynamically and updates Result_Count
+WF-003 | Set hotels - facilities/amenities filter | actor: <role> | branch: Listing_Type == Hotels | terminal: Set Facilities_Amenities | on_success: updates results dynamically and updates Result_Count
+WF-004 | Set hotels - hotel type filter | actor: <role> | branch: Listing_Type == Hotels | terminal: Set Hotel_Type | on_success: updates results dynamically and updates Result_Count
+WF-005 | Set hotels - board basis filter | actor: <role> | branch: Listing_Type == Hotels | terminal: Set Board_Basis | on_success: updates results dynamically and updates Result_Count
+WF-006 | Set hotels - location/area filter | actor: <role> | branch: Listing_Type == Hotels | terminal: Set Location_Area | on_success: updates results dynamically and updates Result_Count
+WF-007 | Set flights - airlines filter | actor: <role> | branch: Listing_Type == Flights | terminal: Set Airlines | on_success: updates results dynamically and updates Result_Count
+WF-008 | Set flights - number of stops filter | actor: <role> | branch: Listing_Type == Flights | terminal: Set Number_of_Stops | on_success: updates results dynamically and updates Result_Count
+WF-009 | Set flights - departure time range | actor: <role> | branch: Listing_Type == Flights | terminal: Set Departure_Time_Range | on_success: updates results dynamically and updates Result_Count
+WF-010 | Set flights - arrival time range | actor: <role> | branch: Listing_Type == Flights | terminal: Set Arrival_Time_Range | on_success: updates results dynamically and updates Result_Count
+WF-011 | Set tours - tour type filter | actor: <role> | branch: Listing_Type == Tours | terminal: Set Tour_Type | on_success: updates results dynamically and updates Result_Count
+WF-012 | Set tours - duration filter | actor: <role> | branch: Listing_Type == Tours | terminal: Set Duration | on_success: updates results dynamically and updates Result_Count
+WF-013 | Set tours - departure dates | actor: <role> | branch: Listing_Type == Tours | terminal: Set Departure_Dates | on_success: updates results dynamically and updates Result_Count
+WF-014 | Set cars - car type filter | actor: <role> | branch: Listing_Type == Cars | terminal: Set Car_Type | on_success: updates results dynamically and updates Result_Count
+WF-015 | Set cars - transmission filter | actor: <role> | branch: Listing_Type == Cars | terminal: Set Transmission | on_success: updates results dynamically and updates Result_Count
+WF-016 | Set cars - fuel policy filter | actor: <role> | branch: Listing_Type == Cars | terminal: Set Fuel_Policy | on_success: updates results dynamically and updates Result_Count
+WF-017 | Set cars - rental company filter | actor: <role> | branch: Listing_Type == Cars | terminal: Set Rental_Company | on_success: updates results dynamically and updates Result_Count
+WF-018 | Reset all filters (sidebar or summary) | actor: <role> | branch: none | terminal: Reset all filters | on_success: clears all filters and updates results and Result_Count
+WF-019 | Remove an active filter from summary | actor: <role> | branch: none | terminal: Remove filter | on_success: removes this filter and updates results and Result_Count
+WF-020 | Change sorting (Sort_By) | actor: <role> | branch: none | terminal: Set Sort_By | on_success: reorders results
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[22:59:04] Test-Edge - LLM RESPONSE
+[14:54:35] Test-Edge - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Search & Filters",
@@ -425,154 +457,134 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": "WF-001",
       "subcategory": "boundary",
-      "test_case": "Tours Departure_Dates: start equals end (same-day range) succeeds",
+      "test_case": "Set price slider handles to identical value (zero-width range)",
       "preconditions": [
         "Listing page is open",
-        "Listing type set to Tours",
-        "Results grid and filter sidebar are visible"
+        "Listing_Type is set to a value where Price_Range is visible (any listing type)"
       ],
       "steps": [
-        "1. Open the Departure_Dates date range control in the Tours Filters section",
-        "2. Set the Start date to <date A>",
-        "3. Set the End date to <same date A>"
+        "1. Expand the Common Filters section if collapsed",
+        "2. Locate the Price_Range slider",
+        "3. Drag the left (minimum) slider handle to the same position as the right (maximum) slider handle (set both handles to identical value)",
+        "4. Observe the Results_Grid and Result_Count",
+        "5. Observe the Active_Filters_Summary"
       ],
-      "expected_result": "Selecting identical Start and End dates for Departure_Dates succeeds; no inline error is shown; Results_Grid updates dynamically and Active_Filters_Summary displays a Departure_Dates filter tag reflecting the selected same-day range",
+      "expected_result": "Setting both slider handles to the same value succeeds; results update dynamically and Result_Count updates; Active_Filters_Summary shows a single Price range entry where the displayed min and max are identical (zero-width range shown)",
       "priority": "medium"
     },
     {
       "tc_id": "E-002",
+      "wf_ref": "WF-001",
       "subcategory": "boundary",
-      "test_case": "Tours Departure_Dates: Start set one day after End is blocked",
+      "test_case": "Attempt to move price slider left handle past right handle (handle-crossing)",
       "preconditions": [
         "Listing page is open",
-        "Listing type set to Tours",
-        "Results grid and filter sidebar are visible"
+        "Price_Range slider is visible"
       ],
       "steps": [
-        "1. Open the Departure_Dates date range control in the Tours Filters section",
-        "2. Set the End date to <date B>",
-        "3. Set the Start date to <one day after date B>"
+        "1. Expand the Common Filters section if collapsed",
+        "2. Set Price_Range to an initial distinct min and max",
+        "3. Attempt to drag the left (minimum) handle one step beyond the current right (maximum) handle position",
+        "4. Observe whether the slider allows the handles to cross and observe Results_Grid and Result_Count"
       ],
-      "expected_result": "Setting the Start date to one day after the End date is blocked; an inline error is shown on the Departure_Dates control indicating the start date cannot be after the end date and no Departure_Dates filter tag is added to Active_Filters_Summary",
+      "expected_result": "Attempt to move the left handle past the right handle is blocked; slider handles do not cross and the Price_Range remains at its previous ordered values; Result_Count does not change as a result of the invalid drag and no new price range is applied",
       "priority": "medium"
     },
     {
       "tc_id": "E-003",
+      "wf_ref": "WF-009",
       "subcategory": "boundary",
-      "test_case": "Flights Departure_Time_Range: start time equals end time (single instant) succeeds",
+      "test_case": "Set Departure_Time_Range start time equal to end time",
       "preconditions": [
         "Listing page is open",
-        "Listing type set to Flights",
-        "Results grid and filter sidebar are visible"
+        "Listing_Type == Flights so Departure_Time_Range is visible"
       ],
       "steps": [
-        "1. Open the Departure_Time_Range time slider in the Flights Filters section",
-        "2. Set the Start time handle to <time T>",
-        "3. Set the End time handle to <same time T>"
+        "1. Expand the Flights Filters section if collapsed",
+        "2. Open the Departure_Time_Range time_range control",
+        "3. Set the start time to a specific time",
+        "4. Set the end time to the exact same time as the start time",
+        "5. Observe Results_Grid and Result_Count",
+        "6. Observe Active_Filters_Summary"
       ],
-      "expected_result": "Setting Departure_Time_Range Start and End to the same time succeeds; no inline error is shown; Results_Grid updates dynamically and Active_Filters_Summary displays a Departure_Time_Range filter tag reflecting the single-time selection",
+      "expected_result": "Setting Departure_Time_Range start equal to end succeeds; results update dynamically and Result_Count updates; Active_Filters_Summary shows a departure time range filter entry with identical start and end times",
       "priority": "medium"
     },
     {
       "tc_id": "E-004",
+      "wf_ref": "WF-009",
       "subcategory": "boundary",
-      "test_case": "Flights Departure_Time_Range: Start set one minute after End is blocked",
+      "test_case": "Set Departure_Time_Range start time one unit after end time (invalid ordering)",
       "preconditions": [
         "Listing page is open",
-        "Listing type set to Flights",
-        "Results grid and filter sidebar are visible"
+        "Listing_Type == Flights so Departure_Time_Range is visible"
       ],
       "steps": [
-        "1. Open the Departure_Time_Range time slider in the Flights Filters section",
-        "2. Set the End time handle to <time U>",
-        "3. Set the Start time handle to <one minute after time U>"
+        "1. Expand the Flights Filters section if collapsed",
+        "2. Open the Departure_Time_Range time_range control",
+        "3. Set the end time to a specific time",
+        "4. Set the start time to one unit after the end time (e.g., one minute after)",
+        "5. Observe the time_range control for inline errors and observe Results_Grid and Result_Count"
       ],
-      "expected_result": "Setting the Departure_Time_Range Start to a time after the End time is blocked; an inline error is shown on the time range control indicating the start must be the same as or before the end time and no Departure_Time_Range filter tag is added to Active_Filters_Summary",
+      "expected_result": "Setting start time after end time is blocked / error shown; the UI shows an inline error indicating the start time cannot be after the end time (and does not apply the invalid range); Result_Count does not change due to the invalid input",
       "priority": "medium"
     },
     {
       "tc_id": "E-005",
-      "subcategory": "boundary",
-      "test_case": "Price_Range slider: both handles set to minimum edge value succeeds",
+      "wf_ref": "WF-006",
+      "subcategory": "input_edge",
+      "test_case": "Enter very long text into Hotels -> Location_Area (revealed by visible_when)",
       "preconditions": [
         "Listing page is open",
-        "Any listing type (Common Filters visible)",
-        "Results grid and filter sidebar are visible"
+        "Listing_Type == Hotels so Location_Area filter is visible"
       ],
       "steps": [
-        "1. Open the Price_Range slider in the Common Filters section",
-        "2. Drag the lower handle to <minimum allowed value>",
-        "3. Drag the upper handle to <minimum allowed value>"
+        "1. Expand the Hotels Filters section if collapsed",
+        "2. Focus the Location_Area input field",
+        "3. Enter a very long free-text value (200+ characters) into Location_Area, including punctuation and unicode characters",
+        "4. Move focus away from the input to trigger on_change",
+        "5. Observe Results_Grid and Result_Count",
+        "6. Observe Active_Filters_Summary and the displayed Location_Area label"
       ],
-      "expected_result": "Setting both Price_Range handles to the minimum allowed value succeeds; no inline error is shown; Results_Grid updates dynamically and Active_Filters_Summary displays a Price_Range filter tag showing both handles at <minimum allowed value>",
-      "priority": "medium"
+      "expected_result": "Entering a very long string into Location_Area succeeds (input accepted); results update dynamically and Result_Count updates; Active_Filters_Summary shows a Location_Area filter entry — the displayed label is visibly truncated in the summary with an ellipsis if the UI limits label width, and full text is available via hover/tooltip or detail on click (visible truncation behavior shown)",
+      "priority": "low"
     },
     {
       "tc_id": "E-006",
-      "subcategory": "boundary",
-      "test_case": "Price_Range slider: both handles set to maximum edge value succeeds",
-      "preconditions": [
-        "Listing page is open",
-        "Any listing type (Common Filters visible)",
-        "Results grid and filter sidebar are visible"
-      ],
-      "steps": [
-        "1. Open the Price_Range slider in the Common Filters section",
-        "2. Drag the lower handle to <maximum allowed value>",
-        "3. Drag the upper handle to <maximum allowed value>"
-      ],
-      "expected_result": "Setting both Price_Range handles to the maximum allowed value succeeds; no inline error is shown; Results_Grid updates dynamically and Active_Filters_Summary displays a Price_Range filter tag showing both handles at <maximum allowed value>",
-      "priority": "medium"
-    },
-    {
-      "tc_id": "E-007",
-      "subcategory": "input_edge",
-      "test_case": "Hotels Location_Area search: very long input (200+ chars) handling",
-      "preconditions": [
-        "Listing page is open",
-        "Listing type set to Hotels",
-        "Results grid and filter sidebar are visible"
-      ],
-      "steps": [
-        "1. Focus the Location_Area search field under Hotels Filters",
-        "2. Enter a very long text string of 200+ characters into the Location_Area field",
-        "3. Press Enter or select a suggestion to trigger the search update"
-      ],
-      "expected_result": "Entering a very long Location_Area string succeeds (no truncation visible in the input field); Results_Grid updates dynamically based on the long query and Active_Filters_Summary shows a Location_Area filter tag containing the entered text (or a UI-visible truncated label if the UI truncates tags), indicating the input was accepted",
-      "priority": "low"
-    },
-    {
-      "tc_id": "E-008",
+      "wf_ref": "WF-018",
       "subcategory": "interaction_edge",
-      "test_case": "Active filter removal: rapid double-click Remove_Filter is idempotent",
+      "test_case": "Reset all filters then use browser Back to verify filters are not reapplied",
       "preconditions": [
-        "Listing page is open",
-        "At least one filter is active and shown in Active_Filters_Summary",
-        "Results grid shows filtered results"
+        "Listing page is open"
       ],
       "steps": [
-        "1. Identify a filter tag in Active_Filters_Summary with a Remove_Filter button",
-        "2. Double-click the Remove_Filter button rapidly (two clicks in quick succession)"
+        "1. Apply multiple filters across sections (e.g., set Price_Range and a Star_Or_Review_Rating and one listing-specific filter)",
+        "2. Observe Results_Grid and Result_Count change from baseline",
+        "3. Click the sidebar 'Reset all filters' button",
+        "4. Observe that all filters clear, Active_Filters_Summary becomes empty, and Result_Count shows the unfiltered total",
+        "5. Immediately press the browser Back button once",
+        "6. Observe the filters, Active_Filters_Summary, and Result_Count after navigation"
       ],
-      "expected_result": "Rapid double-clicking the Remove_Filter button removes the filter only once and succeeds; the filter tag is removed once, Results_Grid updates dynamically one time, and result count decrements once — the second click has no additional effect and no duplicate removals occur",
-      "priority": "low"
+      "expected_result": "Clicking Reset all filters succeeds: all filters clear, Active_Filters_Summary is empty, and Result_Count shows the unfiltered total; pressing the browser Back button does not reapply the cleared filters (no filters reappear in sidebar or Active_Filters_Summary) — UI remains in the cleared state or navigates back without restoring the previously applied filters",
+      "priority": "medium"
     }
   ],
   "summary": {
-    "total": 8,
-    "boundary": 6,
+    "total": 6,
+    "boundary": 4,
     "input_edge": 1,
     "interaction_edge": 1,
     "state_edge": 0,
     "data_edge": 0,
-    "medium_priority": 6,
-    "low_priority": 2
+    "medium_priority": 4,
+    "low_priority": 1
   }
 }
 
 ------------------------------------------------------------
-[22:59:04] Test-Edge - PARSED JSON
+[14:54:35] Test-Edge - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Search & Filters",
@@ -580,148 +592,128 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": "WF-001",
       "subcategory": "boundary",
-      "test_case": "Tours Departure_Dates: start equals end (same-day range) succeeds",
+      "test_case": "Set price slider handles to identical value (zero-width range)",
       "preconditions": [
         "Listing page is open",
-        "Listing type set to Tours",
-        "Results grid and filter sidebar are visible"
+        "Listing_Type is set to a value where Price_Range is visible (any listing type)"
       ],
       "steps": [
-        "1. Open the Departure_Dates date range control in the Tours Filters section",
-        "2. Set the Start date to <date A>",
-        "3. Set the End date to <same date A>"
+        "1. Expand the Common Filters section if collapsed",
+        "2. Locate the Price_Range slider",
+        "3. Drag the left (minimum) slider handle to the same position as the right (maximum) slider handle (set both handles to identical value)",
+        "4. Observe the Results_Grid and Result_Count",
+        "5. Observe the Active_Filters_Summary"
       ],
-      "expected_result": "Selecting identical Start and End dates for Departure_Dates succeeds; no inline error is shown; Results_Grid updates dynamically and Active_Filters_Summary displays a Departure_Dates filter tag reflecting the selected same-day range",
+      "expected_result": "Setting both slider handles to the same value succeeds; results update dynamically and Result_Count updates; Active_Filters_Summary shows a single Price range entry where the displayed min and max are identical (zero-width range shown)",
       "priority": "medium"
     },
     {
       "tc_id": "E-002",
+      "wf_ref": "WF-001",
       "subcategory": "boundary",
-      "test_case": "Tours Departure_Dates: Start set one day after End is blocked",
+      "test_case": "Attempt to move price slider left handle past right handle (handle-crossing)",
       "preconditions": [
         "Listing page is open",
-        "Listing type set to Tours",
-        "Results grid and filter sidebar are visible"
+        "Price_Range slider is visible"
       ],
       "steps": [
-        "1. Open the Departure_Dates date range control in the Tours Filters section",
-        "2. Set the End date to <date B>",
-        "3. Set the Start date to <one day after date B>"
+        "1. Expand the Common Filters section if collapsed",
+        "2. Set Price_Range to an initial distinct min and max",
+        "3. Attempt to drag the left (minimum) handle one step beyond the current right (maximum) handle position",
+        "4. Observe whether the slider allows the handles to cross and observe Results_Grid and Result_Count"
       ],
-      "expected_result": "Setting the Start date to one day after the End date is blocked; an inline error is shown on the Departure_Dates control indicating the start date cannot be after the end date and no Departure_Dates filter tag is added to Active_Filters_Summary",
+      "expected_result": "Attempt to move the left handle past the right handle is blocked; slider handles do not cross and the Price_Range remains at its previous ordered values; Result_Count does not change as a result of the invalid drag and no new price range is applied",
       "priority": "medium"
     },
     {
       "tc_id": "E-003",
+      "wf_ref": "WF-009",
       "subcategory": "boundary",
-      "test_case": "Flights Departure_Time_Range: start time equals end time (single instant) succeeds",
+      "test_case": "Set Departure_Time_Range start time equal to end time",
       "preconditions": [
         "Listing page is open",
-        "Listing type set to Flights",
-        "Results grid and filter sidebar are visible"
+        "Listing_Type == Flights so Departure_Time_Range is visible"
       ],
       "steps": [
-        "1. Open the Departure_Time_Range time slider in the Flights Filters section",
-        "2. Set the Start time handle to <time T>",
-        "3. Set the End time handle to <same time T>"
+        "1. Expand the Flights Filters section if collapsed",
+        "2. Open the Departure_Time_Range time_range control",
+        "3. Set the start time to a specific time",
+        "4. Set the end time to the exact same time as the start time",
+        "5. Observe Results_Grid and Result_Count",
+        "6. Observe Active_Filters_Summary"
       ],
-      "expected_result": "Setting Departure_Time_Range Start and End to the same time succeeds; no inline error is shown; Results_Grid updates dynamically and Active_Filters_Summary displays a Departure_Time_Range filter tag reflecting the single-time selection",
+      "expected_result": "Setting Departure_Time_Range start equal to end succeeds; results update dynamically and Result_Count updates; Active_Filters_Summary shows a departure time range filter entry with identical start and end times",
       "priority": "medium"
     },
     {
       "tc_id": "E-004",
+      "wf_ref": "WF-009",
       "subcategory": "boundary",
-      "test_case": "Flights Departure_Time_Range: Start set one minute after End is blocked",
+      "test_case": "Set Departure_Time_Range start time one unit after end time (invalid ordering)",
       "preconditions": [
         "Listing page is open",
-        "Listing type set to Flights",
-        "Results grid and filter sidebar are visible"
+        "Listing_Type == Flights so Departure_Time_Range is visible"
       ],
       "steps": [
-        "1. Open the Departure_Time_Range time slider in the Flights Filters section",
-        "2. Set the End time handle to <time U>",
-        "3. Set the Start time handle to <one minute after time U>"
+        "1. Expand the Flights Filters section if collapsed",
+        "2. Open the Departure_Time_Range time_range control",
+        "3. Set the end time to a specific time",
+        "4. Set the start time to one unit after the end time (e.g., one minute after)",
+        "5. Observe the time_range control for inline errors and observe Results_Grid and Result_Count"
       ],
-      "expected_result": "Setting the Departure_Time_Range Start to a time after the End time is blocked; an inline error is shown on the time range control indicating the start must be the same as or before the end time and no Departure_Time_Range filter tag is added to Active_Filters_Summary",
+      "expected_result": "Setting start time after end time is blocked / error shown; the UI shows an inline error indicating the start time cannot be after the end time (and does not apply the invalid range); Result_Count does not change due to the invalid input",
       "priority": "medium"
     },
     {
       "tc_id": "E-005",
-      "subcategory": "boundary",
-      "test_case": "Price_Range slider: both handles set to minimum edge value succeeds",
+      "wf_ref": "WF-006",
+      "subcategory": "input_edge",
+      "test_case": "Enter very long text into Hotels -> Location_Area (revealed by visible_when)",
       "preconditions": [
         "Listing page is open",
-        "Any listing type (Common Filters visible)",
-        "Results grid and filter sidebar are visible"
+        "Listing_Type == Hotels so Location_Area filter is visible"
       ],
       "steps": [
-        "1. Open the Price_Range slider in the Common Filters section",
-        "2. Drag the lower handle to <minimum allowed value>",
-        "3. Drag the upper handle to <minimum allowed value>"
+        "1. Expand the Hotels Filters section if collapsed",
+        "2. Focus the Location_Area input field",
+        "3. Enter a very long free-text value (200+ characters) into Location_Area, including punctuation and unicode characters",
+        "4. Move focus away from the input to trigger on_change",
+        "5. Observe Results_Grid and Result_Count",
+        "6. Observe Active_Filters_Summary and the displayed Location_Area label"
       ],
-      "expected_result": "Setting both Price_Range handles to the minimum allowed value succeeds; no inline error is shown; Results_Grid updates dynamically and Active_Filters_Summary displays a Price_Range filter tag showing both handles at <minimum allowed value>",
-      "priority": "medium"
+      "expected_result": "Entering a very long string into Location_Area succeeds (input accepted); results update dynamically and Result_Count updates; Active_Filters_Summary shows a Location_Area filter entry \u2014 the displayed label is visibly truncated in the summary with an ellipsis if the UI limits label width, and full text is available via hover/tooltip or detail on click (visible truncation behavior shown)",
+      "priority": "low"
     },
     {
       "tc_id": "E-006",
-      "subcategory": "boundary",
-      "test_case": "Price_Range slider: both handles set to maximum edge value succeeds",
-      "preconditions": [
-        "Listing page is open",
-        "Any listing type (Common Filters visible)",
-        "Results grid and filter sidebar are visible"
-      ],
-      "steps": [
-        "1. Open the Price_Range slider in the Common Filters section",
-        "2. Drag the lower handle to <maximum allowed value>",
-        "3. Drag the upper handle to <maximum allowed value>"
-      ],
-      "expected_result": "Setting both Price_Range handles to the maximum allowed value succeeds; no inline error is shown; Results_Grid updates dynamically and Active_Filters_Summary displays a Price_Range filter tag showing both handles at <maximum allowed value>",
-      "priority": "medium"
-    },
-    {
-      "tc_id": "E-007",
-      "subcategory": "input_edge",
-      "test_case": "Hotels Location_Area search: very long input (200+ chars) handling",
-      "preconditions": [
-        "Listing page is open",
-        "Listing type set to Hotels",
-        "Results grid and filter sidebar are visible"
-      ],
-      "steps": [
-        "1. Focus the Location_Area search field under Hotels Filters",
-        "2. Enter a very long text string of 200+ characters into the Location_Area field",
-        "3. Press Enter or select a suggestion to trigger the search update"
-      ],
-      "expected_result": "Entering a very long Location_Area string succeeds (no truncation visible in the input field); Results_Grid updates dynamically based on the long query and Active_Filters_Summary shows a Location_Area filter tag containing the entered text (or a UI-visible truncated label if the UI truncates tags), indicating the input was accepted",
-      "priority": "low"
-    },
-    {
-      "tc_id": "E-008",
+      "wf_ref": "WF-018",
       "subcategory": "interaction_edge",
-      "test_case": "Active filter removal: rapid double-click Remove_Filter is idempotent",
+      "test_case": "Reset all filters then use browser Back to verify filters are not reapplied",
       "preconditions": [
-        "Listing page is open",
-        "At least one filter is active and shown in Active_Filters_Summary",
-        "Results grid shows filtered results"
+        "Listing page is open"
       ],
       "steps": [
-        "1. Identify a filter tag in Active_Filters_Summary with a Remove_Filter button",
-        "2. Double-click the Remove_Filter button rapidly (two clicks in quick succession)"
+        "1. Apply multiple filters across sections (e.g., set Price_Range and a Star_Or_Review_Rating and one listing-specific filter)",
+        "2. Observe Results_Grid and Result_Count change from baseline",
+        "3. Click the sidebar 'Reset all filters' button",
+        "4. Observe that all filters clear, Active_Filters_Summary becomes empty, and Result_Count shows the unfiltered total",
+        "5. Immediately press the browser Back button once",
+        "6. Observe the filters, Active_Filters_Summary, and Result_Count after navigation"
       ],
-      "expected_result": "Rapid double-clicking the Remove_Filter button removes the filter only once and succeeds; the filter tag is removed once, Results_Grid updates dynamically one time, and result count decrements once \u2014 the second click has no additional effect and no duplicate removals occur",
-      "priority": "low"
+      "expected_result": "Clicking Reset all filters succeeds: all filters clear, Active_Filters_Summary is empty, and Result_Count shows the unfiltered total; pressing the browser Back button does not reapply the cleared filters (no filters reappear in sidebar or Active_Filters_Summary) \u2014 UI remains in the cleared state or navigates back without restoring the previously applied filters",
+      "priority": "medium"
     }
   ],
   "summary": {
-    "total": 8,
-    "boundary": 6,
+    "total": 6,
+    "boundary": 4,
     "input_edge": 1,
     "interaction_edge": 1,
     "state_edge": 0,
     "data_edge": 0,
-    "medium_priority": 6,
-    "low_priority": 2
+    "medium_priority": 4,
+    "low_priority": 1
   }
 }

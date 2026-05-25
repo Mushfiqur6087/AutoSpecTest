@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-21T22:29:06.556998
+DEBUG SESSION STARTED: 2026-05-25T14:24:50.745433
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[22:29:06] Test-Positive - SYSTEM PROMPT
+[14:24:50] Test-Positive - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Expert UI Test Case Generator. You receive (1) a UI-AST JSON for one specific module and (2) the original functional description for that module.
 
@@ -24,6 +24,10 @@ Your job is to produce ONLY positive/functional UI test cases — tests where va
 <description>
 {Original functional description text for this module}
 </description>
+
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
 
 ---
 
@@ -146,6 +150,13 @@ Because you are testing a module in isolation, establish the required entry stat
 **1. Forms & Wizards (`form`, `wizard`):**
 - Generate ONE happy path per distinct success outcome.
 - *Conditional UI Check:* If a toggle/dropdown reveals new mandatory fields (`visible_when`), generate a separate test for that conditional branch.
+- **Wizard step coverage (CRITICAL):** If a wizard has multiple steps and any step beyond Step 1 contains its own named field group (e.g., "Address Details", "Family Members", "Identifiers"), generate ONE dedicated positive TC per such step. The TC must:
+  - Navigate to that specific step (include the preceding steps as preconditions or brief navigation steps)
+  - Fill the fields described for that step (not just pass through)
+  - Assert the step's content is visible/saved on the detail page after final submission
+  - **Do NOT collapse all wizard steps into one happy-path TC** — if Steps 2, 3, and 4 each have their own named section in the spec, they each need their own TC.
+- **Wizard in-step identifiers/duplicates:** If a wizard step allows adding identifiers, documents, or similar entries that have a uniqueness constraint, include a TC for that wizard step that also verifies the constraint (e.g., attempting to add a duplicate Document Type+Key pair inside the wizard). This is a different code path from adding the same post-creation on the detail page.
+- **Action dialogs:** If a `state_bound_action_bar` action opens a dialog with its own `fields{}` (e.g., Activate requires Activation Date, Reject requires Reason), generate ONE positive TC per such action-dialog — distinct from the state-transition TC. The TC fills the dialog field and completes the action.
 
 **2. State Machines (`state_bound_action_bar`):**
 - For each unique action available in a specific state, generate ONE test performing that action.
@@ -200,6 +211,19 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 
 ---
 
+**WORKFLOW COVERAGE OBLIGATION (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- Your test cases must **collectively cover every workflow** listed.
+- For each `wf_id`, at least one TC must:
+  - Activate the `conditional_branch` (if not null) — i.e. the test must set up the condition described.
+  - Assert the `on_success` as its `expected_result` (verbatim or as the primary basis for the expected result).
+- Add `"wf_ref": "WF-NNN"` to each TC to identify which workflow it covers.
+- If one TC naturally covers multiple workflows (e.g., the base path overlaps), pick the most specific `wf_ref`.
+- If a TC does not map to any workflow (e.g., a navigation-only test), set `"wf_ref": null`.
+
+---
+
 **OUTPUT — JSON only, no prose, no markdown fencing:**
 
 {
@@ -208,6 +232,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
   "test_cases": [
     {
       "tc_id": "P-001",
+      "wf_ref": "WF-001",
       "test_case": "Short descriptive name",
       "preconditions": ["User logged in as <Role>", "<Prerequisite state>"],
       "steps": ["1. Step one", "2. Step two"],
@@ -224,7 +249,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 }
 
 ------------------------------------------------------------
-[22:29:06] Test-Positive - USER PROMPT
+[14:24:50] Test-Positive - USER PROMPT
 ------------------------------------------------------------
 <module_name>Organization Settings</module_name>
 
@@ -232,22 +257,19 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 {
   "module_name": "Organization Settings",
   "components": {
-    "Holidays_Page": {
+    "Holidays_Table": {
       "type": "data_table",
-      "sortable_columns": [
+      "columns": [
         "Name",
         "Start Date",
         "To Date",
-        "Status",
         "Rescheduling Type"
       ],
-      "bulk_actions": [],
-      "row_actions": [],
-      "page_actions": [
+      "actions": [
         {
-          "element_name": "+ Create Holiday",
-          "action": "open_form",
-          "target": "Create_Holiday_Form"
+          "action_name": "+ Create Holiday",
+          "action_type": "button",
+          "opens": "Create_Holiday_Form"
         }
       ]
     },
@@ -258,342 +280,274 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
           "type": "unspecified",
           "required": true
         },
-        "From Date": {
+        "From_Date": {
           "type": "date",
           "required": true
         },
-        "To Date": {
+        "To_Date": {
           "type": "date",
           "required": true
         },
-        "Repayments Rescheduled To date": {
-          "type": "date",
-          "required": false
+        "Repayments_Rescheduled_To": {
+          "type": "date"
         },
-        "Rescheduling Type": {
-          "type": "dropdown",
-          "required": false
+        "Rescheduling_Type": {
+          "type": "dropdown"
         },
         "Description": {
-          "type": "unspecified",
-          "required": false
+          "type": "unspecified"
         },
-        "Applicable Offices": {
-          "type": "unspecified",
-          "multi_select": true,
-          "required": false
+        "Applicable_Offices": {
+          "type": "dropdown",
+          "multi_select": true
         }
       },
       "submit_actions": [
         {
-          "on_success": "creates holiday and reschedules loan installments that fall on the holiday per the configured rescheduling type"
+          "on_success": "creates holiday; installments falling on holidays are rescheduled per configured type"
         }
       ]
+    },
+    "Holiday_State_Actions": {
+      "type": "state_bound_action_bar",
+      "states": {
+        "Pending": {
+          "available_actions": []
+        },
+        "Active": {
+          "available_actions": []
+        }
+      }
     },
     "Working_Days_Page": {
       "type": "form",
       "fields": {
         "Monday": {
-          "type": "checkbox",
-          "required": false
+          "type": "checkbox"
         },
         "Tuesday": {
-          "type": "checkbox",
-          "required": false
+          "type": "checkbox"
         },
         "Wednesday": {
-          "type": "checkbox",
-          "required": false
+          "type": "checkbox"
         },
         "Thursday": {
-          "type": "checkbox",
-          "required": false
+          "type": "checkbox"
         },
         "Friday": {
-          "type": "checkbox",
-          "required": false
+          "type": "checkbox"
         },
         "Saturday": {
-          "type": "checkbox",
-          "required": false
+          "type": "checkbox"
         },
         "Sunday": {
-          "type": "checkbox",
-          "required": false
+          "type": "checkbox"
         },
-        "Repayment Rescheduling": {
-          "type": "dropdown",
-          "required": false
+        "Repayment_Rescheduling": {
+          "type": "dropdown"
         }
-      },
-      "submit_actions": [
-        {
-          "on_success": "saves working days configuration and reschedules loan installments that fall on non-working days per the selected rescheduling option"
-        }
-      ]
+      }
     },
     "Currencies_Page": {
       "type": "data_table",
-      "sortable_columns": [
+      "columns": [
         "Code",
         "Name",
         "Decimal Places"
       ],
-      "fields": {
-        "Currencies": {
-          "type": "repeating_group",
-          "item_fields": {
-            "Code": {
-              "type": "unspecified",
-              "required": true
-            },
-            "Name": {
-              "type": "unspecified",
-              "required": true
-            },
-            "Decimal Places": {
-              "type": "number",
-              "required": true
-            },
-            "Is Active": {
-              "type": "checkbox",
-              "required": false
-            }
-          }
-        }
-      },
-      "submit_actions": [
-        {
-          "on_success": "updates which currencies are active for the system"
-        }
-      ]
+      "selectable_rows": true,
+      "selection_effect": "selected rows are marked active currencies"
     },
     "Funds_Page": {
       "type": "data_table",
-      "sortable_columns": [
+      "columns": [
         "Fund Name",
         "External ID"
       ],
-      "row_actions": [],
-      "page_actions": [
+      "actions": [
         {
-          "action": "open_form",
-          "target": "Create_Fund_Form"
+          "action_name": "Create Fund",
+          "action_type": "button",
+          "opens": "Create_Fund_Form"
         }
       ]
     },
     "Create_Fund_Form": {
       "type": "form",
       "fields": {
-        "Fund Name": {
-          "type": "unspecified",
-          "required": false
+        "Fund_Name": {
+          "type": "unspecified"
         },
-        "External ID": {
-          "type": "unspecified",
-          "required": false
+        "External_ID": {
+          "type": "unspecified"
         }
       },
       "submit_actions": [
         {
-          "on_success": "creates fund and makes it available as a funding source for loans"
+          "on_success": "creates fund"
         }
       ]
     },
     "Payment_Types_Page": {
       "type": "data_table",
-      "sortable_columns": [
+      "columns": [
         "Name",
+        "Description",
+        "Is Cash Payment",
         "Position"
       ],
-      "fields": {
-        "Payment_Types": {
-          "type": "repeating_group",
-          "item_fields": {
-            "Name": {
-              "type": "unspecified",
-              "required": true
-            },
-            "Description": {
-              "type": "unspecified",
-              "required": false
-            },
-            "Is Cash Payment": {
-              "type": "checkbox",
-              "required": false
-            },
-            "Position": {
-              "type": "number",
-              "required": false
-            }
-          }
-        }
-      },
-      "page_actions": [
+      "rows": [
         {
-          "element_name": "+ Create",
-          "action": "open_form",
-          "target": "Create_Payment_Type_Form"
+          "Name": "Cash",
+          "Description": null,
+          "Is Cash Payment": true,
+          "Position": null
+        },
+        {
+          "Name": "Bank Transfer",
+          "Description": null,
+          "Is Cash Payment": false,
+          "Position": null
+        },
+        {
+          "Name": "Mobile Money",
+          "Description": null,
+          "Is Cash Payment": false,
+          "Position": null
+        },
+        {
+          "Name": "Check",
+          "Description": null,
+          "Is Cash Payment": false,
+          "Position": null
+        },
+        {
+          "Name": "Receipt",
+          "Description": null,
+          "Is Cash Payment": false,
+          "Position": null
         }
       ],
-      "row_actions": [],
-      "bulk_actions": []
+      "actions": [
+        {
+          "action_name": "+ Create",
+          "action_type": "button",
+          "opens": "Create_Payment_Type_Form"
+        }
+      ]
     },
     "Create_Payment_Type_Form": {
       "type": "form",
       "fields": {
         "Name": {
-          "type": "unspecified",
-          "required": true
+          "type": "unspecified"
         },
         "Description": {
-          "type": "unspecified",
-          "required": false
+          "type": "unspecified"
         },
-        "Is Cash Payment": {
-          "type": "checkbox",
-          "required": false
+        "Is_Cash_Payment": {
+          "type": "checkbox"
         },
         "Position": {
-          "type": "number",
-          "required": false
+          "type": "unspecified"
         }
       },
       "submit_actions": [
         {
-          "on_success": "creates payment type and adds it as a dropdown option in all transaction forms"
+          "on_success": "adds payment type; appears as dropdown option in all transaction forms"
         }
       ]
     },
     "Bulk_Import_Page": {
       "type": "page",
-      "sections": [
+      "entity_imports": [
         {
-          "entity": "Clients",
-          "actions": [
-            {
-              "action_name": "Download template"
+          "entity_name": "Clients",
+          "actions": {
+            "download_template": {
+              "type": "button"
             },
-            {
-              "action_name": "Upload",
-              "field": {
-                "type": "file_upload"
-              }
+            "upload": {
+              "type": "file_upload"
             }
-          ]
+          }
         },
         {
-          "entity": "Groups",
-          "actions": [
-            {
-              "action_name": "Download template"
+          "entity_name": "Groups",
+          "actions": {
+            "download_template": {
+              "type": "button"
             },
-            {
-              "action_name": "Upload",
-              "field": {
-                "type": "file_upload"
-              }
+            "upload": {
+              "type": "file_upload"
             }
-          ]
+          }
         },
         {
-          "entity": "Centers",
-          "actions": [
-            {
-              "action_name": "Download template"
+          "entity_name": "Centers",
+          "actions": {
+            "download_template": {
+              "type": "button"
             },
-            {
-              "action_name": "Upload",
-              "field": {
-                "type": "file_upload"
-              }
+            "upload": {
+              "type": "file_upload"
             }
-          ]
+          }
         },
         {
-          "entity": "Offices",
-          "actions": [
-            {
-              "action_name": "Download template"
+          "entity_name": "Offices",
+          "actions": {
+            "download_template": {
+              "type": "button"
             },
-            {
-              "action_name": "Upload",
-              "field": {
-                "type": "file_upload"
-              }
+            "upload": {
+              "type": "file_upload"
             }
-          ]
+          }
         },
         {
-          "entity": "Staff",
-          "actions": [
-            {
-              "action_name": "Download template"
+          "entity_name": "Staff",
+          "actions": {
+            "download_template": {
+              "type": "button"
             },
-            {
-              "action_name": "Upload",
-              "field": {
-                "type": "file_upload"
-              }
+            "upload": {
+              "type": "file_upload"
             }
-          ]
+          }
         },
         {
-          "entity": "Users",
-          "actions": [
-            {
-              "action_name": "Download template"
+          "entity_name": "Users",
+          "actions": {
+            "download_template": {
+              "type": "button"
             },
-            {
-              "action_name": "Upload",
-              "field": {
-                "type": "file_upload"
-              }
+            "upload": {
+              "type": "file_upload"
             }
-          ]
+          }
         },
         {
-          "entity": "Loans",
-          "actions": [
-            {
-              "action_name": "Download template"
+          "entity_name": "Loans",
+          "actions": {
+            "download_template": {
+              "type": "button"
             },
-            {
-              "action_name": "Upload",
-              "field": {
-                "type": "file_upload"
-              }
+            "upload": {
+              "type": "file_upload"
             }
-          ]
+          }
         },
         {
-          "entity": "Savings",
-          "actions": [
-            {
-              "action_name": "Download template"
+          "entity_name": "Savings",
+          "actions": {
+            "download_template": {
+              "type": "button"
             },
-            {
-              "action_name": "Upload",
-              "field": {
-                "type": "file_upload"
-              }
+            "upload": {
+              "type": "file_upload"
             }
-          ]
-        },
-        {
-          "entity": "Other",
-          "description": "additional entity types supported",
-          "actions": [
-            {
-              "action_name": "Download template"
-            },
-            {
-              "action_name": "Upload",
-              "field": {
-                "type": "file_upload"
-              }
-            }
-          ]
+          }
         }
       ]
     }
@@ -612,10 +566,33 @@ The Working Days page allows configuring which days of the week are working days
 
 </description>
 
+<workflows>
+WF-001 | Create Holiday | actor: <role> | branch: none | terminal: Submit | on_success: creates holiday; installments falling on holidays are rescheduled per configured type
+WF-002 | Create Fund | actor: <role> | branch: none | terminal: Submit | on_success: creates fund
+WF-003 | Create Payment Type | actor: <role> | branch: none | terminal: Submit | on_success: adds payment type; appears as dropdown option in all transaction forms
+WF-004 | Select Active Currencies | actor: <role> | branch: none | terminal: Select currencies | on_success: selected rows are marked active currencies
+WF-005 | Download Clients template | actor: <role> | branch: none | terminal: download_template | on_success: template downloaded for Clients
+WF-006 | Upload Clients file | actor: <role> | branch: none | terminal: upload | on_success: file uploaded; Clients imported per template
+WF-007 | Download Groups template | actor: <role> | branch: none | terminal: download_template | on_success: template downloaded for Groups
+WF-008 | Upload Groups file | actor: <role> | branch: none | terminal: upload | on_success: file uploaded; Groups imported per template
+WF-009 | Download Centers template | actor: <role> | branch: none | terminal: download_template | on_success: template downloaded for Centers
+WF-010 | Upload Centers file | actor: <role> | branch: none | terminal: upload | on_success: file uploaded; Centers imported per template
+WF-011 | Download Offices template | actor: <role> | branch: none | terminal: download_template | on_success: template downloaded for Offices
+WF-012 | Upload Offices file | actor: <role> | branch: none | terminal: upload | on_success: file uploaded; Offices imported per template
+WF-013 | Download Staff template | actor: <role> | branch: none | terminal: download_template | on_success: template downloaded for Staff
+WF-014 | Upload Staff file | actor: <role> | branch: none | terminal: upload | on_success: file uploaded; Staff imported per template
+WF-015 | Download Users template | actor: <role> | branch: none | terminal: download_template | on_success: template downloaded for Users
+WF-016 | Upload Users file | actor: <role> | branch: none | terminal: upload | on_success: file uploaded; Users imported per template
+WF-017 | Download Loans template | actor: <role> | branch: none | terminal: download_template | on_success: template downloaded for Loans
+WF-018 | Upload Loans file | actor: <role> | branch: none | terminal: upload | on_success: file uploaded; Loans imported per template
+WF-019 | Download Savings template | actor: <role> | branch: none | terminal: download_template | on_success: template downloaded for Savings
+WF-020 | Upload Savings file | actor: <role> | branch: none | terminal: upload | on_success: file uploaded; Savings imported per template
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[22:36:11] Test-Positive - LLM RESPONSE
+[14:32:30] Test-Positive - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Organization Settings",
@@ -623,131 +600,335 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Create a new Holiday via Create Holiday form (happy path)",
+      "wf_ref": "WF-001",
+      "test_case": "Create a new Holiday with rescheduling configuration",
       "preconditions": [
-        "User logged in as <Admin>"
+        "User logged in as <role>"
       ],
       "steps": [
-        "1. Navigate to Organization Settings > Holidays",
-        "2. Click the '+ Create Holiday' button",
-        "3. Enter <Name> in the Name field",
-        "4. Enter <From Date> in the From Date field",
-        "5. Enter <To Date> in the To Date field",
-        "6. Select <Rescheduling Option> from the Rescheduling Type dropdown",
-        "7. (Optional) Enter <Repayments Rescheduled To date> in the Repayments Rescheduled To date field",
-        "8. (Optional) Select <applicable office(s)> in the Applicable Offices multi-select",
-        "9. (Optional) Enter <Description> in the Description field",
-        "10. Click Save (submit the Create Holiday form)"
+        "1. Navigate to Admin > Organization > Holidays",
+        "2. Click '+ Create Holiday' to open the Create Holiday form",
+        "3. Enter <holiday name> in the Name field",
+        "4. Select <from date> in the From Date field",
+        "5. Select <to date> in the To Date field",
+        "6. (Optional) Select <repayments rescheduled to date> in Repayments Rescheduled To",
+        "7. Select <rescheduling type> from the Rescheduling Type dropdown",
+        "8. Enter <description> in the Description field",
+        "9. Select one or more <applicable offices> from the Applicable Offices multi-select",
+        "10. Click Submit"
       ],
-      "expected_result": "A success notification is displayed: \"creates holiday and reschedules loan installments that fall on the holiday per the configured rescheduling type\"; the Holidays table shows a new row with the entered <Name>, Start Date = <From Date> and To Date = <To Date>",
+      "expected_result": "A success notification displays 'creates holiday; installments falling on holidays are rescheduled per configured type' and the Holidays table shows a new row with Name = <holiday name>, Start Date = <from date>, To Date = <to date>, and the selected Rescheduling Type visible in the row",
       "priority": "high"
     },
     {
       "tc_id": "P-002",
-      "test_case": "Save Working Days configuration with repayment rescheduling option",
+      "wf_ref": "WF-002",
+      "test_case": "Create a new Fund via the Create Fund form",
       "preconditions": [
-        "User logged in as <Admin>"
+        "User logged in as <role>"
       ],
       "steps": [
-        "1. Navigate to Organization Settings > Working Days",
-        "2. Check the checkboxes for the working days to enable (e.g., click the checkbox for Monday)",
-        "3. Select <Repayment Rescheduling Option> from the Repayment Rescheduling dropdown",
-        "4. Click Save (submit the Working Days form)"
+        "1. Navigate to Admin > Organization > Funds",
+        "2. Click 'Create Fund' to open the Create Fund form",
+        "3. Enter <fund name> in the Fund Name field",
+        "4. Enter <external id> in the External ID field",
+        "5. Click Submit"
       ],
-      "expected_result": "A success notification is displayed: \"saves working days configuration and reschedules loan installments that fall on non-working days per the selected rescheduling option\"; the Working Days page shows the chosen day checkboxes checked and the Repayment Rescheduling dropdown showing the selected <Repayment Rescheduling Option>",
+      "expected_result": "A success notification displays 'creates fund' and the Funds table displays a new row with Fund Name = <fund name> and External ID = <external id>",
       "priority": "high"
     },
     {
       "tc_id": "P-003",
-      "test_case": "Add a currency row and activate it via Currencies repeating group",
+      "wf_ref": "WF-003",
+      "test_case": "Add a new Payment Type that appears in transaction forms",
       "preconditions": [
-        "User logged in as <Admin>"
+        "User logged in as <role>"
       ],
       "steps": [
-        "1. Navigate to Organization Settings > Currencies",
-        "2. Click Add Row (or equivalent) to add a new currency in the Currencies repeating group",
-        "3. Enter <Code> in the Code field for the new row",
-        "4. Enter <Currency Name> in the Name field for the new row",
-        "5. Enter <number of decimal places> in the Decimal Places field for the new row",
-        "6. Check the Is Active checkbox for the new row to mark the currency active",
-        "7. Click Save (submit the Currencies configuration)"
+        "1. Navigate to Admin > Organization > Payment Types",
+        "2. Click '+ Create' to open the Create Payment Type form",
+        "3. Enter <payment type name> in the Name field",
+        "4. Enter <description> in the Description field",
+        "5. Toggle the Is Cash Payment checkbox as appropriate (check or leave unchecked)",
+        "6. Enter <position> in the Position field",
+        "7. Click Submit"
       ],
-      "expected_result": "A success notification is displayed: \"updates which currencies are active for the system\"; the Currencies list/table displays a row with Code = <Code>, Name = <Currency Name>, Decimal Places = <number of decimal places>, and the currency is shown as active",
+      "expected_result": "A success notification displays 'adds payment type; appears as dropdown option in all transaction forms' and the Payment Types table contains a row with Name = <payment type name> and the chosen Is Cash Payment state",
       "priority": "high"
     },
     {
       "tc_id": "P-004",
-      "test_case": "Create a new Fund via Create Fund form",
+      "wf_ref": "WF-004",
+      "test_case": "Select active currencies from the Currencies page",
       "preconditions": [
-        "User logged in as <Admin>"
+        "User logged in as <role>"
       ],
       "steps": [
-        "1. Navigate to Organization Settings > Funds",
-        "2. Click the Create Fund button",
-        "3. Enter <Fund Name> in the Fund Name field",
-        "4. Enter <External ID> in the External ID field",
-        "5. Click Save (submit the Create Fund form)"
+        "1. Navigate to Admin > Organization > Currencies",
+        "2. Select one or more currency rows using the row checkboxes to mark them active"
       ],
-      "expected_result": "A success notification is displayed: \"creates fund and makes it available as a funding source for loans\"; the Funds table shows a new row with Fund Name = <Fund Name> and External ID = <External ID>",
+      "expected_result": "Selected rows are marked active currencies and the selected currency rows show an active/selected state in the Currencies table",
       "priority": "high"
     },
     {
       "tc_id": "P-005",
-      "test_case": "Create a new Payment Type and verify it appears in the list",
+      "wf_ref": "WF-005",
+      "test_case": "Download Clients import template from Bulk Import page",
       "preconditions": [
-        "User logged in as <Admin>"
+        "User logged in as <role>"
       ],
       "steps": [
-        "1. Navigate to Organization Settings > Payment Types",
-        "2. Click the '+ Create' button",
-        "3. Enter <Payment Type Name> in the Name field",
-        "4. (Optional) Enter <Description> in the Description field",
-        "5. (Optional) Check or leave unchecked the Is Cash Payment checkbox as appropriate",
-        "6. (Optional) Enter <Position> in the Position field",
-        "7. Click Save (submit the Create Payment Type form)"
+        "1. Navigate to Admin > Organization > Bulk Import",
+        "2. Locate the Clients import card/row",
+        "3. Click the Clients 'Download template' button"
       ],
-      "expected_result": "A success notification is displayed: \"creates payment type and adds it as a dropdown option in all transaction forms\"; the Payment Types table displays a new row with Name = <Payment Type Name> and Position = <Position> (if provided)",
+      "expected_result": "template downloaded for Clients (the Clients import template file is downloaded to the browser)",
       "priority": "high"
     },
     {
       "tc_id": "P-006",
-      "test_case": "Download template for Clients from Bulk Import page",
+      "wf_ref": "WF-006",
+      "test_case": "Upload a Clients import file and complete import",
       "preconditions": [
-        "User logged in as <Admin>"
+        "User logged in as <role>"
       ],
       "steps": [
-        "1. Navigate to Organization Settings > Bulk Import",
-        "2. In the Clients section, click the 'Download template' action"
+        "1. Navigate to Admin > Organization > Bulk Import",
+        "2. Locate the Clients import card/row",
+        "3. Click the Clients 'Upload' control and select a <valid Clients import file> from the OS file dialog",
+        "4. Confirm the upload if a confirmation is required"
       ],
-      "expected_result": "A file download is triggered in the browser for the Clients template",
+      "expected_result": "file uploaded; Clients imported per template (a success notification displays 'file uploaded; Clients imported per template' and the UI shows the Clients import completed status)",
       "priority": "medium"
     },
     {
       "tc_id": "P-007",
-      "test_case": "Upload a valid Clients import file via Bulk Import page",
+      "wf_ref": "WF-007",
+      "test_case": "Download Groups import template from Bulk Import page",
       "preconditions": [
-        "User logged in as <Admin>"
+        "User logged in as <role>"
       ],
       "steps": [
-        "1. Navigate to Organization Settings > Bulk Import",
-        "2. In the Clients section, click the 'Upload' action",
-        "3. In the file chooser, select a <valid import file> (supported format)",
-        "4. Click the Upload/Confirm button to start the import"
+        "1. Navigate to Admin > Organization > Bulk Import",
+        "2. Locate the Groups import card/row",
+        "3. Click the Groups 'Download template' button"
       ],
-      "expected_result": "An import progress or result panel is displayed for Clients indicating the uploaded file is being processed or has been processed (upload started/completed view visible)",
+      "expected_result": "template downloaded for Groups (the Groups import template file is downloaded to the browser)",
       "priority": "high"
+    },
+    {
+      "tc_id": "P-008",
+      "wf_ref": "WF-008",
+      "test_case": "Upload a Groups import file and complete import",
+      "preconditions": [
+        "User logged in as <role>"
+      ],
+      "steps": [
+        "1. Navigate to Admin > Organization > Bulk Import",
+        "2. Locate the Groups import card/row",
+        "3. Click the Groups 'Upload' control and select a <valid Groups import file> from the OS file dialog",
+        "4. Confirm the upload if a confirmation is required"
+      ],
+      "expected_result": "file uploaded; Groups imported per template (a success notification displays 'file uploaded; Groups imported per template' and the UI shows the Groups import completed status)",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-009",
+      "wf_ref": "WF-009",
+      "test_case": "Download Centers import template from Bulk Import page",
+      "preconditions": [
+        "User logged in as <role>"
+      ],
+      "steps": [
+        "1. Navigate to Admin > Organization > Bulk Import",
+        "2. Locate the Centers import card/row",
+        "3. Click the Centers 'Download template' button"
+      ],
+      "expected_result": "template downloaded for Centers (the Centers import template file is downloaded to the browser)",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-010",
+      "wf_ref": "WF-010",
+      "test_case": "Upload a Centers import file and complete import",
+      "preconditions": [
+        "User logged in as <role>"
+      ],
+      "steps": [
+        "1. Navigate to Admin > Organization > Bulk Import",
+        "2. Locate the Centers import card/row",
+        "3. Click the Centers 'Upload' control and select a <valid Centers import file> from the OS file dialog",
+        "4. Confirm the upload if a confirmation is required"
+      ],
+      "expected_result": "file uploaded; Centers imported per template (a success notification displays 'file uploaded; Centers imported per template' and the UI shows the Centers import completed status)",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-011",
+      "wf_ref": "WF-011",
+      "test_case": "Download Offices import template from Bulk Import page",
+      "preconditions": [
+        "User logged in as <role>"
+      ],
+      "steps": [
+        "1. Navigate to Admin > Organization > Bulk Import",
+        "2. Locate the Offices import card/row",
+        "3. Click the Offices 'Download template' button"
+      ],
+      "expected_result": "template downloaded for Offices (the Offices import template file is downloaded to the browser)",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-012",
+      "wf_ref": "WF-012",
+      "test_case": "Upload an Offices import file and complete import",
+      "preconditions": [
+        "User logged in as <role>"
+      ],
+      "steps": [
+        "1. Navigate to Admin > Organization > Bulk Import",
+        "2. Locate the Offices import card/row",
+        "3. Click the Offices 'Upload' control and select a <valid Offices import file> from the OS file dialog",
+        "4. Confirm the upload if a confirmation is required"
+      ],
+      "expected_result": "file uploaded; Offices imported per template (a success notification displays 'file uploaded; Offices imported per template' and the UI shows the Offices import completed status)",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-013",
+      "wf_ref": "WF-013",
+      "test_case": "Download Staff import template from Bulk Import page",
+      "preconditions": [
+        "User logged in as <role>"
+      ],
+      "steps": [
+        "1. Navigate to Admin > Organization > Bulk Import",
+        "2. Locate the Staff import card/row",
+        "3. Click the Staff 'Download template' button"
+      ],
+      "expected_result": "template downloaded for Staff (the Staff import template file is downloaded to the browser)",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-014",
+      "wf_ref": "WF-014",
+      "test_case": "Upload a Staff import file and complete import",
+      "preconditions": [
+        "User logged in as <role>"
+      ],
+      "steps": [
+        "1. Navigate to Admin > Organization > Bulk Import",
+        "2. Locate the Staff import card/row",
+        "3. Click the Staff 'Upload' control and select a <valid Staff import file> from the OS file dialog",
+        "4. Confirm the upload if a confirmation is required"
+      ],
+      "expected_result": "file uploaded; Staff imported per template (a success notification displays 'file uploaded; Staff imported per template' and the UI shows the Staff import completed status)",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-015",
+      "wf_ref": "WF-015",
+      "test_case": "Download Users import template from Bulk Import page",
+      "preconditions": [
+        "User logged in as <role>"
+      ],
+      "steps": [
+        "1. Navigate to Admin > Organization > Bulk Import",
+        "2. Locate the Users import card/row",
+        "3. Click the Users 'Download template' button"
+      ],
+      "expected_result": "template downloaded for Users (the Users import template file is downloaded to the browser)",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-016",
+      "wf_ref": "WF-016",
+      "test_case": "Upload a Users import file and complete import",
+      "preconditions": [
+        "User logged in as <role>"
+      ],
+      "steps": [
+        "1. Navigate to Admin > Organization > Bulk Import",
+        "2. Locate the Users import card/row",
+        "3. Click the Users 'Upload' control and select a <valid Users import file> from the OS file dialog",
+        "4. Confirm the upload if a confirmation is required"
+      ],
+      "expected_result": "file uploaded; Users imported per template (a success notification displays 'file uploaded; Users imported per template' and the UI shows the Users import completed status)",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-017",
+      "wf_ref": "WF-017",
+      "test_case": "Download Loans import template from Bulk Import page",
+      "preconditions": [
+        "User logged in as <role>"
+      ],
+      "steps": [
+        "1. Navigate to Admin > Organization > Bulk Import",
+        "2. Locate the Loans import card/row",
+        "3. Click the Loans 'Download template' button"
+      ],
+      "expected_result": "template downloaded for Loans (the Loans import template file is downloaded to the browser)",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-018",
+      "wf_ref": "WF-018",
+      "test_case": "Upload a Loans import file and complete import",
+      "preconditions": [
+        "User logged in as <role>"
+      ],
+      "steps": [
+        "1. Navigate to Admin > Organization > Bulk Import",
+        "2. Locate the Loans import card/row",
+        "3. Click the Loans 'Upload' control and select a <valid Loans import file> from the OS file dialog",
+        "4. Confirm the upload if a confirmation is required"
+      ],
+      "expected_result": "file uploaded; Loans imported per template (a success notification displays 'file uploaded; Loans imported per template' and the UI shows the Loans import completed status)",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-019",
+      "wf_ref": "WF-019",
+      "test_case": "Download Savings import template from Bulk Import page",
+      "preconditions": [
+        "User logged in as <role>"
+      ],
+      "steps": [
+        "1. Navigate to Admin > Organization > Bulk Import",
+        "2. Locate the Savings import card/row",
+        "3. Click the Savings 'Download template' button"
+      ],
+      "expected_result": "template downloaded for Savings (the Savings import template file is downloaded to the browser)",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-020",
+      "wf_ref": "WF-020",
+      "test_case": "Upload a Savings import file and complete import",
+      "preconditions": [
+        "User logged in as <role>"
+      ],
+      "steps": [
+        "1. Navigate to Admin > Organization > Bulk Import",
+        "2. Locate the Savings import card/row",
+        "3. Click the Savings 'Upload' control and select a <valid Savings import file> from the OS file dialog",
+        "4. Confirm the upload if a confirmation is required"
+      ],
+      "expected_result": "file uploaded; Savings imported per template (a success notification displays 'file uploaded; Savings imported per template' and the UI shows the Savings import completed status)",
+      "priority": "medium"
     }
   ],
   "summary": {
-    "total": 7,
-    "high_priority": 6,
-    "medium_priority": 1,
+    "total": 20,
+    "high_priority": 12,
+    "medium_priority": 8,
     "low_priority": 0
   }
 }
 
 ------------------------------------------------------------
-[22:36:11] Test-Positive - PARSED JSON
+[14:32:30] Test-Positive - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Organization Settings",
@@ -755,125 +936,329 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Create a new Holiday via Create Holiday form (happy path)",
+      "wf_ref": "WF-001",
+      "test_case": "Create a new Holiday with rescheduling configuration",
       "preconditions": [
-        "User logged in as <Admin>"
+        "User logged in as <role>"
       ],
       "steps": [
-        "1. Navigate to Organization Settings > Holidays",
-        "2. Click the '+ Create Holiday' button",
-        "3. Enter <Name> in the Name field",
-        "4. Enter <From Date> in the From Date field",
-        "5. Enter <To Date> in the To Date field",
-        "6. Select <Rescheduling Option> from the Rescheduling Type dropdown",
-        "7. (Optional) Enter <Repayments Rescheduled To date> in the Repayments Rescheduled To date field",
-        "8. (Optional) Select <applicable office(s)> in the Applicable Offices multi-select",
-        "9. (Optional) Enter <Description> in the Description field",
-        "10. Click Save (submit the Create Holiday form)"
+        "1. Navigate to Admin > Organization > Holidays",
+        "2. Click '+ Create Holiday' to open the Create Holiday form",
+        "3. Enter <holiday name> in the Name field",
+        "4. Select <from date> in the From Date field",
+        "5. Select <to date> in the To Date field",
+        "6. (Optional) Select <repayments rescheduled to date> in Repayments Rescheduled To",
+        "7. Select <rescheduling type> from the Rescheduling Type dropdown",
+        "8. Enter <description> in the Description field",
+        "9. Select one or more <applicable offices> from the Applicable Offices multi-select",
+        "10. Click Submit"
       ],
-      "expected_result": "A success notification is displayed: \"creates holiday and reschedules loan installments that fall on the holiday per the configured rescheduling type\"; the Holidays table shows a new row with the entered <Name>, Start Date = <From Date> and To Date = <To Date>",
+      "expected_result": "A success notification displays 'creates holiday; installments falling on holidays are rescheduled per configured type' and the Holidays table shows a new row with Name = <holiday name>, Start Date = <from date>, To Date = <to date>, and the selected Rescheduling Type visible in the row",
       "priority": "high"
     },
     {
       "tc_id": "P-002",
-      "test_case": "Save Working Days configuration with repayment rescheduling option",
+      "wf_ref": "WF-002",
+      "test_case": "Create a new Fund via the Create Fund form",
       "preconditions": [
-        "User logged in as <Admin>"
+        "User logged in as <role>"
       ],
       "steps": [
-        "1. Navigate to Organization Settings > Working Days",
-        "2. Check the checkboxes for the working days to enable (e.g., click the checkbox for Monday)",
-        "3. Select <Repayment Rescheduling Option> from the Repayment Rescheduling dropdown",
-        "4. Click Save (submit the Working Days form)"
+        "1. Navigate to Admin > Organization > Funds",
+        "2. Click 'Create Fund' to open the Create Fund form",
+        "3. Enter <fund name> in the Fund Name field",
+        "4. Enter <external id> in the External ID field",
+        "5. Click Submit"
       ],
-      "expected_result": "A success notification is displayed: \"saves working days configuration and reschedules loan installments that fall on non-working days per the selected rescheduling option\"; the Working Days page shows the chosen day checkboxes checked and the Repayment Rescheduling dropdown showing the selected <Repayment Rescheduling Option>",
+      "expected_result": "A success notification displays 'creates fund' and the Funds table displays a new row with Fund Name = <fund name> and External ID = <external id>",
       "priority": "high"
     },
     {
       "tc_id": "P-003",
-      "test_case": "Add a currency row and activate it via Currencies repeating group",
+      "wf_ref": "WF-003",
+      "test_case": "Add a new Payment Type that appears in transaction forms",
       "preconditions": [
-        "User logged in as <Admin>"
+        "User logged in as <role>"
       ],
       "steps": [
-        "1. Navigate to Organization Settings > Currencies",
-        "2. Click Add Row (or equivalent) to add a new currency in the Currencies repeating group",
-        "3. Enter <Code> in the Code field for the new row",
-        "4. Enter <Currency Name> in the Name field for the new row",
-        "5. Enter <number of decimal places> in the Decimal Places field for the new row",
-        "6. Check the Is Active checkbox for the new row to mark the currency active",
-        "7. Click Save (submit the Currencies configuration)"
+        "1. Navigate to Admin > Organization > Payment Types",
+        "2. Click '+ Create' to open the Create Payment Type form",
+        "3. Enter <payment type name> in the Name field",
+        "4. Enter <description> in the Description field",
+        "5. Toggle the Is Cash Payment checkbox as appropriate (check or leave unchecked)",
+        "6. Enter <position> in the Position field",
+        "7. Click Submit"
       ],
-      "expected_result": "A success notification is displayed: \"updates which currencies are active for the system\"; the Currencies list/table displays a row with Code = <Code>, Name = <Currency Name>, Decimal Places = <number of decimal places>, and the currency is shown as active",
+      "expected_result": "A success notification displays 'adds payment type; appears as dropdown option in all transaction forms' and the Payment Types table contains a row with Name = <payment type name> and the chosen Is Cash Payment state",
       "priority": "high"
     },
     {
       "tc_id": "P-004",
-      "test_case": "Create a new Fund via Create Fund form",
+      "wf_ref": "WF-004",
+      "test_case": "Select active currencies from the Currencies page",
       "preconditions": [
-        "User logged in as <Admin>"
+        "User logged in as <role>"
       ],
       "steps": [
-        "1. Navigate to Organization Settings > Funds",
-        "2. Click the Create Fund button",
-        "3. Enter <Fund Name> in the Fund Name field",
-        "4. Enter <External ID> in the External ID field",
-        "5. Click Save (submit the Create Fund form)"
+        "1. Navigate to Admin > Organization > Currencies",
+        "2. Select one or more currency rows using the row checkboxes to mark them active"
       ],
-      "expected_result": "A success notification is displayed: \"creates fund and makes it available as a funding source for loans\"; the Funds table shows a new row with Fund Name = <Fund Name> and External ID = <External ID>",
+      "expected_result": "Selected rows are marked active currencies and the selected currency rows show an active/selected state in the Currencies table",
       "priority": "high"
     },
     {
       "tc_id": "P-005",
-      "test_case": "Create a new Payment Type and verify it appears in the list",
+      "wf_ref": "WF-005",
+      "test_case": "Download Clients import template from Bulk Import page",
       "preconditions": [
-        "User logged in as <Admin>"
+        "User logged in as <role>"
       ],
       "steps": [
-        "1. Navigate to Organization Settings > Payment Types",
-        "2. Click the '+ Create' button",
-        "3. Enter <Payment Type Name> in the Name field",
-        "4. (Optional) Enter <Description> in the Description field",
-        "5. (Optional) Check or leave unchecked the Is Cash Payment checkbox as appropriate",
-        "6. (Optional) Enter <Position> in the Position field",
-        "7. Click Save (submit the Create Payment Type form)"
+        "1. Navigate to Admin > Organization > Bulk Import",
+        "2. Locate the Clients import card/row",
+        "3. Click the Clients 'Download template' button"
       ],
-      "expected_result": "A success notification is displayed: \"creates payment type and adds it as a dropdown option in all transaction forms\"; the Payment Types table displays a new row with Name = <Payment Type Name> and Position = <Position> (if provided)",
+      "expected_result": "template downloaded for Clients (the Clients import template file is downloaded to the browser)",
       "priority": "high"
     },
     {
       "tc_id": "P-006",
-      "test_case": "Download template for Clients from Bulk Import page",
+      "wf_ref": "WF-006",
+      "test_case": "Upload a Clients import file and complete import",
       "preconditions": [
-        "User logged in as <Admin>"
+        "User logged in as <role>"
       ],
       "steps": [
-        "1. Navigate to Organization Settings > Bulk Import",
-        "2. In the Clients section, click the 'Download template' action"
+        "1. Navigate to Admin > Organization > Bulk Import",
+        "2. Locate the Clients import card/row",
+        "3. Click the Clients 'Upload' control and select a <valid Clients import file> from the OS file dialog",
+        "4. Confirm the upload if a confirmation is required"
       ],
-      "expected_result": "A file download is triggered in the browser for the Clients template",
+      "expected_result": "file uploaded; Clients imported per template (a success notification displays 'file uploaded; Clients imported per template' and the UI shows the Clients import completed status)",
       "priority": "medium"
     },
     {
       "tc_id": "P-007",
-      "test_case": "Upload a valid Clients import file via Bulk Import page",
+      "wf_ref": "WF-007",
+      "test_case": "Download Groups import template from Bulk Import page",
       "preconditions": [
-        "User logged in as <Admin>"
+        "User logged in as <role>"
       ],
       "steps": [
-        "1. Navigate to Organization Settings > Bulk Import",
-        "2. In the Clients section, click the 'Upload' action",
-        "3. In the file chooser, select a <valid import file> (supported format)",
-        "4. Click the Upload/Confirm button to start the import"
+        "1. Navigate to Admin > Organization > Bulk Import",
+        "2. Locate the Groups import card/row",
+        "3. Click the Groups 'Download template' button"
       ],
-      "expected_result": "An import progress or result panel is displayed for Clients indicating the uploaded file is being processed or has been processed (upload started/completed view visible)",
+      "expected_result": "template downloaded for Groups (the Groups import template file is downloaded to the browser)",
       "priority": "high"
+    },
+    {
+      "tc_id": "P-008",
+      "wf_ref": "WF-008",
+      "test_case": "Upload a Groups import file and complete import",
+      "preconditions": [
+        "User logged in as <role>"
+      ],
+      "steps": [
+        "1. Navigate to Admin > Organization > Bulk Import",
+        "2. Locate the Groups import card/row",
+        "3. Click the Groups 'Upload' control and select a <valid Groups import file> from the OS file dialog",
+        "4. Confirm the upload if a confirmation is required"
+      ],
+      "expected_result": "file uploaded; Groups imported per template (a success notification displays 'file uploaded; Groups imported per template' and the UI shows the Groups import completed status)",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-009",
+      "wf_ref": "WF-009",
+      "test_case": "Download Centers import template from Bulk Import page",
+      "preconditions": [
+        "User logged in as <role>"
+      ],
+      "steps": [
+        "1. Navigate to Admin > Organization > Bulk Import",
+        "2. Locate the Centers import card/row",
+        "3. Click the Centers 'Download template' button"
+      ],
+      "expected_result": "template downloaded for Centers (the Centers import template file is downloaded to the browser)",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-010",
+      "wf_ref": "WF-010",
+      "test_case": "Upload a Centers import file and complete import",
+      "preconditions": [
+        "User logged in as <role>"
+      ],
+      "steps": [
+        "1. Navigate to Admin > Organization > Bulk Import",
+        "2. Locate the Centers import card/row",
+        "3. Click the Centers 'Upload' control and select a <valid Centers import file> from the OS file dialog",
+        "4. Confirm the upload if a confirmation is required"
+      ],
+      "expected_result": "file uploaded; Centers imported per template (a success notification displays 'file uploaded; Centers imported per template' and the UI shows the Centers import completed status)",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-011",
+      "wf_ref": "WF-011",
+      "test_case": "Download Offices import template from Bulk Import page",
+      "preconditions": [
+        "User logged in as <role>"
+      ],
+      "steps": [
+        "1. Navigate to Admin > Organization > Bulk Import",
+        "2. Locate the Offices import card/row",
+        "3. Click the Offices 'Download template' button"
+      ],
+      "expected_result": "template downloaded for Offices (the Offices import template file is downloaded to the browser)",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-012",
+      "wf_ref": "WF-012",
+      "test_case": "Upload an Offices import file and complete import",
+      "preconditions": [
+        "User logged in as <role>"
+      ],
+      "steps": [
+        "1. Navigate to Admin > Organization > Bulk Import",
+        "2. Locate the Offices import card/row",
+        "3. Click the Offices 'Upload' control and select a <valid Offices import file> from the OS file dialog",
+        "4. Confirm the upload if a confirmation is required"
+      ],
+      "expected_result": "file uploaded; Offices imported per template (a success notification displays 'file uploaded; Offices imported per template' and the UI shows the Offices import completed status)",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-013",
+      "wf_ref": "WF-013",
+      "test_case": "Download Staff import template from Bulk Import page",
+      "preconditions": [
+        "User logged in as <role>"
+      ],
+      "steps": [
+        "1. Navigate to Admin > Organization > Bulk Import",
+        "2. Locate the Staff import card/row",
+        "3. Click the Staff 'Download template' button"
+      ],
+      "expected_result": "template downloaded for Staff (the Staff import template file is downloaded to the browser)",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-014",
+      "wf_ref": "WF-014",
+      "test_case": "Upload a Staff import file and complete import",
+      "preconditions": [
+        "User logged in as <role>"
+      ],
+      "steps": [
+        "1. Navigate to Admin > Organization > Bulk Import",
+        "2. Locate the Staff import card/row",
+        "3. Click the Staff 'Upload' control and select a <valid Staff import file> from the OS file dialog",
+        "4. Confirm the upload if a confirmation is required"
+      ],
+      "expected_result": "file uploaded; Staff imported per template (a success notification displays 'file uploaded; Staff imported per template' and the UI shows the Staff import completed status)",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-015",
+      "wf_ref": "WF-015",
+      "test_case": "Download Users import template from Bulk Import page",
+      "preconditions": [
+        "User logged in as <role>"
+      ],
+      "steps": [
+        "1. Navigate to Admin > Organization > Bulk Import",
+        "2. Locate the Users import card/row",
+        "3. Click the Users 'Download template' button"
+      ],
+      "expected_result": "template downloaded for Users (the Users import template file is downloaded to the browser)",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-016",
+      "wf_ref": "WF-016",
+      "test_case": "Upload a Users import file and complete import",
+      "preconditions": [
+        "User logged in as <role>"
+      ],
+      "steps": [
+        "1. Navigate to Admin > Organization > Bulk Import",
+        "2. Locate the Users import card/row",
+        "3. Click the Users 'Upload' control and select a <valid Users import file> from the OS file dialog",
+        "4. Confirm the upload if a confirmation is required"
+      ],
+      "expected_result": "file uploaded; Users imported per template (a success notification displays 'file uploaded; Users imported per template' and the UI shows the Users import completed status)",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-017",
+      "wf_ref": "WF-017",
+      "test_case": "Download Loans import template from Bulk Import page",
+      "preconditions": [
+        "User logged in as <role>"
+      ],
+      "steps": [
+        "1. Navigate to Admin > Organization > Bulk Import",
+        "2. Locate the Loans import card/row",
+        "3. Click the Loans 'Download template' button"
+      ],
+      "expected_result": "template downloaded for Loans (the Loans import template file is downloaded to the browser)",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-018",
+      "wf_ref": "WF-018",
+      "test_case": "Upload a Loans import file and complete import",
+      "preconditions": [
+        "User logged in as <role>"
+      ],
+      "steps": [
+        "1. Navigate to Admin > Organization > Bulk Import",
+        "2. Locate the Loans import card/row",
+        "3. Click the Loans 'Upload' control and select a <valid Loans import file> from the OS file dialog",
+        "4. Confirm the upload if a confirmation is required"
+      ],
+      "expected_result": "file uploaded; Loans imported per template (a success notification displays 'file uploaded; Loans imported per template' and the UI shows the Loans import completed status)",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-019",
+      "wf_ref": "WF-019",
+      "test_case": "Download Savings import template from Bulk Import page",
+      "preconditions": [
+        "User logged in as <role>"
+      ],
+      "steps": [
+        "1. Navigate to Admin > Organization > Bulk Import",
+        "2. Locate the Savings import card/row",
+        "3. Click the Savings 'Download template' button"
+      ],
+      "expected_result": "template downloaded for Savings (the Savings import template file is downloaded to the browser)",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-020",
+      "wf_ref": "WF-020",
+      "test_case": "Upload a Savings import file and complete import",
+      "preconditions": [
+        "User logged in as <role>"
+      ],
+      "steps": [
+        "1. Navigate to Admin > Organization > Bulk Import",
+        "2. Locate the Savings import card/row",
+        "3. Click the Savings 'Upload' control and select a <valid Savings import file> from the OS file dialog",
+        "4. Confirm the upload if a confirmation is required"
+      ],
+      "expected_result": "file uploaded; Savings imported per template (a success notification displays 'file uploaded; Savings imported per template' and the UI shows the Savings import completed status)",
+      "priority": "medium"
     }
   ],
   "summary": {
-    "total": 7,
-    "high_priority": 6,
-    "medium_priority": 1,
+    "total": 20,
+    "high_priority": 12,
+    "medium_priority": 8,
     "low_priority": 0
   }
 }

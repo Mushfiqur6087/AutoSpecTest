@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-21T22:54:00.252407
+DEBUG SESSION STARTED: 2026-05-25T14:51:20.244956
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[22:54:00] Test-Positive - SYSTEM PROMPT
+[14:51:20] Test-Positive - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Expert UI Test Case Generator. You receive (1) a UI-AST JSON for one specific module and (2) the original functional description for that module.
 
@@ -24,6 +24,10 @@ Your job is to produce ONLY positive/functional UI test cases — tests where va
 <description>
 {Original functional description text for this module}
 </description>
+
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
 
 ---
 
@@ -146,6 +150,13 @@ Because you are testing a module in isolation, establish the required entry stat
 **1. Forms & Wizards (`form`, `wizard`):**
 - Generate ONE happy path per distinct success outcome.
 - *Conditional UI Check:* If a toggle/dropdown reveals new mandatory fields (`visible_when`), generate a separate test for that conditional branch.
+- **Wizard step coverage (CRITICAL):** If a wizard has multiple steps and any step beyond Step 1 contains its own named field group (e.g., "Address Details", "Family Members", "Identifiers"), generate ONE dedicated positive TC per such step. The TC must:
+  - Navigate to that specific step (include the preceding steps as preconditions or brief navigation steps)
+  - Fill the fields described for that step (not just pass through)
+  - Assert the step's content is visible/saved on the detail page after final submission
+  - **Do NOT collapse all wizard steps into one happy-path TC** — if Steps 2, 3, and 4 each have their own named section in the spec, they each need their own TC.
+- **Wizard in-step identifiers/duplicates:** If a wizard step allows adding identifiers, documents, or similar entries that have a uniqueness constraint, include a TC for that wizard step that also verifies the constraint (e.g., attempting to add a duplicate Document Type+Key pair inside the wizard). This is a different code path from adding the same post-creation on the detail page.
+- **Action dialogs:** If a `state_bound_action_bar` action opens a dialog with its own `fields{}` (e.g., Activate requires Activation Date, Reject requires Reason), generate ONE positive TC per such action-dialog — distinct from the state-transition TC. The TC fills the dialog field and completes the action.
 
 **2. State Machines (`state_bound_action_bar`):**
 - For each unique action available in a specific state, generate ONE test performing that action.
@@ -200,6 +211,19 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 
 ---
 
+**WORKFLOW COVERAGE OBLIGATION (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- Your test cases must **collectively cover every workflow** listed.
+- For each `wf_id`, at least one TC must:
+  - Activate the `conditional_branch` (if not null) — i.e. the test must set up the condition described.
+  - Assert the `on_success` as its `expected_result` (verbatim or as the primary basis for the expected result).
+- Add `"wf_ref": "WF-NNN"` to each TC to identify which workflow it covers.
+- If one TC naturally covers multiple workflows (e.g., the base path overlaps), pick the most specific `wf_ref`.
+- If a TC does not map to any workflow (e.g., a navigation-only test), set `"wf_ref": null`.
+
+---
+
 **OUTPUT — JSON only, no prose, no markdown fencing:**
 
 {
@@ -208,6 +232,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
   "test_cases": [
     {
       "tc_id": "P-001",
+      "wf_ref": "WF-001",
       "test_case": "Short descriptive name",
       "preconditions": ["User logged in as <Role>", "<Prerequisite state>"],
       "steps": ["1. Step one", "2. Step two"],
@@ -224,7 +249,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 }
 
 ------------------------------------------------------------
-[22:54:00] Test-Positive - USER PROMPT
+[14:51:20] Test-Positive - USER PROMPT
 ------------------------------------------------------------
 <module_name>Forgot Password</module_name>
 
@@ -243,24 +268,12 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
       "submit_actions": [
         {
           "element_name": "Reset Password",
-          "type": "button",
-          "on_success": "sends reset link to provided email and shows confirmation message",
+          "on_success": "sends reset link to that address and shows confirmation message",
           "constraints": [
             "reset link expires after 24 hours"
           ],
-          "on_failure": "shows error 'email not found' and leaves form editable"
+          "on_failure": "shows error and form remains editable"
         }
-      ]
-    },
-    "Password_Reset_Link": {
-      "type": "link",
-      "element_name": "Password Reset Link",
-      "preconditions": [
-        "link must be valid (not expired)"
-      ],
-      "on_success": "navigates to Password_Reset_Page",
-      "constraints": [
-        "expires after 24 hours"
       ]
     },
     "Password_Reset_Page": {
@@ -281,12 +294,15 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
       "submit_actions": [
         {
           "element_name": "Change Password",
-          "type": "button",
           "preconditions": [
-            "reset link must be valid (not expired)"
+            "reset link must be valid",
+            "reset link must not be expired"
           ],
-          "on_success": "changes password and redirects to login page with success message",
-          "on_failure": "shows error and allows retry"
+          "constraints": [
+            "reset link expires after 24 hours"
+          ],
+          "on_success": "updates password and redirects to login page with success message",
+          "on_failure": "shows error and keeps password fields editable"
         }
       ]
     }
@@ -303,10 +319,15 @@ The page presents an Email field and a Reset Password button. If the email exist
 
 </description>
 
+<workflows>
+WF-001 | Request password reset (Reset Password button) | actor: <role> | branch: none | terminal: Reset Password | on_success: sends reset link to that address and shows confirmation message
+WF-002 | Complete password reset (Change Password button) | actor: <role> | branch: none | terminal: Change Password | on_success: updates password and redirects to login page with success message
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[22:54:20] Test-Positive - LLM RESPONSE
+[14:51:37] Test-Positive - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Forgot Password",
@@ -314,55 +335,47 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
+      "wf_ref": "WF-001",
       "test_case": "Request password reset with registered email shows confirmation",
       "preconditions": [
-        "User not logged in and on the Forgot Password page"
+        "User not authenticated as <role>",
+        "Forgot Password page is open"
       ],
       "steps": [
         "1. Enter <registered email> in the Email field",
         "2. Click the Reset Password button"
       ],
-      "expected_result": "A confirmation message is visible indicating that a password reset link has been sent to the provided email address",
+      "expected_result": "sends reset link to that address and shows confirmation message",
       "priority": "high"
     },
     {
       "tc_id": "P-002",
-      "test_case": "Open valid password reset link navigates to Password Reset page",
+      "wf_ref": "WF-002",
+      "test_case": "Complete password reset via valid link and be redirected to login with success message",
       "preconditions": [
-        "User has a valid (not expired) password reset link"
+        "Tester has a <valid reset link> that is not expired",
+        "Reset link validity: reset link must be valid and must not be expired"
       ],
       "steps": [
-        "1. Click the Password Reset Link"
-      ],
-      "expected_result": "The Password Reset page is displayed showing New Password and Confirm Password fields",
-      "priority": "high"
-    },
-    {
-      "tc_id": "P-003",
-      "test_case": "Change password via valid reset link redirects to login with success message",
-      "preconditions": [
-        "User has a valid (not expired) password reset link"
-      ],
-      "steps": [
-        "1. Click the Password Reset Link to open the Password Reset page",
-        "2. Enter <valid password> in the New Password field",
-        "3. Enter the same <valid password> in the Confirm Password field",
+        "1. Open the <valid reset link> to reach the Password Reset page",
+        "2. Enter <new password> in the New Password field",
+        "3. Enter <new password> in the Confirm Password field",
         "4. Click the Change Password button"
       ],
-      "expected_result": "The application navigates to the Login page and displays a success message confirming the password was changed",
+      "expected_result": "updates password and redirects to login page with success message",
       "priority": "high"
     }
   ],
   "summary": {
-    "total": 3,
-    "high_priority": 3,
+    "total": 2,
+    "high_priority": 2,
     "medium_priority": 0,
     "low_priority": 0
   }
 }
 
 ------------------------------------------------------------
-[22:54:20] Test-Positive - PARSED JSON
+[14:51:37] Test-Positive - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Forgot Password",
@@ -370,48 +383,40 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
+      "wf_ref": "WF-001",
       "test_case": "Request password reset with registered email shows confirmation",
       "preconditions": [
-        "User not logged in and on the Forgot Password page"
+        "User not authenticated as <role>",
+        "Forgot Password page is open"
       ],
       "steps": [
         "1. Enter <registered email> in the Email field",
         "2. Click the Reset Password button"
       ],
-      "expected_result": "A confirmation message is visible indicating that a password reset link has been sent to the provided email address",
+      "expected_result": "sends reset link to that address and shows confirmation message",
       "priority": "high"
     },
     {
       "tc_id": "P-002",
-      "test_case": "Open valid password reset link navigates to Password Reset page",
+      "wf_ref": "WF-002",
+      "test_case": "Complete password reset via valid link and be redirected to login with success message",
       "preconditions": [
-        "User has a valid (not expired) password reset link"
+        "Tester has a <valid reset link> that is not expired",
+        "Reset link validity: reset link must be valid and must not be expired"
       ],
       "steps": [
-        "1. Click the Password Reset Link"
-      ],
-      "expected_result": "The Password Reset page is displayed showing New Password and Confirm Password fields",
-      "priority": "high"
-    },
-    {
-      "tc_id": "P-003",
-      "test_case": "Change password via valid reset link redirects to login with success message",
-      "preconditions": [
-        "User has a valid (not expired) password reset link"
-      ],
-      "steps": [
-        "1. Click the Password Reset Link to open the Password Reset page",
-        "2. Enter <valid password> in the New Password field",
-        "3. Enter the same <valid password> in the Confirm Password field",
+        "1. Open the <valid reset link> to reach the Password Reset page",
+        "2. Enter <new password> in the New Password field",
+        "3. Enter <new password> in the Confirm Password field",
         "4. Click the Change Password button"
       ],
-      "expected_result": "The application navigates to the Login page and displays a success message confirming the password was changed",
+      "expected_result": "updates password and redirects to login page with success message",
       "priority": "high"
     }
   ],
   "summary": {
-    "total": 3,
-    "high_priority": 3,
+    "total": 2,
+    "high_priority": 2,
     "medium_priority": 0,
     "low_priority": 0
   }

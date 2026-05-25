@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-21T22:54:00.273374
+DEBUG SESSION STARTED: 2026-05-25T14:51:20.260040
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[22:54:00] Test-Edge - SYSTEM PROMPT
+[14:51:20] Test-Edge - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Edge Case and Boundary Test Generator. You receive (1) a UI-AST JSON for one module and (2) the original functional description. Your job is to produce ONLY boundary and edge case tests — scenarios at the limits of valid/invalid input and unusual-but-plausible user behaviors.
 
@@ -25,6 +25,10 @@ You are NOT producing happy paths (positive prompt) or standard validation failu
 {Original functional description text for this module}
 </description>
 
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
+
 ---
 
 **UI-AST REFERENCE — How to Read the AST for Edge Testing:**
@@ -35,7 +39,7 @@ You are NOT producing happy paths (positive prompt) or standard validation failu
 | `repeating_group` with `max` | Test adding exactly `max` entries (should succeed) then one more (should block) |
 | `visible_when` / `required_when` | Edge: trigger condition, fill revealed field with boundary value |
 | `state_bound_action_bar` | State edges: rapid consecutive state transitions, transition from a boundary state |
-| `submit_actions[]` with multiple buttons | Interaction edge: double-click a submit button rapidly |
+
 | `type: "date"` fields | Data edges: today, yesterday, far future, Feb 29 leap year |
 | `type: "file_upload"` | Edge: file exactly at size limit, file at 1 byte over limit |
 
@@ -132,7 +136,6 @@ Pick only the ones that apply to field types present in this module's AST:
 
 Pick only the ones that match component types in this module's AST:
 
-- **Double-click submit** (any form/wizard with a submit button): rapidly double-click the submit button → assert only one record is created; no duplicate row appears in the listing table
 - **Rapid re-submission after redirect** (any form that redirects to a detail page on success): after a successful submit, press the browser back button → assert the creation form is shown blank (not pre-filled) OR the user is redirected to the detail page without a second entity being created
 - **Wizard step skip — enforced navigation** (wizard where steps must be completed sequentially): attempt to click a later step tab directly without completing earlier steps → assert navigation is blocked and the earlier step remains active
 - **Wizard step skip — free navigation** (wizard that allows free tab navigation): navigate to a later step without filling earlier steps → assert the later step displays and returning to the earlier step shows fields blank (no data was lost from the later step)
@@ -173,7 +176,16 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 
 - **High:** None — edge tests are secondary to core functionality
 - **Medium:** Boundary tests at thresholds (financial amounts, date ordering, count limits, file size limits)
-- **Low:** Input edge cases (long text, special chars, whitespace, decimal precision), interaction edge cases (double-click, browser back, wizard skip)
+- **Low:** Input edge cases (long text, special chars, whitespace, decimal precision), interaction edge cases (browser back, wizard skip)
+
+---
+
+**WORKFLOW-AWARE BOUNDARY SCOPING (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- For each workflow where `conditional_branch` activates a numeric or date field, check if that field has a boundary (a numeric/date threshold in the AST `constraints` or description).
+- If yes, that workflow's branch is a **candidate for a boundary edge test** — add or confirm a boundary TC exists for it.
+- Add `"wf_ref": "WF-NNN"` to each TC that maps to a specific workflow's boundary. Set `"wf_ref": null` for generic input/interaction edge tests.
 
 ---
 
@@ -185,6 +197,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": null,
       "subcategory": "boundary | input_edge | interaction_edge | state_edge | data_edge",
       "test_case": "Short descriptive name",
       "preconditions": ["precondition 1"],
@@ -207,7 +220,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 
 
 ------------------------------------------------------------
-[22:54:00] Test-Edge - USER PROMPT
+[14:51:20] Test-Edge - USER PROMPT
 ------------------------------------------------------------
 <module_name>User Dashboard</module_name>
 
@@ -217,110 +230,200 @@ If the module has any numeric/date/count threshold in the AST or description, pr
   "components": {
     "My_Bookings": {
       "type": "data_table",
-      "row_actions": [
-        {
-          "action_name": "View Details"
-        },
-        {
-          "action_name": "Cancel",
-          "preconditions": [
-            "cancellation policy permits",
-            "booking type permits cancellation"
-          ]
-        },
-        {
-          "action_name": "Modify",
-          "preconditions": [
-            "booking type permits modification",
-            "modification policy permits"
-          ]
-        },
-        {
-          "action_name": "Download Confirmation"
-        },
-        {
-          "action_name": "Download Invoice"
-        },
-        {
-          "action_name": "Download Voucher"
+      "description": "Table of user's past and upcoming bookings (interactive row actions are defined in row_state_actions)",
+      "row_state_actions": {
+        "type": "state_bound_action_bar",
+        "states": {
+          "Pending": {
+            "available_actions": [
+              {
+                "action_name": "View Details",
+                "on_success": "navigates to booking detail"
+              },
+              {
+                "action_name": "Cancel",
+                "preconditions": [
+                  "cancellation_policy_allows_cancellation",
+                  "status != Cancelled"
+                ],
+                "on_success": "changes status to Cancelled"
+              },
+              {
+                "action_name": "Modify",
+                "preconditions": [
+                  "booking_type_allows_modification",
+                  "cancellation_policy_allows_modification"
+                ],
+                "on_success": "initiates modification flow"
+              },
+              {
+                "action_name": "Download Confirmation",
+                "on_success": "downloads confirmation document"
+              },
+              {
+                "action_name": "Download Invoice",
+                "on_success": "downloads invoice"
+              },
+              {
+                "action_name": "Download Voucher",
+                "on_success": "downloads voucher"
+              }
+            ]
+          },
+          "Confirmed": {
+            "available_actions": [
+              {
+                "action_name": "View Details",
+                "on_success": "navigates to booking detail"
+              },
+              {
+                "action_name": "Cancel",
+                "preconditions": [
+                  "cancellation_policy_allows_cancellation",
+                  "status != Cancelled"
+                ],
+                "on_success": "changes status to Cancelled"
+              },
+              {
+                "action_name": "Modify",
+                "preconditions": [
+                  "booking_type_allows_modification",
+                  "cancellation_policy_allows_modification"
+                ],
+                "on_success": "initiates modification flow"
+              },
+              {
+                "action_name": "Download Confirmation",
+                "on_success": "downloads confirmation document"
+              },
+              {
+                "action_name": "Download Invoice",
+                "on_success": "downloads invoice"
+              },
+              {
+                "action_name": "Download Voucher",
+                "on_success": "downloads voucher"
+              }
+            ]
+          },
+          "Cancelled": {
+            "available_actions": [
+              {
+                "action_name": "View Details",
+                "on_success": "navigates to booking detail"
+              },
+              {
+                "action_name": "Download Invoice",
+                "on_success": "downloads invoice"
+              },
+              {
+                "action_name": "Download Voucher",
+                "on_success": "downloads voucher"
+              }
+            ]
+          }
         }
-      ]
+      }
     },
     "My_Profile": {
-      "type": "component",
+      "type": "form",
+      "fields": {},
       "actions": [
         {
-          "action_name": "Edit"
+          "element_name": "Edit",
+          "on_success": "enables profile edit mode"
+        }
+      ],
+      "submit_actions": [
+        {
+          "element_name": "Save",
+          "on_success": "updates profile"
+        },
+        {
+          "element_name": "Cancel",
+          "on_success": "cancels profile edit"
         }
       ]
     },
     "Wallet_Credits": {
       "type": "data_table",
-      "description": "transaction history for wallet/credits",
-      "row_actions": [],
-      "bulk_actions": []
+      "description": "Transaction history (available credit balance is a read-only value and not represented here)",
+      "fields": {},
+      "row_actions": []
     },
     "Wishlist": {
-      "type": "list",
-      "fields": {}
+      "type": "data_table",
+      "description": "Saved hotels, tours, or flights",
+      "fields": {},
+      "row_actions": []
     },
     "Reviews": {
+      "type": "data_table",
+      "description": "Listings of completed bookings eligible for review",
+      "fields": {},
+      "row_actions": [
+        {
+          "action_name": "Write Review",
+          "preconditions": [
+            "booking status must be Completed"
+          ],
+          "on_success": "opens Review_Form"
+        }
+      ]
+    },
+    "Review_Form": {
       "type": "form",
       "fields": {
         "Rating": {
-          "type": "number",
-          "visible_when": "booking_status == Completed",
-          "constraints": [
-            "min 1",
-            "max 5"
-          ]
+          "type": "unspecified",
+          "required": true
         },
         "Review_Text": {
           "type": "unspecified",
-          "visible_when": "booking_status == Completed"
+          "required": true
         }
       },
       "submit_actions": [
         {
-          "preconditions": [
-            "booking must be completed"
-          ]
+          "element_name": "Submit Review",
+          "on_success": "saves review"
+        },
+        {
+          "element_name": "Cancel",
+          "on_success": "cancels review entry"
         }
       ]
     },
     "Settings": {
       "type": "form",
       "fields": {
-        "Change_Password": {
-          "type": "form",
-          "fields": {
-            "Old_Password": {
-              "type": "password",
-              "required": true
-            },
-            "New_Password": {
-              "type": "password",
-              "required": true
-            },
-            "Confirm_Password": {
-              "type": "password",
-              "required": true,
-              "constraints": [
-                "must match New_Password"
-              ]
-            }
-          }
+        "Change_Password_Current": {
+          "type": "password",
+          "required": true
+        },
+        "Change_Password_New": {
+          "type": "password",
+          "required": true
         },
         "Notification_Preferences": {
-          "type": "unspecified"
+          "type": "unspecified",
+          "required": false
         },
         "Default_Currency": {
-          "type": "dropdown"
+          "type": "dropdown",
+          "required": false
         },
         "Default_Language": {
-          "type": "dropdown"
+          "type": "dropdown",
+          "required": false
         }
-      }
+      },
+      "submit_actions": [
+        {
+          "element_name": "Save Settings",
+          "on_success": "updates user settings"
+        }
+      ]
     },
     "Logout": {
       "type": "button",
@@ -340,10 +443,36 @@ The dashboard is organized into the following sections. My Bookings displays all
 
 </description>
 
+<workflows>
+WF-001 | My Bookings - Pending - View Details | actor: <role> | branch: entity_state == Pending | terminal: View Details | on_success: navigates to booking detail
+WF-002 | My Bookings - Pending - Cancel | actor: <role> | branch: entity_state == Pending AND cancellation_policy_allows_cancellation AND status != Cancelled | terminal: Cancel | on_success: changes status to Cancelled
+WF-003 | My Bookings - Pending - Modify | actor: <role> | branch: entity_state == Pending AND booking_type_allows_modification AND cancellation_policy_allows_modification | terminal: Modify | on_success: initiates modification flow
+WF-004 | My Bookings - Pending - Download Confirmation | actor: <role> | branch: entity_state == Pending | terminal: Download Confirmation | on_success: downloads confirmation document
+WF-005 | My Bookings - Pending - Download Invoice | actor: <role> | branch: entity_state == Pending | terminal: Download Invoice | on_success: downloads invoice
+WF-006 | My Bookings - Pending - Download Voucher | actor: <role> | branch: entity_state == Pending | terminal: Download Voucher | on_success: downloads voucher
+WF-007 | My Bookings - Confirmed - View Details | actor: <role> | branch: entity_state == Confirmed | terminal: View Details | on_success: navigates to booking detail
+WF-008 | My Bookings - Confirmed - Cancel | actor: <role> | branch: entity_state == Confirmed AND cancellation_policy_allows_cancellation AND status != Cancelled | terminal: Cancel | on_success: changes status to Cancelled
+WF-009 | My Bookings - Confirmed - Modify | actor: <role> | branch: entity_state == Confirmed AND booking_type_allows_modification AND cancellation_policy_allows_modification | terminal: Modify | on_success: initiates modification flow
+WF-010 | My Bookings - Confirmed - Download Confirmation | actor: <role> | branch: entity_state == Confirmed | terminal: Download Confirmation | on_success: downloads confirmation document
+WF-011 | My Bookings - Confirmed - Download Invoice | actor: <role> | branch: entity_state == Confirmed | terminal: Download Invoice | on_success: downloads invoice
+WF-012 | My Bookings - Confirmed - Download Voucher | actor: <role> | branch: entity_state == Confirmed | terminal: Download Voucher | on_success: downloads voucher
+WF-013 | My Bookings - Cancelled - View Details | actor: <role> | branch: entity_state == Cancelled | terminal: View Details | on_success: navigates to booking detail
+WF-014 | My Bookings - Cancelled - Download Invoice | actor: <role> | branch: entity_state == Cancelled | terminal: Download Invoice | on_success: downloads invoice
+WF-015 | My Bookings - Cancelled - Download Voucher | actor: <role> | branch: entity_state == Cancelled | terminal: Download Voucher | on_success: downloads voucher
+WF-016 | My Profile - Edit | actor: <role> | branch: none | terminal: Edit | on_success: enables profile edit mode
+WF-017 | My Profile - Save | actor: <role> | branch: none | terminal: Save | on_success: updates profile
+WF-018 | My Profile - Cancel Edit | actor: <role> | branch: none | terminal: Cancel | on_success: cancels profile edit
+WF-019 | Reviews - Write Review (eligible completed booking) | actor: <role> | branch: booking status must be Completed | terminal: Write Review | on_success: opens Review_Form
+WF-020 | Review Form - Submit Review | actor: <role> | branch: none | terminal: Submit Review | on_success: saves review
+WF-021 | Review Form - Cancel | actor: <role> | branch: none | terminal: Cancel | on_success: cancels review entry
+WF-022 | Settings - Save Settings | actor: <role> | branch: none | terminal: Save Settings | on_success: updates user settings
+WF-023 | Logout - End Session | actor: <role> | branch: none | terminal: Logout | on_success: ends session
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[22:57:26] Test-Edge - LLM RESPONSE
+[14:53:53] Test-Edge - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "User Dashboard",
@@ -351,163 +480,98 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "E-001",
-      "subcategory": "boundary",
-      "test_case": "Submit review with Rating at minimum (1) when booking is Completed",
+      "wf_ref": "WF-002",
+      "subcategory": "state_edge",
+      "test_case": "Rapid double-click Cancel on a Pending booking",
       "preconditions": [
-        "User is logged in",
-        "There exists a booking with booking_status == Completed"
+        "User is signed in and on User Dashboard",
+        "A booking row is visible in My_Bookings with state = Pending",
+        "cancellation_policy_allows_cancellation = true for that booking",
+        "status != Cancelled for that booking"
       ],
       "steps": [
-        "1. Navigate to the User Dashboard",
-        "2. Open the Reviews form for the Completed booking",
-        "3. Enter <minimum value> in the Rating field",
-        "4. Enter some text in Review_Text",
-        "5. Click the Reviews Submit button"
+        "1. Locate the Pending booking row in My_Bookings",
+        "2. Click the row action 'Cancel' once",
+        "3. Immediately (within 1 second) click the row action 'Cancel' again before the UI finishes updating"
       ],
-      "expected_result": "Submission succeeds: form submits successfully; the new review appears in the Reviews list and the review detail shows Rating = <minimum value>",
+      "expected_result": "First Cancel action succeeds; the booking row's visible status changes to 'Cancelled' in the My_Bookings table. The second Cancel click is blocked / error shown: the Cancel action is no longer available for that row (Cancel button becomes disabled or removed) and no second status change occurs.",
       "priority": "medium"
     },
     {
       "tc_id": "E-002",
-      "subcategory": "boundary",
-      "test_case": "Attempt to submit review with Rating one unit below minimum (0)",
+      "wf_ref": "WF-003",
+      "subcategory": "state_edge",
+      "test_case": "Cancel then immediate Modify attempt on a Pending booking (race between actions)",
       "preconditions": [
-        "User is logged in",
-        "There exists a booking with booking_status == Completed"
+        "User is signed in and on User Dashboard",
+        "A booking row is visible in My_Bookings with state = Pending",
+        "cancellation_policy_allows_cancellation = true and booking_type_allows_modification = true and cancellation_policy_allows_modification = true for that booking",
+        "status != Cancelled for that booking"
       ],
       "steps": [
-        "1. Navigate to the User Dashboard",
-        "2. Open the Reviews form for the Completed booking",
-        "3. Enter <one unit below minimum> in the Rating field",
-        "4. Enter some text in Review_Text",
-        "5. Click the Reviews Submit button"
+        "1. Locate the Pending booking row in My_Bookings",
+        "2. Click the row action 'Cancel'",
+        "3. Immediately (within 1 second) click the row action 'Modify' for the same booking row"
       ],
-      "expected_result": "Submission is blocked / error shown: Rating field displays an inline validation error indicating the value is below the minimum and the review is not created",
+      "expected_result": "Cancel action succeeds; the booking row's visible status changes to 'Cancelled' in the My_Bookings table. The subsequent Modify attempt is blocked / error shown because the booking status is now Cancelled: the Modify action is not initiated and the Modify button is not available for that row (visible indicator that action cannot proceed).",
       "priority": "medium"
     },
     {
       "tc_id": "E-003",
-      "subcategory": "boundary",
-      "test_case": "Submit review with Rating at maximum (5) when booking is Completed",
+      "wf_ref": "WF-020",
+      "subcategory": "input_edge",
+      "test_case": "Write Review with very long text containing emoji and special characters",
       "preconditions": [
-        "User is logged in",
-        "There exists a booking with booking_status == Completed"
+        "User is signed in and on User Dashboard",
+        "There exists a completed booking eligible for review listed in Reviews (booking status = Completed)",
+        "Write Review row action is available for that booking"
       ],
       "steps": [
-        "1. Navigate to the User Dashboard",
-        "2. Open the Reviews form for the Completed booking",
-        "3. Enter <maximum value> in the Rating field",
-        "4. Enter some text in Review_Text",
-        "5. Click the Reviews Submit button"
+        "1. Open the Reviews section",
+        "2. Click 'Write Review' for the completed booking",
+        "3. Enter a valid Rating in the Rating field",
+        "4. Enter a very long string (200+ characters) that includes emoji and a range of special Unicode characters in the Review_Text field",
+        "5. Click 'Submit Review'"
       ],
-      "expected_result": "Submission succeeds: form submits successfully; the new review appears in the Reviews list and the review detail shows Rating = <maximum value>",
+      "expected_result": "Submit Review succeeds; the new review appears in the Reviews list. The saved review displays the full Review_Text including emoji and special characters with no visible truncation indicator (text preserved as entered).",
       "priority": "medium"
     },
     {
       "tc_id": "E-004",
-      "subcategory": "boundary",
-      "test_case": "Attempt to submit review with Rating one unit above maximum (6)",
-      "preconditions": [
-        "User is logged in",
-        "There exists a booking with booking_status == Completed"
-      ],
-      "steps": [
-        "1. Navigate to the User Dashboard",
-        "2. Open the Reviews form for the Completed booking",
-        "3. Enter <one unit above maximum> in the Rating field",
-        "4. Enter some text in Review_Text",
-        "5. Click the Reviews Submit button"
-      ],
-      "expected_result": "Submission is blocked / error shown: Rating field displays an inline validation error indicating the value exceeds the maximum and the review is not created",
-      "priority": "medium"
-    },
-    {
-      "tc_id": "E-005",
-      "subcategory": "boundary",
-      "test_case": "Change password where Confirm_Password exactly matches New_Password (should succeed)",
-      "preconditions": [
-        "User is logged in",
-        "User is on Settings > Change_Password"
-      ],
-      "steps": [
-        "1. Click Edit or open Change_Password form in Settings",
-        "2. Enter valid Old_Password in the Old_Password field",
-        "3. Enter a value in the New_Password field",
-        "4. Enter the exact same value in the Confirm_Password field",
-        "5. Click the Save/Submit button for Change_Password"
-      ],
-      "expected_result": "Submission succeeds: password change completes; a visible success indicator appears and no validation error is shown on Confirm_Password",
-      "priority": "medium"
-    },
-    {
-      "tc_id": "E-006",
-      "subcategory": "boundary",
-      "test_case": "Attempt to change password where Confirm_Password differs by one character from New_Password",
-      "preconditions": [
-        "User is logged in",
-        "User is on Settings > Change_Password"
-      ],
-      "steps": [
-        "1. Click Edit or open Change_Password form in Settings",
-        "2. Enter valid Old_Password in the Old_Password field",
-        "3. Enter a value in the New_Password field",
-        "4. Enter a value in Confirm_Password that differs by one character from New_Password",
-        "5. Click the Save/Submit button for Change_Password"
-      ],
-      "expected_result": "Submission is blocked / error shown: Confirm_Password field displays an inline validation error stating \"must match New_Password\" and the password is not changed",
-      "priority": "medium"
-    },
-    {
-      "tc_id": "E-007",
-      "subcategory": "input_edge",
-      "test_case": "Submit a very long Review_Text (200+ characters) for a Completed booking",
-      "preconditions": [
-        "User is logged in",
-        "There exists a booking with booking_status == Completed"
-      ],
-      "steps": [
-        "1. Navigate to the User Dashboard",
-        "2. Open the Reviews form for the Completed booking",
-        "3. Enter a valid value in the Rating field (within allowed range)",
-        "4. Enter a very long string (>200 characters) in Review_Text",
-        "5. Click the Reviews Submit button"
-      ],
-      "expected_result": "Submission succeeds: the review is saved and the review detail displays the full Review_Text (no truncation) or a clear UI indicator is shown if truncation occurred; the Reviews list shows the submitted entry",
-      "priority": "low"
-    },
-    {
-      "tc_id": "E-008",
+      "wf_ref": "WF-020",
       "subcategory": "interaction_edge",
-      "test_case": "Double-click Reviews Submit rapidly to verify no duplicate reviews are created",
+      "test_case": "Rapid double-submit of Review (prevent duplicate review creation)",
       "preconditions": [
-        "User is logged in",
-        "There exists a booking with booking_status == Completed"
+        "User is signed in and on User Dashboard",
+        "There exists a completed booking eligible for review listed in Reviews (booking status = Completed)",
+        "Write Review row action is available for that booking"
       ],
       "steps": [
-        "1. Navigate to the User Dashboard",
-        "2. Open the Reviews form for the Completed booking",
-        "3. Enter a valid value in the Rating field",
-        "4. Enter text in Review_Text",
-        "5. Rapidly double-click the Reviews Submit button"
+        "1. Open the Reviews section",
+        "2. Click 'Write Review' for the completed booking",
+        "3. Enter a valid Rating in the Rating field",
+        "4. Enter a short valid Review_Text in the Review_Text field",
+        "5. Click 'Submit Review' once",
+        "6. Immediately (within 1 second) click 'Submit Review' again"
       ],
-      "expected_result": "Interaction succeeds without duplication: only one review record is created; the Reviews list shows a single new entry and no duplicate rows are added",
+      "expected_result": "First Submit Review succeeds and saves the review; exactly one new review row appears in the Reviews list for that booking. The immediate second submit is blocked / error shown (no duplicate review is created); the UI indicates the review is already submitted for that booking (Submit Review is disabled or the form is closed) and only one saved review is visible.",
       "priority": "medium"
     }
   ],
   "summary": {
-    "total": 8,
-    "boundary": 6,
+    "total": 4,
+    "boundary": 0,
     "input_edge": 1,
     "interaction_edge": 1,
-    "state_edge": 0,
+    "state_edge": 2,
     "data_edge": 0,
-    "medium_priority": 7,
-    "low_priority": 1
+    "medium_priority": 4,
+    "low_priority": 0
   }
 }
 
 ------------------------------------------------------------
-[22:57:26] Test-Edge - PARSED JSON
+[14:53:53] Test-Edge - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "User Dashboard",
@@ -515,157 +579,92 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "E-001",
-      "subcategory": "boundary",
-      "test_case": "Submit review with Rating at minimum (1) when booking is Completed",
+      "wf_ref": "WF-002",
+      "subcategory": "state_edge",
+      "test_case": "Rapid double-click Cancel on a Pending booking",
       "preconditions": [
-        "User is logged in",
-        "There exists a booking with booking_status == Completed"
+        "User is signed in and on User Dashboard",
+        "A booking row is visible in My_Bookings with state = Pending",
+        "cancellation_policy_allows_cancellation = true for that booking",
+        "status != Cancelled for that booking"
       ],
       "steps": [
-        "1. Navigate to the User Dashboard",
-        "2. Open the Reviews form for the Completed booking",
-        "3. Enter <minimum value> in the Rating field",
-        "4. Enter some text in Review_Text",
-        "5. Click the Reviews Submit button"
+        "1. Locate the Pending booking row in My_Bookings",
+        "2. Click the row action 'Cancel' once",
+        "3. Immediately (within 1 second) click the row action 'Cancel' again before the UI finishes updating"
       ],
-      "expected_result": "Submission succeeds: form submits successfully; the new review appears in the Reviews list and the review detail shows Rating = <minimum value>",
+      "expected_result": "First Cancel action succeeds; the booking row's visible status changes to 'Cancelled' in the My_Bookings table. The second Cancel click is blocked / error shown: the Cancel action is no longer available for that row (Cancel button becomes disabled or removed) and no second status change occurs.",
       "priority": "medium"
     },
     {
       "tc_id": "E-002",
-      "subcategory": "boundary",
-      "test_case": "Attempt to submit review with Rating one unit below minimum (0)",
+      "wf_ref": "WF-003",
+      "subcategory": "state_edge",
+      "test_case": "Cancel then immediate Modify attempt on a Pending booking (race between actions)",
       "preconditions": [
-        "User is logged in",
-        "There exists a booking with booking_status == Completed"
+        "User is signed in and on User Dashboard",
+        "A booking row is visible in My_Bookings with state = Pending",
+        "cancellation_policy_allows_cancellation = true and booking_type_allows_modification = true and cancellation_policy_allows_modification = true for that booking",
+        "status != Cancelled for that booking"
       ],
       "steps": [
-        "1. Navigate to the User Dashboard",
-        "2. Open the Reviews form for the Completed booking",
-        "3. Enter <one unit below minimum> in the Rating field",
-        "4. Enter some text in Review_Text",
-        "5. Click the Reviews Submit button"
+        "1. Locate the Pending booking row in My_Bookings",
+        "2. Click the row action 'Cancel'",
+        "3. Immediately (within 1 second) click the row action 'Modify' for the same booking row"
       ],
-      "expected_result": "Submission is blocked / error shown: Rating field displays an inline validation error indicating the value is below the minimum and the review is not created",
+      "expected_result": "Cancel action succeeds; the booking row's visible status changes to 'Cancelled' in the My_Bookings table. The subsequent Modify attempt is blocked / error shown because the booking status is now Cancelled: the Modify action is not initiated and the Modify button is not available for that row (visible indicator that action cannot proceed).",
       "priority": "medium"
     },
     {
       "tc_id": "E-003",
-      "subcategory": "boundary",
-      "test_case": "Submit review with Rating at maximum (5) when booking is Completed",
+      "wf_ref": "WF-020",
+      "subcategory": "input_edge",
+      "test_case": "Write Review with very long text containing emoji and special characters",
       "preconditions": [
-        "User is logged in",
-        "There exists a booking with booking_status == Completed"
+        "User is signed in and on User Dashboard",
+        "There exists a completed booking eligible for review listed in Reviews (booking status = Completed)",
+        "Write Review row action is available for that booking"
       ],
       "steps": [
-        "1. Navigate to the User Dashboard",
-        "2. Open the Reviews form for the Completed booking",
-        "3. Enter <maximum value> in the Rating field",
-        "4. Enter some text in Review_Text",
-        "5. Click the Reviews Submit button"
+        "1. Open the Reviews section",
+        "2. Click 'Write Review' for the completed booking",
+        "3. Enter a valid Rating in the Rating field",
+        "4. Enter a very long string (200+ characters) that includes emoji and a range of special Unicode characters in the Review_Text field",
+        "5. Click 'Submit Review'"
       ],
-      "expected_result": "Submission succeeds: form submits successfully; the new review appears in the Reviews list and the review detail shows Rating = <maximum value>",
+      "expected_result": "Submit Review succeeds; the new review appears in the Reviews list. The saved review displays the full Review_Text including emoji and special characters with no visible truncation indicator (text preserved as entered).",
       "priority": "medium"
     },
     {
       "tc_id": "E-004",
-      "subcategory": "boundary",
-      "test_case": "Attempt to submit review with Rating one unit above maximum (6)",
-      "preconditions": [
-        "User is logged in",
-        "There exists a booking with booking_status == Completed"
-      ],
-      "steps": [
-        "1. Navigate to the User Dashboard",
-        "2. Open the Reviews form for the Completed booking",
-        "3. Enter <one unit above maximum> in the Rating field",
-        "4. Enter some text in Review_Text",
-        "5. Click the Reviews Submit button"
-      ],
-      "expected_result": "Submission is blocked / error shown: Rating field displays an inline validation error indicating the value exceeds the maximum and the review is not created",
-      "priority": "medium"
-    },
-    {
-      "tc_id": "E-005",
-      "subcategory": "boundary",
-      "test_case": "Change password where Confirm_Password exactly matches New_Password (should succeed)",
-      "preconditions": [
-        "User is logged in",
-        "User is on Settings > Change_Password"
-      ],
-      "steps": [
-        "1. Click Edit or open Change_Password form in Settings",
-        "2. Enter valid Old_Password in the Old_Password field",
-        "3. Enter a value in the New_Password field",
-        "4. Enter the exact same value in the Confirm_Password field",
-        "5. Click the Save/Submit button for Change_Password"
-      ],
-      "expected_result": "Submission succeeds: password change completes; a visible success indicator appears and no validation error is shown on Confirm_Password",
-      "priority": "medium"
-    },
-    {
-      "tc_id": "E-006",
-      "subcategory": "boundary",
-      "test_case": "Attempt to change password where Confirm_Password differs by one character from New_Password",
-      "preconditions": [
-        "User is logged in",
-        "User is on Settings > Change_Password"
-      ],
-      "steps": [
-        "1. Click Edit or open Change_Password form in Settings",
-        "2. Enter valid Old_Password in the Old_Password field",
-        "3. Enter a value in the New_Password field",
-        "4. Enter a value in Confirm_Password that differs by one character from New_Password",
-        "5. Click the Save/Submit button for Change_Password"
-      ],
-      "expected_result": "Submission is blocked / error shown: Confirm_Password field displays an inline validation error stating \"must match New_Password\" and the password is not changed",
-      "priority": "medium"
-    },
-    {
-      "tc_id": "E-007",
-      "subcategory": "input_edge",
-      "test_case": "Submit a very long Review_Text (200+ characters) for a Completed booking",
-      "preconditions": [
-        "User is logged in",
-        "There exists a booking with booking_status == Completed"
-      ],
-      "steps": [
-        "1. Navigate to the User Dashboard",
-        "2. Open the Reviews form for the Completed booking",
-        "3. Enter a valid value in the Rating field (within allowed range)",
-        "4. Enter a very long string (>200 characters) in Review_Text",
-        "5. Click the Reviews Submit button"
-      ],
-      "expected_result": "Submission succeeds: the review is saved and the review detail displays the full Review_Text (no truncation) or a clear UI indicator is shown if truncation occurred; the Reviews list shows the submitted entry",
-      "priority": "low"
-    },
-    {
-      "tc_id": "E-008",
+      "wf_ref": "WF-020",
       "subcategory": "interaction_edge",
-      "test_case": "Double-click Reviews Submit rapidly to verify no duplicate reviews are created",
+      "test_case": "Rapid double-submit of Review (prevent duplicate review creation)",
       "preconditions": [
-        "User is logged in",
-        "There exists a booking with booking_status == Completed"
+        "User is signed in and on User Dashboard",
+        "There exists a completed booking eligible for review listed in Reviews (booking status = Completed)",
+        "Write Review row action is available for that booking"
       ],
       "steps": [
-        "1. Navigate to the User Dashboard",
-        "2. Open the Reviews form for the Completed booking",
-        "3. Enter a valid value in the Rating field",
-        "4. Enter text in Review_Text",
-        "5. Rapidly double-click the Reviews Submit button"
+        "1. Open the Reviews section",
+        "2. Click 'Write Review' for the completed booking",
+        "3. Enter a valid Rating in the Rating field",
+        "4. Enter a short valid Review_Text in the Review_Text field",
+        "5. Click 'Submit Review' once",
+        "6. Immediately (within 1 second) click 'Submit Review' again"
       ],
-      "expected_result": "Interaction succeeds without duplication: only one review record is created; the Reviews list shows a single new entry and no duplicate rows are added",
+      "expected_result": "First Submit Review succeeds and saves the review; exactly one new review row appears in the Reviews list for that booking. The immediate second submit is blocked / error shown (no duplicate review is created); the UI indicates the review is already submitted for that booking (Submit Review is disabled or the form is closed) and only one saved review is visible.",
       "priority": "medium"
     }
   ],
   "summary": {
-    "total": 8,
-    "boundary": 6,
+    "total": 4,
+    "boundary": 0,
     "input_edge": 1,
     "interaction_edge": 1,
-    "state_edge": 0,
+    "state_edge": 2,
     "data_edge": 0,
-    "medium_priority": 7,
-    "low_priority": 1
+    "medium_priority": 4,
+    "low_priority": 0
   }
 }

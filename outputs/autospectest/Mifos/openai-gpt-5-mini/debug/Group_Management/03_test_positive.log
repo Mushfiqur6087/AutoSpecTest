@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-21T22:29:06.520014
+DEBUG SESSION STARTED: 2026-05-25T14:24:50.719181
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[22:29:06] Test-Positive - SYSTEM PROMPT
+[14:24:50] Test-Positive - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Expert UI Test Case Generator. You receive (1) a UI-AST JSON for one specific module and (2) the original functional description for that module.
 
@@ -24,6 +24,10 @@ Your job is to produce ONLY positive/functional UI test cases — tests where va
 <description>
 {Original functional description text for this module}
 </description>
+
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
 
 ---
 
@@ -146,6 +150,13 @@ Because you are testing a module in isolation, establish the required entry stat
 **1. Forms & Wizards (`form`, `wizard`):**
 - Generate ONE happy path per distinct success outcome.
 - *Conditional UI Check:* If a toggle/dropdown reveals new mandatory fields (`visible_when`), generate a separate test for that conditional branch.
+- **Wizard step coverage (CRITICAL):** If a wizard has multiple steps and any step beyond Step 1 contains its own named field group (e.g., "Address Details", "Family Members", "Identifiers"), generate ONE dedicated positive TC per such step. The TC must:
+  - Navigate to that specific step (include the preceding steps as preconditions or brief navigation steps)
+  - Fill the fields described for that step (not just pass through)
+  - Assert the step's content is visible/saved on the detail page after final submission
+  - **Do NOT collapse all wizard steps into one happy-path TC** — if Steps 2, 3, and 4 each have their own named section in the spec, they each need their own TC.
+- **Wizard in-step identifiers/duplicates:** If a wizard step allows adding identifiers, documents, or similar entries that have a uniqueness constraint, include a TC for that wizard step that also verifies the constraint (e.g., attempting to add a duplicate Document Type+Key pair inside the wizard). This is a different code path from adding the same post-creation on the detail page.
+- **Action dialogs:** If a `state_bound_action_bar` action opens a dialog with its own `fields{}` (e.g., Activate requires Activation Date, Reject requires Reason), generate ONE positive TC per such action-dialog — distinct from the state-transition TC. The TC fills the dialog field and completes the action.
 
 **2. State Machines (`state_bound_action_bar`):**
 - For each unique action available in a specific state, generate ONE test performing that action.
@@ -200,6 +211,19 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 
 ---
 
+**WORKFLOW COVERAGE OBLIGATION (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- Your test cases must **collectively cover every workflow** listed.
+- For each `wf_id`, at least one TC must:
+  - Activate the `conditional_branch` (if not null) — i.e. the test must set up the condition described.
+  - Assert the `on_success` as its `expected_result` (verbatim or as the primary basis for the expected result).
+- Add `"wf_ref": "WF-NNN"` to each TC to identify which workflow it covers.
+- If one TC naturally covers multiple workflows (e.g., the base path overlaps), pick the most specific `wf_ref`.
+- If a TC does not map to any workflow (e.g., a navigation-only test), set `"wf_ref": null`.
+
+---
+
 **OUTPUT — JSON only, no prose, no markdown fencing:**
 
 {
@@ -208,6 +232,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
   "test_cases": [
     {
       "tc_id": "P-001",
+      "wf_ref": "WF-001",
       "test_case": "Short descriptive name",
       "preconditions": ["User logged in as <Role>", "<Prerequisite state>"],
       "steps": ["1. Step one", "2. Step two"],
@@ -224,7 +249,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 }
 
 ------------------------------------------------------------
-[22:29:06] Test-Positive - USER PROMPT
+[14:24:50] Test-Positive - USER PROMPT
 ------------------------------------------------------------
 <module_name>Group Management</module_name>
 
@@ -232,7 +257,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 {
   "module_name": "Group Management",
   "components": {
-    "Groups_Page": {
+    "Groups_List_Table": {
       "type": "data_table",
       "columns": [
         "Group Name",
@@ -241,24 +266,24 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
         "Status",
         "Staff"
       ],
-      "link_column": "Group Name",
-      "top_actions": [
-        {
-          "element_name": "Import Groups",
-          "type": "button",
-          "on_click_navigates_to": "Bulk_Import_Groups_Page"
-        },
-        {
-          "element_name": "Create New Group",
-          "type": "button",
-          "on_click_navigates_to": "Create_Group_Form"
-        }
+      "clickable_columns": [
+        "Group Name"
       ],
       "row_actions": [
         {
-          "action_name": "Open Group Detail",
-          "type": "link",
-          "target": "Group_Detail_Page"
+          "action_name": "Open Group",
+          "trigger": "Group Name link",
+          "on_success": "navigates to Group Detail page"
+        }
+      ],
+      "page_actions": [
+        {
+          "action_name": "Import Groups",
+          "on_click": "navigates to Bulk Import Groups page"
+        },
+        {
+          "action_name": "Create New Group",
+          "on_click": "opens Create Group form"
         }
       ]
     },
@@ -289,12 +314,21 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
           "type": "unspecified",
           "required": false
         },
-        "Clients": {
+        "Add_Clients": {
+          "type": "search",
+          "required": false,
+          "description": "search existing clients to associate with the group",
+          "adds_to": "Selected_Clients"
+        },
+        "Selected_Clients": {
           "type": "repeating_group",
+          "min": 0,
           "item_fields": {
-            "Client": {
-              "type": "search",
-              "required": true
+            "Client_Id": {
+              "type": "unspecified"
+            },
+            "Client_Name": {
+              "type": "link"
             }
           }
         }
@@ -302,16 +336,15 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
       "submit_actions": [
         {
           "element_name": "Submit",
-          "type": "button",
           "on_success": "creates group"
         }
       ]
     },
     "Bulk_Import_Groups_Page": {
       "type": "page",
-      "panels": {
+      "components": {
         "Groups_Template_Panel": {
-          "type": "panel",
+          "type": "form",
           "fields": {
             "Office": {
               "type": "dropdown",
@@ -324,14 +357,13 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
           },
           "actions": [
             {
-              "element_name": "Download",
-              "type": "button",
-              "on_success": "downloads groups template"
+              "action_name": "Download Template",
+              "on_click": "downloads groups template"
             }
           ]
         },
         "Groups_Upload_Panel": {
-          "type": "panel",
+          "type": "form",
           "fields": {
             "File": {
               "type": "file_upload",
@@ -340,98 +372,132 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
           },
           "actions": [
             {
-              "element_name": "Upload",
-              "type": "button",
-              "on_success": "imports groups from file"
+              "action_name": "Upload",
+              "on_success": "imports groups and records import history"
             }
           ]
-        }
-      },
-      "components": {
+        },
         "Import_History_Table": {
-          "type": "data_table"
+          "type": "data_table",
+          "columns": [],
+          "row_actions": []
         }
       }
     },
     "Group_Detail_Page": {
       "type": "page",
       "components": {
-        "Detail_Action_Bar": {
+        "Group_Action_Bar": {
           "type": "state_bound_action_bar",
           "states": {
             "Pending": {
               "available_actions": [
                 {
                   "action_name": "Activate",
+                  "on_success": "changes status to Active",
                   "preconditions": [
                     "status must be Pending"
-                  ],
-                  "on_success": "transitions to Active"
+                  ]
                 },
                 {
-                  "action_name": "Edit",
-                  "preconditions": [],
-                  "opens_form": "Edit_Group_Form"
+                  "action_name": "Edit"
+                },
+                {
+                  "action_name": "Close",
+                  "on_success": "changes status to Closed",
+                  "preconditions": [
+                    "status must be Pending or Active"
+                  ]
+                },
+                {
+                  "action_name": "Assign Staff",
+                  "fields": {
+                    "Staff": {
+                      "type": "dropdown",
+                      "required": true
+                    }
+                  }
+                },
+                {
+                  "action_name": "Transfer Clients"
                 }
               ]
             },
             "Active": {
               "available_actions": [
                 {
-                  "action_name": "Close",
-                  "preconditions": [
-                    "status must be Active"
-                  ],
-                  "on_success": "transitions to Closed"
+                  "action_name": "Edit"
                 },
                 {
-                  "action_name": "Edit",
-                  "preconditions": [],
-                  "opens_form": "Edit_Group_Form"
+                  "action_name": "Close",
+                  "on_success": "changes status to Closed",
+                  "preconditions": [
+                    "status must be Active"
+                  ]
                 },
                 {
                   "action_name": "Assign Staff",
-                  "preconditions": []
+                  "fields": {
+                    "Staff": {
+                      "type": "dropdown",
+                      "required": true
+                    }
+                  }
                 },
                 {
-                  "action_name": "Transfer Clients",
-                  "preconditions": []
-                },
-                {
-                  "action_name": "Generate Collection Sheet",
-                  "preconditions": [],
-                  "on_success": "opens collection sheet"
+                  "action_name": "Transfer Clients"
                 }
               ]
             },
             "Closed": {
               "available_actions": [
                 {
-                  "action_name": "Edit",
+                  "action_name": "Activate",
+                  "on_success": "changes status to Active",
                   "preconditions": [
-                    "status must be Active or Pending"
+                    "status must be Closed"
                   ]
+                },
+                {
+                  "action_name": "Edit"
+                },
+                {
+                  "action_name": "Assign Staff",
+                  "fields": {
+                    "Staff": {
+                      "type": "dropdown",
+                      "required": true
+                    }
+                  }
+                },
+                {
+                  "action_name": "Transfer Clients"
                 }
               ]
             }
           }
         },
-        "Detail_Tabs": {
+        "Group_Detail_Tabs": {
           "type": "tab_container",
           "tabs": [
             {
               "tab_name": "Members",
               "fields": {
-                "Members_Table": {
+                "Members_List": {
                   "type": "data_table",
                   "columns": [
-                    "Member Name"
+                    "Client Name"
                   ],
+                  "row_fields": {
+                    "Client_Name": {
+                      "type": "link"
+                    }
+                  },
                   "row_actions": [
                     {
-                      "action_name": "View Member Profile",
-                      "type": "link",
-                      "target": "Client_Profile"
+                      "action_name": "Open Client Profile",
+                      "trigger": "Client Name link",
+                      "on_success": "navigates to client profile"
                     }
                   ]
                 }
@@ -441,7 +507,9 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
               "tab_name": "Loan Accounts",
               "fields": {
                 "Loan_Accounts_Table": {
-                  "type": "data_table"
+                  "type": "data_table",
+                  "columns": [],
+                  "row_actions": []
                 }
               }
             },
@@ -449,7 +517,9 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
               "tab_name": "Savings Accounts",
               "fields": {
                 "Savings_Accounts_Table": {
-                  "type": "data_table"
+                  "type": "data_table",
+                  "columns": [],
+                  "row_actions": []
                 }
               }
             },
@@ -459,123 +529,48 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
             },
             {
               "tab_name": "Calendar/Meeting",
-              "fields": {
-                "Schedule_Meeting_Form": {
-                  "type": "form",
-                  "fields": {
-                    "Date": {
-                      "type": "date",
-                      "required": true
-                    }
-                  },
-                  "submit_actions": [
-                    {
-                      "element_name": "Schedule",
-                      "type": "button",
-                      "on_success": "schedules meeting"
-                    }
-                  ]
+              "fields": {},
+              "actions": [
+                {
+                  "action_name": "Schedule Meeting",
+                  "on_success": "schedules group meeting"
                 },
-                "Record_Meeting_Form": {
-                  "type": "form",
-                  "fields": {
-                    "Date": {
-                      "type": "date",
-                      "required": true
-                    },
-                    "Notes": {
-                      "type": "unspecified",
-                      "required": false
-                    }
-                  },
-                  "submit_actions": [
-                    {
-                      "element_name": "Save Meeting Record",
-                      "type": "button",
-                      "on_success": "records meeting"
-                    }
-                  ]
+                {
+                  "action_name": "Record Meeting",
+                  "on_success": "records meeting details"
                 }
-              }
+              ]
             }
           ]
         }
       }
     },
-    "Edit_Group_Form": {
-      "type": "form",
-      "fields": {
-        "Name": {
-          "type": "unspecified",
-          "required": true
-        },
-        "Office": {
-          "type": "dropdown",
-          "required": true
-        },
-        "Staff": {
-          "type": "dropdown",
-          "required": false
-        },
-        "Submitted_On": {
-          "type": "date",
-          "required": true
-        },
-        "Active": {
-          "type": "checkbox",
-          "required": false
-        },
-        "External_Id": {
-          "type": "unspecified",
-          "required": false
-        },
-        "Clients": {
-          "type": "repeating_group",
-          "item_fields": {
-            "Client": {
-              "type": "search",
-              "required": true
-            }
-          }
-        }
-      },
-      "submit_actions": [
-        {
-          "element_name": "Save",
-          "type": "button",
-          "on_success": "updates group"
-        }
-      ]
-    },
     "Collection_Sheet": {
-      "type": "form",
-      "description": "Batch entry sheet listing group clients with loan repayment and savings deposit amounts",
-      "fields": {
-        "Rows": {
-          "type": "repeating_group",
-          "item_fields": {
-            "Client": {
-              "type": "link",
-              "required": true
-            },
-            "Loan_Repayment_Amount": {
-              "type": "number",
-              "required": false
-            },
-            "Savings_Deposit_Amount": {
-              "type": "number",
-              "required": false
-            }
-          }
-        }
-      },
-      "submit_actions": [
+      "type": "feature",
+      "description": "Generates a sheet showing all group clients with loan repayment and savings deposit amounts for batch entry",
+      "actions": [
         {
-          "element_name": "Save Collection Sheet",
-          "type": "button",
-          "on_success": "saves collection sheet entries"
+          "action_name": "Generate Collection Sheet",
+          "on_success": "opens collection sheet for batch entry"
         }
-      ]
+      ],
+      "collection_sheet_table": {
+        "type": "data_table",
+        "row_fields": {
+          "Client_Name": {
+            "type": "readonly_text"
+          },
+          "Loan_Repayment_Amount": {
+            "type": "number",
+            "editable": true
+          },
+          "Savings_Deposit_Amount": {
+            "type": "number",
+            "editable": true
+          }
+        },
+        "row_actions": []
+      }
     }
   }
 }
@@ -592,10 +587,36 @@ The Group Detail page displays the group name, account number, status, office, a
 
 </description>
 
+<workflows>
+WF-001 | Open Group from Groups list | actor: <role> | branch: none | terminal: Open Group | on_success: navigates to Group Detail page
+WF-002 | Navigate to Bulk Import Groups page | actor: <role> | branch: none | terminal: Import Groups | on_success: navigates to Bulk Import Groups page
+WF-003 | Open Create Group form | actor: <role> | branch: none | terminal: Create New Group | on_success: opens Create Group form
+WF-004 | Submit Create Group form | actor: <role> | branch: none | terminal: Submit | on_success: creates group
+WF-005 | Download groups template | actor: <role> | branch: none | terminal: Download Template | on_success: downloads groups template
+WF-006 | Upload groups file | actor: <role> | branch: none | terminal: Upload | on_success: imports groups and records import history
+WF-007 | Activate group when Pending | actor: <role> | branch: entity_state == Pending | terminal: Activate | on_success: changes status to Active
+WF-008 | Edit group when Pending | actor: <role> | branch: entity_state == Pending | terminal: Edit | on_success: opens edit form
+WF-009 | Close group when Pending | actor: <role> | branch: entity_state == Pending | terminal: Close | on_success: changes status to Closed
+WF-010 | Assign Staff when Pending | actor: <role> | branch: entity_state == Pending | terminal: Assign Staff | on_success: assigns staff to group
+WF-011 | Transfer Clients when Pending | actor: <role> | branch: entity_state == Pending | terminal: Transfer Clients | on_success: transfers clients to another group
+WF-012 | Edit group when Active | actor: <role> | branch: entity_state == Active | terminal: Edit | on_success: opens edit form
+WF-013 | Close group when Active | actor: <role> | branch: entity_state == Active | terminal: Close | on_success: changes status to Closed
+WF-014 | Assign Staff when Active | actor: <role> | branch: entity_state == Active | terminal: Assign Staff | on_success: assigns staff to group
+WF-015 | Transfer Clients when Active | actor: <role> | branch: entity_state == Active | terminal: Transfer Clients | on_success: transfers clients to another group
+WF-016 | Activate group when Closed | actor: <role> | branch: entity_state == Closed | terminal: Activate | on_success: changes status to Active
+WF-017 | Edit group when Closed | actor: <role> | branch: entity_state == Closed | terminal: Edit | on_success: opens edit form
+WF-018 | Assign Staff when Closed | actor: <role> | branch: entity_state == Closed | terminal: Assign Staff | on_success: assigns staff to group
+WF-019 | Transfer Clients when Closed | actor: <role> | branch: entity_state == Closed | terminal: Transfer Clients | on_success: transfers clients to another group
+WF-020 | Open client profile from Members tab | actor: <role> | branch: none | terminal: Open Client Profile | on_success: navigates to client profile
+WF-021 | Schedule group meeting | actor: <role> | branch: none | terminal: Schedule Meeting | on_success: schedules group meeting
+WF-022 | Record group meeting | actor: <role> | branch: none | terminal: Record Meeting | on_success: records meeting details
+WF-023 | Generate Collection Sheet | actor: <role> | branch: none | terminal: Generate Collection Sheet | on_success: opens collection sheet for batch entry
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[22:31:38] Test-Positive - LLM RESPONSE
+[14:26:39] Test-Positive - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Group Management",
@@ -603,256 +624,304 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Create a new group with one client (happy path)",
-      "preconditions": [
-        "User logged in as <Admin with group creation permission>"
-      ],
+      "wf_ref": "WF-001",
+      "test_case": "Open a group from the Groups list",
+      "preconditions": ["User logged in as <Role>", "Groups page is open with at least one group listed"],
       "steps": [
-        "1. Navigate to the Groups page",
-        "2. Click the 'Create New Group' button",
-        "3. Enter <group name> in the Name field",
-        "4. Select <office> from the Office dropdown",
-        "5. (Optional) Select <staff member> from the Staff dropdown",
-        "6. Enter <submission date> in the Submitted On field",
-        "7. (Optional) Check the Active checkbox",
-        "8. Click 'Add Client' to add a client row in the Clients section",
-        "9. Enter <client search term> in the Client search and select <matching client> from the results",
-        "10. Click the 'Submit' button"
+        "1. Click the <Group Name> link for a row in the Groups List table"
       ],
-      "expected_result": "A success notification is displayed; a new row appears in the Groups table with the entered <group name> and <office>",
+      "expected_result": "navigates to Group Detail page",
       "priority": "high"
     },
     {
       "tc_id": "P-002",
-      "test_case": "Download groups template from Bulk Import page",
-      "preconditions": [
-        "User logged in as <Admin with import permission>"
-      ],
+      "wf_ref": "WF-002",
+      "test_case": "Navigate to the Bulk Import Groups page from Groups list",
+      "preconditions": ["User logged in as <Role>", "Groups page is open"],
       "steps": [
-        "1. Navigate to the Groups page",
-        "2. Click the 'Import Groups' button in the top actions",
-        "3. On the Bulk Import Groups page, (optional) select <office> and <staff> in the Groups Template panel",
-        "4. Click the 'Download' button in the Groups Template panel"
+        "1. Click the 'Import Groups' button in the top-right of the Groups page"
       ],
-      "expected_result": "A download of the groups template file is triggered (browser prompts to save or automatically downloads the template)",
+      "expected_result": "navigates to Bulk Import Groups page",
       "priority": "medium"
     },
     {
       "tc_id": "P-003",
-      "test_case": "Upload groups file and verify import history entry",
-      "preconditions": [
-        "User logged in as <Admin with import permission>"
-      ],
+      "wf_ref": "WF-003",
+      "test_case": "Open the Create Group form from Groups page",
+      "preconditions": ["User logged in as <Role>", "Groups page is open"],
       "steps": [
-        "1. Navigate to the Groups page",
-        "2. Click the 'Import Groups' button",
-        "3. In the Groups Upload panel, click the File upload control",
-        "4. Select a <valid groups import file> in the OS file picker",
-        "5. Click the 'Upload' button"
+        "1. Click the 'Create New Group' button in the top-right of the Groups page"
       ],
-      "expected_result": "A success notification is displayed; a new row for the uploaded file appears in the Import History table on the Bulk Import Groups page",
+      "expected_result": "opens Create Group form",
       "priority": "high"
     },
     {
       "tc_id": "P-004",
-      "test_case": "Open a group's detail page from the Groups table",
-      "preconditions": [
-        "User logged in as <User with group view permission>",
-        "At least one group exists in the Groups table"
-      ],
+      "wf_ref": "WF-004",
+      "test_case": "Submit the Create Group form with required fields and one client",
+      "preconditions": ["User logged in as <Role>", "Groups page is open"],
       "steps": [
-        "1. Navigate to the Groups page",
-        "2. Click the <group row> link in the Group Name column"
+        "1. Click the 'Create New Group' button to open the Create Group form",
+        "2. Enter <group name> in the Name field",
+        "3. Select <office> from the Office dropdown",
+        "4. Select <staff> from the Staff dropdown (optional)",
+        "5. Enter <date> in the Submitted On field",
+        "6. (Optional) Check the Active checkbox",
+        "7. Use the Add Clients search to find <client> and add them to Selected Clients",
+        "8. Click the 'Submit' button"
       ],
-      "expected_result": "Group Detail page is displayed showing the group name, Account Number, Status, Office, and Staff",
+      "expected_result": "A new row appears in the Groups List table with the entered Name and the selected Office",
       "priority": "high"
     },
     {
       "tc_id": "P-005",
-      "test_case": "Activate a group that is in Pending status",
-      "preconditions": [
-        "User logged in as <User with group activation permission>",
-        "A group exists with status Pending"
-      ],
+      "wf_ref": "WF-005",
+      "test_case": "Download the groups template from Bulk Import page",
+      "preconditions": ["User logged in as <Role>", "Bulk Import Groups page is open"],
       "steps": [
-        "1. Navigate to the Groups page",
-        "2. Click the <pending group row> link in the Group Name column to open the Group Detail page",
-        "3. In the Detail Action Bar, click the 'Activate' action"
+        "1. In the Groups Template panel, (optional) select <office> and/or <staff> from the dropdowns to prefill template options",
+        "2. Click the 'Download Template' button"
       ],
-      "expected_result": "Status badge updates to 'Active' on the Group Detail page",
-      "priority": "high"
-    },
-    {
-      "tc_id": "P-006",
-      "test_case": "Open Edit Group form from a Pending group",
-      "preconditions": [
-        "User logged in as <User with group edit permission>",
-        "A group exists with status Pending"
-      ],
-      "steps": [
-        "1. Navigate to the Groups page",
-        "2. Click the <pending group row> link in the Group Name column to open the Group Detail page",
-        "3. In the Detail Action Bar, click the 'Edit' action"
-      ],
-      "expected_result": "The Edit Group form is displayed showing fields Name, Office, Submitted On, Active, External Id and the Clients repeating section",
+      "expected_result": "A file download for the groups template is triggered in the browser",
       "priority": "medium"
     },
     {
-      "tc_id": "P-007",
-      "test_case": "Close a group that is in Active status",
-      "preconditions": [
-        "User logged in as <User with group close permission>",
-        "A group exists with status Active"
-      ],
+      "tc_id": "P-006",
+      "wf_ref": "WF-006",
+      "test_case": "Upload a valid groups file and record import history",
+      "preconditions": ["User logged in as <Role>", "Bulk Import Groups page is open"],
       "steps": [
-        "1. Navigate to the Groups page",
-        "2. Click the <active group row> link in the Group Name column to open the Group Detail page",
-        "3. In the Detail Action Bar, click the 'Close' action"
+        "1. In the Groups Upload panel, click the File picker",
+        "2. Select a <valid groups import file> from the OS file dialog",
+        "3. Click the 'Upload' button"
       ],
-      "expected_result": "Status badge updates to 'Closed' on the Group Detail page",
+      "expected_result": "A success notification is displayed and the Import History table shows a new entry for the uploaded file",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-007",
+      "wf_ref": "WF-007",
+      "test_case": "Activate a group from Pending state",
+      "preconditions": ["User logged in as <Role>", "Group Detail page for a group with status Pending is open"],
+      "steps": [
+        "1. Click the 'Activate' action in the Group Action Bar",
+        "2. Click Confirm on the Activate confirmation dialog"
+      ],
+      "expected_result": "Status on the Group Detail page updates to 'Active'",
       "priority": "high"
     },
     {
       "tc_id": "P-008",
-      "test_case": "Edit a group's Name from Active state and save changes",
-      "preconditions": [
-        "User logged in as <User with group edit permission>",
-        "A group exists with status Active"
-      ],
+      "wf_ref": "WF-008",
+      "test_case": "Open the Edit form for a Pending group",
+      "preconditions": ["User logged in as <Role>", "Group Detail page for a group with status Pending is open"],
       "steps": [
-        "1. Navigate to the Groups page",
-        "2. Click the <active group row> link in the Group Name column to open the Group Detail page",
-        "3. In the Detail Action Bar, click the 'Edit' action to open the Edit Group form",
-        "4. Enter <new name> in the Name field",
-        "5. Click the 'Save' button"
+        "1. Click the 'Edit' action in the Group Action Bar"
       ],
-      "expected_result": "A success notification is displayed; the Name on the Group Detail page shows <new name>",
-      "priority": "high"
+      "expected_result": "Edit Group form is displayed",
+      "priority": "medium"
     },
     {
       "tc_id": "P-009",
-      "test_case": "Open Assign Staff dialog from Active group",
-      "preconditions": [
-        "User logged in as <User with assign staff permission>",
-        "A group exists with status Active"
-      ],
+      "wf_ref": "WF-009",
+      "test_case": "Close a group while in Pending state",
+      "preconditions": ["User logged in as <Role>", "Group Detail page for a group with status Pending is open"],
       "steps": [
-        "1. Navigate to the Groups page",
-        "2. Click the <active group row> link in the Group Name column to open the Group Detail page",
-        "3. In the Detail Action Bar, click the 'Assign Staff' action"
+        "1. Click the 'Close' action in the Group Action Bar",
+        "2. Click Confirm on the Close confirmation dialog"
       ],
-      "expected_result": "An Assign Staff dialog or panel is displayed allowing selection of staff to assign to the group",
-      "priority": "medium"
-    },
-    {
-      "tc_id": "P-010",
-      "test_case": "Open Transfer Clients dialog from Active group",
-      "preconditions": [
-        "User logged in as <User with transfer clients permission>",
-        "A group exists with status Active"
-      ],
-      "steps": [
-        "1. Navigate to the Groups page",
-        "2. Click the <active group row> link in the Group Name column to open the Group Detail page",
-        "3. In the Detail Action Bar, click the 'Transfer Clients' action"
-      ],
-      "expected_result": "A Transfer Clients dialog or panel is displayed to initiate client transfer from the group",
-      "priority": "medium"
-    },
-    {
-      "tc_id": "P-011",
-      "test_case": "Generate Collection Sheet from an Active group (opens collection sheet)",
-      "preconditions": [
-        "User logged in as <User with collection sheet permission>",
-        "A group exists with status Active that has clients"
-      ],
-      "steps": [
-        "1. Navigate to the Groups page",
-        "2. Click the <active group row> link in the Group Name column to open the Group Detail page",
-        "3. In the Detail Action Bar, click the 'Generate Collection Sheet' action"
-      ],
-      "expected_result": "The Collection Sheet form is displayed listing group clients with Loan Repayment Amount and Savings Deposit Amount fields for each client",
+      "expected_result": "Status on the Group Detail page updates to 'Closed'",
       "priority": "high"
     },
     {
-      "tc_id": "P-012",
-      "test_case": "Enter amounts in Collection Sheet rows and save",
-      "preconditions": [
-        "User logged in as <User with collection sheet permission>",
-        "A group exists with status Active that has at least one client"
-      ],
+      "tc_id": "P-010",
+      "wf_ref": "WF-010",
+      "test_case": "Assign staff to a Pending group",
+      "preconditions": ["User logged in as <Role>", "Group Detail page for a group with status Pending is open"],
       "steps": [
-        "1. Navigate to the Groups page",
-        "2. Click the <active group row> link in the Group Name column to open the Group Detail page",
-        "3. In the Detail Action Bar, click the 'Generate Collection Sheet' action to open the Collection Sheet form",
-        "4. In the first client row, enter <loan repayment amount> in Loan Repayment Amount",
-        "5. (Optional) Enter <savings deposit amount> in Savings Deposit Amount for the same row",
-        "6. Click the 'Save Collection Sheet' button"
+        "1. Click the 'Assign Staff' action in the Group Action Bar",
+        "2. Select <staff> from the Staff dropdown in the Assign Staff dialog",
+        "3. Click Save (or Confirm) on the Assign Staff dialog"
       ],
-      "expected_result": "A success notification is displayed; the Collection Sheet shows the saved amounts for the client row(s) within the Collection Sheet form",
+      "expected_result": "Staff field on the Group Detail page displays <staff>",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-011",
+      "wf_ref": "WF-011",
+      "test_case": "Transfer clients from a Pending group to another group",
+      "preconditions": ["User logged in as <Role>", "Group Detail page for a group with status Pending and with members is open"],
+      "steps": [
+        "1. Click the 'Transfer Clients' action in the Group Action Bar",
+        "2. In the Transfer Clients dialog, select the clients to transfer (one or more <clients>)",
+        "3. Select <target group> as the destination group",
+        "4. Click Confirm on the Transfer Clients dialog"
+      ],
+      "expected_result": "Members list on the Group Detail page no longer shows the transferred clients",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-012",
+      "wf_ref": "WF-012",
+      "test_case": "Open the Edit form for an Active group",
+      "preconditions": ["User logged in as <Role>", "Group Detail page for a group with status Active is open"],
+      "steps": [
+        "1. Click the 'Edit' action in the Group Action Bar"
+      ],
+      "expected_result": "Edit Group form is displayed",
       "priority": "medium"
     },
     {
       "tc_id": "P-013",
-      "test_case": "View a member's profile from Members tab (row action)",
-      "preconditions": [
-        "User logged in as <User with group view permission>",
-        "A group exists with at least one member"
-      ],
+      "wf_ref": "WF-013",
+      "test_case": "Close an Active group",
+      "preconditions": ["User logged in as <Role>", "Group Detail page for a group with status Active is open"],
       "steps": [
-        "1. Navigate to the Groups page",
-        "2. Click the <group row> link in the Group Name column to open the Group Detail page",
-        "3. Click the 'Members' tab",
-        "4. In the Members table, click the member's 'View Member Profile' link for a member row"
+        "1. Click the 'Close' action in the Group Action Bar",
+        "2. Click Confirm on the Close confirmation dialog"
       ],
-      "expected_result": "Browser navigates to the Client Profile page for the selected member",
-      "priority": "medium"
+      "expected_result": "Status on the Group Detail page updates to 'Closed'",
+      "priority": "high"
     },
     {
       "tc_id": "P-014",
-      "test_case": "Schedule a meeting via the Calendar/Meeting tab",
-      "preconditions": [
-        "User logged in as <User with meeting scheduling permission>",
-        "A group exists"
-      ],
+      "wf_ref": "WF-014",
+      "test_case": "Assign staff to an Active group",
+      "preconditions": ["User logged in as <Role>", "Group Detail page for a group with status Active is open"],
       "steps": [
-        "1. Navigate to the Groups page",
-        "2. Click the <group row> link in the Group Name column to open the Group Detail page",
-        "3. Click the 'Calendar/Meeting' tab",
-        "4. In the Schedule Meeting form, enter <meeting date> in the Date field",
-        "5. Click the 'Schedule' button"
+        "1. Click the 'Assign Staff' action in the Group Action Bar",
+        "2. Select <staff> from the Staff dropdown in the Assign Staff dialog",
+        "3. Click Save (or Confirm) on the Assign Staff dialog"
       ],
-      "expected_result": "A success notification is displayed; the scheduled meeting with the entered <meeting date> is visible in the Calendar/Meeting tab",
+      "expected_result": "Staff field on the Group Detail page displays <staff>",
       "priority": "medium"
     },
     {
       "tc_id": "P-015",
-      "test_case": "Record a meeting via the Calendar/Meeting tab",
-      "preconditions": [
-        "User logged in as <User with meeting recording permission>",
-        "A group exists"
-      ],
+      "wf_ref": "WF-015",
+      "test_case": "Transfer clients from an Active group to another group",
+      "preconditions": ["User logged in as <Role>", "Group Detail page for a group with status Active and with members is open"],
       "steps": [
-        "1. Navigate to the Groups page",
-        "2. Click the <group row> link in the Group Name column to open the Group Detail page",
-        "3. Click the 'Calendar/Meeting' tab",
-        "4. In the Record Meeting form, enter <meeting date> in the Date field and enter <notes> in Notes",
-        "5. Click the 'Save Meeting Record' button"
+        "1. Click the 'Transfer Clients' action in the Group Action Bar",
+        "2. In the Transfer Clients dialog, select the clients to transfer (one or more <clients>)",
+        "3. Select <target group> as the destination group",
+        "4. Click Confirm on the Transfer Clients dialog"
       ],
-      "expected_result": "A success notification is displayed; the meeting record with the entered <meeting date> and <notes> is visible in the Calendar/Meeting tab",
+      "expected_result": "Members list on the Group Detail page no longer shows the transferred clients",
       "priority": "medium"
+    },
+    {
+      "tc_id": "P-016",
+      "wf_ref": "WF-016",
+      "test_case": "Activate a Closed group",
+      "preconditions": ["User logged in as <Role>", "Group Detail page for a group with status Closed is open"],
+      "steps": [
+        "1. Click the 'Activate' action in the Group Action Bar",
+        "2. Click Confirm on the Activate confirmation dialog"
+      ],
+      "expected_result": "Status on the Group Detail page updates to 'Active'",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-017",
+      "wf_ref": "WF-017",
+      "test_case": "Open the Edit form for a Closed group",
+      "preconditions": ["User logged in as <Role>", "Group Detail page for a group with status Closed is open"],
+      "steps": [
+        "1. Click the 'Edit' action in the Group Action Bar"
+      ],
+      "expected_result": "Edit Group form is displayed",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-018",
+      "wf_ref": "WF-018",
+      "test_case": "Assign staff to a Closed group",
+      "preconditions": ["User logged in as <Role>", "Group Detail page for a group with status Closed is open"],
+      "steps": [
+        "1. Click the 'Assign Staff' action in the Group Action Bar",
+        "2. Select <staff> from the Staff dropdown in the Assign Staff dialog",
+        "3. Click Save (or Confirm) on the Assign Staff dialog"
+      ],
+      "expected_result": "Staff field on the Group Detail page displays <staff>",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-019",
+      "wf_ref": "WF-019",
+      "test_case": "Transfer clients from a Closed group to another group",
+      "preconditions": ["User logged in as <Role>", "Group Detail page for a group with status Closed and with members is open"],
+      "steps": [
+        "1. Click the 'Transfer Clients' action in the Group Action Bar",
+        "2. In the Transfer Clients dialog, select the clients to transfer (one or more <clients>)",
+        "3. Select <target group> as the destination group",
+        "4. Click Confirm on the Transfer Clients dialog"
+      ],
+      "expected_result": "Members list on the Group Detail page no longer shows the transferred clients",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-020",
+      "wf_ref": "WF-020",
+      "test_case": "Open a client profile from the Members tab",
+      "preconditions": ["User logged in as <Role>", "Group Detail page with Members tab containing at least one member is open"],
+      "steps": [
+        "1. Click the 'Members' tab in the Group Detail Tabs",
+        "2. Click the <Client Name> link for a member in the Members list"
+      ],
+      "expected_result": "navigates to client profile",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-021",
+      "wf_ref": "WF-021",
+      "test_case": "Schedule a group meeting from the Calendar/Meeting tab",
+      "preconditions": ["User logged in as <Role>", "Group Detail page is open"],
+      "steps": [
+        "1. Click the 'Calendar/Meeting' tab in the Group Detail Tabs",
+        "2. Click the 'Schedule Meeting' action",
+        "3. Enter <meeting date>, <meeting time>, and <meeting topic> in the Schedule Meeting dialog",
+        "4. Click Save (or Confirm) on the Schedule Meeting dialog"
+      ],
+      "expected_result": "The scheduled meeting appears in the group's meeting list/calendar with the entered date/time and topic",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-022",
+      "wf_ref": "WF-022",
+      "test_case": "Record a group meeting from the Calendar/Meeting tab",
+      "preconditions": ["User logged in as <Role>", "Group Detail page is open"],
+      "steps": [
+        "1. Click the 'Calendar/Meeting' tab in the Group Detail Tabs",
+        "2. Click the 'Record Meeting' action",
+        "3. Enter <meeting notes> and <attendance> in the Record Meeting dialog",
+        "4. Click Save (or Confirm) on the Record Meeting dialog"
+      ],
+      "expected_result": "The recorded meeting appears in the group's meeting history/notes with the entered details",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-023",
+      "wf_ref": "WF-023",
+      "test_case": "Generate a collection sheet for batch entry",
+      "preconditions": ["User logged in as <Role>", "Group Detail page with members is open"],
+      "steps": [
+        "1. Click the 'Generate Collection Sheet' action in the Collection Sheet feature"
+      ],
+      "expected_result": "Collection sheet opens showing rows for group clients with editable Loan Repayment Amount and Savings Deposit Amount fields for batch entry",
+      "priority": "high"
     }
   ],
   "summary": {
-    "total": 15,
-    "high_priority": 6,
-    "medium_priority": 8,
+    "total": 23,
+    "high_priority": 9,
+    "medium_priority": 14,
     "low_priority": 0
   }
 }
 
 ------------------------------------------------------------
-[22:31:38] Test-Positive - PARSED JSON
+[14:26:39] Test-Positive - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Group Management",
@@ -860,250 +929,367 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Create a new group with one client (happy path)",
+      "wf_ref": "WF-001",
+      "test_case": "Open a group from the Groups list",
       "preconditions": [
-        "User logged in as <Admin with group creation permission>"
+        "User logged in as <Role>",
+        "Groups page is open with at least one group listed"
       ],
       "steps": [
-        "1. Navigate to the Groups page",
-        "2. Click the 'Create New Group' button",
-        "3. Enter <group name> in the Name field",
-        "4. Select <office> from the Office dropdown",
-        "5. (Optional) Select <staff member> from the Staff dropdown",
-        "6. Enter <submission date> in the Submitted On field",
-        "7. (Optional) Check the Active checkbox",
-        "8. Click 'Add Client' to add a client row in the Clients section",
-        "9. Enter <client search term> in the Client search and select <matching client> from the results",
-        "10. Click the 'Submit' button"
+        "1. Click the <Group Name> link for a row in the Groups List table"
       ],
-      "expected_result": "A success notification is displayed; a new row appears in the Groups table with the entered <group name> and <office>",
+      "expected_result": "navigates to Group Detail page",
       "priority": "high"
     },
     {
       "tc_id": "P-002",
-      "test_case": "Download groups template from Bulk Import page",
+      "wf_ref": "WF-002",
+      "test_case": "Navigate to the Bulk Import Groups page from Groups list",
       "preconditions": [
-        "User logged in as <Admin with import permission>"
+        "User logged in as <Role>",
+        "Groups page is open"
       ],
       "steps": [
-        "1. Navigate to the Groups page",
-        "2. Click the 'Import Groups' button in the top actions",
-        "3. On the Bulk Import Groups page, (optional) select <office> and <staff> in the Groups Template panel",
-        "4. Click the 'Download' button in the Groups Template panel"
+        "1. Click the 'Import Groups' button in the top-right of the Groups page"
       ],
-      "expected_result": "A download of the groups template file is triggered (browser prompts to save or automatically downloads the template)",
+      "expected_result": "navigates to Bulk Import Groups page",
       "priority": "medium"
     },
     {
       "tc_id": "P-003",
-      "test_case": "Upload groups file and verify import history entry",
+      "wf_ref": "WF-003",
+      "test_case": "Open the Create Group form from Groups page",
       "preconditions": [
-        "User logged in as <Admin with import permission>"
+        "User logged in as <Role>",
+        "Groups page is open"
       ],
       "steps": [
-        "1. Navigate to the Groups page",
-        "2. Click the 'Import Groups' button",
-        "3. In the Groups Upload panel, click the File upload control",
-        "4. Select a <valid groups import file> in the OS file picker",
-        "5. Click the 'Upload' button"
+        "1. Click the 'Create New Group' button in the top-right of the Groups page"
       ],
-      "expected_result": "A success notification is displayed; a new row for the uploaded file appears in the Import History table on the Bulk Import Groups page",
+      "expected_result": "opens Create Group form",
       "priority": "high"
     },
     {
       "tc_id": "P-004",
-      "test_case": "Open a group's detail page from the Groups table",
+      "wf_ref": "WF-004",
+      "test_case": "Submit the Create Group form with required fields and one client",
       "preconditions": [
-        "User logged in as <User with group view permission>",
-        "At least one group exists in the Groups table"
+        "User logged in as <Role>",
+        "Groups page is open"
       ],
       "steps": [
-        "1. Navigate to the Groups page",
-        "2. Click the <group row> link in the Group Name column"
+        "1. Click the 'Create New Group' button to open the Create Group form",
+        "2. Enter <group name> in the Name field",
+        "3. Select <office> from the Office dropdown",
+        "4. Select <staff> from the Staff dropdown (optional)",
+        "5. Enter <date> in the Submitted On field",
+        "6. (Optional) Check the Active checkbox",
+        "7. Use the Add Clients search to find <client> and add them to Selected Clients",
+        "8. Click the 'Submit' button"
       ],
-      "expected_result": "Group Detail page is displayed showing the group name, Account Number, Status, Office, and Staff",
+      "expected_result": "A new row appears in the Groups List table with the entered Name and the selected Office",
       "priority": "high"
     },
     {
       "tc_id": "P-005",
-      "test_case": "Activate a group that is in Pending status",
+      "wf_ref": "WF-005",
+      "test_case": "Download the groups template from Bulk Import page",
       "preconditions": [
-        "User logged in as <User with group activation permission>",
-        "A group exists with status Pending"
+        "User logged in as <Role>",
+        "Bulk Import Groups page is open"
       ],
       "steps": [
-        "1. Navigate to the Groups page",
-        "2. Click the <pending group row> link in the Group Name column to open the Group Detail page",
-        "3. In the Detail Action Bar, click the 'Activate' action"
+        "1. In the Groups Template panel, (optional) select <office> and/or <staff> from the dropdowns to prefill template options",
+        "2. Click the 'Download Template' button"
       ],
-      "expected_result": "Status badge updates to 'Active' on the Group Detail page",
-      "priority": "high"
-    },
-    {
-      "tc_id": "P-006",
-      "test_case": "Open Edit Group form from a Pending group",
-      "preconditions": [
-        "User logged in as <User with group edit permission>",
-        "A group exists with status Pending"
-      ],
-      "steps": [
-        "1. Navigate to the Groups page",
-        "2. Click the <pending group row> link in the Group Name column to open the Group Detail page",
-        "3. In the Detail Action Bar, click the 'Edit' action"
-      ],
-      "expected_result": "The Edit Group form is displayed showing fields Name, Office, Submitted On, Active, External Id and the Clients repeating section",
+      "expected_result": "A file download for the groups template is triggered in the browser",
       "priority": "medium"
     },
     {
-      "tc_id": "P-007",
-      "test_case": "Close a group that is in Active status",
+      "tc_id": "P-006",
+      "wf_ref": "WF-006",
+      "test_case": "Upload a valid groups file and record import history",
       "preconditions": [
-        "User logged in as <User with group close permission>",
-        "A group exists with status Active"
+        "User logged in as <Role>",
+        "Bulk Import Groups page is open"
       ],
       "steps": [
-        "1. Navigate to the Groups page",
-        "2. Click the <active group row> link in the Group Name column to open the Group Detail page",
-        "3. In the Detail Action Bar, click the 'Close' action"
+        "1. In the Groups Upload panel, click the File picker",
+        "2. Select a <valid groups import file> from the OS file dialog",
+        "3. Click the 'Upload' button"
       ],
-      "expected_result": "Status badge updates to 'Closed' on the Group Detail page",
+      "expected_result": "A success notification is displayed and the Import History table shows a new entry for the uploaded file",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-007",
+      "wf_ref": "WF-007",
+      "test_case": "Activate a group from Pending state",
+      "preconditions": [
+        "User logged in as <Role>",
+        "Group Detail page for a group with status Pending is open"
+      ],
+      "steps": [
+        "1. Click the 'Activate' action in the Group Action Bar",
+        "2. Click Confirm on the Activate confirmation dialog"
+      ],
+      "expected_result": "Status on the Group Detail page updates to 'Active'",
       "priority": "high"
     },
     {
       "tc_id": "P-008",
-      "test_case": "Edit a group's Name from Active state and save changes",
+      "wf_ref": "WF-008",
+      "test_case": "Open the Edit form for a Pending group",
       "preconditions": [
-        "User logged in as <User with group edit permission>",
-        "A group exists with status Active"
+        "User logged in as <Role>",
+        "Group Detail page for a group with status Pending is open"
       ],
       "steps": [
-        "1. Navigate to the Groups page",
-        "2. Click the <active group row> link in the Group Name column to open the Group Detail page",
-        "3. In the Detail Action Bar, click the 'Edit' action to open the Edit Group form",
-        "4. Enter <new name> in the Name field",
-        "5. Click the 'Save' button"
+        "1. Click the 'Edit' action in the Group Action Bar"
       ],
-      "expected_result": "A success notification is displayed; the Name on the Group Detail page shows <new name>",
-      "priority": "high"
+      "expected_result": "Edit Group form is displayed",
+      "priority": "medium"
     },
     {
       "tc_id": "P-009",
-      "test_case": "Open Assign Staff dialog from Active group",
+      "wf_ref": "WF-009",
+      "test_case": "Close a group while in Pending state",
       "preconditions": [
-        "User logged in as <User with assign staff permission>",
-        "A group exists with status Active"
+        "User logged in as <Role>",
+        "Group Detail page for a group with status Pending is open"
       ],
       "steps": [
-        "1. Navigate to the Groups page",
-        "2. Click the <active group row> link in the Group Name column to open the Group Detail page",
-        "3. In the Detail Action Bar, click the 'Assign Staff' action"
+        "1. Click the 'Close' action in the Group Action Bar",
+        "2. Click Confirm on the Close confirmation dialog"
       ],
-      "expected_result": "An Assign Staff dialog or panel is displayed allowing selection of staff to assign to the group",
-      "priority": "medium"
-    },
-    {
-      "tc_id": "P-010",
-      "test_case": "Open Transfer Clients dialog from Active group",
-      "preconditions": [
-        "User logged in as <User with transfer clients permission>",
-        "A group exists with status Active"
-      ],
-      "steps": [
-        "1. Navigate to the Groups page",
-        "2. Click the <active group row> link in the Group Name column to open the Group Detail page",
-        "3. In the Detail Action Bar, click the 'Transfer Clients' action"
-      ],
-      "expected_result": "A Transfer Clients dialog or panel is displayed to initiate client transfer from the group",
-      "priority": "medium"
-    },
-    {
-      "tc_id": "P-011",
-      "test_case": "Generate Collection Sheet from an Active group (opens collection sheet)",
-      "preconditions": [
-        "User logged in as <User with collection sheet permission>",
-        "A group exists with status Active that has clients"
-      ],
-      "steps": [
-        "1. Navigate to the Groups page",
-        "2. Click the <active group row> link in the Group Name column to open the Group Detail page",
-        "3. In the Detail Action Bar, click the 'Generate Collection Sheet' action"
-      ],
-      "expected_result": "The Collection Sheet form is displayed listing group clients with Loan Repayment Amount and Savings Deposit Amount fields for each client",
+      "expected_result": "Status on the Group Detail page updates to 'Closed'",
       "priority": "high"
     },
     {
-      "tc_id": "P-012",
-      "test_case": "Enter amounts in Collection Sheet rows and save",
+      "tc_id": "P-010",
+      "wf_ref": "WF-010",
+      "test_case": "Assign staff to a Pending group",
       "preconditions": [
-        "User logged in as <User with collection sheet permission>",
-        "A group exists with status Active that has at least one client"
+        "User logged in as <Role>",
+        "Group Detail page for a group with status Pending is open"
       ],
       "steps": [
-        "1. Navigate to the Groups page",
-        "2. Click the <active group row> link in the Group Name column to open the Group Detail page",
-        "3. In the Detail Action Bar, click the 'Generate Collection Sheet' action to open the Collection Sheet form",
-        "4. In the first client row, enter <loan repayment amount> in Loan Repayment Amount",
-        "5. (Optional) Enter <savings deposit amount> in Savings Deposit Amount for the same row",
-        "6. Click the 'Save Collection Sheet' button"
+        "1. Click the 'Assign Staff' action in the Group Action Bar",
+        "2. Select <staff> from the Staff dropdown in the Assign Staff dialog",
+        "3. Click Save (or Confirm) on the Assign Staff dialog"
       ],
-      "expected_result": "A success notification is displayed; the Collection Sheet shows the saved amounts for the client row(s) within the Collection Sheet form",
+      "expected_result": "Staff field on the Group Detail page displays <staff>",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-011",
+      "wf_ref": "WF-011",
+      "test_case": "Transfer clients from a Pending group to another group",
+      "preconditions": [
+        "User logged in as <Role>",
+        "Group Detail page for a group with status Pending and with members is open"
+      ],
+      "steps": [
+        "1. Click the 'Transfer Clients' action in the Group Action Bar",
+        "2. In the Transfer Clients dialog, select the clients to transfer (one or more <clients>)",
+        "3. Select <target group> as the destination group",
+        "4. Click Confirm on the Transfer Clients dialog"
+      ],
+      "expected_result": "Members list on the Group Detail page no longer shows the transferred clients",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-012",
+      "wf_ref": "WF-012",
+      "test_case": "Open the Edit form for an Active group",
+      "preconditions": [
+        "User logged in as <Role>",
+        "Group Detail page for a group with status Active is open"
+      ],
+      "steps": [
+        "1. Click the 'Edit' action in the Group Action Bar"
+      ],
+      "expected_result": "Edit Group form is displayed",
       "priority": "medium"
     },
     {
       "tc_id": "P-013",
-      "test_case": "View a member's profile from Members tab (row action)",
+      "wf_ref": "WF-013",
+      "test_case": "Close an Active group",
       "preconditions": [
-        "User logged in as <User with group view permission>",
-        "A group exists with at least one member"
+        "User logged in as <Role>",
+        "Group Detail page for a group with status Active is open"
       ],
       "steps": [
-        "1. Navigate to the Groups page",
-        "2. Click the <group row> link in the Group Name column to open the Group Detail page",
-        "3. Click the 'Members' tab",
-        "4. In the Members table, click the member's 'View Member Profile' link for a member row"
+        "1. Click the 'Close' action in the Group Action Bar",
+        "2. Click Confirm on the Close confirmation dialog"
       ],
-      "expected_result": "Browser navigates to the Client Profile page for the selected member",
-      "priority": "medium"
+      "expected_result": "Status on the Group Detail page updates to 'Closed'",
+      "priority": "high"
     },
     {
       "tc_id": "P-014",
-      "test_case": "Schedule a meeting via the Calendar/Meeting tab",
+      "wf_ref": "WF-014",
+      "test_case": "Assign staff to an Active group",
       "preconditions": [
-        "User logged in as <User with meeting scheduling permission>",
-        "A group exists"
+        "User logged in as <Role>",
+        "Group Detail page for a group with status Active is open"
       ],
       "steps": [
-        "1. Navigate to the Groups page",
-        "2. Click the <group row> link in the Group Name column to open the Group Detail page",
-        "3. Click the 'Calendar/Meeting' tab",
-        "4. In the Schedule Meeting form, enter <meeting date> in the Date field",
-        "5. Click the 'Schedule' button"
+        "1. Click the 'Assign Staff' action in the Group Action Bar",
+        "2. Select <staff> from the Staff dropdown in the Assign Staff dialog",
+        "3. Click Save (or Confirm) on the Assign Staff dialog"
       ],
-      "expected_result": "A success notification is displayed; the scheduled meeting with the entered <meeting date> is visible in the Calendar/Meeting tab",
+      "expected_result": "Staff field on the Group Detail page displays <staff>",
       "priority": "medium"
     },
     {
       "tc_id": "P-015",
-      "test_case": "Record a meeting via the Calendar/Meeting tab",
+      "wf_ref": "WF-015",
+      "test_case": "Transfer clients from an Active group to another group",
       "preconditions": [
-        "User logged in as <User with meeting recording permission>",
-        "A group exists"
+        "User logged in as <Role>",
+        "Group Detail page for a group with status Active and with members is open"
       ],
       "steps": [
-        "1. Navigate to the Groups page",
-        "2. Click the <group row> link in the Group Name column to open the Group Detail page",
-        "3. Click the 'Calendar/Meeting' tab",
-        "4. In the Record Meeting form, enter <meeting date> in the Date field and enter <notes> in Notes",
-        "5. Click the 'Save Meeting Record' button"
+        "1. Click the 'Transfer Clients' action in the Group Action Bar",
+        "2. In the Transfer Clients dialog, select the clients to transfer (one or more <clients>)",
+        "3. Select <target group> as the destination group",
+        "4. Click Confirm on the Transfer Clients dialog"
       ],
-      "expected_result": "A success notification is displayed; the meeting record with the entered <meeting date> and <notes> is visible in the Calendar/Meeting tab",
+      "expected_result": "Members list on the Group Detail page no longer shows the transferred clients",
       "priority": "medium"
+    },
+    {
+      "tc_id": "P-016",
+      "wf_ref": "WF-016",
+      "test_case": "Activate a Closed group",
+      "preconditions": [
+        "User logged in as <Role>",
+        "Group Detail page for a group with status Closed is open"
+      ],
+      "steps": [
+        "1. Click the 'Activate' action in the Group Action Bar",
+        "2. Click Confirm on the Activate confirmation dialog"
+      ],
+      "expected_result": "Status on the Group Detail page updates to 'Active'",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-017",
+      "wf_ref": "WF-017",
+      "test_case": "Open the Edit form for a Closed group",
+      "preconditions": [
+        "User logged in as <Role>",
+        "Group Detail page for a group with status Closed is open"
+      ],
+      "steps": [
+        "1. Click the 'Edit' action in the Group Action Bar"
+      ],
+      "expected_result": "Edit Group form is displayed",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-018",
+      "wf_ref": "WF-018",
+      "test_case": "Assign staff to a Closed group",
+      "preconditions": [
+        "User logged in as <Role>",
+        "Group Detail page for a group with status Closed is open"
+      ],
+      "steps": [
+        "1. Click the 'Assign Staff' action in the Group Action Bar",
+        "2. Select <staff> from the Staff dropdown in the Assign Staff dialog",
+        "3. Click Save (or Confirm) on the Assign Staff dialog"
+      ],
+      "expected_result": "Staff field on the Group Detail page displays <staff>",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-019",
+      "wf_ref": "WF-019",
+      "test_case": "Transfer clients from a Closed group to another group",
+      "preconditions": [
+        "User logged in as <Role>",
+        "Group Detail page for a group with status Closed and with members is open"
+      ],
+      "steps": [
+        "1. Click the 'Transfer Clients' action in the Group Action Bar",
+        "2. In the Transfer Clients dialog, select the clients to transfer (one or more <clients>)",
+        "3. Select <target group> as the destination group",
+        "4. Click Confirm on the Transfer Clients dialog"
+      ],
+      "expected_result": "Members list on the Group Detail page no longer shows the transferred clients",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-020",
+      "wf_ref": "WF-020",
+      "test_case": "Open a client profile from the Members tab",
+      "preconditions": [
+        "User logged in as <Role>",
+        "Group Detail page with Members tab containing at least one member is open"
+      ],
+      "steps": [
+        "1. Click the 'Members' tab in the Group Detail Tabs",
+        "2. Click the <Client Name> link for a member in the Members list"
+      ],
+      "expected_result": "navigates to client profile",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-021",
+      "wf_ref": "WF-021",
+      "test_case": "Schedule a group meeting from the Calendar/Meeting tab",
+      "preconditions": [
+        "User logged in as <Role>",
+        "Group Detail page is open"
+      ],
+      "steps": [
+        "1. Click the 'Calendar/Meeting' tab in the Group Detail Tabs",
+        "2. Click the 'Schedule Meeting' action",
+        "3. Enter <meeting date>, <meeting time>, and <meeting topic> in the Schedule Meeting dialog",
+        "4. Click Save (or Confirm) on the Schedule Meeting dialog"
+      ],
+      "expected_result": "The scheduled meeting appears in the group's meeting list/calendar with the entered date/time and topic",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-022",
+      "wf_ref": "WF-022",
+      "test_case": "Record a group meeting from the Calendar/Meeting tab",
+      "preconditions": [
+        "User logged in as <Role>",
+        "Group Detail page is open"
+      ],
+      "steps": [
+        "1. Click the 'Calendar/Meeting' tab in the Group Detail Tabs",
+        "2. Click the 'Record Meeting' action",
+        "3. Enter <meeting notes> and <attendance> in the Record Meeting dialog",
+        "4. Click Save (or Confirm) on the Record Meeting dialog"
+      ],
+      "expected_result": "The recorded meeting appears in the group's meeting history/notes with the entered details",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-023",
+      "wf_ref": "WF-023",
+      "test_case": "Generate a collection sheet for batch entry",
+      "preconditions": [
+        "User logged in as <Role>",
+        "Group Detail page with members is open"
+      ],
+      "steps": [
+        "1. Click the 'Generate Collection Sheet' action in the Collection Sheet feature"
+      ],
+      "expected_result": "Collection sheet opens showing rows for group clients with editable Loan Repayment Amount and Savings Deposit Amount fields for batch entry",
+      "priority": "high"
     }
   ],
   "summary": {
-    "total": 15,
-    "high_priority": 6,
-    "medium_priority": 8,
+    "total": 23,
+    "high_priority": 9,
+    "medium_priority": 14,
     "low_priority": 0
   }
 }

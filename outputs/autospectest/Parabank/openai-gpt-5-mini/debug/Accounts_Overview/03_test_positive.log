@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-22T21:31:44.616327
+DEBUG SESSION STARTED: 2026-05-25T15:41:24.125056
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[21:31:44] Test-Positive - SYSTEM PROMPT
+[15:41:24] Test-Positive - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Expert UI Test Case Generator. You receive (1) a UI-AST JSON for one specific module and (2) the original functional description for that module.
 
@@ -24,6 +24,10 @@ Your job is to produce ONLY positive/functional UI test cases — tests where va
 <description>
 {Original functional description text for this module}
 </description>
+
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
 
 ---
 
@@ -146,6 +150,13 @@ Because you are testing a module in isolation, establish the required entry stat
 **1. Forms & Wizards (`form`, `wizard`):**
 - Generate ONE happy path per distinct success outcome.
 - *Conditional UI Check:* If a toggle/dropdown reveals new mandatory fields (`visible_when`), generate a separate test for that conditional branch.
+- **Wizard step coverage (CRITICAL):** If a wizard has multiple steps and any step beyond Step 1 contains its own named field group (e.g., "Address Details", "Family Members", "Identifiers"), generate ONE dedicated positive TC per such step. The TC must:
+  - Navigate to that specific step (include the preceding steps as preconditions or brief navigation steps)
+  - Fill the fields described for that step (not just pass through)
+  - Assert the step's content is visible/saved on the detail page after final submission
+  - **Do NOT collapse all wizard steps into one happy-path TC** — if Steps 2, 3, and 4 each have their own named section in the spec, they each need their own TC.
+- **Wizard in-step identifiers/duplicates:** If a wizard step allows adding identifiers, documents, or similar entries that have a uniqueness constraint, include a TC for that wizard step that also verifies the constraint (e.g., attempting to add a duplicate Document Type+Key pair inside the wizard). This is a different code path from adding the same post-creation on the detail page.
+- **Action dialogs:** If a `state_bound_action_bar` action opens a dialog with its own `fields{}` (e.g., Activate requires Activation Date, Reject requires Reason), generate ONE positive TC per such action-dialog — distinct from the state-transition TC. The TC fills the dialog field and completes the action.
 
 **2. State Machines (`state_bound_action_bar`):**
 - For each unique action available in a specific state, generate ONE test performing that action.
@@ -200,6 +211,19 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 
 ---
 
+**WORKFLOW COVERAGE OBLIGATION (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- Your test cases must **collectively cover every workflow** listed.
+- For each `wf_id`, at least one TC must:
+  - Activate the `conditional_branch` (if not null) — i.e. the test must set up the condition described.
+  - Assert the `on_success` as its `expected_result` (verbatim or as the primary basis for the expected result).
+- Add `"wf_ref": "WF-NNN"` to each TC to identify which workflow it covers.
+- If one TC naturally covers multiple workflows (e.g., the base path overlaps), pick the most specific `wf_ref`.
+- If a TC does not map to any workflow (e.g., a navigation-only test), set `"wf_ref": null`.
+
+---
+
 **OUTPUT — JSON only, no prose, no markdown fencing:**
 
 {
@@ -208,6 +232,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
   "test_cases": [
     {
       "tc_id": "P-001",
+      "wf_ref": "WF-001",
       "test_case": "Short descriptive name",
       "preconditions": ["User logged in as <Role>", "<Prerequisite state>"],
       "steps": ["1. Step one", "2. Step two"],
@@ -224,62 +249,58 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 }
 
 ------------------------------------------------------------
-[21:31:44] Test-Positive - USER PROMPT
+[15:41:24] Test-Positive - USER PROMPT
 ------------------------------------------------------------
 <module_name>Accounts Overview</module_name>
 
 <ast>
 {
+  "module_name": "Accounts Overview",
   "components": {
-    "Welcome_Message": {
-      "type": "text",
-      "content": "Welcome, {user_name}"
-    },
     "Accounts_Table": {
       "type": "data_table",
-      "columns": [
-        {
-          "name": "Account_Number",
+      "fields": {
+        "Account_Number": {
           "type": "link",
-          "clickable": true,
-          "masked": true,
-          "mask_format": "****{last4}"
-        },
-        {
-          "name": "Account_Type",
-          "type": "unspecified"
-        },
-        {
-          "name": "Current_Balance",
-          "type": "number"
-        },
-        {
-          "name": "Account_Status",
-          "type": "unspecified",
-          "state_values": [
-            "Active"
+          "required": false,
+          "constraints": [
+            "masking: show only last 4 digits (e.g. ****5001)"
           ]
         },
-        {
-          "name": "Open_Date",
-          "type": "date"
-        }
-      ],
-      "row_actions": [
-        {
-          "action_name": "Account_Number_Click",
-          "element_type": "link"
-        }
-      ],
-      "footer": {
-        "Total_Balance": {
+        "Account_Type": {
+          "type": "unspecified",
+          "required": false
+        },
+        "Current_Balance": {
           "type": "number",
-          "calculation": "sum(Current_Balance)"
+          "required": false
+        },
+        "Account_Status": {
+          "type": "unspecified",
+          "required": false,
+          "constraints": [
+            "state values include Active"
+          ]
+        },
+        "Open_Date": {
+          "type": "date",
+          "required": false
         }
       },
-      "ordered_by": {
+      "row_actions": [
+        {
+          "action_name": "Account Number Link",
+          "element_name": "Account_Number",
+          "type": "link",
+          "preconditions": [
+            "clickable but not implemented"
+          ]
+        }
+      ],
+      "default_sort": {
         "column": "Open_Date",
-        "direction": "asc"
+        "direction": "asc",
+        "description": "rows ordered by account creation date (earliest first)"
       }
     }
   }
@@ -292,10 +313,14 @@ The dashboard displays a welcome message with the user's name and a table of all
 
 </description>
 
+<workflows>
+WF-001 | Click Account Number link (clickable but not implemented) | actor: <role> | branch: none | terminal: Account Number Link | on_success: Link is clickable but not implemented; no navigation or further action occurs
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[21:32:07] Test-Positive - LLM RESPONSE
+[15:41:51] Test-Positive - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Accounts Overview",
@@ -303,97 +328,90 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Welcome message displays the logged-in user's name",
+      "wf_ref": "WF-001",
+      "test_case": "Clicking the Account Number link shows not-implemented behavior",
       "preconditions": [
-        "User logged in as <Customer>"
-      ],
-      "steps": [
-        "1. Navigate to the Accounts Overview page"
-      ],
-      "expected_result": "Welcome message is visible near the top of the page and displays 'Welcome, <user_name>'",
-      "priority": "medium"
-    },
-    {
-      "tc_id": "P-002",
-      "test_case": "Accounts table is ordered by Open Date (earliest first)",
-      "preconditions": [
-        "User logged in as <Customer>",
-        "<Multiple accounts exist with different Open_Date values>"
+        "User logged in as <Role>",
+        "At least one account exists for the user"
       ],
       "steps": [
         "1. Navigate to the Accounts Overview page",
-        "2. Observe the order of rows in the Accounts Table"
+        "2. In the Accounts table, click the Account Number link in the first row"
       ],
-      "expected_result": "Accounts Table rows are ordered by Open Date in ascending order (earliest Open Date appears in the top row)",
+      "expected_result": "Link is clickable but not implemented; no navigation or further action occurs",
       "priority": "high"
     },
     {
-      "tc_id": "P-003",
-      "test_case": "Account numbers are masked showing only last four digits",
+      "tc_id": "P-002",
+      "wf_ref": null,
+      "test_case": "Account numbers are masked showing only last 4 digits",
       "preconditions": [
-        "User logged in as <Customer>",
-        "<At least one account exists with a known last 4 digits>"
+        "User logged in as <Role>",
+        "At least one account exists with an account number"
       ],
       "steps": [
         "1. Navigate to the Accounts Overview page",
-        "2. Inspect the Account Number column for each row"
+        "2. Inspect the Account Number column for the visible rows"
       ],
-      "expected_result": "Each Account Number in the table is displayed in masked format '****<last4>' showing only the last 4 digits",
+      "expected_result": "All rows in the Account Number column display masked values that reveal only the last four digits (e.g., ****5001)",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-003",
+      "wf_ref": null,
+      "test_case": "Accounts table is sorted by Open Date ascending (earliest first)",
+      "preconditions": [
+        "User logged in as <Role>",
+        "At least two accounts exist for the user with different Open Dates"
+      ],
+      "steps": [
+        "1. Navigate to the Accounts Overview page",
+        "2. Observe the ordering of rows in the Accounts table"
+      ],
+      "expected_result": "Rows are ordered by Open Date in ascending order; the row with the earliest Open Date appears first in the table",
       "priority": "high"
     },
     {
       "tc_id": "P-004",
-      "test_case": "Footer displays the total balance as the sum of Current Balance column",
+      "wf_ref": null,
+      "test_case": "Footer displays total balance equal to the sum of Current Balance column",
       "preconditions": [
-        "User logged in as <Customer>",
-        "<Multiple accounts exist with Current_Balance values>"
+        "User logged in as <Role>",
+        "At least two accounts exist for the user with Current Balances"
       ],
       "steps": [
         "1. Navigate to the Accounts Overview page",
-        "2. Scroll to the table footer and observe the Total Balance value"
+        "2. Scroll to the table footer row"
       ],
-      "expected_result": "Footer shows Total Balance equal to the sum of all Current Balance values from the visible account rows",
+      "expected_result": "The table footer row displays a Total Balance value equal to the sum of the Current Balance values for all visible accounts",
       "priority": "high"
     },
     {
       "tc_id": "P-005",
-      "test_case": "Active accounts show an 'Active' status badge",
+      "wf_ref": null,
+      "test_case": "Active accounts display an 'Active' status badge",
       "preconditions": [
-        "User logged in as <Customer>",
-        "<At least one account exists in Active status>"
+        "User logged in as <Role>",
+        "At least one account exists in Active status"
       ],
       "steps": [
         "1. Navigate to the Accounts Overview page",
-        "2. Inspect the Account Status column for rows that are Active"
+        "2. Inspect the Account Status column for visible rows"
       ],
-      "expected_result": "For accounts in the Active state, the Account Status column displays an 'Active' badge for each corresponding row",
+      "expected_result": "Rows representing active accounts show an 'Active' status badge in the Account Status column",
       "priority": "medium"
-    },
-    {
-      "tc_id": "P-006",
-      "test_case": "Clicking the Account Number link keeps the user on Accounts Overview when detail view is not implemented",
-      "preconditions": [
-        "User logged in as <Customer>",
-        "<At least one account exists with a clickable Account Number link>"
-      ],
-      "steps": [
-        "1. Navigate to the Accounts Overview page",
-        "2. Click the Account Number link for <a target account in the table>"
-      ],
-      "expected_result": "The Accounts Overview page remains visible and the Accounts Table is still displayed; no account detail page is opened",
-      "priority": "low"
     }
   ],
   "summary": {
-    "total": 6,
+    "total": 5,
     "high_priority": 3,
     "medium_priority": 2,
-    "low_priority": 1
+    "low_priority": 0
   }
 }
 
 ------------------------------------------------------------
-[21:32:07] Test-Positive - PARSED JSON
+[15:41:51] Test-Positive - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Accounts Overview",
@@ -401,91 +419,84 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Welcome message displays the logged-in user's name",
+      "wf_ref": "WF-001",
+      "test_case": "Clicking the Account Number link shows not-implemented behavior",
       "preconditions": [
-        "User logged in as <Customer>"
-      ],
-      "steps": [
-        "1. Navigate to the Accounts Overview page"
-      ],
-      "expected_result": "Welcome message is visible near the top of the page and displays 'Welcome, <user_name>'",
-      "priority": "medium"
-    },
-    {
-      "tc_id": "P-002",
-      "test_case": "Accounts table is ordered by Open Date (earliest first)",
-      "preconditions": [
-        "User logged in as <Customer>",
-        "<Multiple accounts exist with different Open_Date values>"
+        "User logged in as <Role>",
+        "At least one account exists for the user"
       ],
       "steps": [
         "1. Navigate to the Accounts Overview page",
-        "2. Observe the order of rows in the Accounts Table"
+        "2. In the Accounts table, click the Account Number link in the first row"
       ],
-      "expected_result": "Accounts Table rows are ordered by Open Date in ascending order (earliest Open Date appears in the top row)",
+      "expected_result": "Link is clickable but not implemented; no navigation or further action occurs",
       "priority": "high"
     },
     {
-      "tc_id": "P-003",
-      "test_case": "Account numbers are masked showing only last four digits",
+      "tc_id": "P-002",
+      "wf_ref": null,
+      "test_case": "Account numbers are masked showing only last 4 digits",
       "preconditions": [
-        "User logged in as <Customer>",
-        "<At least one account exists with a known last 4 digits>"
+        "User logged in as <Role>",
+        "At least one account exists with an account number"
       ],
       "steps": [
         "1. Navigate to the Accounts Overview page",
-        "2. Inspect the Account Number column for each row"
+        "2. Inspect the Account Number column for the visible rows"
       ],
-      "expected_result": "Each Account Number in the table is displayed in masked format '****<last4>' showing only the last 4 digits",
+      "expected_result": "All rows in the Account Number column display masked values that reveal only the last four digits (e.g., ****5001)",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-003",
+      "wf_ref": null,
+      "test_case": "Accounts table is sorted by Open Date ascending (earliest first)",
+      "preconditions": [
+        "User logged in as <Role>",
+        "At least two accounts exist for the user with different Open Dates"
+      ],
+      "steps": [
+        "1. Navigate to the Accounts Overview page",
+        "2. Observe the ordering of rows in the Accounts table"
+      ],
+      "expected_result": "Rows are ordered by Open Date in ascending order; the row with the earliest Open Date appears first in the table",
       "priority": "high"
     },
     {
       "tc_id": "P-004",
-      "test_case": "Footer displays the total balance as the sum of Current Balance column",
+      "wf_ref": null,
+      "test_case": "Footer displays total balance equal to the sum of Current Balance column",
       "preconditions": [
-        "User logged in as <Customer>",
-        "<Multiple accounts exist with Current_Balance values>"
+        "User logged in as <Role>",
+        "At least two accounts exist for the user with Current Balances"
       ],
       "steps": [
         "1. Navigate to the Accounts Overview page",
-        "2. Scroll to the table footer and observe the Total Balance value"
+        "2. Scroll to the table footer row"
       ],
-      "expected_result": "Footer shows Total Balance equal to the sum of all Current Balance values from the visible account rows",
+      "expected_result": "The table footer row displays a Total Balance value equal to the sum of the Current Balance values for all visible accounts",
       "priority": "high"
     },
     {
       "tc_id": "P-005",
-      "test_case": "Active accounts show an 'Active' status badge",
+      "wf_ref": null,
+      "test_case": "Active accounts display an 'Active' status badge",
       "preconditions": [
-        "User logged in as <Customer>",
-        "<At least one account exists in Active status>"
+        "User logged in as <Role>",
+        "At least one account exists in Active status"
       ],
       "steps": [
         "1. Navigate to the Accounts Overview page",
-        "2. Inspect the Account Status column for rows that are Active"
+        "2. Inspect the Account Status column for visible rows"
       ],
-      "expected_result": "For accounts in the Active state, the Account Status column displays an 'Active' badge for each corresponding row",
+      "expected_result": "Rows representing active accounts show an 'Active' status badge in the Account Status column",
       "priority": "medium"
-    },
-    {
-      "tc_id": "P-006",
-      "test_case": "Clicking the Account Number link keeps the user on Accounts Overview when detail view is not implemented",
-      "preconditions": [
-        "User logged in as <Customer>",
-        "<At least one account exists with a clickable Account Number link>"
-      ],
-      "steps": [
-        "1. Navigate to the Accounts Overview page",
-        "2. Click the Account Number link for <a target account in the table>"
-      ],
-      "expected_result": "The Accounts Overview page remains visible and the Accounts Table is still displayed; no account detail page is opened",
-      "priority": "low"
     }
   ],
   "summary": {
-    "total": 6,
+    "total": 5,
     "high_priority": 3,
     "medium_priority": 2,
-    "low_priority": 1
+    "low_priority": 0
   }
 }

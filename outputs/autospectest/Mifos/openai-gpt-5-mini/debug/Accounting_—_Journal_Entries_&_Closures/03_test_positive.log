@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-21T22:29:06.544117
+DEBUG SESSION STARTED: 2026-05-25T14:24:50.736256
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[22:29:06] Test-Positive - SYSTEM PROMPT
+[14:24:50] Test-Positive - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Expert UI Test Case Generator. You receive (1) a UI-AST JSON for one specific module and (2) the original functional description for that module.
 
@@ -24,6 +24,10 @@ Your job is to produce ONLY positive/functional UI test cases — tests where va
 <description>
 {Original functional description text for this module}
 </description>
+
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
 
 ---
 
@@ -146,6 +150,13 @@ Because you are testing a module in isolation, establish the required entry stat
 **1. Forms & Wizards (`form`, `wizard`):**
 - Generate ONE happy path per distinct success outcome.
 - *Conditional UI Check:* If a toggle/dropdown reveals new mandatory fields (`visible_when`), generate a separate test for that conditional branch.
+- **Wizard step coverage (CRITICAL):** If a wizard has multiple steps and any step beyond Step 1 contains its own named field group (e.g., "Address Details", "Family Members", "Identifiers"), generate ONE dedicated positive TC per such step. The TC must:
+  - Navigate to that specific step (include the preceding steps as preconditions or brief navigation steps)
+  - Fill the fields described for that step (not just pass through)
+  - Assert the step's content is visible/saved on the detail page after final submission
+  - **Do NOT collapse all wizard steps into one happy-path TC** — if Steps 2, 3, and 4 each have their own named section in the spec, they each need their own TC.
+- **Wizard in-step identifiers/duplicates:** If a wizard step allows adding identifiers, documents, or similar entries that have a uniqueness constraint, include a TC for that wizard step that also verifies the constraint (e.g., attempting to add a duplicate Document Type+Key pair inside the wizard). This is a different code path from adding the same post-creation on the detail page.
+- **Action dialogs:** If a `state_bound_action_bar` action opens a dialog with its own `fields{}` (e.g., Activate requires Activation Date, Reject requires Reason), generate ONE positive TC per such action-dialog — distinct from the state-transition TC. The TC fills the dialog field and completes the action.
 
 **2. State Machines (`state_bound_action_bar`):**
 - For each unique action available in a specific state, generate ONE test performing that action.
@@ -200,6 +211,19 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 
 ---
 
+**WORKFLOW COVERAGE OBLIGATION (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- Your test cases must **collectively cover every workflow** listed.
+- For each `wf_id`, at least one TC must:
+  - Activate the `conditional_branch` (if not null) — i.e. the test must set up the condition described.
+  - Assert the `on_success` as its `expected_result` (verbatim or as the primary basis for the expected result).
+- Add `"wf_ref": "WF-NNN"` to each TC to identify which workflow it covers.
+- If one TC naturally covers multiple workflows (e.g., the base path overlaps), pick the most specific `wf_ref`.
+- If a TC does not map to any workflow (e.g., a navigation-only test), set `"wf_ref": null`.
+
+---
+
 **OUTPUT — JSON only, no prose, no markdown fencing:**
 
 {
@@ -208,6 +232,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
   "test_cases": [
     {
       "tc_id": "P-001",
+      "wf_ref": "WF-001",
       "test_case": "Short descriptive name",
       "preconditions": ["User logged in as <Role>", "<Prerequisite state>"],
       "steps": ["1. Step one", "2. Step two"],
@@ -224,7 +249,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 }
 
 ------------------------------------------------------------
-[22:29:06] Test-Positive - USER PROMPT
+[14:24:50] Test-Positive - USER PROMPT
 ------------------------------------------------------------
 <module_name>Accounting — Journal Entries & Closures</module_name>
 
@@ -244,41 +269,36 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
         "GL Account",
         "Amount"
       ],
-      "filter_bar": {
-        "fields": {
-          "Office": {
-            "type": "dropdown",
-            "required": false
-          },
-          "GL_Account": {
-            "type": "dropdown",
-            "required": false
-          },
-          "Date_From": {
-            "type": "date",
-            "required": false
-          },
-          "Date_To": {
-            "type": "date",
-            "required": false
-          },
-          "Transaction_ID": {
-            "type": "search",
-            "required": false
-          },
-          "Entry_Type": {
-            "type": "dropdown",
-            "required": false,
-            "options": [
-              "Debit",
-              "Credit"
-            ]
-          }
+      "filters": {
+        "Office": {
+          "type": "unspecified",
+          "required": false
+        },
+        "GL_Account": {
+          "type": "unspecified",
+          "required": false
+        },
+        "Date_Range": {
+          "type": "date_range",
+          "required": false
+        },
+        "Transaction_ID": {
+          "type": "unspecified",
+          "required": false
+        },
+        "Entry_Type": {
+          "type": "dropdown",
+          "required": false,
+          "options": [
+            "Debit",
+            "Credit"
+          ]
         }
       },
-      "actions": [
+      "toolbar_actions": [
         {
-          "element_name": "+ Add Journal Entry",
+          "action_name": "+ Add Journal Entry",
+          "purpose": "opens Add_Journal_Entry_Form",
           "opens_form": "Add_Journal_Entry_Form"
         }
       ]
@@ -287,11 +307,11 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
       "type": "form",
       "fields": {
         "Office": {
-          "type": "dropdown",
+          "type": "unspecified",
           "required": true
         },
         "Currency": {
-          "type": "dropdown",
+          "type": "unspecified",
           "required": true
         },
         "Reference_Number": {
@@ -303,7 +323,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
           "required": true
         },
         "Payment_Type": {
-          "type": "dropdown",
+          "type": "unspecified",
           "required": false
         },
         "Payment_Details": {
@@ -312,23 +332,20 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
         },
         "Entry_Lines": {
           "type": "repeating_group",
+          "min": 1,
           "item_fields": {
             "GL_Account": {
               "type": "dropdown",
               "required": true
             },
-            "Type": {
-              "type": "dropdown",
-              "required": true,
-              "options": [
-                "Debit",
-                "Credit"
-              ]
-            },
             "Amount": {
               "type": "number",
               "required": true
             }
+          },
+          "add_row_action": {
+            "action_name": "Add Row",
+            "purpose": "adds another entry line"
           }
         },
         "Comments": {
@@ -337,14 +354,18 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
         }
       },
       "constraints": [
-        "sum(Entry_Lines where Type == Debit).Amount == sum(Entry_Lines where Type == Credit).Amount"
+        "total_debits must equal total_credits",
+        "Transaction_Date must be after latest closing date for the selected Office"
       ],
       "submit_actions": [
         {
-          "element_name": "Create Journal Entry",
+          "element_name": "unspecified",
           "on_success": "creates journal entry",
           "preconditions": [
-            "Transaction_Date must be after the latest closure date for the selected Office"
+            "Transaction_Date must be after latest closing date for the selected Office"
+          ],
+          "constraints": [
+            "total_debits must equal total_credits"
           ]
         }
       ]
@@ -357,9 +378,10 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
         "Created Date",
         "Comments"
       ],
-      "actions": [
+      "toolbar_actions": [
         {
-          "element_name": "+ Create Closure",
+          "action_name": "+ Create Closure",
+          "purpose": "opens Create_Closure_Form",
           "opens_form": "Create_Closure_Form"
         }
       ]
@@ -368,7 +390,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
       "type": "form",
       "fields": {
         "Office": {
-          "type": "dropdown",
+          "type": "unspecified",
           "required": true
         },
         "Closing_Date": {
@@ -382,8 +404,8 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
       },
       "submit_actions": [
         {
-          "element_name": "Create Closure",
-          "on_success": "prevents journal entries from being posted for dates on or before the closing date (protects completed accounting periods)"
+          "element_name": "unspecified",
+          "on_success": "creates closure and prevents journal entries from being posted for dates on or before the closing date"
         }
       ]
     }
@@ -402,10 +424,15 @@ The Closing Entries page displays a table with columns for Office, Closing Date,
 
 </description>
 
+<workflows>
+WF-001 | Add Journal Entry — submit form | actor: <role> | branch: none | terminal: unspecified | on_success: creates journal entry
+WF-002 | Create Closure — submit form | actor: <role> | branch: none | terminal: unspecified | on_success: creates closure and prevents journal entries from being posted for dates on or before the closing date
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[22:34:08] Test-Positive - LLM RESPONSE
+[14:30:00] Test-Positive - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Accounting — Journal Entries & Closures",
@@ -413,100 +440,102 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Filter Journal Entries by Office and Date Range",
+      "wf_ref": null,
+      "test_case": "Open Add Journal Entry form displays required fields",
       "preconditions": [
         "User logged in as <Accountant>"
       ],
       "steps": [
         "1. Navigate to the Journal Entries page",
-        "2. In the filter bar select <Office> from the Office dropdown",
-        "3. Enter <Date_From> in the Date From field and <Date_To> in the Date To field",
-        "4. Click Apply/Run (or equivalent) to apply the filters"
+        "2. Click the '+ Add Journal Entry' toolbar button"
       ],
-      "expected_result": "Journal Entries table displays only rows matching <Office> with Transaction Date between <Date_From> and <Date_To>; unrelated rows are no longer visible",
+      "expected_result": "The Add Journal Entry form is displayed showing the Office, Currency, Transaction Date, Entry Lines (with GL Account and Amount fields), Reference Number and Comments fields and an 'Add Row' control for entry lines",
       "priority": "medium"
     },
     {
       "tc_id": "P-002",
-      "test_case": "Open Add Journal Entry form",
+      "wf_ref": "WF-001",
+      "test_case": "Create balanced Journal Entry with multiple entry lines",
       "preconditions": [
-        "User logged in as <Accountant>"
+        "User logged in as <Accountant>",
+        "Transaction_Date must be after latest closing date for the selected Office"
       ],
       "steps": [
         "1. Navigate to the Journal Entries page",
-        "2. Click the \"+ Add Journal Entry\" button"
+        "2. Click the '+ Add Journal Entry' toolbar button to open the form",
+        "3. Select <Office> in the Office field",
+        "4. Select <Currency> in the Currency field",
+        "5. Enter <Transaction_Date> in the Transaction Date field (ensure it is after the latest closing date for <Office>)",
+        "6. In the Entry Lines section, select <GL_Account_1> for the first line and enter <amounts> so total_debits equals total_credits",
+        "7. Click 'Add Row' to add a second entry line",
+        "8. Select <GL_Account_2> for the second line and enter <amounts> so total_debits equals total_credits",
+        "9. (Optional) Enter <Reference_Number> and <Comments>",
+        "10. Click Submit on the Add Journal Entry form"
       ],
-      "expected_result": "Add Journal Entry form is displayed showing fields Office, Currency, Transaction Date, Entry Lines section (with an 'Add Row' control), Comments, and the 'Create Journal Entry' button",
-      "priority": "low"
+      "expected_result": "New row appears in the Journal Entries table with the entered Office and Transaction Date; the entry's Debit total and Credit total are equal and the Difference displays zero. creates journal entry",
+      "priority": "high"
     },
     {
       "tc_id": "P-003",
-      "test_case": "Create a balanced Journal Entry with two lines (one Debit, one Credit) and verify running totals",
+      "wf_ref": null,
+      "test_case": "Filter Journal Entries by Entry Type (Debit)",
       "preconditions": [
         "User logged in as <Accountant>",
-        "Selected Office's latest closure date is before <Transaction_Date>"
+        "Journal Entries page is open with multiple entries of varying types"
       ],
       "steps": [
-        "1. Navigate to the Journal Entries page",
-        "2. Click the \"+ Add Journal Entry\" button to open the form",
-        "3. Select <Office> in the Office dropdown and select <Currency> in the Currency dropdown",
-        "4. Enter <Transaction_Date> (after the office's latest closure date) in the Transaction Date field",
-        "5. In the Entry Lines section, for the first row select <GL_Account> in GL Account, select 'Debit' in Type, and enter <Amount> in Amount",
-        "6. Click 'Add Row' to add a second entry line",
-        "7. For the second row select a (different) <GL_Account> in GL Account, select 'Credit' in Type, and enter the same <Amount> in Amount so debits equal credits",
-        "8. Observe the running totals on the form (Debit total, Credit total, Difference)",
-        "9. Click the 'Create Journal Entry' button"
+        "1. On the Journal Entries page, open the filter bar",
+        "2. Select 'Debit' from the Entry Type dropdown",
+        "3. Apply the filter"
       ],
-      "expected_result": "Debit total and Credit total shown on the form are equal and the Difference displays 0; a new row appears in the Journal Entries table showing the entered Office, Transaction Date, and total Amount",
-      "priority": "high"
+      "expected_result": "Journal Entries table displays only rows with Type = Debit; rows with other types are not visible",
+      "priority": "medium"
     },
     {
       "tc_id": "P-004",
-      "test_case": "Create a Closure for an Office",
+      "wf_ref": null,
+      "test_case": "Filter Journal Entries by Transaction Date range",
       "preconditions": [
-        "User logged in as <Accountant>"
+        "User logged in as <Accountant>",
+        "Journal Entries page is open with entries spanning multiple dates"
       ],
       "steps": [
-        "1. Navigate to the Closing Entries page",
-        "2. Click the \"+ Create Closure\" button to open the Create Closure form",
-        "3. Select <Office> in the Office dropdown",
-        "4. Enter <Closing_Date> in the Closing Date field",
-        "5. (Optional) Enter <Comments> in the Comments field",
-        "6. Click the 'Create Closure' button"
+        "1. Open the filter bar on the Journal Entries page",
+        "2. Enter <start_date> and <end_date> in the Date Range filter",
+        "3. Apply the filter"
       ],
-      "expected_result": "A new row appears in the Closing Entries table with the selected <Office> and <Closing_Date> visible in the Closing Date column",
-      "priority": "high"
+      "expected_result": "Journal Entries table displays only rows with Transaction Date within the selected date range; entries outside the range are not visible",
+      "priority": "medium"
     },
     {
       "tc_id": "P-005",
-      "test_case": "After creating a closure, post a Journal Entry with Transaction Date after the closing date",
+      "wf_ref": "WF-002",
+      "test_case": "Create a Closure and verify closure row appears",
       "preconditions": [
         "User logged in as <Accountant>"
       ],
       "steps": [
         "1. Navigate to the Closing Entries page",
-        "2. Click the \"+ Create Closure\" button and create a closure for <Office> with <Closing_Date>",
-        "3. Navigate to the Journal Entries page",
-        "4. Click the \"+ Add Journal Entry\" button",
-        "5. Select the same <Office> in the Office dropdown",
-        "6. Enter <Transaction_Date_After_Closing> (a date after <Closing_Date>) in the Transaction Date field",
-        "7. In the Entry Lines section add balanced lines: select <GL_Account> and 'Debit' with <Amount>, click 'Add Row', select <GL_Account> and 'Credit' with the same <Amount>",
-        "8. Click the 'Create Journal Entry' button"
+        "2. Click the '+ Create Closure' toolbar button to open the form",
+        "3. Select <Office> in the Office field",
+        "4. Enter <Closing_Date> in the Closing Date field",
+        "5. (Optional) Enter <Comments>",
+        "6. Click Submit on the Create Closure form"
       ],
-      "expected_result": "A new row appears in the Journal Entries table with the entered <Office> and <Transaction_Date_After_Closing> (showing the journal entry was accepted because the date is after the closing date)",
-      "priority": "medium"
+      "expected_result": "New row appears in the Closing Entries table with Office <Office> and Closing Date <Closing_Date>. creates closure and prevents journal entries from being posted for dates on or before the closing date",
+      "priority": "high"
     }
   ],
   "summary": {
     "total": 5,
     "high_priority": 2,
-    "medium_priority": 2,
-    "low_priority": 1
+    "medium_priority": 3,
+    "low_priority": 0
   }
 }
 
 ------------------------------------------------------------
-[22:34:08] Test-Positive - PARSED JSON
+[14:30:00] Test-Positive - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Accounting \u2014 Journal Entries & Closures",
@@ -514,94 +543,96 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Filter Journal Entries by Office and Date Range",
+      "wf_ref": null,
+      "test_case": "Open Add Journal Entry form displays required fields",
       "preconditions": [
         "User logged in as <Accountant>"
       ],
       "steps": [
         "1. Navigate to the Journal Entries page",
-        "2. In the filter bar select <Office> from the Office dropdown",
-        "3. Enter <Date_From> in the Date From field and <Date_To> in the Date To field",
-        "4. Click Apply/Run (or equivalent) to apply the filters"
+        "2. Click the '+ Add Journal Entry' toolbar button"
       ],
-      "expected_result": "Journal Entries table displays only rows matching <Office> with Transaction Date between <Date_From> and <Date_To>; unrelated rows are no longer visible",
+      "expected_result": "The Add Journal Entry form is displayed showing the Office, Currency, Transaction Date, Entry Lines (with GL Account and Amount fields), Reference Number and Comments fields and an 'Add Row' control for entry lines",
       "priority": "medium"
     },
     {
       "tc_id": "P-002",
-      "test_case": "Open Add Journal Entry form",
+      "wf_ref": "WF-001",
+      "test_case": "Create balanced Journal Entry with multiple entry lines",
       "preconditions": [
-        "User logged in as <Accountant>"
+        "User logged in as <Accountant>",
+        "Transaction_Date must be after latest closing date for the selected Office"
       ],
       "steps": [
         "1. Navigate to the Journal Entries page",
-        "2. Click the \"+ Add Journal Entry\" button"
+        "2. Click the '+ Add Journal Entry' toolbar button to open the form",
+        "3. Select <Office> in the Office field",
+        "4. Select <Currency> in the Currency field",
+        "5. Enter <Transaction_Date> in the Transaction Date field (ensure it is after the latest closing date for <Office>)",
+        "6. In the Entry Lines section, select <GL_Account_1> for the first line and enter <amounts> so total_debits equals total_credits",
+        "7. Click 'Add Row' to add a second entry line",
+        "8. Select <GL_Account_2> for the second line and enter <amounts> so total_debits equals total_credits",
+        "9. (Optional) Enter <Reference_Number> and <Comments>",
+        "10. Click Submit on the Add Journal Entry form"
       ],
-      "expected_result": "Add Journal Entry form is displayed showing fields Office, Currency, Transaction Date, Entry Lines section (with an 'Add Row' control), Comments, and the 'Create Journal Entry' button",
-      "priority": "low"
+      "expected_result": "New row appears in the Journal Entries table with the entered Office and Transaction Date; the entry's Debit total and Credit total are equal and the Difference displays zero. creates journal entry",
+      "priority": "high"
     },
     {
       "tc_id": "P-003",
-      "test_case": "Create a balanced Journal Entry with two lines (one Debit, one Credit) and verify running totals",
+      "wf_ref": null,
+      "test_case": "Filter Journal Entries by Entry Type (Debit)",
       "preconditions": [
         "User logged in as <Accountant>",
-        "Selected Office's latest closure date is before <Transaction_Date>"
+        "Journal Entries page is open with multiple entries of varying types"
       ],
       "steps": [
-        "1. Navigate to the Journal Entries page",
-        "2. Click the \"+ Add Journal Entry\" button to open the form",
-        "3. Select <Office> in the Office dropdown and select <Currency> in the Currency dropdown",
-        "4. Enter <Transaction_Date> (after the office's latest closure date) in the Transaction Date field",
-        "5. In the Entry Lines section, for the first row select <GL_Account> in GL Account, select 'Debit' in Type, and enter <Amount> in Amount",
-        "6. Click 'Add Row' to add a second entry line",
-        "7. For the second row select a (different) <GL_Account> in GL Account, select 'Credit' in Type, and enter the same <Amount> in Amount so debits equal credits",
-        "8. Observe the running totals on the form (Debit total, Credit total, Difference)",
-        "9. Click the 'Create Journal Entry' button"
+        "1. On the Journal Entries page, open the filter bar",
+        "2. Select 'Debit' from the Entry Type dropdown",
+        "3. Apply the filter"
       ],
-      "expected_result": "Debit total and Credit total shown on the form are equal and the Difference displays 0; a new row appears in the Journal Entries table showing the entered Office, Transaction Date, and total Amount",
-      "priority": "high"
+      "expected_result": "Journal Entries table displays only rows with Type = Debit; rows with other types are not visible",
+      "priority": "medium"
     },
     {
       "tc_id": "P-004",
-      "test_case": "Create a Closure for an Office",
+      "wf_ref": null,
+      "test_case": "Filter Journal Entries by Transaction Date range",
       "preconditions": [
-        "User logged in as <Accountant>"
+        "User logged in as <Accountant>",
+        "Journal Entries page is open with entries spanning multiple dates"
       ],
       "steps": [
-        "1. Navigate to the Closing Entries page",
-        "2. Click the \"+ Create Closure\" button to open the Create Closure form",
-        "3. Select <Office> in the Office dropdown",
-        "4. Enter <Closing_Date> in the Closing Date field",
-        "5. (Optional) Enter <Comments> in the Comments field",
-        "6. Click the 'Create Closure' button"
+        "1. Open the filter bar on the Journal Entries page",
+        "2. Enter <start_date> and <end_date> in the Date Range filter",
+        "3. Apply the filter"
       ],
-      "expected_result": "A new row appears in the Closing Entries table with the selected <Office> and <Closing_Date> visible in the Closing Date column",
-      "priority": "high"
+      "expected_result": "Journal Entries table displays only rows with Transaction Date within the selected date range; entries outside the range are not visible",
+      "priority": "medium"
     },
     {
       "tc_id": "P-005",
-      "test_case": "After creating a closure, post a Journal Entry with Transaction Date after the closing date",
+      "wf_ref": "WF-002",
+      "test_case": "Create a Closure and verify closure row appears",
       "preconditions": [
         "User logged in as <Accountant>"
       ],
       "steps": [
         "1. Navigate to the Closing Entries page",
-        "2. Click the \"+ Create Closure\" button and create a closure for <Office> with <Closing_Date>",
-        "3. Navigate to the Journal Entries page",
-        "4. Click the \"+ Add Journal Entry\" button",
-        "5. Select the same <Office> in the Office dropdown",
-        "6. Enter <Transaction_Date_After_Closing> (a date after <Closing_Date>) in the Transaction Date field",
-        "7. In the Entry Lines section add balanced lines: select <GL_Account> and 'Debit' with <Amount>, click 'Add Row', select <GL_Account> and 'Credit' with the same <Amount>",
-        "8. Click the 'Create Journal Entry' button"
+        "2. Click the '+ Create Closure' toolbar button to open the form",
+        "3. Select <Office> in the Office field",
+        "4. Enter <Closing_Date> in the Closing Date field",
+        "5. (Optional) Enter <Comments>",
+        "6. Click Submit on the Create Closure form"
       ],
-      "expected_result": "A new row appears in the Journal Entries table with the entered <Office> and <Transaction_Date_After_Closing> (showing the journal entry was accepted because the date is after the closing date)",
-      "priority": "medium"
+      "expected_result": "New row appears in the Closing Entries table with Office <Office> and Closing Date <Closing_Date>. creates closure and prevents journal entries from being posted for dates on or before the closing date",
+      "priority": "high"
     }
   ],
   "summary": {
     "total": 5,
     "high_priority": 2,
-    "medium_priority": 2,
-    "low_priority": 1
+    "medium_priority": 3,
+    "low_priority": 0
   }
 }

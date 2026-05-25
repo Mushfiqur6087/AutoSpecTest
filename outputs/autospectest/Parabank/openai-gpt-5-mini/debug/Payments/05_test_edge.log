@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-22T21:31:44.626075
+DEBUG SESSION STARTED: 2026-05-25T15:41:24.133090
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[21:31:44] Test-Edge - SYSTEM PROMPT
+[15:41:24] Test-Edge - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Edge Case and Boundary Test Generator. You receive (1) a UI-AST JSON for one module and (2) the original functional description. Your job is to produce ONLY boundary and edge case tests — scenarios at the limits of valid/invalid input and unusual-but-plausible user behaviors.
 
@@ -24,6 +24,10 @@ You are NOT producing happy paths (positive prompt) or standard validation failu
 <description>
 {Original functional description text for this module}
 </description>
+
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
 
 ---
 
@@ -176,6 +180,15 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 
 ---
 
+**WORKFLOW-AWARE BOUNDARY SCOPING (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- For each workflow where `conditional_branch` activates a numeric or date field, check if that field has a boundary (a numeric/date threshold in the AST `constraints` or description).
+- If yes, that workflow's branch is a **candidate for a boundary edge test** — add or confirm a boundary TC exists for it.
+- Add `"wf_ref": "WF-NNN"` to each TC that maps to a specific workflow's boundary. Set `"wf_ref": null` for generic input/interaction edge tests.
+
+---
+
 **OUTPUT — JSON only, no prose, no markdown fencing:**
 
 {
@@ -184,6 +197,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": null,
       "subcategory": "boundary | input_edge | interaction_edge | state_edge | data_edge",
       "test_case": "Short descriptive name",
       "preconditions": ["precondition 1"],
@@ -206,7 +220,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 
 
 ------------------------------------------------------------
-[21:31:44] Test-Edge - USER PROMPT
+[15:41:24] Test-Edge - USER PROMPT
 ------------------------------------------------------------
 <module_name>Payments</module_name>
 
@@ -218,62 +232,51 @@ If the module has any numeric/date/count threshold in the AST or description, pr
       "type": "form",
       "fields": {
         "Payee_Name": {
-          "type": "unspecified",
-          "required": true
+          "type": "unspecified"
         },
         "Street_Address": {
-          "type": "unspecified",
-          "required": true
+          "type": "unspecified"
         },
         "City": {
-          "type": "unspecified",
-          "required": true
+          "type": "unspecified"
         },
         "State": {
-          "type": "unspecified",
-          "required": true
+          "type": "unspecified"
         },
         "ZIP_Code": {
-          "type": "unspecified",
-          "required": true
+          "type": "unspecified"
         },
         "Phone_Number": {
-          "type": "unspecified",
-          "required": true
+          "type": "unspecified"
         },
         "Payee_Account_Number": {
-          "type": "unspecified",
-          "required": true
+          "type": "unspecified"
         },
         "Confirm_Account_Number": {
-          "type": "unspecified",
-          "required": true
+          "type": "unspecified"
         },
         "Payment_Amount": {
-          "type": "number",
-          "required": true,
-          "constraints": [
-            "must be greater than 0"
-          ]
+          "type": "number"
         },
         "Source_Account": {
-          "type": "dropdown",
-          "required": true
+          "type": "dropdown"
         }
       },
       "constraints": [
-        "All fields must pass validation before submission",
-        "Payee_Account_Number must match Confirm_Account_Number (error: \"Account numbers do not match\")"
+        "all fields must pass field-level validation",
+        "Payee_Account_Number must equal Confirm_Account_Number (error message: 'Account numbers do not match')"
       ],
       "submit_actions": [
         {
           "element_name": "Pay",
-          "type": "button",
-          "constraints": [
-            "available funds in Source_Account must be >= Payment_Amount (error: \"Insufficient funds\")"
+          "preconditions": [
+            "sufficient funds must exist in selected Source_Account"
           ],
-          "on_success": "Payment submitted successfully with reference code and updates balances",
-          "on_failure": "Displays inline validation errors; form remains editable"
+          "constraints": [
+            "form-level validations (including account number match) must pass"
+          ],
+          "on_success": "Payment submitted successfully. Returns a reference code and updates account balances.",
+          "on_failure": "Displays inline errors (e.g., 'Account numbers do not match', 'Insufficient funds') and keeps the form editable"
         }
       ]
     }
@@ -287,10 +290,14 @@ The bill-payment page houses a payment form with fields for Payee Name, Street A
 
 </description>
 
+<workflows>
+WF-001 | Submit bill payment | actor: <role> | branch: none | terminal: Pay | on_success: Payment submitted successfully. Returns a reference code and updates account balances.
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[21:33:02] Test-Edge - LLM RESPONSE
+[15:43:09] Test-Edge - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Payments",
@@ -298,132 +305,219 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": "WF-001",
       "subcategory": "boundary",
-      "test_case": "Payment_Amount at smallest positive unit above zero is accepted",
+      "test_case": "Payment amount exactly equals available balance succeeds",
       "preconditions": [
-        "All other required fields are pre-filled with valid values",
-        "A Source_Account exists with available funds >= <smallest positive amount accepted by the Payment_Amount field (one unit above 0)>"
+        "A <Source_Account> exists and is visible in the Source_Account dropdown with an available balance of <available balance> shown in the UI"
       ],
       "steps": [
-        "1. Enter <smallest positive amount accepted by the Payment_Amount field (one unit above 0)> in Payment_Amount",
-        "2. Select the Source_Account with available funds >= that amount",
-        "3. Click Pay"
+        "1. Open the Bill Payment form",
+        "2. Enter <text> in Payee_Name",
+        "3. Enter <text> in Street_Address",
+        "4. Enter <text> in City",
+        "5. Enter <text> in State",
+        "6. Enter <text> in ZIP_Code",
+        "7. Enter <text> in Phone_Number",
+        "8. Enter <account value> in Payee_Account_Number",
+        "9. Enter the same <account value> in Confirm_Account_Number",
+        "10. Select <Source_Account> with available balance <available balance> from Source_Account dropdown",
+        "11. Enter <available balance> in Payment_Amount",
+        "12. Click Pay"
       ],
-      "expected_result": "Form submits successfully; 'Payment submitted successfully.' with a reference code is displayed; source account balance is reduced by the entered amount and the payment record appears in transaction history (succeeds).",
+      "expected_result": "Form submits successfully; the UI displays 'Payment submitted successfully.' with a reference code and the selected Source_Account balance is decreased by <available balance> (i.e., balance reflects the subtraction of the payment).",
       "priority": "medium"
     },
     {
       "tc_id": "E-002",
+      "wf_ref": "WF-001",
       "subcategory": "boundary",
-      "test_case": "Payment_Amount of zero is blocked",
+      "test_case": "Payment amount one unit above available balance is blocked with 'Insufficient funds'",
       "preconditions": [
-        "All other required fields are pre-filled with valid values",
-        "A Source_Account exists with available funds > 0"
+        "A <Source_Account> exists and is visible in the Source_Account dropdown with an available balance of <available balance> shown in the UI"
       ],
       "steps": [
-        "1. Enter 0 in Payment_Amount",
-        "2. Select a Source_Account with available funds > 0",
-        "3. Click Pay"
+        "1. Open the Bill Payment form",
+        "2. Enter <text> in Payee_Name",
+        "3. Enter <text> in Street_Address",
+        "4. Enter <text> in City",
+        "5. Enter <text> in State",
+        "6. Enter <text> in ZIP_Code",
+        "7. Enter <text> in Phone_Number",
+        "8. Enter <account value> in Payee_Account_Number",
+        "9. Enter the same <account value> in Confirm_Account_Number",
+        "10. Select <Source_Account> with available balance <available balance> from Source_Account dropdown",
+        "11. Enter <one unit above available balance> in Payment_Amount",
+        "12. Click Pay"
       ],
-      "expected_result": "Payment Amount field displays an inline error indicating the value must be greater than 0 and submission is blocked (is blocked / error shown).",
+      "expected_result": "Submission is blocked; an inline error 'Insufficient funds' is shown (visible near Payment_Amount or Source_Account) and the form remains editable.",
       "priority": "medium"
     },
     {
       "tc_id": "E-003",
+      "wf_ref": "WF-001",
       "subcategory": "boundary",
-      "test_case": "Available funds exactly equal to Payment_Amount allows submission",
+      "test_case": "Payee account number and Confirm_Account_Number exactly equal — submission succeeds",
       "preconditions": [
-        "All other required fields are pre-filled with valid values",
-        "A Source_Account exists with available funds exactly equal to <Payment_Amount>"
+        "A <Source_Account> exists with sufficient funds relative to the Payment_Amount to be entered"
       ],
       "steps": [
-        "1. Enter <Payment_Amount equal to the Source_Account available funds> in Payment_Amount",
-        "2. Select that Source_Account",
-        "3. Click Pay"
+        "1. Open the Bill Payment form",
+        "2. Enter <text> in Payee_Name",
+        "3. Enter <text> in Street_Address",
+        "4. Enter <text> in City",
+        "5. Enter <text> in State",
+        "6. Enter <text> in ZIP_Code",
+        "7. Enter <text> in Phone_Number",
+        "8. Enter <account value> in Payee_Account_Number",
+        "9. Enter the exact same <account value> in Confirm_Account_Number",
+        "10. Select <Source_Account> with sufficient funds from Source_Account dropdown",
+        "11. Enter <payment amount less than or equal to available balance> in Payment_Amount",
+        "12. Click Pay"
       ],
-      "expected_result": "Form submits successfully; 'Payment submitted successfully.' with a reference code is displayed; the selected Source_Account available funds become zero and the payment record appears in transaction history (succeeds).",
+      "expected_result": "Form submits successfully; the UI displays 'Payment submitted successfully.' with a reference code and account balances are updated accordingly (payment creation succeeds).",
       "priority": "medium"
     },
     {
       "tc_id": "E-004",
+      "wf_ref": "WF-001",
       "subcategory": "boundary",
-      "test_case": "Available funds one unit less than Payment_Amount is blocked with 'Insufficient funds'",
+      "test_case": "Payee account number differs by one character from Confirm_Account_Number — 'Account numbers do not match' error shown",
       "preconditions": [
-        "All other required fields are pre-filled with valid values",
-        "A Source_Account exists with available funds equal to <Payment_Amount minus one smallest unit>"
+        "The form is open"
       ],
       "steps": [
-        "1. Enter <Payment_Amount that is one smallest unit greater than the Source_Account available funds> in Payment_Amount",
-        "2. Select the Source_Account with available funds one unit less than the entered amount",
-        "3. Click Pay"
+        "1. Enter <text> in Payee_Name",
+        "2. Enter <text> in Street_Address",
+        "3. Enter <text> in City",
+        "4. Enter <text> in State",
+        "5. Enter <text> in ZIP_Code",
+        "6. Enter <text> in Phone_Number",
+        "7. Enter <account value_A> in Payee_Account_Number",
+        "8. Enter <account value_B differing from account value_A by one character> in Confirm_Account_Number",
+        "9. Select <Source_Account> with sufficient funds from Source_Account dropdown",
+        "10. Enter <payment amount less than or equal to available balance> in Payment_Amount",
+        "11. Click Pay"
       ],
-      "expected_result": "Submission is blocked; inline error 'Insufficient funds' is shown next to Source_Account and the form remains editable; no balances change (is blocked / error shown).",
+      "expected_result": "Submission is blocked; an inline error 'Account numbers do not match' is shown next to the account number fields and the form remains editable.",
       "priority": "medium"
     },
     {
       "tc_id": "E-005",
+      "wf_ref": "WF-001",
       "subcategory": "input_edge",
-      "test_case": "Confirm_Account_Number differs only by trailing whitespace — treated as mismatch",
+      "test_case": "Confirm_Account_Number with leading/trailing whitespace — trimming vs mismatch edge",
       "preconditions": [
-        "All other required fields are pre-filled with valid values"
+        "A <Source_Account> exists with sufficient funds relative to the Payment_Amount to be entered"
       ],
       "steps": [
-        "1. Enter <value X> in Payee_Account_Number",
-        "2. Enter <value X with trailing whitespace> in Confirm_Account_Number",
-        "3. Click Pay"
+        "1. Open the Bill Payment form",
+        "2. Enter <text> in Payee_Name",
+        "3. Enter <text> in Street_Address",
+        "4. Enter <text> in City",
+        "5. Enter <text> in State",
+        "6. Enter <text> in ZIP_Code",
+        "7. Enter <text> in Phone_Number",
+        "8. Enter <account value> in Payee_Account_Number",
+        "9. Enter the same <account value> with leading and trailing whitespace characters in Confirm_Account_Number",
+        "10. Select <Source_Account> with sufficient funds from Source_Account dropdown",
+        "11. Enter <payment amount less than or equal to available balance> in Payment_Amount",
+        "12. Click Pay"
       ],
-      "expected_result": "Submission is blocked; inline error 'Account numbers do not match' is shown adjacent to Confirm_Account_Number (is blocked / error shown).",
+      "expected_result": "Either the submission succeeds (system trims whitespace before comparing; payment is created and 'Payment submitted successfully.' shown) OR submission is blocked and an inline error 'Account numbers do not match' is shown. The test should verify which behavior occurs and that the result is visible inline.",
       "priority": "low"
     },
     {
       "tc_id": "E-006",
+      "wf_ref": "WF-001",
       "subcategory": "input_edge",
-      "test_case": "Payment_Amount entered with greater decimal precision than the field displays",
+      "test_case": "Payment_Amount entered with excessive decimal places (precision edge)",
       "preconditions": [
-        "All other required fields are pre-filled with valid values",
-        "A Source_Account exists with available funds >= the entered amount"
+        "A <Source_Account> exists with sufficient funds to cover a reasonable rounded amount"
       ],
       "steps": [
-        "1. Enter a Payment_Amount value with more decimal places than the UI displays/accepts (greater precision than the field's displayed precision)",
-        "2. Select the Source_Account with sufficient funds",
-        "3. Click Pay"
+        "1. Open the Bill Payment form",
+        "2. Enter <text> in Payee_Name",
+        "3. Enter <text> in Street_Address",
+        "4. Enter <text> in City",
+        "5. Enter <text> in State",
+        "6. Enter <text> in ZIP_Code",
+        "7. Enter <text> in Phone_Number",
+        "8. Enter <account value> in Payee_Account_Number",
+        "9. Enter the same <account value> in Confirm_Account_Number",
+        "10. Select <Source_Account> with sufficient funds from Source_Account dropdown",
+        "11. Enter <payment amount with more decimal places than UI supports> in Payment_Amount (e.g., many decimal places)",
+        "12. Click Pay"
       ],
-      "expected_result": "Form submits successfully; confirmation displays the Payment Amount rounded to the UI's displayed decimal precision and the source account balance is reduced by the rounded amount (succeeds).",
+      "expected_result": "Either the form submits successfully and the confirmation/detail page displays the saved payment amount rounded to the supported precision (succeeds), or submission is blocked and an inline error is shown indicating invalid/unsupported amount precision (is blocked / error shown). The observed behavior must be visible on the form or confirmation page.",
       "priority": "low"
     },
     {
       "tc_id": "E-007",
+      "wf_ref": "WF-001",
       "subcategory": "interaction_edge",
-      "test_case": "Rapid re-submission via browser Back after successful payment does not create a duplicate payment",
+      "test_case": "Rapid re-submission via browser Back after successful payment — duplicate prevention",
       "preconditions": [
-        "All other required fields are pre-filled with valid values",
-        "A Source_Account exists with available funds >= twice the intended Payment_Amount (so a duplicate would change balances if it occurred)"
+        "A <Source_Account> exists with available balance sufficient for the first submission"
       ],
       "steps": [
-        "1. Enter a valid Payment_Amount in Payment_Amount",
-        "2. Select a Source_Account with sufficient funds",
-        "3. Click Pay (confirm that the payment succeeds and confirmation with reference code is displayed)",
-        "4. Press the browser Back button to return to the payment form",
-        "5. Click Pay again on the returned form"
+        "1. Open the Bill Payment form",
+        "2. Enter <text> in Payee_Name",
+        "3. Enter <text> in Street_Address",
+        "4. Enter <text> in City",
+        "5. Enter <text> in State",
+        "6. Enter <text> in ZIP_Code",
+        "7. Enter <text> in Phone_Number",
+        "8. Enter <account value> in Payee_Account_Number",
+        "9. Enter the same <account value> in Confirm_Account_Number",
+        "10. Select <Source_Account> with sufficient funds from Source_Account dropdown",
+        "11. Enter <payment amount less than or equal to available balance> in Payment_Amount",
+        "12. Click Pay",
+        "13. After seeing the success confirmation and reference code, click the browser Back button",
+        "14. On the form shown after Back, click Pay again without changing values"
       ],
-      "expected_result": "Second submission attempt is blocked; only one payment appears in transaction history and account balances reflect a single deduction (is blocked / error shown or prevented by UI), preventing a duplicate charge.",
+      "expected_result": "Second submission attempt is blocked; no duplicate payment is created and account balance reflects only one successful payment. The UI either prevents the second submission or shows a clear inline message preventing duplicate processing; only one reference code is present for the payment.",
       "priority": "medium"
+    },
+    {
+      "tc_id": "E-008",
+      "wf_ref": null,
+      "subcategory": "input_edge",
+      "test_case": "Very long Payee_Name (>200 characters) handling",
+      "preconditions": [
+        "Bill Payment form is open"
+      ],
+      "steps": [
+        "1. Enter <very long string exceeding 200 characters> in Payee_Name",
+        "2. Enter <text> in Street_Address",
+        "3. Enter <text> in City",
+        "4. Enter <text> in State",
+        "5. Enter <text> in ZIP_Code",
+        "6. Enter <text> in Phone_Number",
+        "7. Enter <account value> in Payee_Account_Number",
+        "8. Enter the same <account value> in Confirm_Account_Number",
+        "9. Select <Source_Account> with sufficient funds from Source_Account dropdown",
+        "10. Enter <payment amount less than or equal to available balance> in Payment_Amount",
+        "11. Click Pay"
+      ],
+      "expected_result": "Either the form submits successfully and the saved Payee_Name on the confirmation/detail page is stored (possible truncation to supported length) with truncation visible or indicated (succeeds), or submission is blocked and an inline error is shown indicating the field exceeds allowed length (is blocked / error shown).",
+      "priority": "low"
     }
   ],
   "summary": {
-    "total": 7,
+    "total": 8,
     "boundary": 4,
-    "input_edge": 2,
+    "input_edge": 3,
     "interaction_edge": 1,
     "state_edge": 0,
     "data_edge": 0,
     "medium_priority": 5,
-    "low_priority": 2
+    "low_priority": 3
   }
 }
 
 ------------------------------------------------------------
-[21:33:02] Test-Edge - PARSED JSON
+[15:43:09] Test-Edge - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Payments",
@@ -431,126 +525,213 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": "WF-001",
       "subcategory": "boundary",
-      "test_case": "Payment_Amount at smallest positive unit above zero is accepted",
+      "test_case": "Payment amount exactly equals available balance succeeds",
       "preconditions": [
-        "All other required fields are pre-filled with valid values",
-        "A Source_Account exists with available funds >= <smallest positive amount accepted by the Payment_Amount field (one unit above 0)>"
+        "A <Source_Account> exists and is visible in the Source_Account dropdown with an available balance of <available balance> shown in the UI"
       ],
       "steps": [
-        "1. Enter <smallest positive amount accepted by the Payment_Amount field (one unit above 0)> in Payment_Amount",
-        "2. Select the Source_Account with available funds >= that amount",
-        "3. Click Pay"
+        "1. Open the Bill Payment form",
+        "2. Enter <text> in Payee_Name",
+        "3. Enter <text> in Street_Address",
+        "4. Enter <text> in City",
+        "5. Enter <text> in State",
+        "6. Enter <text> in ZIP_Code",
+        "7. Enter <text> in Phone_Number",
+        "8. Enter <account value> in Payee_Account_Number",
+        "9. Enter the same <account value> in Confirm_Account_Number",
+        "10. Select <Source_Account> with available balance <available balance> from Source_Account dropdown",
+        "11. Enter <available balance> in Payment_Amount",
+        "12. Click Pay"
       ],
-      "expected_result": "Form submits successfully; 'Payment submitted successfully.' with a reference code is displayed; source account balance is reduced by the entered amount and the payment record appears in transaction history (succeeds).",
+      "expected_result": "Form submits successfully; the UI displays 'Payment submitted successfully.' with a reference code and the selected Source_Account balance is decreased by <available balance> (i.e., balance reflects the subtraction of the payment).",
       "priority": "medium"
     },
     {
       "tc_id": "E-002",
+      "wf_ref": "WF-001",
       "subcategory": "boundary",
-      "test_case": "Payment_Amount of zero is blocked",
+      "test_case": "Payment amount one unit above available balance is blocked with 'Insufficient funds'",
       "preconditions": [
-        "All other required fields are pre-filled with valid values",
-        "A Source_Account exists with available funds > 0"
+        "A <Source_Account> exists and is visible in the Source_Account dropdown with an available balance of <available balance> shown in the UI"
       ],
       "steps": [
-        "1. Enter 0 in Payment_Amount",
-        "2. Select a Source_Account with available funds > 0",
-        "3. Click Pay"
+        "1. Open the Bill Payment form",
+        "2. Enter <text> in Payee_Name",
+        "3. Enter <text> in Street_Address",
+        "4. Enter <text> in City",
+        "5. Enter <text> in State",
+        "6. Enter <text> in ZIP_Code",
+        "7. Enter <text> in Phone_Number",
+        "8. Enter <account value> in Payee_Account_Number",
+        "9. Enter the same <account value> in Confirm_Account_Number",
+        "10. Select <Source_Account> with available balance <available balance> from Source_Account dropdown",
+        "11. Enter <one unit above available balance> in Payment_Amount",
+        "12. Click Pay"
       ],
-      "expected_result": "Payment Amount field displays an inline error indicating the value must be greater than 0 and submission is blocked (is blocked / error shown).",
+      "expected_result": "Submission is blocked; an inline error 'Insufficient funds' is shown (visible near Payment_Amount or Source_Account) and the form remains editable.",
       "priority": "medium"
     },
     {
       "tc_id": "E-003",
+      "wf_ref": "WF-001",
       "subcategory": "boundary",
-      "test_case": "Available funds exactly equal to Payment_Amount allows submission",
+      "test_case": "Payee account number and Confirm_Account_Number exactly equal \u2014 submission succeeds",
       "preconditions": [
-        "All other required fields are pre-filled with valid values",
-        "A Source_Account exists with available funds exactly equal to <Payment_Amount>"
+        "A <Source_Account> exists with sufficient funds relative to the Payment_Amount to be entered"
       ],
       "steps": [
-        "1. Enter <Payment_Amount equal to the Source_Account available funds> in Payment_Amount",
-        "2. Select that Source_Account",
-        "3. Click Pay"
+        "1. Open the Bill Payment form",
+        "2. Enter <text> in Payee_Name",
+        "3. Enter <text> in Street_Address",
+        "4. Enter <text> in City",
+        "5. Enter <text> in State",
+        "6. Enter <text> in ZIP_Code",
+        "7. Enter <text> in Phone_Number",
+        "8. Enter <account value> in Payee_Account_Number",
+        "9. Enter the exact same <account value> in Confirm_Account_Number",
+        "10. Select <Source_Account> with sufficient funds from Source_Account dropdown",
+        "11. Enter <payment amount less than or equal to available balance> in Payment_Amount",
+        "12. Click Pay"
       ],
-      "expected_result": "Form submits successfully; 'Payment submitted successfully.' with a reference code is displayed; the selected Source_Account available funds become zero and the payment record appears in transaction history (succeeds).",
+      "expected_result": "Form submits successfully; the UI displays 'Payment submitted successfully.' with a reference code and account balances are updated accordingly (payment creation succeeds).",
       "priority": "medium"
     },
     {
       "tc_id": "E-004",
+      "wf_ref": "WF-001",
       "subcategory": "boundary",
-      "test_case": "Available funds one unit less than Payment_Amount is blocked with 'Insufficient funds'",
+      "test_case": "Payee account number differs by one character from Confirm_Account_Number \u2014 'Account numbers do not match' error shown",
       "preconditions": [
-        "All other required fields are pre-filled with valid values",
-        "A Source_Account exists with available funds equal to <Payment_Amount minus one smallest unit>"
+        "The form is open"
       ],
       "steps": [
-        "1. Enter <Payment_Amount that is one smallest unit greater than the Source_Account available funds> in Payment_Amount",
-        "2. Select the Source_Account with available funds one unit less than the entered amount",
-        "3. Click Pay"
+        "1. Enter <text> in Payee_Name",
+        "2. Enter <text> in Street_Address",
+        "3. Enter <text> in City",
+        "4. Enter <text> in State",
+        "5. Enter <text> in ZIP_Code",
+        "6. Enter <text> in Phone_Number",
+        "7. Enter <account value_A> in Payee_Account_Number",
+        "8. Enter <account value_B differing from account value_A by one character> in Confirm_Account_Number",
+        "9. Select <Source_Account> with sufficient funds from Source_Account dropdown",
+        "10. Enter <payment amount less than or equal to available balance> in Payment_Amount",
+        "11. Click Pay"
       ],
-      "expected_result": "Submission is blocked; inline error 'Insufficient funds' is shown next to Source_Account and the form remains editable; no balances change (is blocked / error shown).",
+      "expected_result": "Submission is blocked; an inline error 'Account numbers do not match' is shown next to the account number fields and the form remains editable.",
       "priority": "medium"
     },
     {
       "tc_id": "E-005",
+      "wf_ref": "WF-001",
       "subcategory": "input_edge",
-      "test_case": "Confirm_Account_Number differs only by trailing whitespace \u2014 treated as mismatch",
+      "test_case": "Confirm_Account_Number with leading/trailing whitespace \u2014 trimming vs mismatch edge",
       "preconditions": [
-        "All other required fields are pre-filled with valid values"
+        "A <Source_Account> exists with sufficient funds relative to the Payment_Amount to be entered"
       ],
       "steps": [
-        "1. Enter <value X> in Payee_Account_Number",
-        "2. Enter <value X with trailing whitespace> in Confirm_Account_Number",
-        "3. Click Pay"
+        "1. Open the Bill Payment form",
+        "2. Enter <text> in Payee_Name",
+        "3. Enter <text> in Street_Address",
+        "4. Enter <text> in City",
+        "5. Enter <text> in State",
+        "6. Enter <text> in ZIP_Code",
+        "7. Enter <text> in Phone_Number",
+        "8. Enter <account value> in Payee_Account_Number",
+        "9. Enter the same <account value> with leading and trailing whitespace characters in Confirm_Account_Number",
+        "10. Select <Source_Account> with sufficient funds from Source_Account dropdown",
+        "11. Enter <payment amount less than or equal to available balance> in Payment_Amount",
+        "12. Click Pay"
       ],
-      "expected_result": "Submission is blocked; inline error 'Account numbers do not match' is shown adjacent to Confirm_Account_Number (is blocked / error shown).",
+      "expected_result": "Either the submission succeeds (system trims whitespace before comparing; payment is created and 'Payment submitted successfully.' shown) OR submission is blocked and an inline error 'Account numbers do not match' is shown. The test should verify which behavior occurs and that the result is visible inline.",
       "priority": "low"
     },
     {
       "tc_id": "E-006",
+      "wf_ref": "WF-001",
       "subcategory": "input_edge",
-      "test_case": "Payment_Amount entered with greater decimal precision than the field displays",
+      "test_case": "Payment_Amount entered with excessive decimal places (precision edge)",
       "preconditions": [
-        "All other required fields are pre-filled with valid values",
-        "A Source_Account exists with available funds >= the entered amount"
+        "A <Source_Account> exists with sufficient funds to cover a reasonable rounded amount"
       ],
       "steps": [
-        "1. Enter a Payment_Amount value with more decimal places than the UI displays/accepts (greater precision than the field's displayed precision)",
-        "2. Select the Source_Account with sufficient funds",
-        "3. Click Pay"
+        "1. Open the Bill Payment form",
+        "2. Enter <text> in Payee_Name",
+        "3. Enter <text> in Street_Address",
+        "4. Enter <text> in City",
+        "5. Enter <text> in State",
+        "6. Enter <text> in ZIP_Code",
+        "7. Enter <text> in Phone_Number",
+        "8. Enter <account value> in Payee_Account_Number",
+        "9. Enter the same <account value> in Confirm_Account_Number",
+        "10. Select <Source_Account> with sufficient funds from Source_Account dropdown",
+        "11. Enter <payment amount with more decimal places than UI supports> in Payment_Amount (e.g., many decimal places)",
+        "12. Click Pay"
       ],
-      "expected_result": "Form submits successfully; confirmation displays the Payment Amount rounded to the UI's displayed decimal precision and the source account balance is reduced by the rounded amount (succeeds).",
+      "expected_result": "Either the form submits successfully and the confirmation/detail page displays the saved payment amount rounded to the supported precision (succeeds), or submission is blocked and an inline error is shown indicating invalid/unsupported amount precision (is blocked / error shown). The observed behavior must be visible on the form or confirmation page.",
       "priority": "low"
     },
     {
       "tc_id": "E-007",
+      "wf_ref": "WF-001",
       "subcategory": "interaction_edge",
-      "test_case": "Rapid re-submission via browser Back after successful payment does not create a duplicate payment",
+      "test_case": "Rapid re-submission via browser Back after successful payment \u2014 duplicate prevention",
       "preconditions": [
-        "All other required fields are pre-filled with valid values",
-        "A Source_Account exists with available funds >= twice the intended Payment_Amount (so a duplicate would change balances if it occurred)"
+        "A <Source_Account> exists with available balance sufficient for the first submission"
       ],
       "steps": [
-        "1. Enter a valid Payment_Amount in Payment_Amount",
-        "2. Select a Source_Account with sufficient funds",
-        "3. Click Pay (confirm that the payment succeeds and confirmation with reference code is displayed)",
-        "4. Press the browser Back button to return to the payment form",
-        "5. Click Pay again on the returned form"
+        "1. Open the Bill Payment form",
+        "2. Enter <text> in Payee_Name",
+        "3. Enter <text> in Street_Address",
+        "4. Enter <text> in City",
+        "5. Enter <text> in State",
+        "6. Enter <text> in ZIP_Code",
+        "7. Enter <text> in Phone_Number",
+        "8. Enter <account value> in Payee_Account_Number",
+        "9. Enter the same <account value> in Confirm_Account_Number",
+        "10. Select <Source_Account> with sufficient funds from Source_Account dropdown",
+        "11. Enter <payment amount less than or equal to available balance> in Payment_Amount",
+        "12. Click Pay",
+        "13. After seeing the success confirmation and reference code, click the browser Back button",
+        "14. On the form shown after Back, click Pay again without changing values"
       ],
-      "expected_result": "Second submission attempt is blocked; only one payment appears in transaction history and account balances reflect a single deduction (is blocked / error shown or prevented by UI), preventing a duplicate charge.",
+      "expected_result": "Second submission attempt is blocked; no duplicate payment is created and account balance reflects only one successful payment. The UI either prevents the second submission or shows a clear inline message preventing duplicate processing; only one reference code is present for the payment.",
       "priority": "medium"
+    },
+    {
+      "tc_id": "E-008",
+      "wf_ref": null,
+      "subcategory": "input_edge",
+      "test_case": "Very long Payee_Name (>200 characters) handling",
+      "preconditions": [
+        "Bill Payment form is open"
+      ],
+      "steps": [
+        "1. Enter <very long string exceeding 200 characters> in Payee_Name",
+        "2. Enter <text> in Street_Address",
+        "3. Enter <text> in City",
+        "4. Enter <text> in State",
+        "5. Enter <text> in ZIP_Code",
+        "6. Enter <text> in Phone_Number",
+        "7. Enter <account value> in Payee_Account_Number",
+        "8. Enter the same <account value> in Confirm_Account_Number",
+        "9. Select <Source_Account> with sufficient funds from Source_Account dropdown",
+        "10. Enter <payment amount less than or equal to available balance> in Payment_Amount",
+        "11. Click Pay"
+      ],
+      "expected_result": "Either the form submits successfully and the saved Payee_Name on the confirmation/detail page is stored (possible truncation to supported length) with truncation visible or indicated (succeeds), or submission is blocked and an inline error is shown indicating the field exceeds allowed length (is blocked / error shown).",
+      "priority": "low"
     }
   ],
   "summary": {
-    "total": 7,
+    "total": 8,
     "boundary": 4,
-    "input_edge": 2,
+    "input_edge": 3,
     "interaction_edge": 1,
     "state_edge": 0,
     "data_edge": 0,
     "medium_priority": 5,
-    "low_priority": 2
+    "low_priority": 3
   }
 }

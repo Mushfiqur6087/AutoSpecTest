@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-21T22:54:00.262444
+DEBUG SESSION STARTED: 2026-05-25T14:51:20.250825
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[22:54:00] Test-Negative - SYSTEM PROMPT
+[14:51:20] Test-Negative - SYSTEM PROMPT
 ------------------------------------------------------------
 You are a Negative Test Case Generator. You receive (1) a UI-AST JSON for one module and (2) the original functional description. Your job is to produce ONLY negative test cases — tests where invalid input is provided or business rules are violated, and the system correctly rejects or blocks the action.
 
@@ -22,6 +22,10 @@ You are a Negative Test Case Generator. You receive (1) a UI-AST JSON for one mo
 <description>
 {Original functional description text for this module}
 </description>
+
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
 
 ---
 
@@ -111,6 +115,9 @@ Group required fields by type: `text/unspecified`, `email`, `password`, `number`
 
 Do NOT generate a separate blank-field test for every required field. If 5 text fields are all required, one representative covers them all.
 
+**Action dialog required fields — NOT subject to cross-form deduplication:**
+If a `state_bound_action_bar` action opens a dialog with its own required `fields{}` (e.g., Activate requires Activation Date, Reject requires a Reason, Withdraw requires a Reason, Close requires a Closure Reason), each such dialog is its own testing scope. Generate ONE "leave the required dialog field blank and submit" test per distinct action dialog. These are HIGH priority — they block state transitions and are common defect sites. Do not suppress them because the main wizard already has a blank-field test.
+
 **2. Format violations:**
 
 For fields with type-specific format rules (from AST type or description):
@@ -143,6 +150,10 @@ For each unique `constraints[]` entry in the AST, and for cross-field rules desc
 
 One test per unique constraint. Do not duplicate the same mechanism.
 
+**Constraint timing tests:** If the spec states an action is blocked by a pre-existing system state (e.g., "cannot close with active accounts", "cannot transfer to the same office"), generate TWO tests:
+1. The standard constraint violation test (user opens the dialog, fills required fields, submits → blocked).
+2. A constraint-timing test: user opens the dialog WITHOUT filling required fields → assert whether the block is shown immediately on dialog open (before the user fills anything) OR only on submit. This distinguishes whether the UI enforces the constraint eagerly or lazily. Steps: open the dialog, observe the state → assert what is visible before any interaction. If the spec is silent on timing, generate only the first test.
+
 **5. Precondition violations (auth, role, and state):**
 
 For each `preconditions[]` entry on any action — and for auth/role rules described in the spec:
@@ -154,18 +165,18 @@ For each `preconditions[]` entry on any action — and for auth/role rules descr
 **6. State-machine violations:**
 
 From `state_bound_action_bar` nodes:
-- For each state where an action is NOT listed in `available_actions`, generate one test attempting that action from that state. Example: attempting "Approve" on an entity already in "Active" state.
+- **Every defined state must have at least one wrong-state test.** For each state, identify at least one action that is NOT in its `available_actions` list and generate a test attempting that action from that state.
 - If a state has an empty `available_actions` array, generate one test verifying no action buttons are visible in that state.
-
-One test per unique wrong-state scenario — do not enumerate every action × every invalid state.
+- **Do not stop after 1–2 representative examples** when the module defines 4+ distinct states. The states Active, Pending, Closed, Rejected, and Withdrawn each have different action sets — each must be independently verified.
+- One test per state is sufficient — pick the most distinct unavailable action for that state. Do not enumerate every action × every state (that would be exponential).
 
 ---
 
 **DEDUPLICATION GATE (run before outputting):**
 
-1. **Required field dedup:** Multiple required text fields → ONE representative test, not one per field.
+1. **Required field dedup:** Multiple required text fields in the **same form or dialog** → ONE representative test, not one per field.
 2. **Sub-rule dedup:** A field with multiple validation sub-rules (e.g., password: length + uppercase + lowercase + number + special char) → ONE representative violation test, not one per sub-rule.
-3. **Cross-form dedup:** If two forms in the same module share the same validation mechanism (e.g., both have a required text field) → test it on the primary form only.
+3. **Cross-form dedup:** If two **main forms** in the same module share the same validation mechanism → test it on the primary form only. **Exception: action dialogs are never suppressed by cross-form dedup** — each action dialog with a required field gets its own blank-field test regardless.
 4. **Uniqueness check:** Before outputting, ask for each TC: "Does this test catch a bug that NO other test in this module would catch?" If no → remove it.
 
 ---
@@ -174,9 +185,11 @@ One test per unique wrong-state scenario — do not enumerate every action × ev
 
 - Simple module (login, single form, display page): **2–4 tests**
 - Medium module (standard CRUD form, form with constraints): **4–8 tests**
-- Complex module (state machine, multi-form, wizard with many constraints): **8–12 tests**
+- Complex module (state machine, multi-form, wizard with many constraints): **10–16 tests**
 
-If you exceed these ranges, you are generating redundant tests. Apply the deduplication gate again before outputting.
+For modules with a `state_bound_action_bar` defining 4+ states, the state-machine violation tests alone will produce 4–5 tests. This is expected and correct — do not suppress them to hit a lower target.
+
+If you exceed the upper range, apply the deduplication gate again before outputting.
 
 ---
 
@@ -184,6 +197,17 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
 
 - **High:** State precondition violations, constraint violations that could corrupt data, unauthenticated access, required field representatives
 - **Medium:** Format violations, cross-field validation, numeric bounds, wrong-role access, wrong-state action attempts
+
+---
+
+**WORKFLOW-AWARE FAILURE INJECTION (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- For each workflow that contains a form interaction (terminal action is a submit/save/create/approve button):
+  - Identify the most **critical blocking failure** for that workflow's `conditional_branch`.
+  - If that failure mode is NOT already covered by another workflow's negative test, generate one negative TC for it.
+- **Do NOT generate one negative TC per workflow mechanically.** Apply the existing deduplication gate first — only add a TC if it catches a bug that no other test would catch.
+- Add `"wf_ref": "WF-NNN"` to each TC that maps to a workflow. Set `"wf_ref": null` for generic validation tests.
 
 ---
 
@@ -195,6 +219,7 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
   "test_cases": [
     {
       "tc_id": "N-001",
+      "wf_ref": null,
       "test_case": "Short descriptive name",
       "preconditions": ["precondition 1"],
       "steps": ["1. Step one", "2. Step two"],
@@ -212,7 +237,7 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
 
 
 ------------------------------------------------------------
-[22:54:00] Test-Negative - USER PROMPT
+[14:51:20] Test-Negative - USER PROMPT
 ------------------------------------------------------------
 <module_name>Hotel Details & Booking</module_name>
 
@@ -220,91 +245,70 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
 {
   "module_name": "Hotel Details & Booking",
   "components": {
-    "Room_Types": {
-      "type": "repeating_group",
-      "description": "List of available room types for the hotel; each row offers a select action to begin booking that room",
-      "item_fields": {
-        "Room_Type_Name": {
-          "type": "text",
-          "required": false
-        },
-        "Price": {
-          "type": "number",
-          "required": false
-        },
-        "Max_Occupancy": {
-          "type": "number",
-          "required": false
+    "Hotel_Details_Page": {
+      "type": "page",
+      "components": {
+        "Room_Types": {
+          "type": "data_table",
+          "columns": [
+            "Room_Type",
+            "Price",
+            "Max_Occupancy"
+          ],
+          "row_actions": [
+            {
+              "action_name": "Select Room",
+              "on_success": "reveals booking form and populates Selected_Hotel and Selected_Room_Type"
+            }
+          ],
+          "bulk_actions": []
         }
-      },
-      "row_actions": [
-        {
-          "action_name": "Select Room",
-          "type": "button",
-          "on_success": "populates Booking_Form.fields.Selected_Hotel, Booking_Form.fields.Selected_Room_Type, Booking_Form.fields.Room_Rate, Booking_Form.fields.Taxes, Booking_Form.fields.Fees, Booking_Form.fields.Total and opens Booking_Form",
-          "preconditions": []
-        }
-      ]
+      }
     },
     "Booking_Form": {
       "type": "form",
+      "visible_when": "Selected_Room_Type != ''",
       "fields": {
         "Selected_Hotel": {
           "type": "text",
-          "required": true,
-          "read_only": true,
-          "description": "Populated when a room is selected"
+          "required": false
         },
         "Selected_Room_Type": {
           "type": "text",
-          "required": true,
-          "read_only": true,
-          "description": "Populated when a room is selected"
+          "required": false
         },
-        "Check_In": {
+        "Check_in_Date": {
           "type": "date",
           "required": true
         },
-        "Check_Out": {
+        "Check_out_Date": {
           "type": "date",
           "required": true
         },
         "Guest_Count": {
           "type": "number",
-          "required": true,
-          "constraints": []
+          "required": true
         },
-        "Room_Rate": {
-          "type": "number",
-          "required": true,
-          "read_only": true,
-          "constraints": [
-            "currency"
-          ]
-        },
-        "Taxes": {
-          "type": "number",
-          "required": true,
-          "read_only": true,
-          "constraints": [
-            "currency"
-          ]
-        },
-        "Fees": {
-          "type": "number",
-          "required": true,
-          "read_only": true,
-          "constraints": [
-            "currency"
-          ]
-        },
-        "Total": {
-          "type": "number",
-          "required": true,
-          "read_only": true,
-          "constraints": [
-            "currency"
-          ]
+        "Price_Breakdown": {
+          "type": "object",
+          "fields": {
+            "Room_Rate": {
+              "type": "number",
+              "required": false
+            },
+            "Taxes": {
+              "type": "number",
+              "required": false
+            },
+            "Fees": {
+              "type": "number",
+              "required": false
+            },
+            "Total": {
+              "type": "number",
+              "required": false
+            }
+          }
         },
         "First_Name": {
           "type": "text",
@@ -316,26 +320,24 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
         },
         "Email": {
           "type": "email",
-          "required": true,
-          "constraints": []
+          "required": true
         },
         "Phone_Number": {
           "type": "tel",
           "required": true
         },
         "Special_Requests": {
-          "type": "textarea",
+          "type": "text",
           "required": false
         }
       },
       "submit_actions": [
         {
           "element_name": "Book Now",
-          "type": "button",
           "preconditions": [
             "user must be logged in"
           ],
-          "on_success": "redirects to Payment page"
+          "on_success": "proceeds to payment page"
         }
       ]
     }
@@ -352,10 +354,15 @@ The hotel details page displays a photo gallery, full property description, loca
 
 </description>
 
+<workflows>
+WF-001 | Select Room (row action) reveals booking form | actor: <role> | branch: none | terminal: Select Room | on_success: reveals booking form and populates Selected_Hotel and Selected_Room_Type
+WF-002 | Book Now with Selected_Room_Type visible (requires user logged in) | actor: <role> | branch: Selected_Room_Type != '' | terminal: Book Now | on_success: proceeds to payment page
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[22:55:28] Test-Negative - LLM RESPONSE
+[14:52:41] Test-Negative - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Hotel Details & Booking",
@@ -363,150 +370,273 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "N-001",
-      "test_case": "Submit booking with ALL required fields empty",
+      "wf_ref": null,
+      "test_case": "Submit booking with required text field (First_Name) left blank",
       "preconditions": [
         "User is logged in",
-        "Hotel Details page is open"
+        "User is on the Hotel Details page with room rows visible"
       ],
       "steps": [
-        "1. On Hotel Details page, click the Select Room button for a room to open the Booking Form",
-        "2. Leave the Check_In field blank",
-        "3. Leave the Check_Out field blank",
-        "4. Leave the Guest_Count field blank",
+        "1. Click 'Select Room' on a room row to reveal the booking form",
+        "2. Enter <valid check-in date> into the Check_in_Date field",
+        "3. Enter <valid check-out date> into the Check_out_Date field",
+        "4. Enter <valid guest count> into the Guest_Count field",
         "5. Leave the First_Name field blank",
-        "6. Leave the Last_Name field blank",
-        "7. Leave the Email field blank",
-        "8. Leave the Phone_Number field blank",
-        "9. Click the Book Now button"
+        "6. Enter <valid last name> into the Last_Name field",
+        "7. Enter <valid email> into the Email field",
+        "8. Enter <valid phone number> into the Phone_Number field",
+        "9. Click the 'Book Now' button"
       ],
-      "expected_result": "Form does not submit; inline validation errors appear on required fields: Check_In field displays an inline error indicating it is required; Check_Out field displays an inline error indicating it is required; Guest_Count field displays an inline error indicating it is required; First_Name field displays an inline error indicating it is required; Last_Name field displays an inline error indicating it is required; Email field displays an inline error indicating it is required; Phone_Number field displays an inline error indicating it is required. User remains on the Booking Form and is not redirected to Payment page.",
+      "expected_result": "Inline validation error appears on the First_Name field indicating it is required; form does not submit; user remains on the booking form (no navigation to payment page)",
       "priority": "high"
     },
     {
       "tc_id": "N-002",
-      "test_case": "Leave First Name (text) blank and attempt to book",
+      "wf_ref": null,
+      "test_case": "Submit booking with required Email field left blank",
       "preconditions": [
         "User is logged in",
-        "Booking Form is open for a selected room"
+        "User is on the Hotel Details page"
       ],
       "steps": [
-        "1. On Hotel Details page, click the Select Room button for a room to open the Booking Form",
-        "2. In the Booking Form, enter valid values for Check_In, Check_Out, Guest_Count, Last_Name, Email, and Phone_Number",
-        "3. Leave the First_Name field blank",
-        "4. Click the Book Now button"
+        "1. Click 'Select Room' on a room row to reveal the booking form",
+        "2. Enter <valid check-in date> into the Check_in_Date field",
+        "3. Enter <valid check-out date> into the Check_out_Date field",
+        "4. Enter <valid guest count> into the Guest_Count field",
+        "5. Enter <valid first name> into the First_Name field",
+        "6. Enter <valid last name> into the Last_Name field",
+        "7. Leave the Email field blank",
+        "8. Enter <valid phone number> into the Phone_Number field",
+        "9. Click the 'Book Now' button"
       ],
-      "expected_result": "Form does not submit; First_Name field displays an inline validation error indicating it is required. User remains on the Booking Form and is not redirected to Payment page.",
+      "expected_result": "Inline validation error appears on the Email field indicating it is required; form does not submit; user is not taken to the payment page",
       "priority": "high"
     },
     {
       "tc_id": "N-003",
-      "test_case": "Enter invalid email format in Email field",
+      "wf_ref": null,
+      "test_case": "Submit booking with required numeric field (Guest_Count) left blank",
       "preconditions": [
         "User is logged in",
-        "Booking Form is open for a selected room"
+        "User is on the Hotel Details page"
       ],
       "steps": [
-        "1. On Hotel Details page, click the Select Room button for a room to open the Booking Form",
-        "2. Enter valid values for First_Name and Last_Name",
-        "3. Enter <invalid email format> in the Email field",
-        "4. Enter valid values for Phone_Number, Check_In, Check_Out, and Guest_Count",
-        "5. Click the Book Now button"
+        "1. Click 'Select Room' on a room row to reveal the booking form",
+        "2. Enter <valid check-in date> into the Check_in_Date field",
+        "3. Enter <valid check-out date> into the Check_out_Date field",
+        "4. Leave the Guest_Count field blank",
+        "5. Enter <valid first name> into the First_Name field",
+        "6. Enter <valid last name> into the Last_Name field",
+        "7. Enter <valid email> into the Email field",
+        "8. Enter <valid phone number> into the Phone_Number field",
+        "9. Click the 'Book Now' button"
       ],
-      "expected_result": "Form does not submit; Email field displays an inline validation error indicating the email format is invalid (e.g. 'Enter a valid email address'). User remains on the Booking Form and is not redirected to Payment page.",
-      "priority": "medium"
+      "expected_result": "Inline validation error appears on the Guest_Count field indicating it is required; form does not submit; booking is not created and user remains on the booking form",
+      "priority": "high"
     },
     {
       "tc_id": "N-004",
-      "test_case": "Enter a non-numeric value into Guest Count (number) field",
+      "wf_ref": null,
+      "test_case": "Submit booking with required date field (Check_in_Date) left blank",
       "preconditions": [
         "User is logged in",
-        "Booking Form is open for a selected room"
+        "User is on the Hotel Details page"
       ],
       "steps": [
-        "1. On Hotel Details page, click the Select Room button for a room to open the Booking Form",
-        "2. Enter valid values for First_Name, Last_Name, Email, Phone_Number, Check_In, and Check_Out",
-        "3. Enter <non-numeric value> in the Guest_Count field",
-        "4. Click the Book Now button"
+        "1. Click 'Select Room' on a room row to reveal the booking form",
+        "2. Leave the Check_in_Date field blank",
+        "3. Enter <valid check-out date> into the Check_out_Date field",
+        "4. Enter <valid guest count> into the Guest_Count field",
+        "5. Enter <valid first name> into the First_Name field",
+        "6. Enter <valid last name> into the Last_Name field",
+        "7. Enter <valid email> into the Email field",
+        "8. Enter <valid phone number> into the Phone_Number field",
+        "9. Click the 'Book Now' button"
       ],
-      "expected_result": "Form does not submit; Guest_Count field displays an inline validation error indicating a numeric value is required (e.g. 'Enter a valid number'). User remains on the Booking Form and is not redirected to Payment page.",
-      "priority": "medium"
+      "expected_result": "Inline validation error appears on the Check_in_Date field indicating it is required; form does not submit; user is not navigated to the payment page",
+      "priority": "high"
     },
     {
       "tc_id": "N-005",
-      "test_case": "Submit with Check-Out date earlier than Check-In date",
+      "wf_ref": null,
+      "test_case": "Submit booking with required tel field (Phone_Number) left blank",
       "preconditions": [
         "User is logged in",
-        "Booking Form is open for a selected room"
+        "User is on the Hotel Details page"
       ],
       "steps": [
-        "1. On Hotel Details page, click the Select Room button for a room to open the Booking Form",
-        "2. Enter <valid check-in date> in the Check_In field",
-        "3. Enter <a date earlier than the Check_In date> in the Check_Out field",
-        "4. Enter valid values for First_Name, Last_Name, Email, Phone_Number, and Guest_Count",
-        "5. Click the Book Now button"
+        "1. Click 'Select Room' on a room row to reveal the booking form",
+        "2. Enter <valid check-in date> into the Check_in_Date field",
+        "3. Enter <valid check-out date> into the Check_out_Date field",
+        "4. Enter <valid guest count> into the Guest_Count field",
+        "5. Enter <valid first name> into the First_Name field",
+        "6. Enter <valid last name> into the Last_Name field",
+        "7. Enter <valid email> into the Email field",
+        "8. Leave the Phone_Number field blank",
+        "9. Click the 'Book Now' button"
       ],
-      "expected_result": "Form does not submit; Check_Out field displays an inline validation error: 'Check-out date must be after check-in date'. Booking is not created and the user is not redirected to Payment page.",
+      "expected_result": "Inline validation error appears on the Phone_Number field indicating it is required; form does not submit; booking is not created",
       "priority": "high"
     },
     {
       "tc_id": "N-006",
-      "test_case": "Guest count exceeds the selected room's maximum occupancy",
+      "wf_ref": null,
+      "test_case": "Submit booking with ALL required fields empty",
       "preconditions": [
         "User is logged in",
-        "Hotel Details page is open"
+        "User is on the Hotel Details page"
       ],
       "steps": [
-        "1. On Hotel Details page, identify a room row that lists a Max_Occupancy",
-        "2. Click the Select Room button for that room to open the Booking Form",
-        "3. Enter <guest count exceeding room's Max_Occupancy> in the Guest_Count field",
-        "4. Enter valid values for First_Name, Last_Name, Email, Phone_Number, Check_In, and Check_Out",
-        "5. Click the Book Now button"
+        "1. Click 'Select Room' on a room row to reveal the booking form",
+        "2. Leave Check_in_Date blank",
+        "3. Leave Check_out_Date blank",
+        "4. Leave Guest_Count blank",
+        "5. Leave First_Name blank",
+        "6. Leave Last_Name blank",
+        "7. Leave Email blank",
+        "8. Leave Phone_Number blank",
+        "9. Click the 'Book Now' button"
       ],
-      "expected_result": "Form does not submit; Guest_Count field displays an inline validation error indicating the guest count exceeds the room's maximum occupancy (e.g. 'Guest count cannot exceed Max occupancy'). Booking is not created and user is not redirected to Payment page.",
+      "expected_result": "Inline validation errors appear on Check_in_Date, Check_out_Date, Guest_Count, First_Name, Last_Name, Email, and Phone_Number indicating they are required; form does not submit; user remains on the booking form and is not taken to the payment page",
       "priority": "high"
     },
     {
       "tc_id": "N-007",
-      "test_case": "Attempt to Book Now while not logged in (precondition failure)",
+      "wf_ref": null,
+      "test_case": "Submit booking with invalid email format",
       "preconditions": [
-        "User is NOT logged in",
-        "Hotel Details page is open"
+        "User is logged in",
+        "User is on the Hotel Details page"
       ],
       "steps": [
-        "1. On Hotel Details page, click the Select Room button for a room to open the Booking Form",
-        "2. Enter valid values for First_Name, Last_Name, Email, Phone_Number, Check_In, Check_Out, and Guest_Count",
-        "3. Click the Book Now button"
+        "1. Click 'Select Room' on a room row to reveal the booking form",
+        "2. Enter <valid check-in date> into the Check_in_Date field",
+        "3. Enter <valid check-out date> into the Check_out_Date field",
+        "4. Enter <valid guest count> into the Guest_Count field",
+        "5. Enter <valid first name> into the First_Name field",
+        "6. Enter <valid last name> into the Last_Name field",
+        "7. Enter <invalid email format> into the Email field",
+        "8. Enter <valid phone number> into the Phone_Number field",
+        "9. Click the 'Book Now' button"
       ],
-      "expected_result": "Action is blocked due to authentication precondition; user is redirected to the Login page (or a login prompt/modal is shown) and booking is not created. User does not reach the Payment page.",
-      "priority": "high"
+      "expected_result": "Email field displays an inline validation error indicating the email format is invalid; form does not submit; booking is not created",
+      "priority": "medium"
     },
     {
       "tc_id": "N-008",
-      "test_case": "Submit booking form when read-only required fields (Selected_Hotel/Selected_Room_Type/Room_Rate) are not populated",
+      "wf_ref": null,
+      "test_case": "Submit booking with non-numeric input in Guest_Count",
       "preconditions": [
         "User is logged in",
-        "Booking Form is reachable (tester navigates directly to the Booking Form URL without selecting a room)"
+        "User is on the Hotel Details page"
       ],
       "steps": [
-        "1. Navigate directly to the Booking Form page/URL without first clicking Select Room on the Hotel Details page",
-        "2. Ensure Selected_Hotel and Selected_Room_Type and read-only price fields are empty",
-        "3. Enter valid values for First_Name, Last_Name, Email, Phone_Number, Check_In, Check_Out, and Guest_Count",
-        "4. Click the Book Now button"
+        "1. Click 'Select Room' on a room row to reveal the booking form",
+        "2. Enter <valid check-in date> into the Check_in_Date field",
+        "3. Enter <valid check-out date> into the Check_out_Date field",
+        "4. Enter <non-numeric input> into the Guest_Count field",
+        "5. Enter <valid first name> into the First_Name field",
+        "6. Enter <valid last name> into the Last_Name field",
+        "7. Enter <valid email> into the Email field",
+        "8. Enter <valid phone number> into the Phone_Number field",
+        "9. Click the 'Book Now' button"
       ],
-      "expected_result": "Form does not submit; Selected_Hotel field displays an inline validation error indicating it is required and must be populated by selecting a room; Selected_Room_Type and Room_Rate (and other read-only required price fields) display inline errors indicating they are required. Booking is not created and the user remains on the Booking Form.",
+      "expected_result": "Guest_Count field displays an inline validation error indicating a numeric value is required; form does not submit; booking is not created",
       "priority": "medium"
+    },
+    {
+      "tc_id": "N-009",
+      "wf_ref": null,
+      "test_case": "Submit booking with invalid/impossible date in Check_in_Date",
+      "preconditions": [
+        "User is logged in",
+        "User is on the Hotel Details page"
+      ],
+      "steps": [
+        "1. Click 'Select Room' on a room row to reveal the booking form",
+        "2. Enter <invalid/impossible date> into the Check_in_Date field",
+        "3. Enter <valid check-out date> into the Check_out_Date field",
+        "4. Enter <valid guest count> into the Guest_Count field",
+        "5. Enter <valid first name> into the First_Name field",
+        "6. Enter <valid last name> into the Last_Name field",
+        "7. Enter <valid email> into the Email field",
+        "8. Enter <valid phone number> into the Phone_Number field",
+        "9. Click the 'Book Now' button"
+      ],
+      "expected_result": "Check_in_Date field displays an inline validation error indicating the date is invalid; form does not submit; no navigation to payment page",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "N-010",
+      "wf_ref": null,
+      "test_case": "Submit booking with invalid phone number format",
+      "preconditions": [
+        "User is logged in",
+        "User is on the Hotel Details page"
+      ],
+      "steps": [
+        "1. Click 'Select Room' on a room row to reveal the booking form",
+        "2. Enter <valid check-in date> into the Check_in_Date field",
+        "3. Enter <valid check-out date> into the Check_out_Date field",
+        "4. Enter <valid guest count> into the Guest_Count field",
+        "5. Enter <valid first name> into the First_Name field",
+        "6. Enter <valid last name> into the Last_Name field",
+        "7. Enter <valid email> into the Email field",
+        "8. Enter <invalid phone format> into the Phone_Number field",
+        "9. Click the 'Book Now' button"
+      ],
+      "expected_result": "Phone_Number field displays an inline validation error indicating the phone number format is invalid; form does not submit; booking is not created",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "N-011",
+      "wf_ref": "WF-001",
+      "test_case": "Attempt to access/submit booking form without selecting a room (visible_when precondition not met)",
+      "preconditions": [
+        "User is on the Hotel Details page",
+        "No room row has been selected (Selected_Room_Type == '')"
+      ],
+      "steps": [
+        "1. Ensure no room row is selected on the Room Types table",
+        "2. Attempt to locate or open the booking form",
+        "3. Attempt to click a 'Book Now' control (if visible) or navigate directly to the booking form section"
+      ],
+      "expected_result": "Booking form remains hidden (visible_when condition not satisfied); Book Now button is not visible or is disabled; user cannot submit a booking without first selecting a room; no navigation to payment page",
+      "priority": "high"
+    },
+    {
+      "tc_id": "N-012",
+      "wf_ref": "WF-002",
+      "test_case": "Click 'Book Now' while not logged in (submit precondition violation)",
+      "preconditions": [
+        "User is NOT logged in",
+        "User is on the Hotel Details page"
+      ],
+      "steps": [
+        "1. Click 'Select Room' on a room row to reveal the booking form",
+        "2. Enter <valid check-in date> into the Check_in_Date field",
+        "3. Enter <valid check-out date> into the Check_out_Date field",
+        "4. Enter <valid guest count> into the Guest_Count field",
+        "5. Enter <valid first name> into the First_Name field",
+        "6. Enter <valid last name> into the Last_Name field",
+        "7. Enter <valid email> into the Email field",
+        "8. Enter <valid phone number> into the Phone_Number field",
+        "9. Click the 'Book Now' button while still not logged in"
+      ],
+      "expected_result": "Action is blocked due to precondition: user is redirected to the login page or shown a login prompt; booking is not submitted and user is not taken to the payment page",
+      "priority": "high"
     }
   ],
   "summary": {
-    "total": 8,
-    "high_priority": 5,
-    "medium_priority": 3,
+    "total": 12,
+    "high_priority": 8,
+    "medium_priority": 4,
     "low_priority": 0
   }
 }
 
 ------------------------------------------------------------
-[22:55:28] Test-Negative - PARSED JSON
+[14:52:41] Test-Negative - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Hotel Details & Booking",
@@ -514,144 +644,267 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "N-001",
-      "test_case": "Submit booking with ALL required fields empty",
+      "wf_ref": null,
+      "test_case": "Submit booking with required text field (First_Name) left blank",
       "preconditions": [
         "User is logged in",
-        "Hotel Details page is open"
+        "User is on the Hotel Details page with room rows visible"
       ],
       "steps": [
-        "1. On Hotel Details page, click the Select Room button for a room to open the Booking Form",
-        "2. Leave the Check_In field blank",
-        "3. Leave the Check_Out field blank",
-        "4. Leave the Guest_Count field blank",
+        "1. Click 'Select Room' on a room row to reveal the booking form",
+        "2. Enter <valid check-in date> into the Check_in_Date field",
+        "3. Enter <valid check-out date> into the Check_out_Date field",
+        "4. Enter <valid guest count> into the Guest_Count field",
         "5. Leave the First_Name field blank",
-        "6. Leave the Last_Name field blank",
-        "7. Leave the Email field blank",
-        "8. Leave the Phone_Number field blank",
-        "9. Click the Book Now button"
+        "6. Enter <valid last name> into the Last_Name field",
+        "7. Enter <valid email> into the Email field",
+        "8. Enter <valid phone number> into the Phone_Number field",
+        "9. Click the 'Book Now' button"
       ],
-      "expected_result": "Form does not submit; inline validation errors appear on required fields: Check_In field displays an inline error indicating it is required; Check_Out field displays an inline error indicating it is required; Guest_Count field displays an inline error indicating it is required; First_Name field displays an inline error indicating it is required; Last_Name field displays an inline error indicating it is required; Email field displays an inline error indicating it is required; Phone_Number field displays an inline error indicating it is required. User remains on the Booking Form and is not redirected to Payment page.",
+      "expected_result": "Inline validation error appears on the First_Name field indicating it is required; form does not submit; user remains on the booking form (no navigation to payment page)",
       "priority": "high"
     },
     {
       "tc_id": "N-002",
-      "test_case": "Leave First Name (text) blank and attempt to book",
+      "wf_ref": null,
+      "test_case": "Submit booking with required Email field left blank",
       "preconditions": [
         "User is logged in",
-        "Booking Form is open for a selected room"
+        "User is on the Hotel Details page"
       ],
       "steps": [
-        "1. On Hotel Details page, click the Select Room button for a room to open the Booking Form",
-        "2. In the Booking Form, enter valid values for Check_In, Check_Out, Guest_Count, Last_Name, Email, and Phone_Number",
-        "3. Leave the First_Name field blank",
-        "4. Click the Book Now button"
+        "1. Click 'Select Room' on a room row to reveal the booking form",
+        "2. Enter <valid check-in date> into the Check_in_Date field",
+        "3. Enter <valid check-out date> into the Check_out_Date field",
+        "4. Enter <valid guest count> into the Guest_Count field",
+        "5. Enter <valid first name> into the First_Name field",
+        "6. Enter <valid last name> into the Last_Name field",
+        "7. Leave the Email field blank",
+        "8. Enter <valid phone number> into the Phone_Number field",
+        "9. Click the 'Book Now' button"
       ],
-      "expected_result": "Form does not submit; First_Name field displays an inline validation error indicating it is required. User remains on the Booking Form and is not redirected to Payment page.",
+      "expected_result": "Inline validation error appears on the Email field indicating it is required; form does not submit; user is not taken to the payment page",
       "priority": "high"
     },
     {
       "tc_id": "N-003",
-      "test_case": "Enter invalid email format in Email field",
+      "wf_ref": null,
+      "test_case": "Submit booking with required numeric field (Guest_Count) left blank",
       "preconditions": [
         "User is logged in",
-        "Booking Form is open for a selected room"
+        "User is on the Hotel Details page"
       ],
       "steps": [
-        "1. On Hotel Details page, click the Select Room button for a room to open the Booking Form",
-        "2. Enter valid values for First_Name and Last_Name",
-        "3. Enter <invalid email format> in the Email field",
-        "4. Enter valid values for Phone_Number, Check_In, Check_Out, and Guest_Count",
-        "5. Click the Book Now button"
+        "1. Click 'Select Room' on a room row to reveal the booking form",
+        "2. Enter <valid check-in date> into the Check_in_Date field",
+        "3. Enter <valid check-out date> into the Check_out_Date field",
+        "4. Leave the Guest_Count field blank",
+        "5. Enter <valid first name> into the First_Name field",
+        "6. Enter <valid last name> into the Last_Name field",
+        "7. Enter <valid email> into the Email field",
+        "8. Enter <valid phone number> into the Phone_Number field",
+        "9. Click the 'Book Now' button"
       ],
-      "expected_result": "Form does not submit; Email field displays an inline validation error indicating the email format is invalid (e.g. 'Enter a valid email address'). User remains on the Booking Form and is not redirected to Payment page.",
-      "priority": "medium"
+      "expected_result": "Inline validation error appears on the Guest_Count field indicating it is required; form does not submit; booking is not created and user remains on the booking form",
+      "priority": "high"
     },
     {
       "tc_id": "N-004",
-      "test_case": "Enter a non-numeric value into Guest Count (number) field",
+      "wf_ref": null,
+      "test_case": "Submit booking with required date field (Check_in_Date) left blank",
       "preconditions": [
         "User is logged in",
-        "Booking Form is open for a selected room"
+        "User is on the Hotel Details page"
       ],
       "steps": [
-        "1. On Hotel Details page, click the Select Room button for a room to open the Booking Form",
-        "2. Enter valid values for First_Name, Last_Name, Email, Phone_Number, Check_In, and Check_Out",
-        "3. Enter <non-numeric value> in the Guest_Count field",
-        "4. Click the Book Now button"
+        "1. Click 'Select Room' on a room row to reveal the booking form",
+        "2. Leave the Check_in_Date field blank",
+        "3. Enter <valid check-out date> into the Check_out_Date field",
+        "4. Enter <valid guest count> into the Guest_Count field",
+        "5. Enter <valid first name> into the First_Name field",
+        "6. Enter <valid last name> into the Last_Name field",
+        "7. Enter <valid email> into the Email field",
+        "8. Enter <valid phone number> into the Phone_Number field",
+        "9. Click the 'Book Now' button"
       ],
-      "expected_result": "Form does not submit; Guest_Count field displays an inline validation error indicating a numeric value is required (e.g. 'Enter a valid number'). User remains on the Booking Form and is not redirected to Payment page.",
-      "priority": "medium"
+      "expected_result": "Inline validation error appears on the Check_in_Date field indicating it is required; form does not submit; user is not navigated to the payment page",
+      "priority": "high"
     },
     {
       "tc_id": "N-005",
-      "test_case": "Submit with Check-Out date earlier than Check-In date",
+      "wf_ref": null,
+      "test_case": "Submit booking with required tel field (Phone_Number) left blank",
       "preconditions": [
         "User is logged in",
-        "Booking Form is open for a selected room"
+        "User is on the Hotel Details page"
       ],
       "steps": [
-        "1. On Hotel Details page, click the Select Room button for a room to open the Booking Form",
-        "2. Enter <valid check-in date> in the Check_In field",
-        "3. Enter <a date earlier than the Check_In date> in the Check_Out field",
-        "4. Enter valid values for First_Name, Last_Name, Email, Phone_Number, and Guest_Count",
-        "5. Click the Book Now button"
+        "1. Click 'Select Room' on a room row to reveal the booking form",
+        "2. Enter <valid check-in date> into the Check_in_Date field",
+        "3. Enter <valid check-out date> into the Check_out_Date field",
+        "4. Enter <valid guest count> into the Guest_Count field",
+        "5. Enter <valid first name> into the First_Name field",
+        "6. Enter <valid last name> into the Last_Name field",
+        "7. Enter <valid email> into the Email field",
+        "8. Leave the Phone_Number field blank",
+        "9. Click the 'Book Now' button"
       ],
-      "expected_result": "Form does not submit; Check_Out field displays an inline validation error: 'Check-out date must be after check-in date'. Booking is not created and the user is not redirected to Payment page.",
+      "expected_result": "Inline validation error appears on the Phone_Number field indicating it is required; form does not submit; booking is not created",
       "priority": "high"
     },
     {
       "tc_id": "N-006",
-      "test_case": "Guest count exceeds the selected room's maximum occupancy",
+      "wf_ref": null,
+      "test_case": "Submit booking with ALL required fields empty",
       "preconditions": [
         "User is logged in",
-        "Hotel Details page is open"
+        "User is on the Hotel Details page"
       ],
       "steps": [
-        "1. On Hotel Details page, identify a room row that lists a Max_Occupancy",
-        "2. Click the Select Room button for that room to open the Booking Form",
-        "3. Enter <guest count exceeding room's Max_Occupancy> in the Guest_Count field",
-        "4. Enter valid values for First_Name, Last_Name, Email, Phone_Number, Check_In, and Check_Out",
-        "5. Click the Book Now button"
+        "1. Click 'Select Room' on a room row to reveal the booking form",
+        "2. Leave Check_in_Date blank",
+        "3. Leave Check_out_Date blank",
+        "4. Leave Guest_Count blank",
+        "5. Leave First_Name blank",
+        "6. Leave Last_Name blank",
+        "7. Leave Email blank",
+        "8. Leave Phone_Number blank",
+        "9. Click the 'Book Now' button"
       ],
-      "expected_result": "Form does not submit; Guest_Count field displays an inline validation error indicating the guest count exceeds the room's maximum occupancy (e.g. 'Guest count cannot exceed Max occupancy'). Booking is not created and user is not redirected to Payment page.",
+      "expected_result": "Inline validation errors appear on Check_in_Date, Check_out_Date, Guest_Count, First_Name, Last_Name, Email, and Phone_Number indicating they are required; form does not submit; user remains on the booking form and is not taken to the payment page",
       "priority": "high"
     },
     {
       "tc_id": "N-007",
-      "test_case": "Attempt to Book Now while not logged in (precondition failure)",
+      "wf_ref": null,
+      "test_case": "Submit booking with invalid email format",
       "preconditions": [
-        "User is NOT logged in",
-        "Hotel Details page is open"
+        "User is logged in",
+        "User is on the Hotel Details page"
       ],
       "steps": [
-        "1. On Hotel Details page, click the Select Room button for a room to open the Booking Form",
-        "2. Enter valid values for First_Name, Last_Name, Email, Phone_Number, Check_In, Check_Out, and Guest_Count",
-        "3. Click the Book Now button"
+        "1. Click 'Select Room' on a room row to reveal the booking form",
+        "2. Enter <valid check-in date> into the Check_in_Date field",
+        "3. Enter <valid check-out date> into the Check_out_Date field",
+        "4. Enter <valid guest count> into the Guest_Count field",
+        "5. Enter <valid first name> into the First_Name field",
+        "6. Enter <valid last name> into the Last_Name field",
+        "7. Enter <invalid email format> into the Email field",
+        "8. Enter <valid phone number> into the Phone_Number field",
+        "9. Click the 'Book Now' button"
       ],
-      "expected_result": "Action is blocked due to authentication precondition; user is redirected to the Login page (or a login prompt/modal is shown) and booking is not created. User does not reach the Payment page.",
-      "priority": "high"
+      "expected_result": "Email field displays an inline validation error indicating the email format is invalid; form does not submit; booking is not created",
+      "priority": "medium"
     },
     {
       "tc_id": "N-008",
-      "test_case": "Submit booking form when read-only required fields (Selected_Hotel/Selected_Room_Type/Room_Rate) are not populated",
+      "wf_ref": null,
+      "test_case": "Submit booking with non-numeric input in Guest_Count",
       "preconditions": [
         "User is logged in",
-        "Booking Form is reachable (tester navigates directly to the Booking Form URL without selecting a room)"
+        "User is on the Hotel Details page"
       ],
       "steps": [
-        "1. Navigate directly to the Booking Form page/URL without first clicking Select Room on the Hotel Details page",
-        "2. Ensure Selected_Hotel and Selected_Room_Type and read-only price fields are empty",
-        "3. Enter valid values for First_Name, Last_Name, Email, Phone_Number, Check_In, Check_Out, and Guest_Count",
-        "4. Click the Book Now button"
+        "1. Click 'Select Room' on a room row to reveal the booking form",
+        "2. Enter <valid check-in date> into the Check_in_Date field",
+        "3. Enter <valid check-out date> into the Check_out_Date field",
+        "4. Enter <non-numeric input> into the Guest_Count field",
+        "5. Enter <valid first name> into the First_Name field",
+        "6. Enter <valid last name> into the Last_Name field",
+        "7. Enter <valid email> into the Email field",
+        "8. Enter <valid phone number> into the Phone_Number field",
+        "9. Click the 'Book Now' button"
       ],
-      "expected_result": "Form does not submit; Selected_Hotel field displays an inline validation error indicating it is required and must be populated by selecting a room; Selected_Room_Type and Room_Rate (and other read-only required price fields) display inline errors indicating they are required. Booking is not created and the user remains on the Booking Form.",
+      "expected_result": "Guest_Count field displays an inline validation error indicating a numeric value is required; form does not submit; booking is not created",
       "priority": "medium"
+    },
+    {
+      "tc_id": "N-009",
+      "wf_ref": null,
+      "test_case": "Submit booking with invalid/impossible date in Check_in_Date",
+      "preconditions": [
+        "User is logged in",
+        "User is on the Hotel Details page"
+      ],
+      "steps": [
+        "1. Click 'Select Room' on a room row to reveal the booking form",
+        "2. Enter <invalid/impossible date> into the Check_in_Date field",
+        "3. Enter <valid check-out date> into the Check_out_Date field",
+        "4. Enter <valid guest count> into the Guest_Count field",
+        "5. Enter <valid first name> into the First_Name field",
+        "6. Enter <valid last name> into the Last_Name field",
+        "7. Enter <valid email> into the Email field",
+        "8. Enter <valid phone number> into the Phone_Number field",
+        "9. Click the 'Book Now' button"
+      ],
+      "expected_result": "Check_in_Date field displays an inline validation error indicating the date is invalid; form does not submit; no navigation to payment page",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "N-010",
+      "wf_ref": null,
+      "test_case": "Submit booking with invalid phone number format",
+      "preconditions": [
+        "User is logged in",
+        "User is on the Hotel Details page"
+      ],
+      "steps": [
+        "1. Click 'Select Room' on a room row to reveal the booking form",
+        "2. Enter <valid check-in date> into the Check_in_Date field",
+        "3. Enter <valid check-out date> into the Check_out_Date field",
+        "4. Enter <valid guest count> into the Guest_Count field",
+        "5. Enter <valid first name> into the First_Name field",
+        "6. Enter <valid last name> into the Last_Name field",
+        "7. Enter <valid email> into the Email field",
+        "8. Enter <invalid phone format> into the Phone_Number field",
+        "9. Click the 'Book Now' button"
+      ],
+      "expected_result": "Phone_Number field displays an inline validation error indicating the phone number format is invalid; form does not submit; booking is not created",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "N-011",
+      "wf_ref": "WF-001",
+      "test_case": "Attempt to access/submit booking form without selecting a room (visible_when precondition not met)",
+      "preconditions": [
+        "User is on the Hotel Details page",
+        "No room row has been selected (Selected_Room_Type == '')"
+      ],
+      "steps": [
+        "1. Ensure no room row is selected on the Room Types table",
+        "2. Attempt to locate or open the booking form",
+        "3. Attempt to click a 'Book Now' control (if visible) or navigate directly to the booking form section"
+      ],
+      "expected_result": "Booking form remains hidden (visible_when condition not satisfied); Book Now button is not visible or is disabled; user cannot submit a booking without first selecting a room; no navigation to payment page",
+      "priority": "high"
+    },
+    {
+      "tc_id": "N-012",
+      "wf_ref": "WF-002",
+      "test_case": "Click 'Book Now' while not logged in (submit precondition violation)",
+      "preconditions": [
+        "User is NOT logged in",
+        "User is on the Hotel Details page"
+      ],
+      "steps": [
+        "1. Click 'Select Room' on a room row to reveal the booking form",
+        "2. Enter <valid check-in date> into the Check_in_Date field",
+        "3. Enter <valid check-out date> into the Check_out_Date field",
+        "4. Enter <valid guest count> into the Guest_Count field",
+        "5. Enter <valid first name> into the First_Name field",
+        "6. Enter <valid last name> into the Last_Name field",
+        "7. Enter <valid email> into the Email field",
+        "8. Enter <valid phone number> into the Phone_Number field",
+        "9. Click the 'Book Now' button while still not logged in"
+      ],
+      "expected_result": "Action is blocked due to precondition: user is redirected to the login page or shown a login prompt; booking is not submitted and user is not taken to the payment page",
+      "priority": "high"
     }
   ],
   "summary": {
-    "total": 8,
-    "high_priority": 5,
-    "medium_priority": 3,
+    "total": 12,
+    "high_priority": 8,
+    "medium_priority": 4,
     "low_priority": 0
   }
 }

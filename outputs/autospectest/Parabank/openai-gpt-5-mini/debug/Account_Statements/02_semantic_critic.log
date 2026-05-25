@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-22T21:29:56.931131
+DEBUG SESSION STARTED: 2026-05-25T15:37:16.700927
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[21:30:28] Semantic Critic - SYSTEM PROMPT
+[15:38:02] Semantic Critic - SYSTEM PROMPT
 ------------------------------------------------------------
 You are a UI-AST Semantic Critic. You receive (1) a raw functional description and (2) a generated UI-AST JSON.
 
@@ -106,7 +106,7 @@ Output ONLY the JSON object. No explanation, no markdown fencing, no preamble.
 
 
 ------------------------------------------------------------
-[21:30:28] Semantic Critic - USER PROMPT
+[15:38:02] Semantic Critic - USER PROMPT
 ------------------------------------------------------------
 <description>
 The Statements page provides two coordinated forms displayed side by side.The generate statement form includes Statement Period (month-and-year or custom date range), Account (dropdown), and a “Generate Statement” button. The system validates the dates and retrieves the relevant transactions. On success it displays “Statement generated successfully.”; if generation fails it shows “Unable to generate statement — please try again later.”The e-statement preference form includes a checkbox to opt into paperless statements, an Email Address field, and a “Save Preference” button. The system validates the email address; success displays “e-Statement preference updated.”, while a failure highlights the email field with guidance.
@@ -120,62 +120,64 @@ The Statements page provides two coordinated forms displayed side by side.The ge
   "components": {
     "Generate_Statement_Form": {
       "type": "form",
-      "constraints": [
-        "If Statement_Period == Custom date range then Start_Date <= End_Date"
-      ],
       "fields": {
         "Statement_Period": {
           "type": "dropdown",
-          "required": false,
+          "required": true,
           "options": [
-            "Month-and-year",
-            "Custom date range"
+            "Month-and-Year",
+            "Custom Date Range"
           ]
         },
-        "Month_Year": {
-          "type": "date",
-          "required": false,
-          "visible_when": "Statement_Period == Month-and-year",
-          "constraints": []
+        "Month_and_Year": {
+          "type": "unspecified",
+          "visible_when": "Statement_Period == Month-and-Year",
+          "required_when": "Statement_Period == Month-and-Year"
         },
         "Start_Date": {
           "type": "date",
-          "required": false,
-          "visible_when": "Statement_Period == Custom date range"
+          "visible_when": "Statement_Period == Custom Date Range",
+          "required_when": "Statement_Period == Custom Date Range"
         },
         "End_Date": {
           "type": "date",
-          "required": false,
-          "visible_when": "Statement_Period == Custom date range"
+          "visible_when": "Statement_Period == Custom Date Range",
+          "required_when": "Statement_Period == Custom Date Range"
         },
         "Account": {
           "type": "dropdown",
-          "required": false
+          "required": true
         }
       },
+      "constraints": [
+        "if Statement_Period == Custom Date Range then Start_Date and End_Date must be present",
+        "Start_Date must be on or before End_Date",
+        "dates must be valid"
+      ],
       "submit_actions": [
         {
           "element_name": "Generate Statement",
           "type": "button",
+          "on_success": "Statement generated successfully.",
+          "on_success_additional": "retrieves relevant transactions",
+          "on_failure": "Unable to generate statement \u2014 please try again later.",
           "constraints": [
-            "validates date fields per form constraints"
-          ],
-          "on_success": "retrieves relevant transactions; displays 'Statement generated successfully.'",
-          "on_failure": "displays 'Unable to generate statement \u2014 please try again later.'"
+            "Account must be selected",
+            "date validation must pass before retrieval"
+          ]
         }
       ]
     },
     "EStatement_Preference_Form": {
       "type": "form",
       "fields": {
-        "Paperless": {
+        "Paperless_OptIn": {
           "type": "checkbox",
           "required": false
         },
         "Email_Address": {
           "type": "email",
-          "required": false,
-          "required_when": "Paperless == true",
+          "required_when": "Paperless_OptIn == true",
           "constraints": [
             "must be a valid email address"
           ]
@@ -185,11 +187,11 @@ The Statements page provides two coordinated forms displayed side by side.The ge
         {
           "element_name": "Save Preference",
           "type": "button",
-          "constraints": [
-            "if Paperless == true then Email_Address must be valid"
-          ],
           "on_success": "e-Statement preference updated.",
-          "on_failure": "highlights Email_Address field with guidance"
+          "on_failure": "highlights Email_Address with guidance",
+          "constraints": [
+            "if Paperless_OptIn == true then Email_Address must be present and valid"
+          ]
         }
       ]
     }
@@ -200,29 +202,23 @@ The Statements page provides two coordinated forms displayed side by side.The ge
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[21:30:41] Semantic Critic - LLM RESPONSE
+[15:38:18] Semantic Critic - LLM RESPONSE
 ------------------------------------------------------------
 {
   "verdict": "yes",
-  "summary": "AST correctly captures both forms, their fields, buttons, validations, and success/failure behaviors; only minor inferred conditionals are present.",
+  "summary": "AST includes both forms, all interactive fields, validation rules, and success/failure behaviors described, with no significant missing elements or unsupported phantoms.",
   "missing": [],
-  "phantoms": [
-    "Generate_Statement_Form.fields.Month_Year.visible_when (conditional visibility inferred though description did not explicitly state visibility rules)",
-    "EStatement_Preference_Form.fields.Email_Address.required_when (required-when inference — description did not explicitly state the email is required only when Paperless is checked)"
-  ],
+  "phantoms": [],
   "fixes": []
 }
 
 ------------------------------------------------------------
-[21:30:41] Semantic Critic - PARSED JSON
+[15:38:18] Semantic Critic - PARSED JSON
 ------------------------------------------------------------
 {
   "verdict": "yes",
-  "summary": "AST correctly captures both forms, their fields, buttons, validations, and success/failure behaviors; only minor inferred conditionals are present.",
+  "summary": "AST includes both forms, all interactive fields, validation rules, and success/failure behaviors described, with no significant missing elements or unsupported phantoms.",
   "missing": [],
-  "phantoms": [
-    "Generate_Statement_Form.fields.Month_Year.visible_when (conditional visibility inferred though description did not explicitly state visibility rules)",
-    "EStatement_Preference_Form.fields.Email_Address.required_when (required-when inference \u2014 description did not explicitly state the email is required only when Paperless is checked)"
-  ],
+  "phantoms": [],
   "fixes": []
 }

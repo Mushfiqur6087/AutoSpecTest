@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-22T21:31:44.628346
+DEBUG SESSION STARTED: 2026-05-25T15:41:24.134262
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[21:31:44] Test-Negative - SYSTEM PROMPT
+[15:41:24] Test-Negative - SYSTEM PROMPT
 ------------------------------------------------------------
 You are a Negative Test Case Generator. You receive (1) a UI-AST JSON for one module and (2) the original functional description. Your job is to produce ONLY negative test cases — tests where invalid input is provided or business rules are violated, and the system correctly rejects or blocks the action.
 
@@ -22,6 +22,10 @@ You are a Negative Test Case Generator. You receive (1) a UI-AST JSON for one mo
 <description>
 {Original functional description text for this module}
 </description>
+
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
 
 ---
 
@@ -111,6 +115,9 @@ Group required fields by type: `text/unspecified`, `email`, `password`, `number`
 
 Do NOT generate a separate blank-field test for every required field. If 5 text fields are all required, one representative covers them all.
 
+**Action dialog required fields — NOT subject to cross-form deduplication:**
+If a `state_bound_action_bar` action opens a dialog with its own required `fields{}` (e.g., Activate requires Activation Date, Reject requires a Reason, Withdraw requires a Reason, Close requires a Closure Reason), each such dialog is its own testing scope. Generate ONE "leave the required dialog field blank and submit" test per distinct action dialog. These are HIGH priority — they block state transitions and are common defect sites. Do not suppress them because the main wizard already has a blank-field test.
+
 **2. Format violations:**
 
 For fields with type-specific format rules (from AST type or description):
@@ -143,6 +150,10 @@ For each unique `constraints[]` entry in the AST, and for cross-field rules desc
 
 One test per unique constraint. Do not duplicate the same mechanism.
 
+**Constraint timing tests:** If the spec states an action is blocked by a pre-existing system state (e.g., "cannot close with active accounts", "cannot transfer to the same office"), generate TWO tests:
+1. The standard constraint violation test (user opens the dialog, fills required fields, submits → blocked).
+2. A constraint-timing test: user opens the dialog WITHOUT filling required fields → assert whether the block is shown immediately on dialog open (before the user fills anything) OR only on submit. This distinguishes whether the UI enforces the constraint eagerly or lazily. Steps: open the dialog, observe the state → assert what is visible before any interaction. If the spec is silent on timing, generate only the first test.
+
 **5. Precondition violations (auth, role, and state):**
 
 For each `preconditions[]` entry on any action — and for auth/role rules described in the spec:
@@ -154,18 +165,18 @@ For each `preconditions[]` entry on any action — and for auth/role rules descr
 **6. State-machine violations:**
 
 From `state_bound_action_bar` nodes:
-- For each state where an action is NOT listed in `available_actions`, generate one test attempting that action from that state. Example: attempting "Approve" on an entity already in "Active" state.
+- **Every defined state must have at least one wrong-state test.** For each state, identify at least one action that is NOT in its `available_actions` list and generate a test attempting that action from that state.
 - If a state has an empty `available_actions` array, generate one test verifying no action buttons are visible in that state.
-
-One test per unique wrong-state scenario — do not enumerate every action × every invalid state.
+- **Do not stop after 1–2 representative examples** when the module defines 4+ distinct states. The states Active, Pending, Closed, Rejected, and Withdrawn each have different action sets — each must be independently verified.
+- One test per state is sufficient — pick the most distinct unavailable action for that state. Do not enumerate every action × every state (that would be exponential).
 
 ---
 
 **DEDUPLICATION GATE (run before outputting):**
 
-1. **Required field dedup:** Multiple required text fields → ONE representative test, not one per field.
+1. **Required field dedup:** Multiple required text fields in the **same form or dialog** → ONE representative test, not one per field.
 2. **Sub-rule dedup:** A field with multiple validation sub-rules (e.g., password: length + uppercase + lowercase + number + special char) → ONE representative violation test, not one per sub-rule.
-3. **Cross-form dedup:** If two forms in the same module share the same validation mechanism (e.g., both have a required text field) → test it on the primary form only.
+3. **Cross-form dedup:** If two **main forms** in the same module share the same validation mechanism → test it on the primary form only. **Exception: action dialogs are never suppressed by cross-form dedup** — each action dialog with a required field gets its own blank-field test regardless.
 4. **Uniqueness check:** Before outputting, ask for each TC: "Does this test catch a bug that NO other test in this module would catch?" If no → remove it.
 
 ---
@@ -174,9 +185,11 @@ One test per unique wrong-state scenario — do not enumerate every action × ev
 
 - Simple module (login, single form, display page): **2–4 tests**
 - Medium module (standard CRUD form, form with constraints): **4–8 tests**
-- Complex module (state machine, multi-form, wizard with many constraints): **8–12 tests**
+- Complex module (state machine, multi-form, wizard with many constraints): **10–16 tests**
 
-If you exceed these ranges, you are generating redundant tests. Apply the deduplication gate again before outputting.
+For modules with a `state_bound_action_bar` defining 4+ states, the state-machine violation tests alone will produce 4–5 tests. This is expected and correct — do not suppress them to hit a lower target.
+
+If you exceed the upper range, apply the deduplication gate again before outputting.
 
 ---
 
@@ -184,6 +197,17 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
 
 - **High:** State precondition violations, constraint violations that could corrupt data, unauthenticated access, required field representatives
 - **Medium:** Format violations, cross-field validation, numeric bounds, wrong-role access, wrong-state action attempts
+
+---
+
+**WORKFLOW-AWARE FAILURE INJECTION (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- For each workflow that contains a form interaction (terminal action is a submit/save/create/approve button):
+  - Identify the most **critical blocking failure** for that workflow's `conditional_branch`.
+  - If that failure mode is NOT already covered by another workflow's negative test, generate one negative TC for it.
+- **Do NOT generate one negative TC per workflow mechanically.** Apply the existing deduplication gate first — only add a TC if it catches a bug that no other test would catch.
+- Add `"wf_ref": "WF-NNN"` to each TC that maps to a workflow. Set `"wf_ref": null` for generic validation tests.
 
 ---
 
@@ -195,6 +219,7 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
   "test_cases": [
     {
       "tc_id": "N-001",
+      "wf_ref": null,
       "test_case": "Short descriptive name",
       "preconditions": ["precondition 1"],
       "steps": ["1. Step one", "2. Step two"],
@@ -212,7 +237,7 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
 
 
 ------------------------------------------------------------
-[21:31:44] Test-Negative - USER PROMPT
+[15:41:24] Test-Negative - USER PROMPT
 ------------------------------------------------------------
 <module_name>Update Contact Info</module_name>
 
@@ -220,91 +245,75 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
 {
   "module_name": "Update Contact Info",
   "components": {
-    "Contact_Info_Form": {
+    "Contact_Profile_Form": {
       "type": "form",
-      "metadata": {
-        "pre_filled": true
-      },
-      "prefilled_values": {
-        "First_Name": "pre-filled from customer profile",
-        "Last_Name": "pre-filled from customer profile",
-        "Street_Address": "pre-filled from customer profile",
-        "City": "pre-filled from customer profile",
-        "State": "pre-filled from customer profile",
-        "ZIP_Code": "pre-filled from customer profile",
-        "Phone_Number": "pre-filled from customer profile"
-      },
+      "constraints": [
+        "validate all fields on submit"
+      ],
       "fields": {
         "First_Name": {
           "type": "unspecified",
           "required": true,
-          "initial_value": "pre-filled from customer profile",
           "constraints": [
-            "must be present",
-            "must match expected format for a personal name"
+            "required",
+            "must be valid format"
           ]
         },
         "Last_Name": {
           "type": "unspecified",
           "required": true,
-          "initial_value": "pre-filled from customer profile",
           "constraints": [
-            "must be present",
-            "must match expected format for a personal name"
+            "required",
+            "must be valid format"
           ]
         },
         "Street_Address": {
           "type": "unspecified",
           "required": true,
-          "initial_value": "pre-filled from customer profile",
           "constraints": [
-            "must be present",
-            "must match expected format for a street address"
+            "required",
+            "must be valid format"
           ]
         },
         "City": {
           "type": "unspecified",
           "required": true,
-          "initial_value": "pre-filled from customer profile",
           "constraints": [
-            "must be present",
-            "must match expected format for a city name"
+            "required",
+            "must be valid format"
           ]
         },
         "State": {
           "type": "unspecified",
           "required": true,
-          "initial_value": "pre-filled from customer profile",
           "constraints": [
-            "must be present",
-            "must match expected format for a state"
+            "required",
+            "must be valid format"
           ]
         },
         "ZIP_Code": {
           "type": "unspecified",
           "required": true,
-          "initial_value": "pre-filled from customer profile",
           "constraints": [
-            "must be present",
-            "must match expected ZIP/postal code format"
+            "required",
+            "must be valid ZIP/postal code format"
           ]
         },
         "Phone_Number": {
           "type": "unspecified",
           "required": true,
-          "initial_value": "pre-filled from customer profile",
           "constraints": [
-            "must be present",
-            "must match expected phone number format"
+            "required",
+            "must be valid phone number format"
           ]
         }
       },
       "submit_actions": [
         {
           "element_name": "Update Profile",
-          "on_submit": "validates all fields (format and completeness) per-field",
-          "on_success": "Profile updated successfully. Refreshes the data.",
-          "on_failure": "highlights invalid fields and displays inline error banner"
+          "type": "button",
+          "on_success": "Profile updated successfully.; refreshes the data",
+          "on_failure": "highlights invalid fields and displays an inline error banner"
         }
       ]
     }
@@ -318,10 +327,14 @@ The customer profile page offers an editable form pre-filled with First Name, La
 
 </description>
 
+<workflows>
+WF-001 | Update Contact Profile | actor: <role> | branch: none | terminal: Update Profile | on_success: Profile updated successfully.; refreshes the data
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[21:33:01] Test-Negative - LLM RESPONSE
+[15:43:10] Test-Negative - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Update Contact Info",
@@ -329,106 +342,96 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "N-001",
-      "test_case": "Leave required text field blank (representative)",
+      "wf_ref": "WF-001",
+      "test_case": "Leave a required text field blank (representative: First Name)",
       "preconditions": [
-        "User is authenticated and on the Customer Profile page",
-        "Form is pre-filled with contact information"
+        "User is authenticated and on the Contact Profile page with the form pre-filled"
       ],
       "steps": [
-        "1. Clear the <First_Name> field",
-        "2. Leave all other pre-filled fields unchanged",
-        "3. Click the Update Profile button"
+        "1. Open the Contact Profile page",
+        "2. Clear the <First Name> field (remove its value)",
+        "3. Click the \"Update Profile\" button"
       ],
-      "expected_result": "Inline validation error appears on the First_Name field indicating it is required; the First_Name field is highlighted; an inline error banner is displayed; the form does not submit and the profile is not updated (page does not display 'Profile updated successfully.')",
+      "expected_result": "First Name field displays an inline validation error indicating it is required; an inline error banner is displayed; the form is not submitted and the profile is not updated (data remains unchanged)",
       "priority": "high"
     },
     {
       "tc_id": "N-002",
+      "wf_ref": "WF-001",
       "test_case": "Submit with ALL required fields empty",
       "preconditions": [
-        "User is authenticated and on the Customer Profile page",
-        "Form is pre-filled with contact information"
+        "User is authenticated and on the Contact Profile page with the form pre-filled"
       ],
       "steps": [
-        "1. Clear the <First_Name> field",
-        "2. Clear the <Last_Name> field",
-        "3. Clear the <Street_Address> field",
-        "4. Clear the <City> field",
-        "5. Clear the <State> field",
-        "6. Clear the <ZIP_Code> field",
-        "7. Clear the <Phone_Number> field",
-        "8. Click the Update Profile button"
+        "1. Open the Contact Profile page",
+        "2. Clear the <First Name> field",
+        "3. Clear the <Last Name> field",
+        "4. Clear the <Street Address> field",
+        "5. Clear the <City> field",
+        "6. Clear the <State> field",
+        "7. Clear the <ZIP Code> field",
+        "8. Clear the <Phone Number> field",
+        "9. Click the \"Update Profile\" button"
       ],
-      "expected_result": "Inline validation errors appear on each required field (First_Name, Last_Name, Street_Address, City, State, ZIP_Code, Phone_Number) indicating they are required; each required field is highlighted; an inline error banner is displayed; the form does not submit and the profile is not updated (page does not display 'Profile updated successfully.')",
+      "expected_result": "Each required field displays an inline validation error indicating it is required; an inline error banner is displayed summarizing validation failures; the form is not submitted and the profile is not updated (all original data remains unchanged)",
       "priority": "high"
     },
     {
       "tc_id": "N-003",
-      "test_case": "Invalid phone number format",
+      "wf_ref": "WF-001",
+      "test_case": "Enter invalid ZIP/postal code format",
       "preconditions": [
-        "User is authenticated and on the Customer Profile page",
-        "Form is pre-filled with contact information"
+        "User is authenticated and on the Contact Profile page with the form pre-filled"
       ],
       "steps": [
-        "1. Replace the Phone_Number value with <invalid phone format>",
-        "2. Click the Update Profile button"
+        "1. Open the Contact Profile page",
+        "2. Enter <invalid ZIP format> into the <ZIP Code> field",
+        "3. Click the \"Update Profile\" button"
       ],
-      "expected_result": "Phone_Number field displays an inline validation error stating it must match the expected phone number format (Phone_Number is highlighted); an inline error banner is displayed; the form does not submit and the profile is not updated (page does not display 'Profile updated successfully.')",
+      "expected_result": "ZIP Code field displays an inline validation error: 'must be valid ZIP/postal code format'; an inline error banner is displayed; the form is not submitted and the profile is not updated (ZIP remains unchanged)",
       "priority": "medium"
     },
     {
       "tc_id": "N-004",
-      "test_case": "Invalid ZIP/postal code format",
+      "wf_ref": "WF-001",
+      "test_case": "Enter invalid phone number format",
       "preconditions": [
-        "User is authenticated and on the Customer Profile page",
-        "Form is pre-filled with contact information"
+        "User is authenticated and on the Contact Profile page with the form pre-filled"
       ],
       "steps": [
-        "1. Replace the ZIP_Code value with <invalid ZIP/postal code format>",
-        "2. Click the Update Profile button"
+        "1. Open the Contact Profile page",
+        "2. Enter <invalid phone format> into the <Phone Number> field",
+        "3. Click the \"Update Profile\" button"
       ],
-      "expected_result": "ZIP_Code field displays an inline validation error stating it must match the expected ZIP/postal code format (ZIP_Code is highlighted); an inline error banner is displayed; the form does not submit and the profile is not updated (page does not display 'Profile updated successfully.')",
+      "expected_result": "Phone Number field displays an inline validation error: 'must be valid phone number format'; an inline error banner is displayed; the form is not submitted and the profile is not updated (phone number remains unchanged)",
       "priority": "medium"
     },
     {
       "tc_id": "N-005",
-      "test_case": "Invalid personal name format for First Name",
+      "wf_ref": "WF-001",
+      "test_case": "Enter invalid format in a text field (representative: Last Name)",
       "preconditions": [
-        "User is authenticated and on the Customer Profile page",
-        "Form is pre-filled with contact information"
+        "User is authenticated and on the Contact Profile page with the form pre-filled"
       ],
       "steps": [
-        "1. Replace the First_Name value with <invalid personal name format>",
-        "2. Click the Update Profile button"
+        "1. Open the Contact Profile page",
+        "2. Enter <invalid name format> into the <Last Name> field",
+        "3. Click the \"Update Profile\" button"
       ],
-      "expected_result": "First_Name field displays an inline validation error stating it must match the expected format for a personal name (First_Name is highlighted); an inline error banner is displayed; the form does not submit and the profile is not updated (page does not display 'Profile updated successfully.')",
-      "priority": "medium"
-    },
-    {
-      "tc_id": "N-006",
-      "test_case": "Invalid state format",
-      "preconditions": [
-        "User is authenticated and on the Customer Profile page",
-        "Form is pre-filled with contact information"
-      ],
-      "steps": [
-        "1. Replace the State value with <invalid state format>",
-        "2. Click the Update Profile button"
-      ],
-      "expected_result": "State field displays an inline validation error stating it must match the expected format for a state (State is highlighted); an inline error banner is displayed; the form does not submit and the profile is not updated (page does not display 'Profile updated successfully.')",
+      "expected_result": "Last Name field displays an inline validation error: 'must be valid format'; an inline error banner is displayed; the form is not submitted and the profile is not updated (last name remains unchanged)",
       "priority": "medium"
     }
   ],
   "summary": {
-    "total": 6,
+    "total": 5,
     "high_priority": 2,
-    "medium_priority": 4,
+    "medium_priority": 3,
     "low_priority": 0
   }
 }
 
 ------------------------------------------------------------
-[21:33:01] Test-Negative - PARSED JSON
+[15:43:10] Test-Negative - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Update Contact Info",
@@ -436,100 +439,90 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "N-001",
-      "test_case": "Leave required text field blank (representative)",
+      "wf_ref": "WF-001",
+      "test_case": "Leave a required text field blank (representative: First Name)",
       "preconditions": [
-        "User is authenticated and on the Customer Profile page",
-        "Form is pre-filled with contact information"
+        "User is authenticated and on the Contact Profile page with the form pre-filled"
       ],
       "steps": [
-        "1. Clear the <First_Name> field",
-        "2. Leave all other pre-filled fields unchanged",
-        "3. Click the Update Profile button"
+        "1. Open the Contact Profile page",
+        "2. Clear the <First Name> field (remove its value)",
+        "3. Click the \"Update Profile\" button"
       ],
-      "expected_result": "Inline validation error appears on the First_Name field indicating it is required; the First_Name field is highlighted; an inline error banner is displayed; the form does not submit and the profile is not updated (page does not display 'Profile updated successfully.')",
+      "expected_result": "First Name field displays an inline validation error indicating it is required; an inline error banner is displayed; the form is not submitted and the profile is not updated (data remains unchanged)",
       "priority": "high"
     },
     {
       "tc_id": "N-002",
+      "wf_ref": "WF-001",
       "test_case": "Submit with ALL required fields empty",
       "preconditions": [
-        "User is authenticated and on the Customer Profile page",
-        "Form is pre-filled with contact information"
+        "User is authenticated and on the Contact Profile page with the form pre-filled"
       ],
       "steps": [
-        "1. Clear the <First_Name> field",
-        "2. Clear the <Last_Name> field",
-        "3. Clear the <Street_Address> field",
-        "4. Clear the <City> field",
-        "5. Clear the <State> field",
-        "6. Clear the <ZIP_Code> field",
-        "7. Clear the <Phone_Number> field",
-        "8. Click the Update Profile button"
+        "1. Open the Contact Profile page",
+        "2. Clear the <First Name> field",
+        "3. Clear the <Last Name> field",
+        "4. Clear the <Street Address> field",
+        "5. Clear the <City> field",
+        "6. Clear the <State> field",
+        "7. Clear the <ZIP Code> field",
+        "8. Clear the <Phone Number> field",
+        "9. Click the \"Update Profile\" button"
       ],
-      "expected_result": "Inline validation errors appear on each required field (First_Name, Last_Name, Street_Address, City, State, ZIP_Code, Phone_Number) indicating they are required; each required field is highlighted; an inline error banner is displayed; the form does not submit and the profile is not updated (page does not display 'Profile updated successfully.')",
+      "expected_result": "Each required field displays an inline validation error indicating it is required; an inline error banner is displayed summarizing validation failures; the form is not submitted and the profile is not updated (all original data remains unchanged)",
       "priority": "high"
     },
     {
       "tc_id": "N-003",
-      "test_case": "Invalid phone number format",
+      "wf_ref": "WF-001",
+      "test_case": "Enter invalid ZIP/postal code format",
       "preconditions": [
-        "User is authenticated and on the Customer Profile page",
-        "Form is pre-filled with contact information"
+        "User is authenticated and on the Contact Profile page with the form pre-filled"
       ],
       "steps": [
-        "1. Replace the Phone_Number value with <invalid phone format>",
-        "2. Click the Update Profile button"
+        "1. Open the Contact Profile page",
+        "2. Enter <invalid ZIP format> into the <ZIP Code> field",
+        "3. Click the \"Update Profile\" button"
       ],
-      "expected_result": "Phone_Number field displays an inline validation error stating it must match the expected phone number format (Phone_Number is highlighted); an inline error banner is displayed; the form does not submit and the profile is not updated (page does not display 'Profile updated successfully.')",
+      "expected_result": "ZIP Code field displays an inline validation error: 'must be valid ZIP/postal code format'; an inline error banner is displayed; the form is not submitted and the profile is not updated (ZIP remains unchanged)",
       "priority": "medium"
     },
     {
       "tc_id": "N-004",
-      "test_case": "Invalid ZIP/postal code format",
+      "wf_ref": "WF-001",
+      "test_case": "Enter invalid phone number format",
       "preconditions": [
-        "User is authenticated and on the Customer Profile page",
-        "Form is pre-filled with contact information"
+        "User is authenticated and on the Contact Profile page with the form pre-filled"
       ],
       "steps": [
-        "1. Replace the ZIP_Code value with <invalid ZIP/postal code format>",
-        "2. Click the Update Profile button"
+        "1. Open the Contact Profile page",
+        "2. Enter <invalid phone format> into the <Phone Number> field",
+        "3. Click the \"Update Profile\" button"
       ],
-      "expected_result": "ZIP_Code field displays an inline validation error stating it must match the expected ZIP/postal code format (ZIP_Code is highlighted); an inline error banner is displayed; the form does not submit and the profile is not updated (page does not display 'Profile updated successfully.')",
+      "expected_result": "Phone Number field displays an inline validation error: 'must be valid phone number format'; an inline error banner is displayed; the form is not submitted and the profile is not updated (phone number remains unchanged)",
       "priority": "medium"
     },
     {
       "tc_id": "N-005",
-      "test_case": "Invalid personal name format for First Name",
+      "wf_ref": "WF-001",
+      "test_case": "Enter invalid format in a text field (representative: Last Name)",
       "preconditions": [
-        "User is authenticated and on the Customer Profile page",
-        "Form is pre-filled with contact information"
+        "User is authenticated and on the Contact Profile page with the form pre-filled"
       ],
       "steps": [
-        "1. Replace the First_Name value with <invalid personal name format>",
-        "2. Click the Update Profile button"
+        "1. Open the Contact Profile page",
+        "2. Enter <invalid name format> into the <Last Name> field",
+        "3. Click the \"Update Profile\" button"
       ],
-      "expected_result": "First_Name field displays an inline validation error stating it must match the expected format for a personal name (First_Name is highlighted); an inline error banner is displayed; the form does not submit and the profile is not updated (page does not display 'Profile updated successfully.')",
-      "priority": "medium"
-    },
-    {
-      "tc_id": "N-006",
-      "test_case": "Invalid state format",
-      "preconditions": [
-        "User is authenticated and on the Customer Profile page",
-        "Form is pre-filled with contact information"
-      ],
-      "steps": [
-        "1. Replace the State value with <invalid state format>",
-        "2. Click the Update Profile button"
-      ],
-      "expected_result": "State field displays an inline validation error stating it must match the expected format for a state (State is highlighted); an inline error banner is displayed; the form does not submit and the profile is not updated (page does not display 'Profile updated successfully.')",
+      "expected_result": "Last Name field displays an inline validation error: 'must be valid format'; an inline error banner is displayed; the form is not submitted and the profile is not updated (last name remains unchanged)",
       "priority": "medium"
     }
   ],
   "summary": {
-    "total": 6,
+    "total": 5,
     "high_priority": 2,
-    "medium_priority": 4,
+    "medium_priority": 3,
     "low_priority": 0
   }
 }

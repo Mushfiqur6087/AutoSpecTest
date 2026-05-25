@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-22T21:47:19.019629
+DEBUG SESSION STARTED: 2026-05-25T15:28:45.986908
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[21:47:19] Test-Positive - SYSTEM PROMPT
+[15:28:45] Test-Positive - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Expert UI Test Case Generator. You receive (1) a UI-AST JSON for one specific module and (2) the original functional description for that module.
 
@@ -24,6 +24,10 @@ Your job is to produce ONLY positive/functional UI test cases — tests where va
 <description>
 {Original functional description text for this module}
 </description>
+
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
 
 ---
 
@@ -146,6 +150,13 @@ Because you are testing a module in isolation, establish the required entry stat
 **1. Forms & Wizards (`form`, `wizard`):**
 - Generate ONE happy path per distinct success outcome.
 - *Conditional UI Check:* If a toggle/dropdown reveals new mandatory fields (`visible_when`), generate a separate test for that conditional branch.
+- **Wizard step coverage (CRITICAL):** If a wizard has multiple steps and any step beyond Step 1 contains its own named field group (e.g., "Address Details", "Family Members", "Identifiers"), generate ONE dedicated positive TC per such step. The TC must:
+  - Navigate to that specific step (include the preceding steps as preconditions or brief navigation steps)
+  - Fill the fields described for that step (not just pass through)
+  - Assert the step's content is visible/saved on the detail page after final submission
+  - **Do NOT collapse all wizard steps into one happy-path TC** — if Steps 2, 3, and 4 each have their own named section in the spec, they each need their own TC.
+- **Wizard in-step identifiers/duplicates:** If a wizard step allows adding identifiers, documents, or similar entries that have a uniqueness constraint, include a TC for that wizard step that also verifies the constraint (e.g., attempting to add a duplicate Document Type+Key pair inside the wizard). This is a different code path from adding the same post-creation on the detail page.
+- **Action dialogs:** If a `state_bound_action_bar` action opens a dialog with its own `fields{}` (e.g., Activate requires Activation Date, Reject requires Reason), generate ONE positive TC per such action-dialog — distinct from the state-transition TC. The TC fills the dialog field and completes the action.
 
 **2. State Machines (`state_bound_action_bar`):**
 - For each unique action available in a specific state, generate ONE test performing that action.
@@ -200,6 +211,19 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 
 ---
 
+**WORKFLOW COVERAGE OBLIGATION (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- Your test cases must **collectively cover every workflow** listed.
+- For each `wf_id`, at least one TC must:
+  - Activate the `conditional_branch` (if not null) — i.e. the test must set up the condition described.
+  - Assert the `on_success` as its `expected_result` (verbatim or as the primary basis for the expected result).
+- Add `"wf_ref": "WF-NNN"` to each TC to identify which workflow it covers.
+- If one TC naturally covers multiple workflows (e.g., the base path overlaps), pick the most specific `wf_ref`.
+- If a TC does not map to any workflow (e.g., a navigation-only test), set `"wf_ref": null`.
+
+---
+
 **OUTPUT — JSON only, no prose, no markdown fencing:**
 
 {
@@ -208,6 +232,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
   "test_cases": [
     {
       "tc_id": "P-001",
+      "wf_ref": "WF-001",
       "test_case": "Short descriptive name",
       "preconditions": ["User logged in as <Role>", "<Prerequisite state>"],
       "steps": ["1. Step one", "2. Step two"],
@@ -224,7 +249,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 }
 
 ------------------------------------------------------------
-[21:47:19] Test-Positive - USER PROMPT
+[15:28:45] Test-Positive - USER PROMPT
 ------------------------------------------------------------
 <module_name>Login</module_name>
 
@@ -237,23 +262,22 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
       "fields": {
         "Username": {
           "type": "unspecified",
-          "constraints": [
-            "required"
-          ]
+          "required": true
         },
         "Password": {
           "type": "password",
-          "constraints": [
-            "required"
-          ]
+          "required": true
         }
       },
+      "constraints": [
+        "Username and Password are required"
+      ],
       "submit_actions": [
         {
           "element_name": "Log in",
           "type": "button",
           "constraints": [
-            "requires valid credentials"
+            "credentials must be valid"
           ],
           "on_success": "redirects teacher to Dashboard",
           "on_failure": "shows inline error message; clears Password field; retains Username field"
@@ -263,19 +287,20 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
     "Lost_Password_Link": {
       "type": "link",
       "element_name": "Lost password?",
+      "enabled": false,
       "preconditions": [
-        "disabled on this test site"
+        "feature disabled on this test site"
       ]
     },
-    "Access_As_Guest_Button": {
+    "Access_As_Guest": {
       "type": "button",
       "element_name": "Access as a guest",
       "on_success": "grants unauthenticated browsing"
     },
-    "Cookies_Notice_Button": {
+    "Cookies_Notice": {
       "type": "button",
       "element_name": "Cookies notice",
-      "on_success": "shows cookie usage information"
+      "on_click": "shows cookie usage information"
     }
   }
 }
@@ -290,10 +315,18 @@ The login page displays a form with two required fields — Username and Passwor
 
 </description>
 
+<workflows>
+WF-001 | Successful login redirects teacher to Dashboard | actor: teacher | branch: Username != empty AND Password != empty AND credentials valid | terminal: Log in | on_success: redirects teacher to Dashboard
+WF-002 | Login attempt with validly entered but incorrect credentials (authentication failure) | actor: <role> | branch: Username != empty AND Password != empty AND credentials invalid | terminal: Log in | on_success: shows inline error message; clears Password field; retains Username field
+WF-003 | Login attempt with missing required fields (empty Username or Password) | actor: <role> | branch: Username == empty OR Password == empty | terminal: Log in | on_success: shows inline error message; clears Password field; retains Username field
+WF-004 | Access the site as a guest | actor: <role> | branch: none | terminal: Access as a guest | on_success: grants unauthenticated browsing
+WF-005 | Open cookies usage information | actor: <role> | branch: none | terminal: Cookies notice | on_success: shows cookie usage information
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[21:47:40] Test-Positive - LLM RESPONSE
+[15:29:09] Test-Positive - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Login",
@@ -301,67 +334,92 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Successful login redirects teacher to Dashboard",
+      "wf_ref": "WF-001",
+      "test_case": "Successful login with valid teacher credentials redirects to Dashboard",
       "preconditions": [
-        "Login page is open",
-        "User is not authenticated"
+        "User at Login page",
+        "User is not authenticated",
+        "Valid credentials for <teacher account> exist"
       ],
       "steps": [
         "1. Enter <valid username> in the Username field",
         "2. Enter <valid password> in the Password field",
-        "3. Click the Log in button"
+        "3. Click the 'Log in' button"
       ],
       "expected_result": "redirects teacher to Dashboard",
       "priority": "high"
     },
     {
       "tc_id": "P-002",
-      "test_case": "Access as a guest enables unauthenticated browsing",
+      "wf_ref": "WF-002",
+      "test_case": "Login attempt with incorrect credentials shows inline error and preserves username",
       "preconditions": [
-        "Login page is open",
+        "User at Login page",
+        "User is not authenticated",
+        "An account exists for <user> but provided credentials will be invalid"
+      ],
+      "steps": [
+        "1. Enter <username> in the Username field",
+        "2. Enter <incorrect password> in the Password field",
+        "3. Click the 'Log in' button"
+      ],
+      "expected_result": "shows inline error message; clears Password field; retains Username field",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-003",
+      "wf_ref": "WF-003",
+      "test_case": "Login attempt with missing required field (empty Password) shows inline error and retains username",
+      "preconditions": [
+        "User at Login page",
         "User is not authenticated"
       ],
       "steps": [
-        "1. Click the Access as a guest button"
+        "1. Enter <username> in the Username field",
+        "2. Leave the Password field empty",
+        "3. Click the 'Log in' button"
+      ],
+      "expected_result": "shows inline error message; clears Password field; retains Username field",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-004",
+      "wf_ref": "WF-004",
+      "test_case": "Access the site as a guest via 'Access as a guest' button",
+      "preconditions": [
+        "User at Login page",
+        "User is not authenticated"
+      ],
+      "steps": [
+        "1. Click the 'Access as a guest' button"
       ],
       "expected_result": "grants unauthenticated browsing",
       "priority": "medium"
     },
     {
-      "tc_id": "P-003",
-      "test_case": "Cookies notice displays cookie usage information",
+      "tc_id": "P-005",
+      "wf_ref": "WF-005",
+      "test_case": "Open Cookies usage information via 'Cookies notice' button",
       "preconditions": [
-        "Login page is open"
+        "User at Login page"
       ],
       "steps": [
-        "1. Click the Cookies notice button"
+        "1. Click the 'Cookies notice' button"
       ],
       "expected_result": "shows cookie usage information",
-      "priority": "low"
-    },
-    {
-      "tc_id": "P-004",
-      "test_case": "Lost password link is present but disabled on this test site",
-      "preconditions": [
-        "Login page is open"
-      ],
-      "steps": [
-        "1. Inspect the 'Lost password?' link on the page"
-      ],
-      "expected_result": "The 'Lost password?' link is visible but disabled on this test site",
       "priority": "low"
     }
   ],
   "summary": {
-    "total": 4,
+    "total": 5,
     "high_priority": 1,
-    "medium_priority": 1,
-    "low_priority": 2
+    "medium_priority": 3,
+    "low_priority": 1
   }
 }
 
 ------------------------------------------------------------
-[21:47:40] Test-Positive - PARSED JSON
+[15:29:09] Test-Positive - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Login",
@@ -369,61 +427,86 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Successful login redirects teacher to Dashboard",
+      "wf_ref": "WF-001",
+      "test_case": "Successful login with valid teacher credentials redirects to Dashboard",
       "preconditions": [
-        "Login page is open",
-        "User is not authenticated"
+        "User at Login page",
+        "User is not authenticated",
+        "Valid credentials for <teacher account> exist"
       ],
       "steps": [
         "1. Enter <valid username> in the Username field",
         "2. Enter <valid password> in the Password field",
-        "3. Click the Log in button"
+        "3. Click the 'Log in' button"
       ],
       "expected_result": "redirects teacher to Dashboard",
       "priority": "high"
     },
     {
       "tc_id": "P-002",
-      "test_case": "Access as a guest enables unauthenticated browsing",
+      "wf_ref": "WF-002",
+      "test_case": "Login attempt with incorrect credentials shows inline error and preserves username",
       "preconditions": [
-        "Login page is open",
+        "User at Login page",
+        "User is not authenticated",
+        "An account exists for <user> but provided credentials will be invalid"
+      ],
+      "steps": [
+        "1. Enter <username> in the Username field",
+        "2. Enter <incorrect password> in the Password field",
+        "3. Click the 'Log in' button"
+      ],
+      "expected_result": "shows inline error message; clears Password field; retains Username field",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-003",
+      "wf_ref": "WF-003",
+      "test_case": "Login attempt with missing required field (empty Password) shows inline error and retains username",
+      "preconditions": [
+        "User at Login page",
         "User is not authenticated"
       ],
       "steps": [
-        "1. Click the Access as a guest button"
+        "1. Enter <username> in the Username field",
+        "2. Leave the Password field empty",
+        "3. Click the 'Log in' button"
+      ],
+      "expected_result": "shows inline error message; clears Password field; retains Username field",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-004",
+      "wf_ref": "WF-004",
+      "test_case": "Access the site as a guest via 'Access as a guest' button",
+      "preconditions": [
+        "User at Login page",
+        "User is not authenticated"
+      ],
+      "steps": [
+        "1. Click the 'Access as a guest' button"
       ],
       "expected_result": "grants unauthenticated browsing",
       "priority": "medium"
     },
     {
-      "tc_id": "P-003",
-      "test_case": "Cookies notice displays cookie usage information",
+      "tc_id": "P-005",
+      "wf_ref": "WF-005",
+      "test_case": "Open Cookies usage information via 'Cookies notice' button",
       "preconditions": [
-        "Login page is open"
+        "User at Login page"
       ],
       "steps": [
-        "1. Click the Cookies notice button"
+        "1. Click the 'Cookies notice' button"
       ],
       "expected_result": "shows cookie usage information",
-      "priority": "low"
-    },
-    {
-      "tc_id": "P-004",
-      "test_case": "Lost password link is present but disabled on this test site",
-      "preconditions": [
-        "Login page is open"
-      ],
-      "steps": [
-        "1. Inspect the 'Lost password?' link on the page"
-      ],
-      "expected_result": "The 'Lost password?' link is visible but disabled on this test site",
       "priority": "low"
     }
   ],
   "summary": {
-    "total": 4,
+    "total": 5,
     "high_priority": 1,
-    "medium_priority": 1,
-    "low_priority": 2
+    "medium_priority": 3,
+    "low_priority": 1
   }
 }

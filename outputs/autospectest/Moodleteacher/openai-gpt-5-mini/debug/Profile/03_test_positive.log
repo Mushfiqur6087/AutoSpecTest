@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-22T21:47:19.059933
+DEBUG SESSION STARTED: 2026-05-25T15:28:46.019705
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[21:47:19] Test-Positive - SYSTEM PROMPT
+[15:28:46] Test-Positive - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Expert UI Test Case Generator. You receive (1) a UI-AST JSON for one specific module and (2) the original functional description for that module.
 
@@ -24,6 +24,10 @@ Your job is to produce ONLY positive/functional UI test cases — tests where va
 <description>
 {Original functional description text for this module}
 </description>
+
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
 
 ---
 
@@ -146,6 +150,13 @@ Because you are testing a module in isolation, establish the required entry stat
 **1. Forms & Wizards (`form`, `wizard`):**
 - Generate ONE happy path per distinct success outcome.
 - *Conditional UI Check:* If a toggle/dropdown reveals new mandatory fields (`visible_when`), generate a separate test for that conditional branch.
+- **Wizard step coverage (CRITICAL):** If a wizard has multiple steps and any step beyond Step 1 contains its own named field group (e.g., "Address Details", "Family Members", "Identifiers"), generate ONE dedicated positive TC per such step. The TC must:
+  - Navigate to that specific step (include the preceding steps as preconditions or brief navigation steps)
+  - Fill the fields described for that step (not just pass through)
+  - Assert the step's content is visible/saved on the detail page after final submission
+  - **Do NOT collapse all wizard steps into one happy-path TC** — if Steps 2, 3, and 4 each have their own named section in the spec, they each need their own TC.
+- **Wizard in-step identifiers/duplicates:** If a wizard step allows adding identifiers, documents, or similar entries that have a uniqueness constraint, include a TC for that wizard step that also verifies the constraint (e.g., attempting to add a duplicate Document Type+Key pair inside the wizard). This is a different code path from adding the same post-creation on the detail page.
+- **Action dialogs:** If a `state_bound_action_bar` action opens a dialog with its own `fields{}` (e.g., Activate requires Activation Date, Reject requires Reason), generate ONE positive TC per such action-dialog — distinct from the state-transition TC. The TC fills the dialog field and completes the action.
 
 **2. State Machines (`state_bound_action_bar`):**
 - For each unique action available in a specific state, generate ONE test performing that action.
@@ -200,6 +211,19 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 
 ---
 
+**WORKFLOW COVERAGE OBLIGATION (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- Your test cases must **collectively cover every workflow** listed.
+- For each `wf_id`, at least one TC must:
+  - Activate the `conditional_branch` (if not null) — i.e. the test must set up the condition described.
+  - Assert the `on_success` as its `expected_result` (verbatim or as the primary basis for the expected result).
+- Add `"wf_ref": "WF-NNN"` to each TC to identify which workflow it covers.
+- If one TC naturally covers multiple workflows (e.g., the base path overlaps), pick the most specific `wf_ref`.
+- If a TC does not map to any workflow (e.g., a navigation-only test), set `"wf_ref": null`.
+
+---
+
 **OUTPUT — JSON only, no prose, no markdown fencing:**
 
 {
@@ -208,6 +232,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
   "test_cases": [
     {
       "tc_id": "P-001",
+      "wf_ref": "WF-001",
       "test_case": "Short descriptive name",
       "preconditions": ["User logged in as <Role>", "<Prerequisite state>"],
       "steps": ["1. Step one", "2. Step two"],
@@ -224,7 +249,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 }
 
 ------------------------------------------------------------
-[21:47:19] Test-Positive - USER PROMPT
+[15:28:46] Test-Positive - USER PROMPT
 ------------------------------------------------------------
 <module_name>Profile</module_name>
 
@@ -236,43 +261,34 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
       "type": "container",
       "fields": {
         "Message_Button": {
-          "type": "button",
-          "element_name": "Message",
-          "on_success": "opens message composer"
+          "type": "button"
         }
       }
     },
     "User_Details_Card": {
       "type": "card",
       "fields": {
-        "Edit_Profile_Link": {
-          "type": "link",
-          "element_name": "Edit profile",
-          "on_success": "navigates to Edit Profile form"
+        "Edit_Profile": {
+          "type": "link"
         }
       }
     },
     "Privacy_and_Policies_Card": {
       "type": "card",
       "fields": {
-        "Data_Retention_Summary_Link": {
-          "type": "link",
-          "element_name": "Data retention summary",
-          "on_success": "opens Data Retention Summary"
+        "Data_Retention_Summary": {
+          "type": "link"
         }
       }
     },
     "Course_Details_Card": {
       "type": "card",
       "fields": {
-        "Course_Profile_Links": {
+        "Course_Links": {
           "type": "repeating_group",
-          "min": 0,
           "item_fields": {
             "Course_Profile_Link": {
-              "type": "link",
-              "element_name": "Course profile",
-              "on_success": "navigates to Course Profile"
+              "type": "link"
             }
           }
         }
@@ -281,40 +297,48 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
     "Miscellaneous_Card": {
       "type": "card",
       "fields": {
-        "Blog_Entries_Link": {
-          "type": "link",
-          "element_name": "Blog entries",
-          "on_success": "navigates to Blog entries list"
+        "Blog_Entries": {
+          "type": "repeating_group",
+          "item_fields": {
+            "Blog_Link": {
+              "type": "link"
+            }
+          }
         },
-        "Forum_Posts_Link": {
-          "type": "link",
-          "element_name": "Forum posts",
-          "on_success": "navigates to Forum posts list"
+        "Forum_Posts": {
+          "type": "repeating_group",
+          "item_fields": {
+            "Forum_Post_Link": {
+              "type": "link"
+            }
+          }
         },
-        "Forum_Discussions_Link": {
-          "type": "link",
-          "element_name": "Forum discussions",
-          "on_success": "navigates to Forum discussions list"
+        "Forum_Discussions": {
+          "type": "repeating_group",
+          "item_fields": {
+            "Forum_Discussion_Link": {
+              "type": "link"
+            }
+          }
         },
-        "Learning_Plans_Link": {
-          "type": "link",
-          "element_name": "Learning plans",
-          "on_success": "navigates to Learning plans list"
+        "Learning_Plans": {
+          "type": "repeating_group",
+          "item_fields": {
+            "Learning_Plan_Link": {
+              "type": "link"
+            }
+          }
         }
       }
     },
     "Reports_Card": {
       "type": "card",
       "fields": {
-        "Browser_Sessions_Link": {
-          "type": "link",
-          "element_name": "Browser sessions",
-          "on_success": "navigates to Browser sessions report"
+        "Browser_Sessions": {
+          "type": "link"
         },
-        "Grades_Overview_Link": {
-          "type": "link",
-          "element_name": "Grades overview",
-          "on_success": "navigates to Grades overview"
+        "Grades_Overview": {
+          "type": "link"
         }
       }
     },
@@ -335,10 +359,23 @@ The Profile page displays the teacher's circular initials icon, full name, a "Me
 
 </description>
 
+<workflows>
+WF-001 | Open messaging composer via Message button | actor: <role> | branch: none | terminal: Message_Button | on_success: Opens messaging composer to send a message to the user
+WF-002 | Navigate to Edit Profile | actor: <role> | branch: none | terminal: Edit_Profile | on_success: Navigates to the Edit profile page
+WF-003 | View Data Retention Summary | actor: <role> | branch: none | terminal: Data_Retention_Summary | on_success: Opens the Data retention summary page or modal
+WF-004 | Open a Course Profile from Course details | actor: <role> | branch: none | terminal: Course_Profile_Link | on_success: Navigates to the selected course's profile page
+WF-005 | Open a Blog entry from Miscellaneous | actor: <role> | branch: none | terminal: Blog_Link | on_success: Navigates to the selected blog entry
+WF-006 | Open a Forum post from Miscellaneous | actor: <role> | branch: none | terminal: Forum_Post_Link | on_success: Navigates to the selected forum post
+WF-007 | Open a Forum discussion from Miscellaneous | actor: <role> | branch: none | terminal: Forum_Discussion_Link | on_success: Navigates to the selected forum discussion
+WF-008 | Open a Learning plan from Miscellaneous | actor: <role> | branch: none | terminal: Learning_Plan_Link | on_success: Navigates to the selected learning plan
+WF-009 | View Browser sessions report | actor: <role> | branch: none | terminal: Browser_Sessions | on_success: Navigates to the Browser sessions report
+WF-010 | View Grades overview report | actor: <role> | branch: none | terminal: Grades_Overview | on_success: Navigates to the Grades overview page
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[21:49:30] Test-Positive - LLM RESPONSE
+[15:31:45] Test-Positive - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Profile",
@@ -346,160 +383,186 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Open message composer from Profile header",
+      "wf_ref": "WF-001",
+      "test_case": "Open messaging composer via Message button",
       "preconditions": [
-        "User logged in as <Teacher>",
-        "Profile page is open"
+        "User logged in as <role>",
+        "Profile page is reachable"
       ],
       "steps": [
-        "1. Click the Message button in the profile header"
+        "1. Navigate to the Profile page",
+        "2. Click the Message button in the profile header"
       ],
-      "expected_result": "opens message composer",
+      "expected_result": "Opens messaging composer to send a message to the user",
       "priority": "high"
     },
     {
       "tc_id": "P-002",
-      "test_case": "Navigate to Edit Profile form from User details card",
+      "wf_ref": "WF-002",
+      "test_case": "Navigate to Edit profile from User details card",
       "preconditions": [
-        "User logged in as <Teacher>",
-        "Profile page is open"
+        "User logged in as <role>",
+        "Profile page is reachable"
       ],
       "steps": [
-        "1. Click the Edit profile link in the User details card"
+        "1. Navigate to the Profile page",
+        "2. Click the Edit profile link on the User details card"
       ],
-      "expected_result": "navigates to Edit Profile form",
+      "expected_result": "Navigates to the Edit profile page",
       "priority": "high"
     },
     {
       "tc_id": "P-003",
+      "wf_ref": "WF-003",
       "test_case": "Open Data Retention Summary from Privacy and policies card",
       "preconditions": [
-        "User logged in as <Teacher>",
-        "Profile page is open"
+        "User logged in as <role>",
+        "Profile page is reachable"
       ],
       "steps": [
-        "1. Click the Data retention summary link in the Privacy and policies card"
+        "1. Navigate to the Profile page",
+        "2. Click the Data Retention Summary link in the Privacy and policies card"
       ],
-      "expected_result": "opens Data Retention Summary",
+      "expected_result": "Opens the Data retention summary page or modal",
       "priority": "medium"
     },
     {
       "tc_id": "P-004",
-      "test_case": "Navigate to a Course Profile from Course details card",
+      "wf_ref": "WF-004",
+      "test_case": "Open a Course profile from Course Details",
       "preconditions": [
-        "User logged in as <Teacher>",
-        "Profile page is open",
-        "Profile page has at least one associated course with a Course profile link"
+        "User logged in as <role>",
+        "Profile has at least one associated course",
+        "Profile page is reachable"
       ],
       "steps": [
-        "1. Click one of the Course profile links listed in the Course details card"
+        "1. Navigate to the Profile page",
+        "2. In the Course Details card, click one Course Profile link"
       ],
-      "expected_result": "navigates to Course Profile",
+      "expected_result": "Navigates to the selected course's profile page",
       "priority": "medium"
     },
     {
       "tc_id": "P-005",
-      "test_case": "Navigate to Blog entries list from Miscellaneous card",
+      "wf_ref": "WF-005",
+      "test_case": "Open a Blog entry from Miscellaneous card",
       "preconditions": [
-        "User logged in as <Teacher>",
-        "Profile page is open"
+        "User logged in as <role>",
+        "Profile has at least one blog entry",
+        "Profile page is reachable"
       ],
       "steps": [
-        "1. Click the Blog entries link in the Miscellaneous card"
+        "1. Navigate to the Profile page",
+        "2. In the Miscellaneous card, click a Blog entry link"
       ],
-      "expected_result": "navigates to Blog entries list",
+      "expected_result": "Navigates to the selected blog entry",
       "priority": "medium"
     },
     {
       "tc_id": "P-006",
-      "test_case": "Navigate to Forum posts list from Miscellaneous card",
+      "wf_ref": "WF-006",
+      "test_case": "Open a Forum post from Miscellaneous card",
       "preconditions": [
-        "User logged in as <Teacher>",
-        "Profile page is open"
+        "User logged in as <role>",
+        "Profile has at least one forum post",
+        "Profile page is reachable"
       ],
       "steps": [
-        "1. Click the Forum posts link in the Miscellaneous card"
+        "1. Navigate to the Profile page",
+        "2. In the Miscellaneous card, click a Forum post link"
       ],
-      "expected_result": "navigates to Forum posts list",
+      "expected_result": "Navigates to the selected forum post",
       "priority": "medium"
     },
     {
       "tc_id": "P-007",
-      "test_case": "Navigate to Forum discussions list from Miscellaneous card",
+      "wf_ref": "WF-007",
+      "test_case": "Open a Forum discussion from Miscellaneous card",
       "preconditions": [
-        "User logged in as <Teacher>",
-        "Profile page is open"
+        "User logged in as <role>",
+        "Profile has at least one forum discussion",
+        "Profile page is reachable"
       ],
       "steps": [
-        "1. Click the Forum discussions link in the Miscellaneous card"
+        "1. Navigate to the Profile page",
+        "2. In the Miscellaneous card, click a Forum discussion link"
       ],
-      "expected_result": "navigates to Forum discussions list",
+      "expected_result": "Navigates to the selected forum discussion",
       "priority": "medium"
     },
     {
       "tc_id": "P-008",
-      "test_case": "Navigate to Learning plans list from Miscellaneous card",
+      "wf_ref": "WF-008",
+      "test_case": "Open a Learning plan from Miscellaneous card",
       "preconditions": [
-        "User logged in as <Teacher>",
-        "Profile page is open"
+        "User logged in as <role>",
+        "Profile has at least one learning plan",
+        "Profile page is reachable"
       ],
       "steps": [
-        "1. Click the Learning plans link in the Miscellaneous card"
+        "1. Navigate to the Profile page",
+        "2. In the Miscellaneous card, click a Learning plan link"
       ],
-      "expected_result": "navigates to Learning plans list",
+      "expected_result": "Navigates to the selected learning plan",
       "priority": "medium"
     },
     {
       "tc_id": "P-009",
-      "test_case": "Navigate to Browser sessions report from Reports card",
+      "wf_ref": "WF-009",
+      "test_case": "View Browser sessions report from Reports card",
       "preconditions": [
-        "User logged in as <Teacher>",
-        "Profile page is open"
+        "User logged in as <role>",
+        "Profile page is reachable"
       ],
       "steps": [
-        "1. Click the Browser sessions link in the Reports card"
+        "1. Navigate to the Profile page",
+        "2. Click the Browser Sessions link in the Reports card"
       ],
-      "expected_result": "navigates to Browser sessions report",
+      "expected_result": "Navigates to the Browser sessions report",
       "priority": "medium"
     },
     {
       "tc_id": "P-010",
-      "test_case": "Navigate to Grades overview from Reports card",
+      "wf_ref": "WF-010",
+      "test_case": "View Grades overview from Reports card",
       "preconditions": [
-        "User logged in as <Teacher>",
-        "Profile page is open"
+        "User logged in as <role>",
+        "Profile page is reachable"
       ],
       "steps": [
-        "1. Click the Grades overview link in the Reports card"
+        "1. Navigate to the Profile page",
+        "2. Click the Grades Overview link in the Reports card"
       ],
-      "expected_result": "navigates to Grades overview",
+      "expected_result": "Navigates to the Grades overview page",
       "priority": "medium"
     },
     {
       "tc_id": "P-011",
-      "test_case": "View Login activity with exact dates and relative time indicators",
+      "wf_ref": null,
+      "test_case": "Login activity displays First and Last access with exact dates and relative times",
       "preconditions": [
-        "User logged in as <Teacher>",
-        "Profile page is open",
-        "User has recorded first and last access timestamps"
+        "User logged in as <role>",
+        "Profile has recorded login activity",
+        "Profile page is reachable"
       ],
       "steps": [
-        "1. Scroll to the Login activity card on the Profile page"
+        "1. Navigate to the Profile page",
+        "2. Scroll to the Login activity card (if necessary) to view First and Last access entries"
       ],
-      "expected_result": "Login activity card displays 'First access' with an exact date and a relative time indicator (e.g., '<relative time>') and 'Last access' with an exact date and a relative time indicator (e.g., '<relative time>')",
-      "priority": "high"
+      "expected_result": "Login activity card displays 'First access' with an exact date and 'Last access' with an exact date and a relative time indicator (for example 'X days ago') adjacent to the last-access date",
+      "priority": "medium"
     }
   ],
   "summary": {
     "total": 11,
-    "high_priority": 3,
-    "medium_priority": 8,
+    "high_priority": 2,
+    "medium_priority": 9,
     "low_priority": 0
   }
 }
 
 ------------------------------------------------------------
-[21:49:30] Test-Positive - PARSED JSON
+[15:31:45] Test-Positive - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Profile",
@@ -507,154 +570,180 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Open message composer from Profile header",
+      "wf_ref": "WF-001",
+      "test_case": "Open messaging composer via Message button",
       "preconditions": [
-        "User logged in as <Teacher>",
-        "Profile page is open"
+        "User logged in as <role>",
+        "Profile page is reachable"
       ],
       "steps": [
-        "1. Click the Message button in the profile header"
+        "1. Navigate to the Profile page",
+        "2. Click the Message button in the profile header"
       ],
-      "expected_result": "opens message composer",
+      "expected_result": "Opens messaging composer to send a message to the user",
       "priority": "high"
     },
     {
       "tc_id": "P-002",
-      "test_case": "Navigate to Edit Profile form from User details card",
+      "wf_ref": "WF-002",
+      "test_case": "Navigate to Edit profile from User details card",
       "preconditions": [
-        "User logged in as <Teacher>",
-        "Profile page is open"
+        "User logged in as <role>",
+        "Profile page is reachable"
       ],
       "steps": [
-        "1. Click the Edit profile link in the User details card"
+        "1. Navigate to the Profile page",
+        "2. Click the Edit profile link on the User details card"
       ],
-      "expected_result": "navigates to Edit Profile form",
+      "expected_result": "Navigates to the Edit profile page",
       "priority": "high"
     },
     {
       "tc_id": "P-003",
+      "wf_ref": "WF-003",
       "test_case": "Open Data Retention Summary from Privacy and policies card",
       "preconditions": [
-        "User logged in as <Teacher>",
-        "Profile page is open"
+        "User logged in as <role>",
+        "Profile page is reachable"
       ],
       "steps": [
-        "1. Click the Data retention summary link in the Privacy and policies card"
+        "1. Navigate to the Profile page",
+        "2. Click the Data Retention Summary link in the Privacy and policies card"
       ],
-      "expected_result": "opens Data Retention Summary",
+      "expected_result": "Opens the Data retention summary page or modal",
       "priority": "medium"
     },
     {
       "tc_id": "P-004",
-      "test_case": "Navigate to a Course Profile from Course details card",
+      "wf_ref": "WF-004",
+      "test_case": "Open a Course profile from Course Details",
       "preconditions": [
-        "User logged in as <Teacher>",
-        "Profile page is open",
-        "Profile page has at least one associated course with a Course profile link"
+        "User logged in as <role>",
+        "Profile has at least one associated course",
+        "Profile page is reachable"
       ],
       "steps": [
-        "1. Click one of the Course profile links listed in the Course details card"
+        "1. Navigate to the Profile page",
+        "2. In the Course Details card, click one Course Profile link"
       ],
-      "expected_result": "navigates to Course Profile",
+      "expected_result": "Navigates to the selected course's profile page",
       "priority": "medium"
     },
     {
       "tc_id": "P-005",
-      "test_case": "Navigate to Blog entries list from Miscellaneous card",
+      "wf_ref": "WF-005",
+      "test_case": "Open a Blog entry from Miscellaneous card",
       "preconditions": [
-        "User logged in as <Teacher>",
-        "Profile page is open"
+        "User logged in as <role>",
+        "Profile has at least one blog entry",
+        "Profile page is reachable"
       ],
       "steps": [
-        "1. Click the Blog entries link in the Miscellaneous card"
+        "1. Navigate to the Profile page",
+        "2. In the Miscellaneous card, click a Blog entry link"
       ],
-      "expected_result": "navigates to Blog entries list",
+      "expected_result": "Navigates to the selected blog entry",
       "priority": "medium"
     },
     {
       "tc_id": "P-006",
-      "test_case": "Navigate to Forum posts list from Miscellaneous card",
+      "wf_ref": "WF-006",
+      "test_case": "Open a Forum post from Miscellaneous card",
       "preconditions": [
-        "User logged in as <Teacher>",
-        "Profile page is open"
+        "User logged in as <role>",
+        "Profile has at least one forum post",
+        "Profile page is reachable"
       ],
       "steps": [
-        "1. Click the Forum posts link in the Miscellaneous card"
+        "1. Navigate to the Profile page",
+        "2. In the Miscellaneous card, click a Forum post link"
       ],
-      "expected_result": "navigates to Forum posts list",
+      "expected_result": "Navigates to the selected forum post",
       "priority": "medium"
     },
     {
       "tc_id": "P-007",
-      "test_case": "Navigate to Forum discussions list from Miscellaneous card",
+      "wf_ref": "WF-007",
+      "test_case": "Open a Forum discussion from Miscellaneous card",
       "preconditions": [
-        "User logged in as <Teacher>",
-        "Profile page is open"
+        "User logged in as <role>",
+        "Profile has at least one forum discussion",
+        "Profile page is reachable"
       ],
       "steps": [
-        "1. Click the Forum discussions link in the Miscellaneous card"
+        "1. Navigate to the Profile page",
+        "2. In the Miscellaneous card, click a Forum discussion link"
       ],
-      "expected_result": "navigates to Forum discussions list",
+      "expected_result": "Navigates to the selected forum discussion",
       "priority": "medium"
     },
     {
       "tc_id": "P-008",
-      "test_case": "Navigate to Learning plans list from Miscellaneous card",
+      "wf_ref": "WF-008",
+      "test_case": "Open a Learning plan from Miscellaneous card",
       "preconditions": [
-        "User logged in as <Teacher>",
-        "Profile page is open"
+        "User logged in as <role>",
+        "Profile has at least one learning plan",
+        "Profile page is reachable"
       ],
       "steps": [
-        "1. Click the Learning plans link in the Miscellaneous card"
+        "1. Navigate to the Profile page",
+        "2. In the Miscellaneous card, click a Learning plan link"
       ],
-      "expected_result": "navigates to Learning plans list",
+      "expected_result": "Navigates to the selected learning plan",
       "priority": "medium"
     },
     {
       "tc_id": "P-009",
-      "test_case": "Navigate to Browser sessions report from Reports card",
+      "wf_ref": "WF-009",
+      "test_case": "View Browser sessions report from Reports card",
       "preconditions": [
-        "User logged in as <Teacher>",
-        "Profile page is open"
+        "User logged in as <role>",
+        "Profile page is reachable"
       ],
       "steps": [
-        "1. Click the Browser sessions link in the Reports card"
+        "1. Navigate to the Profile page",
+        "2. Click the Browser Sessions link in the Reports card"
       ],
-      "expected_result": "navigates to Browser sessions report",
+      "expected_result": "Navigates to the Browser sessions report",
       "priority": "medium"
     },
     {
       "tc_id": "P-010",
-      "test_case": "Navigate to Grades overview from Reports card",
+      "wf_ref": "WF-010",
+      "test_case": "View Grades overview from Reports card",
       "preconditions": [
-        "User logged in as <Teacher>",
-        "Profile page is open"
+        "User logged in as <role>",
+        "Profile page is reachable"
       ],
       "steps": [
-        "1. Click the Grades overview link in the Reports card"
+        "1. Navigate to the Profile page",
+        "2. Click the Grades Overview link in the Reports card"
       ],
-      "expected_result": "navigates to Grades overview",
+      "expected_result": "Navigates to the Grades overview page",
       "priority": "medium"
     },
     {
       "tc_id": "P-011",
-      "test_case": "View Login activity with exact dates and relative time indicators",
+      "wf_ref": null,
+      "test_case": "Login activity displays First and Last access with exact dates and relative times",
       "preconditions": [
-        "User logged in as <Teacher>",
-        "Profile page is open",
-        "User has recorded first and last access timestamps"
+        "User logged in as <role>",
+        "Profile has recorded login activity",
+        "Profile page is reachable"
       ],
       "steps": [
-        "1. Scroll to the Login activity card on the Profile page"
+        "1. Navigate to the Profile page",
+        "2. Scroll to the Login activity card (if necessary) to view First and Last access entries"
       ],
-      "expected_result": "Login activity card displays 'First access' with an exact date and a relative time indicator (e.g., '<relative time>') and 'Last access' with an exact date and a relative time indicator (e.g., '<relative time>')",
-      "priority": "high"
+      "expected_result": "Login activity card displays 'First access' with an exact date and 'Last access' with an exact date and a relative time indicator (for example 'X days ago') adjacent to the last-access date",
+      "priority": "medium"
     }
   ],
   "summary": {
     "total": 11,
-    "high_priority": 3,
-    "medium_priority": 8,
+    "high_priority": 2,
+    "medium_priority": 9,
     "low_priority": 0
   }
 }

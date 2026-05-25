@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-22T21:41:13.082900
+DEBUG SESSION STARTED: 2026-05-25T15:09:37.492165
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[21:41:13] Test-Edge - SYSTEM PROMPT
+[15:09:37] Test-Edge - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Edge Case and Boundary Test Generator. You receive (1) a UI-AST JSON for one module and (2) the original functional description. Your job is to produce ONLY boundary and edge case tests — scenarios at the limits of valid/invalid input and unusual-but-plausible user behaviors.
 
@@ -24,6 +24,10 @@ You are NOT producing happy paths (positive prompt) or standard validation failu
 <description>
 {Original functional description text for this module}
 </description>
+
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
 
 ---
 
@@ -176,6 +180,15 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 
 ---
 
+**WORKFLOW-AWARE BOUNDARY SCOPING (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- For each workflow where `conditional_branch` activates a numeric or date field, check if that field has a boundary (a numeric/date threshold in the AST `constraints` or description).
+- If yes, that workflow's branch is a **candidate for a boundary edge test** — add or confirm a boundary TC exists for it.
+- Add `"wf_ref": "WF-NNN"` to each TC that maps to a specific workflow's boundary. Set `"wf_ref": null` for generic input/interaction edge tests.
+
+---
+
 **OUTPUT — JSON only, no prose, no markdown fencing:**
 
 {
@@ -184,6 +197,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": null,
       "subcategory": "boundary | input_edge | interaction_edge | state_edge | data_edge",
       "test_case": "Short descriptive name",
       "preconditions": ["precondition 1"],
@@ -206,7 +220,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 
 
 ------------------------------------------------------------
-[21:41:13] Test-Edge - USER PROMPT
+[15:09:37] Test-Edge - USER PROMPT
 ------------------------------------------------------------
 <module_name>Participants</module_name>
 
@@ -221,15 +235,15 @@ If the module has any numeric/date/count threshold in the AST or description, pr
           "type": "checkbox",
           "required": false
         },
+        "Attribute_Select": {
+          "type": "dropdown",
+          "required": false
+        },
         "Conditions": {
           "type": "repeating_group",
           "item_fields": {
-            "Attribute_Select": {
+            "Attribute": {
               "type": "dropdown",
-              "required": true
-            },
-            "Value": {
-              "type": "unspecified",
               "required": false
             }
           }
@@ -239,161 +253,125 @@ If the module has any numeric/date/count threshold in the AST or description, pr
         {
           "element_name": "+ Add condition",
           "type": "link",
-          "on_success": "adds condition row to Conditions"
+          "on_success": "adds one item to Conditions repeating_group"
         }
       ],
       "submit_actions": [
         {
           "element_name": "Clear filters",
-          "on_success": "clears all filter conditions and resets Any toggle and alphabetical filters"
+          "on_success": "clears filter builder inputs"
         },
         {
           "element_name": "Apply filters",
-          "on_success": "applies filter conditions to participants list"
+          "on_success": "applies filters to participants list"
         }
       ]
     },
-    "First_Name_Alphabet_Filter": {
-      "type": "button_group",
-      "apply_to": "First name",
-      "options": [
-        "All",
-        "A",
-        "B",
-        "C",
-        "D",
-        "E",
-        "F",
-        "G",
-        "H",
-        "I",
-        "J",
-        "K",
-        "L",
-        "M",
-        "N",
-        "O",
-        "P",
-        "Q",
-        "R",
-        "S",
-        "T",
-        "U",
-        "V",
-        "W",
-        "X",
-        "Y",
-        "Z"
-      ],
-      "on_select": "filters participants by first-name initial"
-    },
-    "Last_Name_Alphabet_Filter": {
-      "type": "button_group",
-      "apply_to": "Last name",
-      "options": [
-        "All",
-        "A",
-        "B",
-        "C",
-        "D",
-        "E",
-        "F",
-        "G",
-        "H",
-        "I",
-        "J",
-        "K",
-        "L",
-        "M",
-        "N",
-        "O",
-        "P",
-        "Q",
-        "R",
-        "S",
-        "T",
-        "U",
-        "V",
-        "W",
-        "X",
-        "Y",
-        "Z"
-      ],
-      "on_select": "filters participants by last-name initial"
+    "Alphabetical_Filters": {
+      "type": "form",
+      "fields": {
+        "First_Name_Initial": {
+          "type": "dropdown",
+          "required": false,
+          "options": [
+            "All",
+            "A",
+            "B",
+            "C",
+            "D",
+            "E",
+            "F",
+            "G",
+            "H",
+            "I",
+            "J",
+            "K",
+            "L",
+            "M",
+            "N",
+            "O",
+            "P",
+            "Q",
+            "R",
+            "S",
+            "T",
+            "U",
+            "V",
+            "W",
+            "X",
+            "Y",
+            "Z"
+          ],
+          "on_change": "filters participants by first-name initial"
+        },
+        "Last_Name_Initial": {
+          "type": "dropdown",
+          "required": false,
+          "options": [
+            "All",
+            "A",
+            "B",
+            "C",
+            "D",
+            "E",
+            "F",
+            "G",
+            "H",
+            "I",
+            "J",
+            "K",
+            "L",
+            "M",
+            "N",
+            "O",
+            "P",
+            "Q",
+            "R",
+            "S",
+            "T",
+            "U",
+            "V",
+            "W",
+            "X",
+            "Y",
+            "Z"
+          ],
+          "on_change": "filters participants by last-name initial"
+        }
+      }
     },
     "Participants_Table": {
       "type": "data_table",
-      "selectable": true,
       "columns": [
-        {
-          "column_name": "Select",
-          "type": "checkbox_column"
-        },
-        {
-          "column_name": "First/Last name",
-          "sortable": true,
-          "cell_action": {
-            "action_name": "View Profile",
-            "type": "link",
-            "on_click": "navigates to participant profile"
-          },
-          "note": "names render as links to profile"
-        },
-        {
-          "column_name": "Roles",
-          "sortable": false
-        },
-        {
-          "column_name": "Groups",
-          "sortable": false
-        },
-        {
-          "column_name": "Last access",
-          "sortable": false
-        }
+        "selection_checkbox",
+        "First name",
+        "Last name",
+        "Roles",
+        "Groups",
+        "Last access"
       ],
+      "has_row_selection": true,
       "sortable_columns": [
-        "First/Last name"
+        "First name",
+        "Last name"
       ],
       "row_actions": [
         {
           "action_name": "View Profile",
           "type": "link",
-          "on_click": "navigates to participant profile"
-        },
-        {
-          "action_name": "Edit Roles",
-          "preconditions": [
-            "requires instructor or admin role"
-          ]
-        },
-        {
-          "action_name": "Enrol",
-          "preconditions": [
-            "requires instructor or admin role"
-          ]
-        },
-        {
-          "action_name": "Unenrol",
-          "preconditions": [
-            "requires instructor or admin role"
-          ]
+          "target_column": "First name / Last name",
+          "on_success": "navigates to participant profile"
         }
       ],
-      "bulk_actions": [
-        {
-          "action_name": "Enrol Selected",
-          "preconditions": [
-            "requires instructor or admin role"
-          ]
-        },
-        {
-          "action_name": "Unenrol Selected",
-          "preconditions": [
-            "requires instructor or admin role"
-          ]
-        }
-      ]
+      "bulk_actions": []
+    },
+    "Enrollment_Management_Features": {
+      "type": "component",
+      "fields": {},
+      "preconditions": [
+        "user role must not be Student"
+      ],
+      "notes": "Enrollment management actions (enrol/unenrol users, edit roles, access enrollment management) are gated by the precondition above and therefore not available to Students."
     }
   }
 }
@@ -408,10 +386,19 @@ The Participants page lists all users enrolled in the course. A filter system at
 
 </description>
 
+<workflows>
+WF-001 | Apply filters (Filter Builder) | actor: <role> | branch: none | terminal: Apply filters | on_success: applies filters to participants list
+WF-002 | Clear filters (Filter Builder) | actor: <role> | branch: none | terminal: Clear filters | on_success: clears filter builder inputs
+WF-003 | Add a condition to filter builder | actor: <role> | branch: none | terminal: + Add condition | on_success: adds one item to Conditions repeating_group
+WF-004 | Filter by first-name initial | actor: <role> | branch: none | terminal: First_Name_Initial | on_success: filters participants by first-name initial
+WF-005 | Filter by last-name initial | actor: <role> | branch: none | terminal: Last_Name_Initial | on_success: filters participants by last-name initial
+WF-006 | View participant profile from table | actor: <role> | branch: none | terminal: View Profile | on_success: navigates to participant profile
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[21:41:55] Test-Edge - LLM RESPONSE
+[15:10:54] Test-Edge - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Participants",
@@ -419,87 +406,88 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": "WF-003",
       "subcategory": "input_edge",
-      "test_case": "Very long text in Condition Value (200+ chars)",
+      "test_case": "Apply filters with an added condition whose Attribute is left empty",
       "preconditions": [
-        "User is logged in and on the Participants page",
-        "Participants page is loaded"
+        "User is on the Participants page",
+        "Participants list is populated"
       ],
       "steps": [
-        "1. Click \"+ Add condition\"",
-        "2. Select <an attribute> in Attribute_Select",
-        "3. Enter <a very long string (200+ characters)> in Value",
-        "4. Click \"Apply filters\""
+        "1. Click the \"+ Add condition\" link in the Filter_Builder",
+        "2. Verify a new item appears in the Conditions repeating_group",
+        "3. Do not select any value in the new item's \"Attribute\" dropdown (leave it empty)",
+        "4. Click the \"Apply filters\" button"
       ],
-      "expected_result": "Apply filters succeeds; participants list updates to reflect the filter; the Conditions row's Value cell displays the full entered string (no truncation) and the UI shows the exact text as entered",
+      "expected_result": "Apply filters succeeds; participants list is updated (no error shown). The empty condition item remains visible in the Filter_Builder Conditions repeating_group after Apply filters, and the participants list shows the same results as if that empty condition had been ignored",
       "priority": "medium"
     },
     {
       "tc_id": "E-002",
-      "subcategory": "input_edge",
-      "test_case": "Special characters and emoji in Condition Value",
+      "wf_ref": "WF-004",
+      "subcategory": "interaction_edge",
+      "test_case": "Rapidly change First_Name_Initial selection multiple times",
       "preconditions": [
-        "User is logged in and on the Participants page",
-        "Participants page is loaded"
+        "User is on the Participants page",
+        "Alphabetical_Filters controls are visible"
       ],
       "steps": [
-        "1. Click \"+ Add condition\"",
-        "2. Select <an attribute> in Attribute_Select",
-        "3. Enter <a string containing special characters and emoji/unicode> in Value",
-        "4. Click \"Apply filters\""
+        "1. Open the First_Name_Initial dropdown",
+        "2. Select a letter option (e.g., choose some letter)",
+        "3. Immediately (within 1 second) select a different letter option from First_Name_Initial",
+        "4. Wait for the participants list to finish updating"
       ],
-      "expected_result": "Apply filters succeeds; participants list updates to reflect the filter; the Conditions row's Value cell displays the exact special characters and emoji (no encoding artifacts), and no UI error is shown",
+      "expected_result": "The final First_Name_Initial selection succeeds in applying; the First_Name_Initial control displays the last-chosen letter and the participants list shows entries matching that final initial. No error dialog is shown and intermediate selections do not leave residual or duplicated filters in the UI",
       "priority": "medium"
     },
     {
       "tc_id": "E-003",
-      "subcategory": "input_edge",
-      "test_case": "Leading and trailing whitespace in Condition Value is trimmed on save/display",
+      "wf_ref": "WF-006",
+      "subcategory": "interaction_edge",
+      "test_case": "Select a row checkbox, navigate to profile, then return and verify selection persistence",
       "preconditions": [
-        "User is logged in and on the Participants page",
-        "Participants page is loaded"
+        "User is on the Participants page",
+        "Participants_Table shows at least one participant row"
       ],
       "steps": [
-        "1. Click \"+ Add condition\"",
-        "2. Select <an attribute> in Attribute_Select",
-        "3. Enter <a value with leading and trailing whitespace> in Value",
-        "4. Click \"Apply filters\""
+        "1. In Participants_Table, click the selection_checkbox for a visible participant row",
+        "2. Click the participant's name link (triggering the View Profile row action) to navigate to the profile",
+        "3. From the participant profile page, use the browser back button (or the UI back navigation) to return to the Participants page"
       ],
-      "expected_result": "Apply filters succeeds; participants list updates to reflect the filter; the Conditions row's Value cell displays the value with leading/trailing whitespace trimmed (visible saved value has no extra spaces)",
+      "expected_result": "Navigation to the participant profile succeeds; after returning to the Participants page, the previously selected row's selection_checkbox remains checked (selection persists) and only that row is selected. No duplicate rows are selected and no selection-related error is shown",
       "priority": "low"
     },
     {
       "tc_id": "E-004",
-      "subcategory": "interaction_edge",
-      "test_case": "Rapidly toggle Any checkbox then Apply filters",
+      "wf_ref": null,
+      "subcategory": "state_edge",
+      "test_case": "Student role cannot see or interact with Enrollment management features",
       "preconditions": [
-        "User is logged in and on the Participants page",
-        "Participants page is loaded"
+        "User is logged in with role = Student",
+        "User is on the Participants page"
       ],
       "steps": [
-        "1. Click the Any_Toggle checkbox to check it",
-        "2. Click the Any_Toggle checkbox to uncheck it",
-        "3. Click the Any_Toggle checkbox to check it again",
-        "4. Click \"Apply filters\""
+        "1. Inspect the Participants page for any enrollment management UI elements (enrol/unenrol, edit roles, access enrollment management) in rows or page-level controls",
+        "2. If any enrollment management control appears visually, attempt to click it"
       ],
-      "expected_result": "Apply filters succeeds; the participants list is filtered using the final state of the Any toggle (checked); no duplicate condition rows are created and the filter UI remains stable with the Any toggle reflecting its final state",
-      "priority": "low"
+      "expected_result": "Access to Enrollment_Management_Features is blocked / not visible: enrollment management controls are not present in the UI for Students. Any attempt to click a control (if it briefly appears) is blocked and does not open enrollment management; no enrol/unenrol/edit role UI is shown to the Student and no error indicating a missing permission dialog is exposed to the Student",
+      "priority": "medium"
     }
   ],
   "summary": {
     "total": 4,
     "boundary": 0,
-    "input_edge": 3,
-    "interaction_edge": 1,
-    "state_edge": 0,
+    "input_edge": 1,
+    "interaction_edge": 2,
+    "state_edge": 1,
     "data_edge": 0,
-    "medium_priority": 2,
-    "low_priority": 2
+    "medium_priority": 3,
+    "low_priority": 1
   }
 }
 
 ------------------------------------------------------------
-[21:41:55] Test-Edge - PARSED JSON
+[15:10:54] Test-Edge - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Participants",
@@ -507,81 +495,82 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": "WF-003",
       "subcategory": "input_edge",
-      "test_case": "Very long text in Condition Value (200+ chars)",
+      "test_case": "Apply filters with an added condition whose Attribute is left empty",
       "preconditions": [
-        "User is logged in and on the Participants page",
-        "Participants page is loaded"
+        "User is on the Participants page",
+        "Participants list is populated"
       ],
       "steps": [
-        "1. Click \"+ Add condition\"",
-        "2. Select <an attribute> in Attribute_Select",
-        "3. Enter <a very long string (200+ characters)> in Value",
-        "4. Click \"Apply filters\""
+        "1. Click the \"+ Add condition\" link in the Filter_Builder",
+        "2. Verify a new item appears in the Conditions repeating_group",
+        "3. Do not select any value in the new item's \"Attribute\" dropdown (leave it empty)",
+        "4. Click the \"Apply filters\" button"
       ],
-      "expected_result": "Apply filters succeeds; participants list updates to reflect the filter; the Conditions row's Value cell displays the full entered string (no truncation) and the UI shows the exact text as entered",
+      "expected_result": "Apply filters succeeds; participants list is updated (no error shown). The empty condition item remains visible in the Filter_Builder Conditions repeating_group after Apply filters, and the participants list shows the same results as if that empty condition had been ignored",
       "priority": "medium"
     },
     {
       "tc_id": "E-002",
-      "subcategory": "input_edge",
-      "test_case": "Special characters and emoji in Condition Value",
+      "wf_ref": "WF-004",
+      "subcategory": "interaction_edge",
+      "test_case": "Rapidly change First_Name_Initial selection multiple times",
       "preconditions": [
-        "User is logged in and on the Participants page",
-        "Participants page is loaded"
+        "User is on the Participants page",
+        "Alphabetical_Filters controls are visible"
       ],
       "steps": [
-        "1. Click \"+ Add condition\"",
-        "2. Select <an attribute> in Attribute_Select",
-        "3. Enter <a string containing special characters and emoji/unicode> in Value",
-        "4. Click \"Apply filters\""
+        "1. Open the First_Name_Initial dropdown",
+        "2. Select a letter option (e.g., choose some letter)",
+        "3. Immediately (within 1 second) select a different letter option from First_Name_Initial",
+        "4. Wait for the participants list to finish updating"
       ],
-      "expected_result": "Apply filters succeeds; participants list updates to reflect the filter; the Conditions row's Value cell displays the exact special characters and emoji (no encoding artifacts), and no UI error is shown",
+      "expected_result": "The final First_Name_Initial selection succeeds in applying; the First_Name_Initial control displays the last-chosen letter and the participants list shows entries matching that final initial. No error dialog is shown and intermediate selections do not leave residual or duplicated filters in the UI",
       "priority": "medium"
     },
     {
       "tc_id": "E-003",
-      "subcategory": "input_edge",
-      "test_case": "Leading and trailing whitespace in Condition Value is trimmed on save/display",
+      "wf_ref": "WF-006",
+      "subcategory": "interaction_edge",
+      "test_case": "Select a row checkbox, navigate to profile, then return and verify selection persistence",
       "preconditions": [
-        "User is logged in and on the Participants page",
-        "Participants page is loaded"
+        "User is on the Participants page",
+        "Participants_Table shows at least one participant row"
       ],
       "steps": [
-        "1. Click \"+ Add condition\"",
-        "2. Select <an attribute> in Attribute_Select",
-        "3. Enter <a value with leading and trailing whitespace> in Value",
-        "4. Click \"Apply filters\""
+        "1. In Participants_Table, click the selection_checkbox for a visible participant row",
+        "2. Click the participant's name link (triggering the View Profile row action) to navigate to the profile",
+        "3. From the participant profile page, use the browser back button (or the UI back navigation) to return to the Participants page"
       ],
-      "expected_result": "Apply filters succeeds; participants list updates to reflect the filter; the Conditions row's Value cell displays the value with leading/trailing whitespace trimmed (visible saved value has no extra spaces)",
+      "expected_result": "Navigation to the participant profile succeeds; after returning to the Participants page, the previously selected row's selection_checkbox remains checked (selection persists) and only that row is selected. No duplicate rows are selected and no selection-related error is shown",
       "priority": "low"
     },
     {
       "tc_id": "E-004",
-      "subcategory": "interaction_edge",
-      "test_case": "Rapidly toggle Any checkbox then Apply filters",
+      "wf_ref": null,
+      "subcategory": "state_edge",
+      "test_case": "Student role cannot see or interact with Enrollment management features",
       "preconditions": [
-        "User is logged in and on the Participants page",
-        "Participants page is loaded"
+        "User is logged in with role = Student",
+        "User is on the Participants page"
       ],
       "steps": [
-        "1. Click the Any_Toggle checkbox to check it",
-        "2. Click the Any_Toggle checkbox to uncheck it",
-        "3. Click the Any_Toggle checkbox to check it again",
-        "4. Click \"Apply filters\""
+        "1. Inspect the Participants page for any enrollment management UI elements (enrol/unenrol, edit roles, access enrollment management) in rows or page-level controls",
+        "2. If any enrollment management control appears visually, attempt to click it"
       ],
-      "expected_result": "Apply filters succeeds; the participants list is filtered using the final state of the Any toggle (checked); no duplicate condition rows are created and the filter UI remains stable with the Any toggle reflecting its final state",
-      "priority": "low"
+      "expected_result": "Access to Enrollment_Management_Features is blocked / not visible: enrollment management controls are not present in the UI for Students. Any attempt to click a control (if it briefly appears) is blocked and does not open enrollment management; no enrol/unenrol/edit role UI is shown to the Student and no error indicating a missing permission dialog is exposed to the Student",
+      "priority": "medium"
     }
   ],
   "summary": {
     "total": 4,
     "boundary": 0,
-    "input_edge": 3,
-    "interaction_edge": 1,
-    "state_edge": 0,
+    "input_edge": 1,
+    "interaction_edge": 2,
+    "state_edge": 1,
     "data_edge": 0,
-    "medium_priority": 2,
-    "low_priority": 2
+    "medium_priority": 3,
+    "low_priority": 1
   }
 }

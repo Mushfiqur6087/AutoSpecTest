@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-21T22:29:06.501143
+DEBUG SESSION STARTED: 2026-05-25T14:24:50.704523
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[22:29:06] Test-Positive - SYSTEM PROMPT
+[14:24:50] Test-Positive - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Expert UI Test Case Generator. You receive (1) a UI-AST JSON for one specific module and (2) the original functional description for that module.
 
@@ -24,6 +24,10 @@ Your job is to produce ONLY positive/functional UI test cases — tests where va
 <description>
 {Original functional description text for this module}
 </description>
+
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
 
 ---
 
@@ -146,6 +150,13 @@ Because you are testing a module in isolation, establish the required entry stat
 **1. Forms & Wizards (`form`, `wizard`):**
 - Generate ONE happy path per distinct success outcome.
 - *Conditional UI Check:* If a toggle/dropdown reveals new mandatory fields (`visible_when`), generate a separate test for that conditional branch.
+- **Wizard step coverage (CRITICAL):** If a wizard has multiple steps and any step beyond Step 1 contains its own named field group (e.g., "Address Details", "Family Members", "Identifiers"), generate ONE dedicated positive TC per such step. The TC must:
+  - Navigate to that specific step (include the preceding steps as preconditions or brief navigation steps)
+  - Fill the fields described for that step (not just pass through)
+  - Assert the step's content is visible/saved on the detail page after final submission
+  - **Do NOT collapse all wizard steps into one happy-path TC** — if Steps 2, 3, and 4 each have their own named section in the spec, they each need their own TC.
+- **Wizard in-step identifiers/duplicates:** If a wizard step allows adding identifiers, documents, or similar entries that have a uniqueness constraint, include a TC for that wizard step that also verifies the constraint (e.g., attempting to add a duplicate Document Type+Key pair inside the wizard). This is a different code path from adding the same post-creation on the detail page.
+- **Action dialogs:** If a `state_bound_action_bar` action opens a dialog with its own `fields{}` (e.g., Activate requires Activation Date, Reject requires Reason), generate ONE positive TC per such action-dialog — distinct from the state-transition TC. The TC fills the dialog field and completes the action.
 
 **2. State Machines (`state_bound_action_bar`):**
 - For each unique action available in a specific state, generate ONE test performing that action.
@@ -200,6 +211,19 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 
 ---
 
+**WORKFLOW COVERAGE OBLIGATION (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- Your test cases must **collectively cover every workflow** listed.
+- For each `wf_id`, at least one TC must:
+  - Activate the `conditional_branch` (if not null) — i.e. the test must set up the condition described.
+  - Assert the `on_success` as its `expected_result` (verbatim or as the primary basis for the expected result).
+- Add `"wf_ref": "WF-NNN"` to each TC to identify which workflow it covers.
+- If one TC naturally covers multiple workflows (e.g., the base path overlaps), pick the most specific `wf_ref`.
+- If a TC does not map to any workflow (e.g., a navigation-only test), set `"wf_ref": null`.
+
+---
+
 **OUTPUT — JSON only, no prose, no markdown fencing:**
 
 {
@@ -208,6 +232,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
   "test_cases": [
     {
       "tc_id": "P-001",
+      "wf_ref": "WF-001",
       "test_case": "Short descriptive name",
       "preconditions": ["User logged in as <Role>", "<Prerequisite state>"],
       "steps": ["1. Step one", "2. Step two"],
@@ -224,7 +249,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 }
 
 ------------------------------------------------------------
-[22:29:06] Test-Positive - USER PROMPT
+[14:24:50] Test-Positive - USER PROMPT
 ------------------------------------------------------------
 <module_name>Home Page</module_name>
 
@@ -240,23 +265,15 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
       "fields": {
         "Search_Activity": {
           "type": "search",
-          "required": false
+          "required": false,
+          "on_submit": "filters recent system activities"
         }
       },
-      "submit_actions": [
-        {
-          "element_name": "Search",
-          "on_success": "filters recent system activities"
-        }
-      ],
       "actions": [
         {
-          "element_name": "Dashboard",
+          "action_name": "Dashboard",
           "type": "button",
-          "on_success": "navigates to Dashboard",
-          "preconditions": [
-            "user must be logged in"
-          ]
+          "on_success": "navigates to Dashboard view"
         }
       ]
     }
@@ -273,10 +290,15 @@ The Home page appears after successful login. The main content area displays a w
 
 </description>
 
+<workflows>
+WF-001 | Search recent activities | actor: <role> | branch: none | terminal: Search_Activity | on_success: filters recent system activities
+WF-002 | Open Dashboard | actor: <role> | branch: none | terminal: Dashboard | on_success: navigates to Dashboard view
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[22:29:36] Test-Positive - LLM RESPONSE
+[14:25:12] Test-Positive - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Home Page",
@@ -284,42 +306,44 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Search Activity filters recent system activities",
+      "wf_ref": "WF-001",
+      "test_case": "Search recent activities filters the Recent Activities list",
       "preconditions": [
-        "User logged in as <User>"
+        "User logged in as <role>"
       ],
       "steps": [
-        "1. Navigate to the Home page",
-        "2. Enter <search term> in the Search Activity input field",
-        "3. Click the Search button"
+        "1. Navigate to the Home Page",
+        "2. Enter <search term> in the Search Activity field",
+        "3. Submit the search (press Enter or click the search control)"
       ],
-      "expected_result": "Recent system activities list displays only activities matching <search term>; unrelated activities are no longer visible (filters recent system activities)",
+      "expected_result": "Recent system activities list is filtered to show only results matching <search term> (filters recent system activities)",
       "priority": "high"
     },
     {
       "tc_id": "P-002",
-      "test_case": "Dashboard button navigates to Dashboard view",
+      "wf_ref": "WF-002",
+      "test_case": "Clicking Dashboard navigates to the Dashboard view",
       "preconditions": [
-        "User logged in as <User>"
+        "User logged in as <role>"
       ],
       "steps": [
-        "1. Navigate to the Home page",
+        "1. Navigate to the Home Page",
         "2. Click the Dashboard button"
       ],
-      "expected_result": "Application navigates to the Dashboard page and the page title or header 'Dashboard' is visible (navigates to Dashboard)",
+      "expected_result": "Dashboard view is displayed (navigates to Dashboard view)",
       "priority": "high"
     },
     {
       "tc_id": "P-003",
-      "test_case": "Home page displays welcome message and system version information",
+      "wf_ref": null,
+      "test_case": "Home Page displays welcome message and system version information",
       "preconditions": [
-        "User logged in as <User>"
+        "User logged in as <role>"
       ],
       "steps": [
-        "1. Navigate to the Home page",
-        "2. Observe the main content area and page footer"
+        "1. Navigate to the Home Page"
       ],
-      "expected_result": "Welcome card displays the message \"Welcome, mifos!\"; Mifos and Fineract system version information is visible in the page footer",
+      "expected_result": "\"Welcome, mifos!\" message is visible in the welcome card and system version information for Mifos and Fineract is displayed at the bottom of the page",
       "priority": "medium"
     }
   ],
@@ -332,7 +356,7 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
 }
 
 ------------------------------------------------------------
-[22:29:36] Test-Positive - PARSED JSON
+[14:25:12] Test-Positive - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Home Page",
@@ -340,42 +364,44 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Search Activity filters recent system activities",
+      "wf_ref": "WF-001",
+      "test_case": "Search recent activities filters the Recent Activities list",
       "preconditions": [
-        "User logged in as <User>"
+        "User logged in as <role>"
       ],
       "steps": [
-        "1. Navigate to the Home page",
-        "2. Enter <search term> in the Search Activity input field",
-        "3. Click the Search button"
+        "1. Navigate to the Home Page",
+        "2. Enter <search term> in the Search Activity field",
+        "3. Submit the search (press Enter or click the search control)"
       ],
-      "expected_result": "Recent system activities list displays only activities matching <search term>; unrelated activities are no longer visible (filters recent system activities)",
+      "expected_result": "Recent system activities list is filtered to show only results matching <search term> (filters recent system activities)",
       "priority": "high"
     },
     {
       "tc_id": "P-002",
-      "test_case": "Dashboard button navigates to Dashboard view",
+      "wf_ref": "WF-002",
+      "test_case": "Clicking Dashboard navigates to the Dashboard view",
       "preconditions": [
-        "User logged in as <User>"
+        "User logged in as <role>"
       ],
       "steps": [
-        "1. Navigate to the Home page",
+        "1. Navigate to the Home Page",
         "2. Click the Dashboard button"
       ],
-      "expected_result": "Application navigates to the Dashboard page and the page title or header 'Dashboard' is visible (navigates to Dashboard)",
+      "expected_result": "Dashboard view is displayed (navigates to Dashboard view)",
       "priority": "high"
     },
     {
       "tc_id": "P-003",
-      "test_case": "Home page displays welcome message and system version information",
+      "wf_ref": null,
+      "test_case": "Home Page displays welcome message and system version information",
       "preconditions": [
-        "User logged in as <User>"
+        "User logged in as <role>"
       ],
       "steps": [
-        "1. Navigate to the Home page",
-        "2. Observe the main content area and page footer"
+        "1. Navigate to the Home Page"
       ],
-      "expected_result": "Welcome card displays the message \"Welcome, mifos!\"; Mifos and Fineract system version information is visible in the page footer",
+      "expected_result": "\"Welcome, mifos!\" message is visible in the welcome card and system version information for Mifos and Fineract is displayed at the bottom of the page",
       "priority": "medium"
     }
   ],

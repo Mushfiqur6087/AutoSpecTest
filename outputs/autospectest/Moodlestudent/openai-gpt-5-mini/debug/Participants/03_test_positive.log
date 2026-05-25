@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-22T21:41:13.081662
+DEBUG SESSION STARTED: 2026-05-25T15:09:37.491295
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[21:41:13] Test-Positive - SYSTEM PROMPT
+[15:09:37] Test-Positive - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Expert UI Test Case Generator. You receive (1) a UI-AST JSON for one specific module and (2) the original functional description for that module.
 
@@ -24,6 +24,10 @@ Your job is to produce ONLY positive/functional UI test cases — tests where va
 <description>
 {Original functional description text for this module}
 </description>
+
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
 
 ---
 
@@ -146,6 +150,13 @@ Because you are testing a module in isolation, establish the required entry stat
 **1. Forms & Wizards (`form`, `wizard`):**
 - Generate ONE happy path per distinct success outcome.
 - *Conditional UI Check:* If a toggle/dropdown reveals new mandatory fields (`visible_when`), generate a separate test for that conditional branch.
+- **Wizard step coverage (CRITICAL):** If a wizard has multiple steps and any step beyond Step 1 contains its own named field group (e.g., "Address Details", "Family Members", "Identifiers"), generate ONE dedicated positive TC per such step. The TC must:
+  - Navigate to that specific step (include the preceding steps as preconditions or brief navigation steps)
+  - Fill the fields described for that step (not just pass through)
+  - Assert the step's content is visible/saved on the detail page after final submission
+  - **Do NOT collapse all wizard steps into one happy-path TC** — if Steps 2, 3, and 4 each have their own named section in the spec, they each need their own TC.
+- **Wizard in-step identifiers/duplicates:** If a wizard step allows adding identifiers, documents, or similar entries that have a uniqueness constraint, include a TC for that wizard step that also verifies the constraint (e.g., attempting to add a duplicate Document Type+Key pair inside the wizard). This is a different code path from adding the same post-creation on the detail page.
+- **Action dialogs:** If a `state_bound_action_bar` action opens a dialog with its own `fields{}` (e.g., Activate requires Activation Date, Reject requires Reason), generate ONE positive TC per such action-dialog — distinct from the state-transition TC. The TC fills the dialog field and completes the action.
 
 **2. State Machines (`state_bound_action_bar`):**
 - For each unique action available in a specific state, generate ONE test performing that action.
@@ -200,6 +211,19 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 
 ---
 
+**WORKFLOW COVERAGE OBLIGATION (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- Your test cases must **collectively cover every workflow** listed.
+- For each `wf_id`, at least one TC must:
+  - Activate the `conditional_branch` (if not null) — i.e. the test must set up the condition described.
+  - Assert the `on_success` as its `expected_result` (verbatim or as the primary basis for the expected result).
+- Add `"wf_ref": "WF-NNN"` to each TC to identify which workflow it covers.
+- If one TC naturally covers multiple workflows (e.g., the base path overlaps), pick the most specific `wf_ref`.
+- If a TC does not map to any workflow (e.g., a navigation-only test), set `"wf_ref": null`.
+
+---
+
 **OUTPUT — JSON only, no prose, no markdown fencing:**
 
 {
@@ -208,6 +232,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
   "test_cases": [
     {
       "tc_id": "P-001",
+      "wf_ref": "WF-001",
       "test_case": "Short descriptive name",
       "preconditions": ["User logged in as <Role>", "<Prerequisite state>"],
       "steps": ["1. Step one", "2. Step two"],
@@ -224,7 +249,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 }
 
 ------------------------------------------------------------
-[21:41:13] Test-Positive - USER PROMPT
+[15:09:37] Test-Positive - USER PROMPT
 ------------------------------------------------------------
 <module_name>Participants</module_name>
 
@@ -239,15 +264,15 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
           "type": "checkbox",
           "required": false
         },
+        "Attribute_Select": {
+          "type": "dropdown",
+          "required": false
+        },
         "Conditions": {
           "type": "repeating_group",
           "item_fields": {
-            "Attribute_Select": {
+            "Attribute": {
               "type": "dropdown",
-              "required": true
-            },
-            "Value": {
-              "type": "unspecified",
               "required": false
             }
           }
@@ -257,161 +282,125 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
         {
           "element_name": "+ Add condition",
           "type": "link",
-          "on_success": "adds condition row to Conditions"
+          "on_success": "adds one item to Conditions repeating_group"
         }
       ],
       "submit_actions": [
         {
           "element_name": "Clear filters",
-          "on_success": "clears all filter conditions and resets Any toggle and alphabetical filters"
+          "on_success": "clears filter builder inputs"
         },
         {
           "element_name": "Apply filters",
-          "on_success": "applies filter conditions to participants list"
+          "on_success": "applies filters to participants list"
         }
       ]
     },
-    "First_Name_Alphabet_Filter": {
-      "type": "button_group",
-      "apply_to": "First name",
-      "options": [
-        "All",
-        "A",
-        "B",
-        "C",
-        "D",
-        "E",
-        "F",
-        "G",
-        "H",
-        "I",
-        "J",
-        "K",
-        "L",
-        "M",
-        "N",
-        "O",
-        "P",
-        "Q",
-        "R",
-        "S",
-        "T",
-        "U",
-        "V",
-        "W",
-        "X",
-        "Y",
-        "Z"
-      ],
-      "on_select": "filters participants by first-name initial"
-    },
-    "Last_Name_Alphabet_Filter": {
-      "type": "button_group",
-      "apply_to": "Last name",
-      "options": [
-        "All",
-        "A",
-        "B",
-        "C",
-        "D",
-        "E",
-        "F",
-        "G",
-        "H",
-        "I",
-        "J",
-        "K",
-        "L",
-        "M",
-        "N",
-        "O",
-        "P",
-        "Q",
-        "R",
-        "S",
-        "T",
-        "U",
-        "V",
-        "W",
-        "X",
-        "Y",
-        "Z"
-      ],
-      "on_select": "filters participants by last-name initial"
+    "Alphabetical_Filters": {
+      "type": "form",
+      "fields": {
+        "First_Name_Initial": {
+          "type": "dropdown",
+          "required": false,
+          "options": [
+            "All",
+            "A",
+            "B",
+            "C",
+            "D",
+            "E",
+            "F",
+            "G",
+            "H",
+            "I",
+            "J",
+            "K",
+            "L",
+            "M",
+            "N",
+            "O",
+            "P",
+            "Q",
+            "R",
+            "S",
+            "T",
+            "U",
+            "V",
+            "W",
+            "X",
+            "Y",
+            "Z"
+          ],
+          "on_change": "filters participants by first-name initial"
+        },
+        "Last_Name_Initial": {
+          "type": "dropdown",
+          "required": false,
+          "options": [
+            "All",
+            "A",
+            "B",
+            "C",
+            "D",
+            "E",
+            "F",
+            "G",
+            "H",
+            "I",
+            "J",
+            "K",
+            "L",
+            "M",
+            "N",
+            "O",
+            "P",
+            "Q",
+            "R",
+            "S",
+            "T",
+            "U",
+            "V",
+            "W",
+            "X",
+            "Y",
+            "Z"
+          ],
+          "on_change": "filters participants by last-name initial"
+        }
+      }
     },
     "Participants_Table": {
       "type": "data_table",
-      "selectable": true,
       "columns": [
-        {
-          "column_name": "Select",
-          "type": "checkbox_column"
-        },
-        {
-          "column_name": "First/Last name",
-          "sortable": true,
-          "cell_action": {
-            "action_name": "View Profile",
-            "type": "link",
-            "on_click": "navigates to participant profile"
-          },
-          "note": "names render as links to profile"
-        },
-        {
-          "column_name": "Roles",
-          "sortable": false
-        },
-        {
-          "column_name": "Groups",
-          "sortable": false
-        },
-        {
-          "column_name": "Last access",
-          "sortable": false
-        }
+        "selection_checkbox",
+        "First name",
+        "Last name",
+        "Roles",
+        "Groups",
+        "Last access"
       ],
+      "has_row_selection": true,
       "sortable_columns": [
-        "First/Last name"
+        "First name",
+        "Last name"
       ],
       "row_actions": [
         {
           "action_name": "View Profile",
           "type": "link",
-          "on_click": "navigates to participant profile"
-        },
-        {
-          "action_name": "Edit Roles",
-          "preconditions": [
-            "requires instructor or admin role"
-          ]
-        },
-        {
-          "action_name": "Enrol",
-          "preconditions": [
-            "requires instructor or admin role"
-          ]
-        },
-        {
-          "action_name": "Unenrol",
-          "preconditions": [
-            "requires instructor or admin role"
-          ]
+          "target_column": "First name / Last name",
+          "on_success": "navigates to participant profile"
         }
       ],
-      "bulk_actions": [
-        {
-          "action_name": "Enrol Selected",
-          "preconditions": [
-            "requires instructor or admin role"
-          ]
-        },
-        {
-          "action_name": "Unenrol Selected",
-          "preconditions": [
-            "requires instructor or admin role"
-          ]
-        }
-      ]
+      "bulk_actions": []
+    },
+    "Enrollment_Management_Features": {
+      "type": "component",
+      "fields": {},
+      "preconditions": [
+        "user role must not be Student"
+      ],
+      "notes": "Enrollment management actions (enrol/unenrol users, edit roles, access enrollment management) are gated by the precondition above and therefore not available to Students."
     }
   }
 }
@@ -426,10 +415,19 @@ The Participants page lists all users enrolled in the course. A filter system at
 
 </description>
 
+<workflows>
+WF-001 | Apply filters (Filter Builder) | actor: <role> | branch: none | terminal: Apply filters | on_success: applies filters to participants list
+WF-002 | Clear filters (Filter Builder) | actor: <role> | branch: none | terminal: Clear filters | on_success: clears filter builder inputs
+WF-003 | Add a condition to filter builder | actor: <role> | branch: none | terminal: + Add condition | on_success: adds one item to Conditions repeating_group
+WF-004 | Filter by first-name initial | actor: <role> | branch: none | terminal: First_Name_Initial | on_success: filters participants by first-name initial
+WF-005 | Filter by last-name initial | actor: <role> | branch: none | terminal: Last_Name_Initial | on_success: filters participants by last-name initial
+WF-006 | View participant profile from table | actor: <role> | branch: none | terminal: View Profile | on_success: navigates to participant profile
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[21:42:04] Test-Positive - LLM RESPONSE
+[15:10:59] Test-Positive - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Participants",
@@ -437,143 +435,116 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Add a filter condition row",
-      "preconditions": ["User logged in as <Instructor>", "Participants page is open"],
-      "steps": [
-        "1. Click the '+ Add condition' link in the Filter Builder"
+      "wf_ref": "WF-001",
+      "test_case": "Apply filters using the Filter Builder",
+      "preconditions": [
+        "User logged in as <Teacher>"
       ],
-      "expected_result": "A new condition row appears in the Conditions area with an empty Attribute dropdown and an empty Value field",
-      "priority": "medium"
+      "steps": [
+        "1. Navigate to the Participants page",
+        "2. In the Filter Builder, choose <attribute> from the Attribute dropdown",
+        "3. Click the 'Apply filters' button"
+      ],
+      "expected_result": "Participants table displays only rows matching the selected filter criteria; unrelated participants are no longer visible",
+      "priority": "high"
     },
     {
       "tc_id": "P-002",
-      "test_case": "Apply a single filter condition",
-      "preconditions": ["User logged in as <Instructor>", "Participants page is open"],
-      "steps": [
-        "1. Click the '+ Add condition' link in the Filter Builder",
-        "2. Select <attribute> from the new condition's Attribute dropdown",
-        "3. Enter <value> into the new condition's Value field",
-        "4. Click the 'Apply filters' button"
+      "wf_ref": "WF-002",
+      "test_case": "Clear filled inputs in the Filter Builder",
+      "preconditions": [
+        "User logged in as <Teacher>"
       ],
-      "expected_result": "applies filter conditions to participants list",
-      "priority": "high"
-    },
-    {
-      "tc_id": "P-003",
-      "test_case": "Clear all filters and reset toggles",
-      "preconditions": ["User logged in as <Instructor>", "Participants page is open", "At least one filter condition is active and alphabetical filter/toggle may be set"],
       "steps": [
-        "1. Click the 'Clear filters' button"
+        "1. Navigate to the Participants page",
+        "2. In the Filter Builder, check the <Any_Toggle>, select <attribute> in Attribute_Select and click '+ Add condition' then select <attribute> in the new condition row",
+        "3. Click the 'Clear filters' button"
       ],
-      "expected_result": "clears all filter conditions and resets Any toggle and alphabetical filters",
-      "priority": "high"
-    },
-    {
-      "tc_id": "P-004",
-      "test_case": "Filter participants by first-name initial using alphabet buttons",
-      "preconditions": ["User logged in as <Instructor>", "Participants page is open"],
-      "steps": [
-        "1. Click the 'A' button in the First name alphabetical filter"
-      ],
-      "expected_result": "Participants table displays only rows with first names starting with 'A'; unrelated rows are no longer visible",
+      "expected_result": "All inputs in the Filter Builder are reset to their defaults (Any toggle unchecked, Attribute dropdown unset, no condition rows present); the Filter Builder shows no active conditions",
       "priority": "medium"
     },
     {
-      "tc_id": "P-005",
-      "test_case": "Filter participants by last-name initial using alphabet buttons",
-      "preconditions": ["User logged in as <Instructor>", "Participants page is open"],
-      "steps": [
-        "1. Click the 'M' button in the Last name alphabetical filter"
+      "tc_id": "P-003",
+      "wf_ref": "WF-003",
+      "test_case": "Add a new condition row in the Filter Builder",
+      "preconditions": [
+        "User logged in as <Teacher>"
       ],
-      "expected_result": "Participants table displays only rows with last names starting with 'M'; unrelated rows are no longer visible",
+      "steps": [
+        "1. Navigate to the Participants page",
+        "2. Click the '+ Add condition' link in the Filter Builder",
+        "3. In the newly added condition row, open the Attribute dropdown"
+      ],
+      "expected_result": "A new condition row appears in the Conditions area with an Attribute dropdown visible for the new row",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-004",
+      "wf_ref": "WF-004",
+      "test_case": "Filter participants by First name initial using Alphabetical Filters",
+      "preconditions": [
+        "User logged in as <Teacher>"
+      ],
+      "steps": [
+        "1. Navigate to the Participants page",
+        "2. In the Alphabetical Filters, select <selected initial> from the First_Name_Initial dropdown"
+      ],
+      "expected_result": "Participants table displays only rows whose First name starts with <selected initial>; unrelated rows are no longer visible",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-005",
+      "wf_ref": "WF-005",
+      "test_case": "Filter participants by Last name initial using Alphabetical Filters",
+      "preconditions": [
+        "User logged in as <Teacher>"
+      ],
+      "steps": [
+        "1. Navigate to the Participants page",
+        "2. In the Alphabetical Filters, select <selected initial> from the Last_Name_Initial dropdown"
+      ],
+      "expected_result": "Participants table displays only rows whose Last name starts with <selected initial>; unrelated rows are no longer visible",
       "priority": "medium"
     },
     {
       "tc_id": "P-006",
-      "test_case": "Sort participants by First/Last name column",
-      "preconditions": ["User logged in as <Instructor>", "Participants page is open"],
-      "steps": [
-        "1. Click the 'First/Last name' column header in the Participants table to sort"
+      "wf_ref": "WF-006",
+      "test_case": "Navigate to a participant's profile from the participants table (Student role)",
+      "preconditions": [
+        "User logged in as <Student>"
       ],
-      "expected_result": "Participants table is sorted alphabetically by First/Last name; rows reorder accordingly",
-      "priority": "medium"
+      "steps": [
+        "1. Navigate to the Participants page",
+        "2. Click the participant name link in the First name / Last name column for <target participant>"
+      ],
+      "expected_result": "The Participant Profile page for the selected participant is displayed (navigation to participant profile); the page shows the participant's name and a Roles section",
+      "priority": "high"
     },
     {
       "tc_id": "P-007",
-      "test_case": "Student views a participant profile via name link",
-      "preconditions": ["User logged in as <Student>", "Participants page is open"],
-      "steps": [
-        "1. Click a participant's name link in the First/Last name column"
+      "wf_ref": null,
+      "test_case": "Enrollment management actions are not available to Students",
+      "preconditions": [
+        "User logged in as <Student>"
       ],
-      "expected_result": "Participant profile page is displayed for <selected participant>",
-      "priority": "high"
-    },
-    {
-      "tc_id": "P-008",
-      "test_case": "Instructor enrolls a participant using row action",
-      "preconditions": ["User logged in as <Instructor>", "Participants page is open"],
       "steps": [
-        "1. Open the row actions menu for a participant in the Participants table",
-        "2. Click the 'Enrol' row action"
+        "1. Navigate to the Participants page",
+        "2. Inspect the Participants page for enrollment management controls (enrol/unenrol users, edit roles, access enrollment management)"
       ],
-      "expected_result": "Roles column for the participant updates to reflect enrolment",
-      "priority": "high"
-    },
-    {
-      "tc_id": "P-009",
-      "test_case": "Instructor unenrols a participant using row action",
-      "preconditions": ["User logged in as <Instructor>", "Participants page is open"],
-      "steps": [
-        "1. Open the row actions menu for a participant in the Participants table",
-        "2. Click the 'Unenrol' row action"
-      ],
-      "expected_result": "Roles column for the participant updates to reflect unenrolment",
-      "priority": "high"
-    },
-    {
-      "tc_id": "P-010",
-      "test_case": "Instructor opens Edit Roles for a participant",
-      "preconditions": ["User logged in as <Instructor>", "Participants page is open"],
-      "steps": [
-        "1. Open the row actions menu for a participant in the Participants table",
-        "2. Click the 'Edit Roles' row action"
-      ],
-      "expected_result": "Edit Roles dialog is displayed for the selected participant",
-      "priority": "medium"
-    },
-    {
-      "tc_id": "P-011",
-      "test_case": "Instructor bulk-enrol selected participants",
-      "preconditions": ["User logged in as <Instructor>", "Participants page is open", "At least two participants are visible in the table"],
-      "steps": [
-        "1. Check the Select checkboxes for two participants in the Participants table",
-        "2. Click the 'Enrol Selected' bulk action"
-      ],
-      "expected_result": "Roles column for the selected participants updates to reflect enrolment",
-      "priority": "high"
-    },
-    {
-      "tc_id": "P-012",
-      "test_case": "Instructor bulk-unenrol selected participants",
-      "preconditions": ["User logged in as <Instructor>", "Participants page is open", "At least two participants are visible in the table"],
-      "steps": [
-        "1. Check the Select checkboxes for two participants in the Participants table",
-        "2. Click the 'Unenrol Selected' bulk action"
-      ],
-      "expected_result": "Roles column for the selected participants updates to reflect unenrolment",
-      "priority": "high"
+      "expected_result": "Enrollment management actions (enrol/unenrol users, edit roles, access enrollment management) are not present on the Participants page",
+      "priority": "low"
     }
   ],
   "summary": {
-    "total": 12,
-    "high_priority": 6,
-    "medium_priority": 5,
+    "total": 7,
+    "high_priority": 3,
+    "medium_priority": 3,
     "low_priority": 1
   }
 }
 
 ------------------------------------------------------------
-[21:42:04] Test-Positive - PARSED JSON
+[15:10:59] Test-Positive - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Participants",
@@ -581,176 +552,110 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Add a filter condition row",
+      "wf_ref": "WF-001",
+      "test_case": "Apply filters using the Filter Builder",
       "preconditions": [
-        "User logged in as <Instructor>",
-        "Participants page is open"
+        "User logged in as <Teacher>"
       ],
       "steps": [
-        "1. Click the '+ Add condition' link in the Filter Builder"
+        "1. Navigate to the Participants page",
+        "2. In the Filter Builder, choose <attribute> from the Attribute dropdown",
+        "3. Click the 'Apply filters' button"
       ],
-      "expected_result": "A new condition row appears in the Conditions area with an empty Attribute dropdown and an empty Value field",
-      "priority": "medium"
+      "expected_result": "Participants table displays only rows matching the selected filter criteria; unrelated participants are no longer visible",
+      "priority": "high"
     },
     {
       "tc_id": "P-002",
-      "test_case": "Apply a single filter condition",
+      "wf_ref": "WF-002",
+      "test_case": "Clear filled inputs in the Filter Builder",
       "preconditions": [
-        "User logged in as <Instructor>",
-        "Participants page is open"
+        "User logged in as <Teacher>"
       ],
       "steps": [
-        "1. Click the '+ Add condition' link in the Filter Builder",
-        "2. Select <attribute> from the new condition's Attribute dropdown",
-        "3. Enter <value> into the new condition's Value field",
-        "4. Click the 'Apply filters' button"
+        "1. Navigate to the Participants page",
+        "2. In the Filter Builder, check the <Any_Toggle>, select <attribute> in Attribute_Select and click '+ Add condition' then select <attribute> in the new condition row",
+        "3. Click the 'Clear filters' button"
       ],
-      "expected_result": "applies filter conditions to participants list",
-      "priority": "high"
-    },
-    {
-      "tc_id": "P-003",
-      "test_case": "Clear all filters and reset toggles",
-      "preconditions": [
-        "User logged in as <Instructor>",
-        "Participants page is open",
-        "At least one filter condition is active and alphabetical filter/toggle may be set"
-      ],
-      "steps": [
-        "1. Click the 'Clear filters' button"
-      ],
-      "expected_result": "clears all filter conditions and resets Any toggle and alphabetical filters",
-      "priority": "high"
-    },
-    {
-      "tc_id": "P-004",
-      "test_case": "Filter participants by first-name initial using alphabet buttons",
-      "preconditions": [
-        "User logged in as <Instructor>",
-        "Participants page is open"
-      ],
-      "steps": [
-        "1. Click the 'A' button in the First name alphabetical filter"
-      ],
-      "expected_result": "Participants table displays only rows with first names starting with 'A'; unrelated rows are no longer visible",
+      "expected_result": "All inputs in the Filter Builder are reset to their defaults (Any toggle unchecked, Attribute dropdown unset, no condition rows present); the Filter Builder shows no active conditions",
       "priority": "medium"
     },
     {
-      "tc_id": "P-005",
-      "test_case": "Filter participants by last-name initial using alphabet buttons",
+      "tc_id": "P-003",
+      "wf_ref": "WF-003",
+      "test_case": "Add a new condition row in the Filter Builder",
       "preconditions": [
-        "User logged in as <Instructor>",
-        "Participants page is open"
+        "User logged in as <Teacher>"
       ],
       "steps": [
-        "1. Click the 'M' button in the Last name alphabetical filter"
+        "1. Navigate to the Participants page",
+        "2. Click the '+ Add condition' link in the Filter Builder",
+        "3. In the newly added condition row, open the Attribute dropdown"
       ],
-      "expected_result": "Participants table displays only rows with last names starting with 'M'; unrelated rows are no longer visible",
+      "expected_result": "A new condition row appears in the Conditions area with an Attribute dropdown visible for the new row",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-004",
+      "wf_ref": "WF-004",
+      "test_case": "Filter participants by First name initial using Alphabetical Filters",
+      "preconditions": [
+        "User logged in as <Teacher>"
+      ],
+      "steps": [
+        "1. Navigate to the Participants page",
+        "2. In the Alphabetical Filters, select <selected initial> from the First_Name_Initial dropdown"
+      ],
+      "expected_result": "Participants table displays only rows whose First name starts with <selected initial>; unrelated rows are no longer visible",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-005",
+      "wf_ref": "WF-005",
+      "test_case": "Filter participants by Last name initial using Alphabetical Filters",
+      "preconditions": [
+        "User logged in as <Teacher>"
+      ],
+      "steps": [
+        "1. Navigate to the Participants page",
+        "2. In the Alphabetical Filters, select <selected initial> from the Last_Name_Initial dropdown"
+      ],
+      "expected_result": "Participants table displays only rows whose Last name starts with <selected initial>; unrelated rows are no longer visible",
       "priority": "medium"
     },
     {
       "tc_id": "P-006",
-      "test_case": "Sort participants by First/Last name column",
+      "wf_ref": "WF-006",
+      "test_case": "Navigate to a participant's profile from the participants table (Student role)",
       "preconditions": [
-        "User logged in as <Instructor>",
-        "Participants page is open"
+        "User logged in as <Student>"
       ],
       "steps": [
-        "1. Click the 'First/Last name' column header in the Participants table to sort"
+        "1. Navigate to the Participants page",
+        "2. Click the participant name link in the First name / Last name column for <target participant>"
       ],
-      "expected_result": "Participants table is sorted alphabetically by First/Last name; rows reorder accordingly",
-      "priority": "medium"
+      "expected_result": "The Participant Profile page for the selected participant is displayed (navigation to participant profile); the page shows the participant's name and a Roles section",
+      "priority": "high"
     },
     {
       "tc_id": "P-007",
-      "test_case": "Student views a participant profile via name link",
+      "wf_ref": null,
+      "test_case": "Enrollment management actions are not available to Students",
       "preconditions": [
-        "User logged in as <Student>",
-        "Participants page is open"
+        "User logged in as <Student>"
       ],
       "steps": [
-        "1. Click a participant's name link in the First/Last name column"
+        "1. Navigate to the Participants page",
+        "2. Inspect the Participants page for enrollment management controls (enrol/unenrol users, edit roles, access enrollment management)"
       ],
-      "expected_result": "Participant profile page is displayed for <selected participant>",
-      "priority": "high"
-    },
-    {
-      "tc_id": "P-008",
-      "test_case": "Instructor enrolls a participant using row action",
-      "preconditions": [
-        "User logged in as <Instructor>",
-        "Participants page is open"
-      ],
-      "steps": [
-        "1. Open the row actions menu for a participant in the Participants table",
-        "2. Click the 'Enrol' row action"
-      ],
-      "expected_result": "Roles column for the participant updates to reflect enrolment",
-      "priority": "high"
-    },
-    {
-      "tc_id": "P-009",
-      "test_case": "Instructor unenrols a participant using row action",
-      "preconditions": [
-        "User logged in as <Instructor>",
-        "Participants page is open"
-      ],
-      "steps": [
-        "1. Open the row actions menu for a participant in the Participants table",
-        "2. Click the 'Unenrol' row action"
-      ],
-      "expected_result": "Roles column for the participant updates to reflect unenrolment",
-      "priority": "high"
-    },
-    {
-      "tc_id": "P-010",
-      "test_case": "Instructor opens Edit Roles for a participant",
-      "preconditions": [
-        "User logged in as <Instructor>",
-        "Participants page is open"
-      ],
-      "steps": [
-        "1. Open the row actions menu for a participant in the Participants table",
-        "2. Click the 'Edit Roles' row action"
-      ],
-      "expected_result": "Edit Roles dialog is displayed for the selected participant",
-      "priority": "medium"
-    },
-    {
-      "tc_id": "P-011",
-      "test_case": "Instructor bulk-enrol selected participants",
-      "preconditions": [
-        "User logged in as <Instructor>",
-        "Participants page is open",
-        "At least two participants are visible in the table"
-      ],
-      "steps": [
-        "1. Check the Select checkboxes for two participants in the Participants table",
-        "2. Click the 'Enrol Selected' bulk action"
-      ],
-      "expected_result": "Roles column for the selected participants updates to reflect enrolment",
-      "priority": "high"
-    },
-    {
-      "tc_id": "P-012",
-      "test_case": "Instructor bulk-unenrol selected participants",
-      "preconditions": [
-        "User logged in as <Instructor>",
-        "Participants page is open",
-        "At least two participants are visible in the table"
-      ],
-      "steps": [
-        "1. Check the Select checkboxes for two participants in the Participants table",
-        "2. Click the 'Unenrol Selected' bulk action"
-      ],
-      "expected_result": "Roles column for the selected participants updates to reflect unenrolment",
-      "priority": "high"
+      "expected_result": "Enrollment management actions (enrol/unenrol users, edit roles, access enrollment management) are not present on the Participants page",
+      "priority": "low"
     }
   ],
   "summary": {
-    "total": 12,
-    "high_priority": 6,
-    "medium_priority": 5,
+    "total": 7,
+    "high_priority": 3,
+    "medium_priority": 3,
     "low_priority": 1
   }
 }

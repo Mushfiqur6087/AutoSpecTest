@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-21T22:29:06.547875
+DEBUG SESSION STARTED: 2026-05-25T14:24:50.738681
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[22:29:06] Test-Positive - SYSTEM PROMPT
+[14:24:50] Test-Positive - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Expert UI Test Case Generator. You receive (1) a UI-AST JSON for one specific module and (2) the original functional description for that module.
 
@@ -24,6 +24,10 @@ Your job is to produce ONLY positive/functional UI test cases — tests where va
 <description>
 {Original functional description text for this module}
 </description>
+
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
 
 ---
 
@@ -146,6 +150,13 @@ Because you are testing a module in isolation, establish the required entry stat
 **1. Forms & Wizards (`form`, `wizard`):**
 - Generate ONE happy path per distinct success outcome.
 - *Conditional UI Check:* If a toggle/dropdown reveals new mandatory fields (`visible_when`), generate a separate test for that conditional branch.
+- **Wizard step coverage (CRITICAL):** If a wizard has multiple steps and any step beyond Step 1 contains its own named field group (e.g., "Address Details", "Family Members", "Identifiers"), generate ONE dedicated positive TC per such step. The TC must:
+  - Navigate to that specific step (include the preceding steps as preconditions or brief navigation steps)
+  - Fill the fields described for that step (not just pass through)
+  - Assert the step's content is visible/saved on the detail page after final submission
+  - **Do NOT collapse all wizard steps into one happy-path TC** — if Steps 2, 3, and 4 each have their own named section in the spec, they each need their own TC.
+- **Wizard in-step identifiers/duplicates:** If a wizard step allows adding identifiers, documents, or similar entries that have a uniqueness constraint, include a TC for that wizard step that also verifies the constraint (e.g., attempting to add a duplicate Document Type+Key pair inside the wizard). This is a different code path from adding the same post-creation on the detail page.
+- **Action dialogs:** If a `state_bound_action_bar` action opens a dialog with its own `fields{}` (e.g., Activate requires Activation Date, Reject requires Reason), generate ONE positive TC per such action-dialog — distinct from the state-transition TC. The TC fills the dialog field and completes the action.
 
 **2. State Machines (`state_bound_action_bar`):**
 - For each unique action available in a specific state, generate ONE test performing that action.
@@ -200,6 +211,19 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 
 ---
 
+**WORKFLOW COVERAGE OBLIGATION (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- Your test cases must **collectively cover every workflow** listed.
+- For each `wf_id`, at least one TC must:
+  - Activate the `conditional_branch` (if not null) — i.e. the test must set up the condition described.
+  - Assert the `on_success` as its `expected_result` (verbatim or as the primary basis for the expected result).
+- Add `"wf_ref": "WF-NNN"` to each TC to identify which workflow it covers.
+- If one TC naturally covers multiple workflows (e.g., the base path overlaps), pick the most specific `wf_ref`.
+- If a TC does not map to any workflow (e.g., a navigation-only test), set `"wf_ref": null`.
+
+---
+
 **OUTPUT — JSON only, no prose, no markdown fencing:**
 
 {
@@ -208,6 +232,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
   "test_cases": [
     {
       "tc_id": "P-001",
+      "wf_ref": "WF-001",
       "test_case": "Short descriptive name",
       "preconditions": ["User logged in as <Role>", "<Prerequisite state>"],
       "steps": ["1. Step one", "2. Step two"],
@@ -224,7 +249,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 }
 
 ------------------------------------------------------------
-[22:29:06] Test-Positive - USER PROMPT
+[14:24:50] Test-Positive - USER PROMPT
 ------------------------------------------------------------
 <module_name>Offices</module_name>
 
@@ -234,69 +259,92 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
   "components": {
     "Offices_Table": {
       "type": "data_table",
-      "hierarchical": true,
-      "columns": [
-        "Office Name",
-        "External ID",
-        "Parent Office",
-        "Opened On Date",
-        "Hierarchy Position"
-      ],
-      "row_actions": [
-        {
-          "action_name": "Open",
+      "columns": {
+        "Office_Name": {
           "type": "link",
-          "on_trigger": "opens Office_Detail_Page",
-          "target_column": "Office Name"
+          "on_click": "navigates to Office Detail page"
+        },
+        "External_ID": {
+          "type": "unspecified"
+        },
+        "Parent_Office": {
+          "type": "unspecified"
+        },
+        "Opened_On_Date": {
+          "type": "date"
+        },
+        "Hierarchy_Position": {
+          "type": "unspecified"
         }
-      ],
-      "page_actions": [
+      },
+      "row_actions": [],
+      "actions": [
         {
-          "element_name": "Create Office",
-          "type": "button",
-          "on_trigger": "opens Create_Office_Form"
+          "element_name": "+ Create Office",
+          "element_type": "button",
+          "on_click": "opens Create_Office_Form"
         }
       ]
     },
     "Create_Office_Form": {
       "type": "form",
+      "submit_actions": [],
       "fields": {
-        "Office Name": {
+        "Office_Name": {
           "type": "unspecified",
           "required": true
         },
-        "Parent Office": {
+        "Parent_Office": {
           "type": "dropdown",
           "required": true,
           "constraints": [
-            "Head Office is the root and may be selected as Parent Office"
+            "Head Office is the root"
           ]
         },
-        "Opened On Date": {
+        "Opened_On_Date": {
           "type": "date",
           "required": true
         },
-        "External ID": {
+        "External_ID": {
           "type": "unspecified",
           "required": false
         }
-      },
-      "submit_actions": [
-        {
-          "element_name": "Submit",
-          "on_success": "creates office"
-        }
-      ]
+      }
     },
     "Office_Detail_Page": {
       "type": "detail_page",
       "actions": [
         {
-          "action_name": "Edit",
-          "type": "button",
-          "on_trigger": "opens edit flow"
+          "element_name": "Edit",
+          "element_type": "button",
+          "on_click": "opens Edit_Office_Form"
         }
       ]
+    },
+    "Edit_Office_Form": {
+      "type": "form",
+      "submit_actions": [],
+      "fields": {
+        "Office_Name": {
+          "type": "unspecified",
+          "required": true
+        },
+        "Parent_Office": {
+          "type": "dropdown",
+          "required": true,
+          "constraints": [
+            "Head Office is the root"
+          ]
+        },
+        "Opened_On_Date": {
+          "type": "date",
+          "required": true
+        },
+        "External_ID": {
+          "type": "unspecified",
+          "required": false
+        }
+      }
     }
   }
 }
@@ -311,10 +359,16 @@ The Offices page displays a hierarchical table of all offices with columns for O
 
 </description>
 
+<workflows>
+WF-001 | Open Create Office form | actor: <role> | branch: none | terminal: + Create Office | on_success: opens Create_Office_Form
+WF-002 | Open Office Detail page via Office_Name link | actor: <role> | branch: none | terminal: Office_Name | on_success: navigates to Office Detail page
+WF-003 | Open Edit Office form from Detail page | actor: <role> | branch: none | terminal: Edit | on_success: opens Edit_Office_Form
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[22:34:33] Test-Positive - LLM RESPONSE
+[14:30:41] Test-Positive - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Offices",
@@ -322,82 +376,99 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Open Office Detail from Offices table",
+      "wf_ref": "WF-001",
+      "test_case": "Open Create Office form from Offices page",
       "preconditions": [
-        "User logged in as <User with office management privileges>",
-        "Office named <existing office> exists in the Offices table"
+        "User logged in as <role>",
+        "Offices page is open"
       ],
       "steps": [
-        "1. Navigate to the Offices page",
-        "2. Click the <existing office> link in the Office Name column"
+        "1. Click the '+ Create Office' button on the Offices page"
       ],
-      "expected_result": "Office Detail page is displayed showing Office Name '<existing office>', Parent Office, Opened On Date, External ID, and an Edit button is visible",
+      "expected_result": "Create Office form is displayed with fields: Office Name (required), Parent Office (required; Head Office is the root), Opened On Date (required), and External ID",
       "priority": "high"
     },
     {
       "tc_id": "P-002",
-      "test_case": "Create a new Office with a non-root Parent Office",
+      "wf_ref": "WF-002",
+      "test_case": "Navigate to Office Detail page by clicking Office Name link",
       "preconditions": [
-        "User logged in as <User with office management privileges>"
+        "User logged in as <role>",
+        "Offices page is open",
+        "<existing office> is present in the Offices list"
       ],
       "steps": [
-        "1. Navigate to the Offices page",
-        "2. Click Create Office",
-        "3. Enter <new office name> in the Office Name field",
-        "4. Select <existing parent office> from the Parent Office dropdown",
-        "5. Enter <valid date> in the Opened On Date field",
-        "6. Enter <external id> in the External ID field (optional)",
-        "7. Click Submit"
+        "1. Click the Office Name link for <existing office> in the Offices table"
       ],
-      "expected_result": "A new row appears in the Offices table with Office Name '<new office name>', Parent Office '<existing parent office>', Opened On Date '<valid date>' and External ID '<external id>' visible in the corresponding columns",
+      "expected_result": "Office Detail page is displayed showing Office Name, Parent Office, Opened On Date, External ID, and hierarchy position",
       "priority": "high"
     },
     {
       "tc_id": "P-003",
-      "test_case": "Create a new Office with Parent Office set to Head Office (root)",
+      "wf_ref": "WF-003",
+      "test_case": "Open Edit Office form from Office Detail page",
       "preconditions": [
-        "User logged in as <User with office management privileges>"
+        "User logged in as <role>",
+        "Offices page is open",
+        "<existing office> is present in the Offices list"
       ],
       "steps": [
-        "1. Navigate to the Offices page",
-        "2. Click Create Office",
-        "3. Enter <new office name> in the Office Name field",
-        "4. Select <Head Office> from the Parent Office dropdown",
-        "5. Enter <valid date> in the Opened On Date field",
-        "6. Click Submit"
+        "1. Click the Office Name link for <existing office> to open the Office Detail page",
+        "2. Click the 'Edit' button on the Office Detail page"
       ],
-      "expected_result": "A new row appears in the Offices table with Office Name '<new office name>' and Parent Office 'Head Office' visible in the corresponding columns",
-      "priority": "medium"
+      "expected_result": "Edit Office form is displayed with fields: Office Name (required), Parent Office (required; Head Office is the root), Opened On Date (required), and External ID",
+      "priority": "high"
     },
     {
       "tc_id": "P-004",
-      "test_case": "Edit an existing Office from the Detail page",
+      "wf_ref": null,
+      "test_case": "Create a new Office by filling required fields and submit",
       "preconditions": [
-        "User logged in as <User with office management privileges>",
-        "Office named <existing office> exists in the Offices table"
+        "User logged in as <role>",
+        "Offices page is open"
       ],
       "steps": [
-        "1. Navigate to the Offices page",
-        "2. Click the <existing office> link in the Office Name column to open the Office Detail page",
-        "3. Click Edit",
-        "4. Change Office Name to <updated office name>",
-        "5. Change External ID to <updated external id>",
-        "6. Click Save on the edit form"
+        "1. Click the '+ Create Office' button on the Offices page",
+        "2. Enter <Office Name> in the Office Name field",
+        "3. Select <Parent Office> from the Parent Office dropdown",
+        "4. Enter <Opened On Date> in the Opened On Date field",
+        "5. Optionally enter <External ID> in the External ID field",
+        "6. Click Save on the Create Office form"
       ],
-      "expected_result": "Office Detail page displays Office Name '<updated office name>' and External ID '<updated external id>' reflecting the edits",
+      "expected_result": "New row appears in the Offices table with the entered <Office Name> and <Parent Office>",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-005",
+      "wf_ref": null,
+      "test_case": "Edit an existing Office and save updates on the Detail page",
+      "preconditions": [
+        "User logged in as <role>",
+        "Offices page is open",
+        "<existing office> is present in the Offices list"
+      ],
+      "steps": [
+        "1. Click the Office Name link for <existing office> to open the Office Detail page",
+        "2. Click the 'Edit' button on the Office Detail page",
+        "3. Enter a new <Office Name> in the Office Name field",
+        "4. Enter a new <Opened On Date> in the Opened On Date field",
+        "5. Optionally update <External ID> in the External ID field",
+        "6. Click Save on the Edit Office form"
+      ],
+      "expected_result": "Office Detail page displays the updated <Office Name> and the updated <Opened On Date>",
       "priority": "medium"
     }
   ],
   "summary": {
-    "total": 4,
-    "high_priority": 2,
-    "medium_priority": 2,
+    "total": 5,
+    "high_priority": 4,
+    "medium_priority": 1,
     "low_priority": 0
   }
 }
 
 ------------------------------------------------------------
-[22:34:33] Test-Positive - PARSED JSON
+[14:30:41] Test-Positive - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Offices",
@@ -405,76 +476,93 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Open Office Detail from Offices table",
+      "wf_ref": "WF-001",
+      "test_case": "Open Create Office form from Offices page",
       "preconditions": [
-        "User logged in as <User with office management privileges>",
-        "Office named <existing office> exists in the Offices table"
+        "User logged in as <role>",
+        "Offices page is open"
       ],
       "steps": [
-        "1. Navigate to the Offices page",
-        "2. Click the <existing office> link in the Office Name column"
+        "1. Click the '+ Create Office' button on the Offices page"
       ],
-      "expected_result": "Office Detail page is displayed showing Office Name '<existing office>', Parent Office, Opened On Date, External ID, and an Edit button is visible",
+      "expected_result": "Create Office form is displayed with fields: Office Name (required), Parent Office (required; Head Office is the root), Opened On Date (required), and External ID",
       "priority": "high"
     },
     {
       "tc_id": "P-002",
-      "test_case": "Create a new Office with a non-root Parent Office",
+      "wf_ref": "WF-002",
+      "test_case": "Navigate to Office Detail page by clicking Office Name link",
       "preconditions": [
-        "User logged in as <User with office management privileges>"
+        "User logged in as <role>",
+        "Offices page is open",
+        "<existing office> is present in the Offices list"
       ],
       "steps": [
-        "1. Navigate to the Offices page",
-        "2. Click Create Office",
-        "3. Enter <new office name> in the Office Name field",
-        "4. Select <existing parent office> from the Parent Office dropdown",
-        "5. Enter <valid date> in the Opened On Date field",
-        "6. Enter <external id> in the External ID field (optional)",
-        "7. Click Submit"
+        "1. Click the Office Name link for <existing office> in the Offices table"
       ],
-      "expected_result": "A new row appears in the Offices table with Office Name '<new office name>', Parent Office '<existing parent office>', Opened On Date '<valid date>' and External ID '<external id>' visible in the corresponding columns",
+      "expected_result": "Office Detail page is displayed showing Office Name, Parent Office, Opened On Date, External ID, and hierarchy position",
       "priority": "high"
     },
     {
       "tc_id": "P-003",
-      "test_case": "Create a new Office with Parent Office set to Head Office (root)",
+      "wf_ref": "WF-003",
+      "test_case": "Open Edit Office form from Office Detail page",
       "preconditions": [
-        "User logged in as <User with office management privileges>"
+        "User logged in as <role>",
+        "Offices page is open",
+        "<existing office> is present in the Offices list"
       ],
       "steps": [
-        "1. Navigate to the Offices page",
-        "2. Click Create Office",
-        "3. Enter <new office name> in the Office Name field",
-        "4. Select <Head Office> from the Parent Office dropdown",
-        "5. Enter <valid date> in the Opened On Date field",
-        "6. Click Submit"
+        "1. Click the Office Name link for <existing office> to open the Office Detail page",
+        "2. Click the 'Edit' button on the Office Detail page"
       ],
-      "expected_result": "A new row appears in the Offices table with Office Name '<new office name>' and Parent Office 'Head Office' visible in the corresponding columns",
-      "priority": "medium"
+      "expected_result": "Edit Office form is displayed with fields: Office Name (required), Parent Office (required; Head Office is the root), Opened On Date (required), and External ID",
+      "priority": "high"
     },
     {
       "tc_id": "P-004",
-      "test_case": "Edit an existing Office from the Detail page",
+      "wf_ref": null,
+      "test_case": "Create a new Office by filling required fields and submit",
       "preconditions": [
-        "User logged in as <User with office management privileges>",
-        "Office named <existing office> exists in the Offices table"
+        "User logged in as <role>",
+        "Offices page is open"
       ],
       "steps": [
-        "1. Navigate to the Offices page",
-        "2. Click the <existing office> link in the Office Name column to open the Office Detail page",
-        "3. Click Edit",
-        "4. Change Office Name to <updated office name>",
-        "5. Change External ID to <updated external id>",
-        "6. Click Save on the edit form"
+        "1. Click the '+ Create Office' button on the Offices page",
+        "2. Enter <Office Name> in the Office Name field",
+        "3. Select <Parent Office> from the Parent Office dropdown",
+        "4. Enter <Opened On Date> in the Opened On Date field",
+        "5. Optionally enter <External ID> in the External ID field",
+        "6. Click Save on the Create Office form"
       ],
-      "expected_result": "Office Detail page displays Office Name '<updated office name>' and External ID '<updated external id>' reflecting the edits",
+      "expected_result": "New row appears in the Offices table with the entered <Office Name> and <Parent Office>",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-005",
+      "wf_ref": null,
+      "test_case": "Edit an existing Office and save updates on the Detail page",
+      "preconditions": [
+        "User logged in as <role>",
+        "Offices page is open",
+        "<existing office> is present in the Offices list"
+      ],
+      "steps": [
+        "1. Click the Office Name link for <existing office> to open the Office Detail page",
+        "2. Click the 'Edit' button on the Office Detail page",
+        "3. Enter a new <Office Name> in the Office Name field",
+        "4. Enter a new <Opened On Date> in the Opened On Date field",
+        "5. Optionally update <External ID> in the External ID field",
+        "6. Click Save on the Edit Office form"
+      ],
+      "expected_result": "Office Detail page displays the updated <Office Name> and the updated <Opened On Date>",
       "priority": "medium"
     }
   ],
   "summary": {
-    "total": 4,
-    "high_priority": 2,
-    "medium_priority": 2,
+    "total": 5,
+    "high_priority": 4,
+    "medium_priority": 1,
     "low_priority": 0
   }
 }

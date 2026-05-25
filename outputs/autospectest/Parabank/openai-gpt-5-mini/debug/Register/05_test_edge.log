@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-22T21:31:44.615420
+DEBUG SESSION STARTED: 2026-05-25T15:41:24.123368
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[21:31:44] Test-Edge - SYSTEM PROMPT
+[15:41:24] Test-Edge - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Edge Case and Boundary Test Generator. You receive (1) a UI-AST JSON for one module and (2) the original functional description. Your job is to produce ONLY boundary and edge case tests — scenarios at the limits of valid/invalid input and unusual-but-plausible user behaviors.
 
@@ -24,6 +24,10 @@ You are NOT producing happy paths (positive prompt) or standard validation failu
 <description>
 {Original functional description text for this module}
 </description>
+
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
 
 ---
 
@@ -176,6 +180,15 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 
 ---
 
+**WORKFLOW-AWARE BOUNDARY SCOPING (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- For each workflow where `conditional_branch` activates a numeric or date field, check if that field has a boundary (a numeric/date threshold in the AST `constraints` or description).
+- If yes, that workflow's branch is a **candidate for a boundary edge test** — add or confirm a boundary TC exists for it.
+- Add `"wf_ref": "WF-NNN"` to each TC that maps to a specific workflow's boundary. Set `"wf_ref": null` for generic input/interaction edge tests.
+
+---
+
 **OUTPUT — JSON only, no prose, no markdown fencing:**
 
 {
@@ -184,6 +197,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": null,
       "subcategory": "boundary | input_edge | interaction_edge | state_edge | data_edge",
       "test_case": "Short descriptive name",
       "preconditions": ["precondition 1"],
@@ -206,7 +220,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 
 
 ------------------------------------------------------------
-[21:31:44] Test-Edge - USER PROMPT
+[15:41:24] Test-Edge - USER PROMPT
 ------------------------------------------------------------
 <module_name>Register</module_name>
 
@@ -219,19 +233,23 @@ If the module has any numeric/date/count threshold in the AST or description, pr
       "fields": {
         "First_Name": {
           "type": "unspecified",
-          "required": true
+          "required": true,
+          "constraints": []
         },
         "Last_Name": {
           "type": "unspecified",
-          "required": true
+          "required": true,
+          "constraints": []
         },
         "Street_Address": {
           "type": "unspecified",
-          "required": true
+          "required": true,
+          "constraints": []
         },
         "City": {
           "type": "unspecified",
-          "required": true
+          "required": true,
+          "constraints": []
         },
         "State": {
           "type": "dropdown",
@@ -286,33 +304,35 @@ If the module has any numeric/date/count threshold in the AST or description, pr
             "Washington",
             "West Virginia",
             "Wisconsin",
-            "Wyoming"
-          ]
+            "Wyoming",
+            "District of Columbia"
+          ],
+          "constraints": []
         },
         "ZIP_Code": {
           "type": "unspecified",
           "required": true,
           "constraints": [
-            "must match 5-digit or 5+4 format (12345 or 12345-6789)",
-            "pattern: ^\\d{5}(-\\d{4})?$"
+            "must match 5-digit or 5+4 format (e.g. 12345 or 12345-6789)",
+            "pattern: ^(\\d{5}|\\d{5}-\\d{4})$"
           ]
         },
         "Phone_Number": {
           "type": "unspecified",
           "required": true,
           "constraints": [
-            "must match pattern (123) 456-7890",
+            "must follow format (123) 456-7890",
             "pattern: ^\\(\\d{3}\\) \\d{3}-\\d{4}$",
-            "autoformat on input to (123) 456-7890"
+            "automatic formatting applied as user types to (123) 456-7890"
           ]
         },
-        "Social_Security_Number": {
+        "SSN": {
           "type": "unspecified",
           "required": true,
           "constraints": [
-            "must match pattern 123-45-6789",
+            "must follow format 123-45-6789",
             "pattern: ^\\d{3}-\\d{2}-\\d{4}$",
-            "autoformat on input to 123-45-6789"
+            "automatic formatting applied as user types to 123-45-6789"
           ]
         },
         "Username": {
@@ -326,8 +346,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
           "type": "password",
           "required": true,
           "constraints": [
-            "minimum length 8",
-            "min_length: 8"
+            "minimum length 8 characters"
           ]
         },
         "Confirm_Password": {
@@ -338,18 +357,18 @@ If the module has any numeric/date/count threshold in the AST or description, pr
           ]
         }
       },
-      "constraints": [
-        "on submit validate required fields are present",
-        "on submit validate each field pattern conformance",
-        "on submit validate Password and Confirm_Password match"
-      ],
       "submit_actions": [
         {
           "element_name": "Register",
           "type": "button",
+          "constraints": [
+            "on submit validate field completeness",
+            "on submit validate pattern conformance for ZIP_Code, Phone_Number, SSN, Username",
+            "on submit validate Password and Confirm_Password match"
+          ],
           "on_success": "Account created successfully \u2014 please sign in",
-          "on_success_redirect": "Login page",
-          "on_failure": "displays field-level errors for correction"
+          "redirect_to": "Login page",
+          "on_error": "displays specific field-level errors for correction"
         }
       ]
     }
@@ -363,10 +382,14 @@ The registration page presents a comprehensive sign-up form with required inputs
 
 </description>
 
+<workflows>
+WF-001 | Register new account (all required fields valid) | actor: <role> | branch: none | terminal: Register | on_success: Account created successfully — please sign in
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[21:32:31] Test-Edge - LLM RESPONSE
+[15:42:31] Test-Edge - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Register",
@@ -374,213 +397,217 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": "WF-001",
       "subcategory": "boundary",
-      "test_case": "Password exactly at minimum length (8) succeeds",
-      "preconditions": [
-        "Registration page is loaded"
-      ],
+      "test_case": "Password minimum length exactly allowed (8 chars) — registration succeeds",
+      "preconditions": ["Registration page is open"],
       "steps": [
-        "1. Enter <valid First Name> in the First_Name field",
-        "2. Enter <valid Last Name> in the Last_Name field",
-        "3. Enter <valid Street Address> in the Street_Address field",
-        "4. Enter <valid City> in the City field",
-        "5. Select <a valid State option> from the State dropdown",
-        "6. Enter <exactly 5 digits> in the ZIP_Code field",
-        "7. Enter <10 digits> in the Phone_Number field",
-        "8. Enter <9 digits> in the Social_Security_Number field",
-        "9. Enter <a valid email address> in the Username field",
-        "10. Enter <exactly 8 characters> in the Password field",
-        "11. Enter <the same exactly 8 characters> in the Confirm_Password field",
+        "1. Enter a valid value in First_Name",
+        "2. Enter a valid value in Last_Name",
+        "3. Enter a valid value in Street_Address",
+        "4. Enter a valid value in City",
+        "5. Select a valid option in State",
+        "6. Enter a valid 5-digit ZIP code in ZIP_Code",
+        "7. Enter a valid 10-digit Phone_Number in the expected numeric form (so automatic formatting can apply)",
+        "8. Enter a valid 9-digit SSN in the expected numeric form (so automatic formatting can apply)",
+        "9. Enter a valid email in Username",
+        "10. Enter exactly 8 characters in Password",
+        "11. Enter the same exactly 8 characters in Confirm_Password",
         "12. Click the Register button"
       ],
-      "expected_result": "Form submits successfully; \"Account created successfully — please sign in\" is displayed and the user is redirected to the Login page",
+      "expected_result": "succeeds; page displays \"Account created successfully — please sign in\" and the user is redirected to the Login page",
       "priority": "medium"
     },
     {
       "tc_id": "E-002",
+      "wf_ref": "WF-001",
       "subcategory": "boundary",
-      "test_case": "Password one character below minimum (7) is blocked",
-      "preconditions": [
-        "Registration page is loaded"
-      ],
+      "test_case": "Password one character below minimum (7 chars) — registration blocked",
+      "preconditions": ["Registration page is open"],
       "steps": [
-        "1. Enter <valid First Name> in the First_Name field",
-        "2. Enter <valid Last Name> in the Last_Name field",
-        "3. Enter <valid Street Address> in the Street_Address field",
-        "4. Enter <valid City> in the City field",
-        "5. Select <a valid State option> from the State dropdown",
-        "6. Enter <exactly 5 digits> in the ZIP_Code field",
-        "7. Enter <10 digits> in the Phone_Number field",
-        "8. Enter <9 digits> in the Social_Security_Number field",
-        "9. Enter <a valid email address> in the Username field",
-        "10. Enter <exactly 7 characters> in the Password field",
-        "11. Enter <the same exactly 7 characters> in the Confirm_Password field",
+        "1. Enter a valid value in First_Name",
+        "2. Enter a valid value in Last_Name",
+        "3. Enter a valid value in Street_Address",
+        "4. Enter a valid value in City",
+        "5. Select a valid option in State",
+        "6. Enter a valid 5-digit ZIP code in ZIP_Code",
+        "7. Enter a valid 10-digit Phone_Number",
+        "8. Enter a valid 9-digit SSN",
+        "9. Enter a valid email in Username",
+        "10. Enter exactly 7 characters in Password",
+        "11. Enter the same exactly 7 characters in Confirm_Password",
         "12. Click the Register button"
       ],
-      "expected_result": "Submit is blocked; Password field displays an inline error indicating it must be at least 8 characters",
+      "expected_result": "is blocked; Password field displays an error indicating \"minimum length 8 characters\" and the form is not submitted",
       "priority": "medium"
     },
     {
       "tc_id": "E-003",
+      "wf_ref": "WF-001",
       "subcategory": "boundary",
-      "test_case": "ZIP code exactly 5 digits succeeds",
-      "preconditions": [
-        "Registration page is loaded"
-      ],
+      "test_case": "ZIP code exactly 5 digits — registration succeeds",
+      "preconditions": ["Registration page is open"],
       "steps": [
-        "1. Enter <valid First Name> in the First_Name field",
-        "2. Enter <valid Last Name> in the Last_Name field",
-        "3. Enter <valid Street Address> in the Street_Address field",
-        "4. Enter <valid City> in the City field",
-        "5. Select <a valid State option> from the State dropdown",
-        "6. Enter <exactly 5 digits> in the ZIP_Code field",
-        "7. Enter <10 digits> in the Phone_Number field",
-        "8. Enter <9 digits> in the Social_Security_Number field",
-        "9. Enter <a valid email address> in the Username field",
-        "10. Enter <a valid password >= 8 characters> in the Password field",
-        "11. Enter <the same password> in the Confirm_Password field",
+        "1. Enter a valid value in First_Name",
+        "2. Enter a valid value in Last_Name",
+        "3. Enter a valid value in Street_Address",
+        "4. Enter a valid value in City",
+        "5. Select a valid option in State",
+        "6. Enter a ZIP code in 5-digit format in ZIP_Code",
+        "7. Enter a valid 10-digit Phone_Number",
+        "8. Enter a valid 9-digit SSN",
+        "9. Enter a valid email in Username",
+        "10. Enter a valid Password with at least 8 characters",
+        "11. Enter the same value in Confirm_Password",
         "12. Click the Register button"
       ],
-      "expected_result": "Form submits successfully; \"Account created successfully — please sign in\" is displayed and the user is redirected to the Login page",
+      "expected_result": "succeeds; page displays \"Account created successfully — please sign in\" and the user is redirected to the Login page",
       "priority": "medium"
     },
     {
       "tc_id": "E-004",
+      "wf_ref": "WF-001",
       "subcategory": "boundary",
-      "test_case": "ZIP code one digit short (4 digits) is blocked",
-      "preconditions": [
-        "Registration page is loaded"
-      ],
+      "test_case": "ZIP code one digit short (4 digits) — pattern error shown and registration blocked",
+      "preconditions": ["Registration page is open"],
       "steps": [
-        "1. Enter <valid First Name> in the First_Name field",
-        "2. Enter <valid Last Name> in the Last_Name field",
-        "3. Enter <valid Street Address> in the Street_Address field",
-        "4. Enter <valid City> in the City field",
-        "5. Select <a valid State option> from the State dropdown",
-        "6. Enter <exactly 4 digits> in the ZIP_Code field",
-        "7. Enter <10 digits> in the Phone_Number field",
-        "8. Enter <9 digits> in the Social_Security_Number field",
-        "9. Enter <a valid email address> in the Username field",
-        "10. Enter <a valid password >= 8 characters> in the Password field",
-        "11. Enter <the same password> in the Confirm_Password field",
+        "1. Enter a valid value in First_Name",
+        "2. Enter a valid value in Last_Name",
+        "3. Enter a valid value in Street_Address",
+        "4. Enter a valid value in City",
+        "5. Select a valid option in State",
+        "6. Enter a 4-digit value in ZIP_Code",
+        "7. Enter a valid 10-digit Phone_Number",
+        "8. Enter a valid 9-digit SSN",
+        "9. Enter a valid email in Username",
+        "10. Enter a valid Password with at least 8 characters",
+        "11. Enter the same value in Confirm_Password",
         "12. Click the Register button"
       ],
-      "expected_result": "Submit is blocked; ZIP_Code field displays an inline error indicating it must match 5-digit or 5+4 format (e.g., 12345 or 12345-6789)",
+      "expected_result": "is blocked; ZIP_Code displays an error indicating it must match 5-digit or 5+4 format and the form is not submitted",
       "priority": "medium"
     },
     {
       "tc_id": "E-005",
+      "wf_ref": "WF-001",
       "subcategory": "boundary",
-      "test_case": "Phone entered as 10 digits without formatting autoformats and succeeds",
-      "preconditions": [
-        "Registration page is loaded"
-      ],
+      "test_case": "Phone_Number typed as 10 continuous digits is automatically formatted and registration succeeds",
+      "preconditions": ["Registration page is open"],
       "steps": [
-        "1. Enter <valid First Name> in the First_Name field",
-        "2. Enter <valid Last Name> in the Last_Name field",
-        "3. Enter <valid Street Address> in the Street_Address field",
-        "4. Enter <valid City> in the City field",
-        "5. Select <a valid State option> from the State dropdown",
-        "6. Enter <exactly 5 digits> in the ZIP_Code field",
-        "7. Enter <10 digits (no punctuation)> in the Phone_Number field",
-        "8. Observe the Phone_Number field value updates to the formatted pattern (e.g., (123) 456-7890)",
-        "9. Enter <9 digits> in the Social_Security_Number field",
-        "10. Enter <a valid email address> in the Username field",
-        "11. Enter <a valid password >= 8 characters> in the Password field",
-        "12. Enter <the same password> in the Confirm_Password field",
-        "13. Click the Register button"
+        "1. Enter a valid value in First_Name",
+        "2. Enter a valid value in Last_Name",
+        "3. Enter a valid value in Street_Address",
+        "4. Enter a valid value in City",
+        "5. Select a valid option in State",
+        "6. Enter a valid 5-digit ZIP code in ZIP_Code",
+        "7. Type exactly 10 numeric digits into Phone_Number field without any punctuation (watch the UI apply automatic formatting)",
+        "8. Enter a valid 9-digit SSN",
+        "9. Enter a valid email in Username",
+        "10. Enter a valid Password with at least 8 characters",
+        "11. Enter the same value in Confirm_Password",
+        "12. Click the Register button"
       ],
-      "expected_result": "Phone Number autoformats to (123) 456-7890 (visible in the field); form submits successfully; \"Account created successfully — please sign in\" is displayed and redirect to Login page occurs",
+      "expected_result": "succeeds; as the user types the Phone_Number field auto-formats to the (123) 456-7890 pattern, then the page displays \"Account created successfully — please sign in\" and redirects to the Login page",
       "priority": "medium"
     },
     {
       "tc_id": "E-006",
+      "wf_ref": "WF-001",
       "subcategory": "boundary",
-      "test_case": "Phone entered with 9 digits is blocked (one digit short)",
-      "preconditions": [
-        "Registration page is loaded"
-      ],
+      "test_case": "Phone_Number with one extra digit (11 digits) — pattern error shown and registration blocked",
+      "preconditions": ["Registration page is open"],
       "steps": [
-        "1. Enter <valid First Name> in the First_Name field",
-        "2. Enter <valid Last Name> in the Last_Name field",
-        "3. Enter <valid Street Address> in the Street_Address field",
-        "4. Enter <valid City> in the City field",
-        "5. Select <a valid State option> from the State dropdown",
-        "6. Enter <exactly 5 digits> in the ZIP_Code field",
-        "7. Enter <exactly 9 digits> in the Phone_Number field",
-        "8. Enter <9 digits> in the Social_Security_Number field",
-        "9. Enter <a valid email address> in the Username field",
-        "10. Enter <a valid password >= 8 characters> in the Password field",
-        "11. Enter <the same password> in the Confirm_Password field",
+        "1. Enter a valid value in First_Name",
+        "2. Enter a valid value in Last_Name",
+        "3. Enter a valid value in Street_Address",
+        "4. Enter a valid value in City",
+        "5. Select a valid option in State",
+        "6. Enter a valid 5-digit ZIP code in ZIP_Code",
+        "7. Type exactly 11 numeric digits into Phone_Number field",
+        "8. Enter a valid 9-digit SSN",
+        "9. Enter a valid email in Username",
+        "10. Enter a valid Password with at least 8 characters",
+        "11. Enter the same value in Confirm_Password",
         "12. Click the Register button"
       ],
-      "expected_result": "Submit is blocked; Phone_Number field displays an inline error indicating the value does not conform to the required (123) 456-7890 pattern",
+      "expected_result": "is blocked; Phone_Number displays an error indicating it must follow the format (123) 456-7890 and the form is not submitted",
       "priority": "medium"
     },
     {
       "tc_id": "E-007",
+      "wf_ref": "WF-001",
       "subcategory": "boundary",
-      "test_case": "SSN entered as 9 digits autoformats to 123-45-6789 and succeeds",
-      "preconditions": [
-        "Registration page is loaded"
-      ],
+      "test_case": "SSN typed as 9 continuous digits is automatically formatted to 123-45-6789 and registration succeeds",
+      "preconditions": ["Registration page is open"],
       "steps": [
-        "1. Enter <valid First Name> in the First_Name field",
-        "2. Enter <valid Last Name> in the Last_Name field",
-        "3. Enter <valid Street Address> in the Street_Address field",
-        "4. Enter <valid City> in the City field",
-        "5. Select <a valid State option> from the State dropdown",
-        "6. Enter <exactly 5 digits> in the ZIP_Code field",
-        "7. Enter <10 digits> in the Phone_Number field",
-        "8. Enter <exactly 9 digits (no punctuation)> in the Social_Security_Number field",
-        "9. Observe the Social_Security_Number field value updates to the formatted pattern (e.g., 123-45-6789)",
-        "10. Enter <a valid email address> in the Username field",
-        "11. Enter <a valid password >= 8 characters> in the Password field",
-        "12. Enter <the same password> in the Confirm_Password field",
-        "13. Click the Register button"
+        "1. Enter a valid value in First_Name",
+        "2. Enter a valid value in Last_Name",
+        "3. Enter a valid value in Street_Address",
+        "4. Enter a valid value in City",
+        "5. Select a valid option in State",
+        "6. Enter a valid 5-digit ZIP code in ZIP_Code",
+        "7. Enter a valid 10-digit Phone_Number",
+        "8. Type exactly 9 numeric digits into SSN field without punctuation (observe automatic formatting to 123-45-6789)",
+        "9. Enter a valid email in Username",
+        "10. Enter a valid Password with at least 8 characters",
+        "11. Enter the same value in Confirm_Password",
+        "12. Click the Register button"
       ],
-      "expected_result": "Social Security Number field autoformats to 123-45-6789 (visible in the field); form submits successfully; \"Account created successfully — please sign in\" is displayed and the user is redirected to the Login page",
+      "expected_result": "succeeds; as the user types the SSN field auto-formats to the 123-45-6789 pattern, then the page displays \"Account created successfully — please sign in\" and redirects to the Login page",
       "priority": "medium"
     },
     {
       "tc_id": "E-008",
-      "subcategory": "input_edge",
-      "test_case": "Very long Street_Address (>200 characters) entered — system accepts or clearly truncates",
-      "preconditions": [
-        "Registration page is loaded"
-      ],
+      "wf_ref": null,
+      "subcategory": "interaction_edge",
+      "test_case": "After successful registration, pressing browser Back shows the registration form blank (no pre-filled values)",
+      "preconditions": ["Registration page is open"],
       "steps": [
-        "1. Enter <valid First Name> in the First_Name field",
-        "2. Enter <valid Last Name> in the Last_Name field",
-        "3. Enter <a string longer than 200 characters> in the Street_Address field",
-        "4. Enter <valid City> in the City field",
-        "5. Select <a valid State option> from the State dropdown",
-        "6. Enter <exactly 5 digits> in the ZIP_Code field",
-        "7. Enter <10 digits> in the Phone_Number field",
-        "8. Enter <9 digits> in the Social_Security_Number field",
-        "9. Enter <a valid email address> in the Username field",
-        "10. Enter <a valid password >= 8 characters> in the Password field",
-        "11. Enter <the same password> in the Confirm_Password field",
+        "1. Fill all required fields with valid values (First_Name, Last_Name, Street_Address, City, State, ZIP_Code in valid format, Phone_Number in valid format, SSN in valid format, Username email, Password at least 8 chars, Confirm_Password matching)",
+        "2. Click the Register button and confirm success and redirect to Login page",
+        "3. Press the browser Back button once"
+      ],
+      "expected_result": "succeeds; after pressing Back the Registration form is displayed and all fields are blank (no pre-filled values), preventing an easy accidental re-submission from the back history",
+      "priority": "low"
+    },
+    {
+      "tc_id": "E-009",
+      "wf_ref": "WF-001",
+      "subcategory": "boundary",
+      "test_case": "SSN one digit short (8 digits) — pattern error shown and registration blocked",
+      "preconditions": ["Registration page is open"],
+      "steps": [
+        "1. Enter a valid value in First_Name",
+        "2. Enter a valid value in Last_Name",
+        "3. Enter a valid value in Street_Address",
+        "4. Enter a valid value in City",
+        "5. Select a valid option in State",
+        "6. Enter a valid 5-digit ZIP code in ZIP_Code",
+        "7. Enter a valid 10-digit Phone_Number",
+        "8. Type exactly 8 numeric digits into SSN field",
+        "9. Enter a valid email in Username",
+        "10. Enter a valid Password with at least 8 characters",
+        "11. Enter the same value in Confirm_Password",
         "12. Click the Register button"
       ],
-      "expected_result": "Either the very long Street Address is accepted and the form submits successfully (\"Account created successfully — please sign in\" displayed and redirect to Login page), or the UI shows a clear inline/truncation indicator for Street_Address and prevents submission. The observed outcome must be a visible success message on success or an inline truncation/error shown on the Street_Address field on failure",
-      "priority": "low"
+      "expected_result": "is blocked; SSN displays an error indicating it must follow the format 123-45-6789 and the form is not submitted",
+      "priority": "medium"
     }
   ],
   "summary": {
-    "total": 8,
-    "boundary": 6,
-    "input_edge": 2,
-    "interaction_edge": 0,
+    "total": 9,
+    "boundary": 8,
+    "input_edge": 0,
+    "interaction_edge": 1,
     "state_edge": 0,
     "data_edge": 0,
-    "medium_priority": 6,
-    "low_priority": 2
+    "medium_priority": 8,
+    "low_priority": 1
   }
 }
 
 ------------------------------------------------------------
-[21:32:31] Test-Edge - PARSED JSON
+[15:42:31] Test-Edge - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Register",
@@ -588,207 +615,229 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": "WF-001",
       "subcategory": "boundary",
-      "test_case": "Password exactly at minimum length (8) succeeds",
+      "test_case": "Password minimum length exactly allowed (8 chars) \u2014 registration succeeds",
       "preconditions": [
-        "Registration page is loaded"
+        "Registration page is open"
       ],
       "steps": [
-        "1. Enter <valid First Name> in the First_Name field",
-        "2. Enter <valid Last Name> in the Last_Name field",
-        "3. Enter <valid Street Address> in the Street_Address field",
-        "4. Enter <valid City> in the City field",
-        "5. Select <a valid State option> from the State dropdown",
-        "6. Enter <exactly 5 digits> in the ZIP_Code field",
-        "7. Enter <10 digits> in the Phone_Number field",
-        "8. Enter <9 digits> in the Social_Security_Number field",
-        "9. Enter <a valid email address> in the Username field",
-        "10. Enter <exactly 8 characters> in the Password field",
-        "11. Enter <the same exactly 8 characters> in the Confirm_Password field",
+        "1. Enter a valid value in First_Name",
+        "2. Enter a valid value in Last_Name",
+        "3. Enter a valid value in Street_Address",
+        "4. Enter a valid value in City",
+        "5. Select a valid option in State",
+        "6. Enter a valid 5-digit ZIP code in ZIP_Code",
+        "7. Enter a valid 10-digit Phone_Number in the expected numeric form (so automatic formatting can apply)",
+        "8. Enter a valid 9-digit SSN in the expected numeric form (so automatic formatting can apply)",
+        "9. Enter a valid email in Username",
+        "10. Enter exactly 8 characters in Password",
+        "11. Enter the same exactly 8 characters in Confirm_Password",
         "12. Click the Register button"
       ],
-      "expected_result": "Form submits successfully; \"Account created successfully \u2014 please sign in\" is displayed and the user is redirected to the Login page",
+      "expected_result": "succeeds; page displays \"Account created successfully \u2014 please sign in\" and the user is redirected to the Login page",
       "priority": "medium"
     },
     {
       "tc_id": "E-002",
+      "wf_ref": "WF-001",
       "subcategory": "boundary",
-      "test_case": "Password one character below minimum (7) is blocked",
+      "test_case": "Password one character below minimum (7 chars) \u2014 registration blocked",
       "preconditions": [
-        "Registration page is loaded"
+        "Registration page is open"
       ],
       "steps": [
-        "1. Enter <valid First Name> in the First_Name field",
-        "2. Enter <valid Last Name> in the Last_Name field",
-        "3. Enter <valid Street Address> in the Street_Address field",
-        "4. Enter <valid City> in the City field",
-        "5. Select <a valid State option> from the State dropdown",
-        "6. Enter <exactly 5 digits> in the ZIP_Code field",
-        "7. Enter <10 digits> in the Phone_Number field",
-        "8. Enter <9 digits> in the Social_Security_Number field",
-        "9. Enter <a valid email address> in the Username field",
-        "10. Enter <exactly 7 characters> in the Password field",
-        "11. Enter <the same exactly 7 characters> in the Confirm_Password field",
+        "1. Enter a valid value in First_Name",
+        "2. Enter a valid value in Last_Name",
+        "3. Enter a valid value in Street_Address",
+        "4. Enter a valid value in City",
+        "5. Select a valid option in State",
+        "6. Enter a valid 5-digit ZIP code in ZIP_Code",
+        "7. Enter a valid 10-digit Phone_Number",
+        "8. Enter a valid 9-digit SSN",
+        "9. Enter a valid email in Username",
+        "10. Enter exactly 7 characters in Password",
+        "11. Enter the same exactly 7 characters in Confirm_Password",
         "12. Click the Register button"
       ],
-      "expected_result": "Submit is blocked; Password field displays an inline error indicating it must be at least 8 characters",
+      "expected_result": "is blocked; Password field displays an error indicating \"minimum length 8 characters\" and the form is not submitted",
       "priority": "medium"
     },
     {
       "tc_id": "E-003",
+      "wf_ref": "WF-001",
       "subcategory": "boundary",
-      "test_case": "ZIP code exactly 5 digits succeeds",
+      "test_case": "ZIP code exactly 5 digits \u2014 registration succeeds",
       "preconditions": [
-        "Registration page is loaded"
+        "Registration page is open"
       ],
       "steps": [
-        "1. Enter <valid First Name> in the First_Name field",
-        "2. Enter <valid Last Name> in the Last_Name field",
-        "3. Enter <valid Street Address> in the Street_Address field",
-        "4. Enter <valid City> in the City field",
-        "5. Select <a valid State option> from the State dropdown",
-        "6. Enter <exactly 5 digits> in the ZIP_Code field",
-        "7. Enter <10 digits> in the Phone_Number field",
-        "8. Enter <9 digits> in the Social_Security_Number field",
-        "9. Enter <a valid email address> in the Username field",
-        "10. Enter <a valid password >= 8 characters> in the Password field",
-        "11. Enter <the same password> in the Confirm_Password field",
+        "1. Enter a valid value in First_Name",
+        "2. Enter a valid value in Last_Name",
+        "3. Enter a valid value in Street_Address",
+        "4. Enter a valid value in City",
+        "5. Select a valid option in State",
+        "6. Enter a ZIP code in 5-digit format in ZIP_Code",
+        "7. Enter a valid 10-digit Phone_Number",
+        "8. Enter a valid 9-digit SSN",
+        "9. Enter a valid email in Username",
+        "10. Enter a valid Password with at least 8 characters",
+        "11. Enter the same value in Confirm_Password",
         "12. Click the Register button"
       ],
-      "expected_result": "Form submits successfully; \"Account created successfully \u2014 please sign in\" is displayed and the user is redirected to the Login page",
+      "expected_result": "succeeds; page displays \"Account created successfully \u2014 please sign in\" and the user is redirected to the Login page",
       "priority": "medium"
     },
     {
       "tc_id": "E-004",
+      "wf_ref": "WF-001",
       "subcategory": "boundary",
-      "test_case": "ZIP code one digit short (4 digits) is blocked",
+      "test_case": "ZIP code one digit short (4 digits) \u2014 pattern error shown and registration blocked",
       "preconditions": [
-        "Registration page is loaded"
+        "Registration page is open"
       ],
       "steps": [
-        "1. Enter <valid First Name> in the First_Name field",
-        "2. Enter <valid Last Name> in the Last_Name field",
-        "3. Enter <valid Street Address> in the Street_Address field",
-        "4. Enter <valid City> in the City field",
-        "5. Select <a valid State option> from the State dropdown",
-        "6. Enter <exactly 4 digits> in the ZIP_Code field",
-        "7. Enter <10 digits> in the Phone_Number field",
-        "8. Enter <9 digits> in the Social_Security_Number field",
-        "9. Enter <a valid email address> in the Username field",
-        "10. Enter <a valid password >= 8 characters> in the Password field",
-        "11. Enter <the same password> in the Confirm_Password field",
+        "1. Enter a valid value in First_Name",
+        "2. Enter a valid value in Last_Name",
+        "3. Enter a valid value in Street_Address",
+        "4. Enter a valid value in City",
+        "5. Select a valid option in State",
+        "6. Enter a 4-digit value in ZIP_Code",
+        "7. Enter a valid 10-digit Phone_Number",
+        "8. Enter a valid 9-digit SSN",
+        "9. Enter a valid email in Username",
+        "10. Enter a valid Password with at least 8 characters",
+        "11. Enter the same value in Confirm_Password",
         "12. Click the Register button"
       ],
-      "expected_result": "Submit is blocked; ZIP_Code field displays an inline error indicating it must match 5-digit or 5+4 format (e.g., 12345 or 12345-6789)",
+      "expected_result": "is blocked; ZIP_Code displays an error indicating it must match 5-digit or 5+4 format and the form is not submitted",
       "priority": "medium"
     },
     {
       "tc_id": "E-005",
+      "wf_ref": "WF-001",
       "subcategory": "boundary",
-      "test_case": "Phone entered as 10 digits without formatting autoformats and succeeds",
+      "test_case": "Phone_Number typed as 10 continuous digits is automatically formatted and registration succeeds",
       "preconditions": [
-        "Registration page is loaded"
+        "Registration page is open"
       ],
       "steps": [
-        "1. Enter <valid First Name> in the First_Name field",
-        "2. Enter <valid Last Name> in the Last_Name field",
-        "3. Enter <valid Street Address> in the Street_Address field",
-        "4. Enter <valid City> in the City field",
-        "5. Select <a valid State option> from the State dropdown",
-        "6. Enter <exactly 5 digits> in the ZIP_Code field",
-        "7. Enter <10 digits (no punctuation)> in the Phone_Number field",
-        "8. Observe the Phone_Number field value updates to the formatted pattern (e.g., (123) 456-7890)",
-        "9. Enter <9 digits> in the Social_Security_Number field",
-        "10. Enter <a valid email address> in the Username field",
-        "11. Enter <a valid password >= 8 characters> in the Password field",
-        "12. Enter <the same password> in the Confirm_Password field",
-        "13. Click the Register button"
+        "1. Enter a valid value in First_Name",
+        "2. Enter a valid value in Last_Name",
+        "3. Enter a valid value in Street_Address",
+        "4. Enter a valid value in City",
+        "5. Select a valid option in State",
+        "6. Enter a valid 5-digit ZIP code in ZIP_Code",
+        "7. Type exactly 10 numeric digits into Phone_Number field without any punctuation (watch the UI apply automatic formatting)",
+        "8. Enter a valid 9-digit SSN",
+        "9. Enter a valid email in Username",
+        "10. Enter a valid Password with at least 8 characters",
+        "11. Enter the same value in Confirm_Password",
+        "12. Click the Register button"
       ],
-      "expected_result": "Phone Number autoformats to (123) 456-7890 (visible in the field); form submits successfully; \"Account created successfully \u2014 please sign in\" is displayed and redirect to Login page occurs",
+      "expected_result": "succeeds; as the user types the Phone_Number field auto-formats to the (123) 456-7890 pattern, then the page displays \"Account created successfully \u2014 please sign in\" and redirects to the Login page",
       "priority": "medium"
     },
     {
       "tc_id": "E-006",
+      "wf_ref": "WF-001",
       "subcategory": "boundary",
-      "test_case": "Phone entered with 9 digits is blocked (one digit short)",
+      "test_case": "Phone_Number with one extra digit (11 digits) \u2014 pattern error shown and registration blocked",
       "preconditions": [
-        "Registration page is loaded"
+        "Registration page is open"
       ],
       "steps": [
-        "1. Enter <valid First Name> in the First_Name field",
-        "2. Enter <valid Last Name> in the Last_Name field",
-        "3. Enter <valid Street Address> in the Street_Address field",
-        "4. Enter <valid City> in the City field",
-        "5. Select <a valid State option> from the State dropdown",
-        "6. Enter <exactly 5 digits> in the ZIP_Code field",
-        "7. Enter <exactly 9 digits> in the Phone_Number field",
-        "8. Enter <9 digits> in the Social_Security_Number field",
-        "9. Enter <a valid email address> in the Username field",
-        "10. Enter <a valid password >= 8 characters> in the Password field",
-        "11. Enter <the same password> in the Confirm_Password field",
+        "1. Enter a valid value in First_Name",
+        "2. Enter a valid value in Last_Name",
+        "3. Enter a valid value in Street_Address",
+        "4. Enter a valid value in City",
+        "5. Select a valid option in State",
+        "6. Enter a valid 5-digit ZIP code in ZIP_Code",
+        "7. Type exactly 11 numeric digits into Phone_Number field",
+        "8. Enter a valid 9-digit SSN",
+        "9. Enter a valid email in Username",
+        "10. Enter a valid Password with at least 8 characters",
+        "11. Enter the same value in Confirm_Password",
         "12. Click the Register button"
       ],
-      "expected_result": "Submit is blocked; Phone_Number field displays an inline error indicating the value does not conform to the required (123) 456-7890 pattern",
+      "expected_result": "is blocked; Phone_Number displays an error indicating it must follow the format (123) 456-7890 and the form is not submitted",
       "priority": "medium"
     },
     {
       "tc_id": "E-007",
+      "wf_ref": "WF-001",
       "subcategory": "boundary",
-      "test_case": "SSN entered as 9 digits autoformats to 123-45-6789 and succeeds",
+      "test_case": "SSN typed as 9 continuous digits is automatically formatted to 123-45-6789 and registration succeeds",
       "preconditions": [
-        "Registration page is loaded"
+        "Registration page is open"
       ],
       "steps": [
-        "1. Enter <valid First Name> in the First_Name field",
-        "2. Enter <valid Last Name> in the Last_Name field",
-        "3. Enter <valid Street Address> in the Street_Address field",
-        "4. Enter <valid City> in the City field",
-        "5. Select <a valid State option> from the State dropdown",
-        "6. Enter <exactly 5 digits> in the ZIP_Code field",
-        "7. Enter <10 digits> in the Phone_Number field",
-        "8. Enter <exactly 9 digits (no punctuation)> in the Social_Security_Number field",
-        "9. Observe the Social_Security_Number field value updates to the formatted pattern (e.g., 123-45-6789)",
-        "10. Enter <a valid email address> in the Username field",
-        "11. Enter <a valid password >= 8 characters> in the Password field",
-        "12. Enter <the same password> in the Confirm_Password field",
-        "13. Click the Register button"
+        "1. Enter a valid value in First_Name",
+        "2. Enter a valid value in Last_Name",
+        "3. Enter a valid value in Street_Address",
+        "4. Enter a valid value in City",
+        "5. Select a valid option in State",
+        "6. Enter a valid 5-digit ZIP code in ZIP_Code",
+        "7. Enter a valid 10-digit Phone_Number",
+        "8. Type exactly 9 numeric digits into SSN field without punctuation (observe automatic formatting to 123-45-6789)",
+        "9. Enter a valid email in Username",
+        "10. Enter a valid Password with at least 8 characters",
+        "11. Enter the same value in Confirm_Password",
+        "12. Click the Register button"
       ],
-      "expected_result": "Social Security Number field autoformats to 123-45-6789 (visible in the field); form submits successfully; \"Account created successfully \u2014 please sign in\" is displayed and the user is redirected to the Login page",
+      "expected_result": "succeeds; as the user types the SSN field auto-formats to the 123-45-6789 pattern, then the page displays \"Account created successfully \u2014 please sign in\" and redirects to the Login page",
       "priority": "medium"
     },
     {
       "tc_id": "E-008",
-      "subcategory": "input_edge",
-      "test_case": "Very long Street_Address (>200 characters) entered \u2014 system accepts or clearly truncates",
+      "wf_ref": null,
+      "subcategory": "interaction_edge",
+      "test_case": "After successful registration, pressing browser Back shows the registration form blank (no pre-filled values)",
       "preconditions": [
-        "Registration page is loaded"
+        "Registration page is open"
       ],
       "steps": [
-        "1. Enter <valid First Name> in the First_Name field",
-        "2. Enter <valid Last Name> in the Last_Name field",
-        "3. Enter <a string longer than 200 characters> in the Street_Address field",
-        "4. Enter <valid City> in the City field",
-        "5. Select <a valid State option> from the State dropdown",
-        "6. Enter <exactly 5 digits> in the ZIP_Code field",
-        "7. Enter <10 digits> in the Phone_Number field",
-        "8. Enter <9 digits> in the Social_Security_Number field",
-        "9. Enter <a valid email address> in the Username field",
-        "10. Enter <a valid password >= 8 characters> in the Password field",
-        "11. Enter <the same password> in the Confirm_Password field",
+        "1. Fill all required fields with valid values (First_Name, Last_Name, Street_Address, City, State, ZIP_Code in valid format, Phone_Number in valid format, SSN in valid format, Username email, Password at least 8 chars, Confirm_Password matching)",
+        "2. Click the Register button and confirm success and redirect to Login page",
+        "3. Press the browser Back button once"
+      ],
+      "expected_result": "succeeds; after pressing Back the Registration form is displayed and all fields are blank (no pre-filled values), preventing an easy accidental re-submission from the back history",
+      "priority": "low"
+    },
+    {
+      "tc_id": "E-009",
+      "wf_ref": "WF-001",
+      "subcategory": "boundary",
+      "test_case": "SSN one digit short (8 digits) \u2014 pattern error shown and registration blocked",
+      "preconditions": [
+        "Registration page is open"
+      ],
+      "steps": [
+        "1. Enter a valid value in First_Name",
+        "2. Enter a valid value in Last_Name",
+        "3. Enter a valid value in Street_Address",
+        "4. Enter a valid value in City",
+        "5. Select a valid option in State",
+        "6. Enter a valid 5-digit ZIP code in ZIP_Code",
+        "7. Enter a valid 10-digit Phone_Number",
+        "8. Type exactly 8 numeric digits into SSN field",
+        "9. Enter a valid email in Username",
+        "10. Enter a valid Password with at least 8 characters",
+        "11. Enter the same value in Confirm_Password",
         "12. Click the Register button"
       ],
-      "expected_result": "Either the very long Street Address is accepted and the form submits successfully (\"Account created successfully \u2014 please sign in\" displayed and redirect to Login page), or the UI shows a clear inline/truncation indicator for Street_Address and prevents submission. The observed outcome must be a visible success message on success or an inline truncation/error shown on the Street_Address field on failure",
-      "priority": "low"
+      "expected_result": "is blocked; SSN displays an error indicating it must follow the format 123-45-6789 and the form is not submitted",
+      "priority": "medium"
     }
   ],
   "summary": {
-    "total": 8,
-    "boundary": 6,
-    "input_edge": 2,
-    "interaction_edge": 0,
+    "total": 9,
+    "boundary": 8,
+    "input_edge": 0,
+    "interaction_edge": 1,
     "state_edge": 0,
     "data_edge": 0,
-    "medium_priority": 6,
-    "low_priority": 2
+    "medium_priority": 8,
+    "low_priority": 1
   }
 }

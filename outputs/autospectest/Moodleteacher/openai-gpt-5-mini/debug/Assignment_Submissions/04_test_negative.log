@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-22T21:47:19.058529
+DEBUG SESSION STARTED: 2026-05-25T15:28:46.018750
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[21:47:19] Test-Negative - SYSTEM PROMPT
+[15:28:46] Test-Negative - SYSTEM PROMPT
 ------------------------------------------------------------
 You are a Negative Test Case Generator. You receive (1) a UI-AST JSON for one module and (2) the original functional description. Your job is to produce ONLY negative test cases — tests where invalid input is provided or business rules are violated, and the system correctly rejects or blocks the action.
 
@@ -22,6 +22,10 @@ You are a Negative Test Case Generator. You receive (1) a UI-AST JSON for one mo
 <description>
 {Original functional description text for this module}
 </description>
+
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
 
 ---
 
@@ -111,6 +115,9 @@ Group required fields by type: `text/unspecified`, `email`, `password`, `number`
 
 Do NOT generate a separate blank-field test for every required field. If 5 text fields are all required, one representative covers them all.
 
+**Action dialog required fields — NOT subject to cross-form deduplication:**
+If a `state_bound_action_bar` action opens a dialog with its own required `fields{}` (e.g., Activate requires Activation Date, Reject requires a Reason, Withdraw requires a Reason, Close requires a Closure Reason), each such dialog is its own testing scope. Generate ONE "leave the required dialog field blank and submit" test per distinct action dialog. These are HIGH priority — they block state transitions and are common defect sites. Do not suppress them because the main wizard already has a blank-field test.
+
 **2. Format violations:**
 
 For fields with type-specific format rules (from AST type or description):
@@ -143,6 +150,10 @@ For each unique `constraints[]` entry in the AST, and for cross-field rules desc
 
 One test per unique constraint. Do not duplicate the same mechanism.
 
+**Constraint timing tests:** If the spec states an action is blocked by a pre-existing system state (e.g., "cannot close with active accounts", "cannot transfer to the same office"), generate TWO tests:
+1. The standard constraint violation test (user opens the dialog, fills required fields, submits → blocked).
+2. A constraint-timing test: user opens the dialog WITHOUT filling required fields → assert whether the block is shown immediately on dialog open (before the user fills anything) OR only on submit. This distinguishes whether the UI enforces the constraint eagerly or lazily. Steps: open the dialog, observe the state → assert what is visible before any interaction. If the spec is silent on timing, generate only the first test.
+
 **5. Precondition violations (auth, role, and state):**
 
 For each `preconditions[]` entry on any action — and for auth/role rules described in the spec:
@@ -154,18 +165,18 @@ For each `preconditions[]` entry on any action — and for auth/role rules descr
 **6. State-machine violations:**
 
 From `state_bound_action_bar` nodes:
-- For each state where an action is NOT listed in `available_actions`, generate one test attempting that action from that state. Example: attempting "Approve" on an entity already in "Active" state.
+- **Every defined state must have at least one wrong-state test.** For each state, identify at least one action that is NOT in its `available_actions` list and generate a test attempting that action from that state.
 - If a state has an empty `available_actions` array, generate one test verifying no action buttons are visible in that state.
-
-One test per unique wrong-state scenario — do not enumerate every action × every invalid state.
+- **Do not stop after 1–2 representative examples** when the module defines 4+ distinct states. The states Active, Pending, Closed, Rejected, and Withdrawn each have different action sets — each must be independently verified.
+- One test per state is sufficient — pick the most distinct unavailable action for that state. Do not enumerate every action × every state (that would be exponential).
 
 ---
 
 **DEDUPLICATION GATE (run before outputting):**
 
-1. **Required field dedup:** Multiple required text fields → ONE representative test, not one per field.
+1. **Required field dedup:** Multiple required text fields in the **same form or dialog** → ONE representative test, not one per field.
 2. **Sub-rule dedup:** A field with multiple validation sub-rules (e.g., password: length + uppercase + lowercase + number + special char) → ONE representative violation test, not one per sub-rule.
-3. **Cross-form dedup:** If two forms in the same module share the same validation mechanism (e.g., both have a required text field) → test it on the primary form only.
+3. **Cross-form dedup:** If two **main forms** in the same module share the same validation mechanism → test it on the primary form only. **Exception: action dialogs are never suppressed by cross-form dedup** — each action dialog with a required field gets its own blank-field test regardless.
 4. **Uniqueness check:** Before outputting, ask for each TC: "Does this test catch a bug that NO other test in this module would catch?" If no → remove it.
 
 ---
@@ -174,9 +185,11 @@ One test per unique wrong-state scenario — do not enumerate every action × ev
 
 - Simple module (login, single form, display page): **2–4 tests**
 - Medium module (standard CRUD form, form with constraints): **4–8 tests**
-- Complex module (state machine, multi-form, wizard with many constraints): **8–12 tests**
+- Complex module (state machine, multi-form, wizard with many constraints): **10–16 tests**
 
-If you exceed these ranges, you are generating redundant tests. Apply the deduplication gate again before outputting.
+For modules with a `state_bound_action_bar` defining 4+ states, the state-machine violation tests alone will produce 4–5 tests. This is expected and correct — do not suppress them to hit a lower target.
+
+If you exceed the upper range, apply the deduplication gate again before outputting.
 
 ---
 
@@ -184,6 +197,17 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
 
 - **High:** State precondition violations, constraint violations that could corrupt data, unauthenticated access, required field representatives
 - **Medium:** Format violations, cross-field validation, numeric bounds, wrong-role access, wrong-state action attempts
+
+---
+
+**WORKFLOW-AWARE FAILURE INJECTION (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- For each workflow that contains a form interaction (terminal action is a submit/save/create/approve button):
+  - Identify the most **critical blocking failure** for that workflow's `conditional_branch`.
+  - If that failure mode is NOT already covered by another workflow's negative test, generate one negative TC for it.
+- **Do NOT generate one negative TC per workflow mechanically.** Apply the existing deduplication gate first — only add a TC if it catches a bug that no other test would catch.
+- Add `"wf_ref": "WF-NNN"` to each TC that maps to a workflow. Set `"wf_ref": null` for generic validation tests.
 
 ---
 
@@ -195,6 +219,7 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
   "test_cases": [
     {
       "tc_id": "N-001",
+      "wf_ref": null,
       "test_case": "Short descriptive name",
       "preconditions": ["precondition 1"],
       "steps": ["1. Step one", "2. Step two"],
@@ -212,7 +237,7 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
 
 
 ------------------------------------------------------------
-[21:47:19] Test-Negative - USER PROMPT
+[15:28:46] Test-Negative - USER PROMPT
 ------------------------------------------------------------
 <module_name>Assignment Submissions</module_name>
 
@@ -220,7 +245,7 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
 {
   "module_name": "Assignment Submissions",
   "components": {
-    "Search_Filters": {
+    "Submission_Filters": {
       "type": "form",
       "fields": {
         "Student_Name": {
@@ -233,7 +258,7 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
           "options": [
             "Submitted for grading",
             "No submission",
-            "Draft \u2014 not submitted"
+            "Draft"
           ]
         },
         "Grading_Status": {
@@ -246,51 +271,61 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
         }
       }
     },
-    "Quick_Grading_Mode": {
+    "Quick_Grading_Toggle": {
       "type": "checkbox",
-      "element_name": "Quick Grading Mode",
-      "required": false
+      "element_name": "Quick Grading",
+      "required": false,
+      "on_check": "enables inline grade entry in table",
+      "on_uncheck": "disables inline grade entry in table"
     },
     "Submissions_Table": {
       "type": "data_table",
-      "columns": {
-        "Student_Identity": {
+      "row_fields": {
+        "Student_Profile": {
           "type": "link",
-          "on_success": "navigates to student profile"
+          "required": false,
+          "preconditions": []
+        },
+        "Submission_Status": {
+          "type": "unspecified",
+          "required": false
+        },
+        "Grading_Status": {
+          "type": "unspecified",
+          "required": false
+        },
+        "Submission_DateTime": {
+          "type": "date",
+          "required": false
+        },
+        "Time_Since_Submission": {
+          "type": "unspecified",
+          "required": false
         },
         "Online_Text_Preview": {
           "type": "link",
-          "on_success": "opens online text preview"
+          "required": false
         },
-        "File_Submission_Links": {
-          "type": "repeating_group",
-          "item_fields": {
-            "File_Link": {
-              "type": "link",
-              "on_success": "opens or downloads submission file"
-            }
-          }
+        "File_Submissions": {
+          "type": "link",
+          "required": false
         },
         "Submission_Comments": {
-          "type": "link",
-          "on_success": "opens submission comments viewer"
+          "type": "unspecified",
+          "required": false
         },
         "Feedback_Comments": {
-          "type": "link",
-          "on_success": "opens feedback comments viewer"
+          "type": "unspecified",
+          "required": false
         },
         "Feedback_Files": {
-          "type": "repeating_group",
-          "item_fields": {
-            "Feedback_File_Link": {
-              "type": "link",
-              "on_success": "opens or downloads feedback file"
-            }
-          }
+          "type": "link",
+          "required": false
         },
         "Final_Grade": {
           "type": "unspecified",
-          "enabled_when": "Quick_Grading_Mode == true"
+          "required": false,
+          "enabled_when": "Quick_Grading == true"
         }
       },
       "row_actions": [
@@ -298,7 +333,8 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
           "action_name": "Open Grading Workflow",
           "on_success": "opens grading workflow for that student"
         }
-      ]
+      ],
+      "bulk_actions": []
     }
   }
 }
@@ -314,10 +350,16 @@ The Submissions view presents a table of all student submission records. Search 
 
 </description>
 
+<workflows>
+WF-001 | Open grading workflow for a student (row action) | actor: <role> | branch: none | terminal: Open Grading Workflow | on_success: opens grading workflow for that student
+WF-002 | Enable Quick Grading (check Quick Grading) | actor: <role> | branch: Quick_Grading == true | terminal: Quick Grading | on_success: enables inline grade entry in table
+WF-003 | Disable Quick Grading (uncheck Quick Grading) | actor: <role> | branch: Quick_Grading == false | terminal: Quick Grading | on_success: disables inline grade entry in table
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[21:49:24] Test-Negative - LLM RESPONSE
+[15:31:14] Test-Negative - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Assignment Submissions",
@@ -325,65 +367,43 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "N-001",
-      "test_case": "Attempt to edit Final Grade when Quick Grading Mode is disabled",
+      "wf_ref": "WF-003",
+      "test_case": "Attempt inline Final Grade edit when Quick Grading is disabled",
       "preconditions": [
-        "User is viewing the Submissions page",
-        "There is at least one submission row visible in the Submissions table",
-        "Quick Grading Mode is unchecked/disabled"
+        "User is on the Submissions view with at least one submission row",
+        "Quick Grading checkbox is unchecked (Quick_Grading == false)"
       ],
       "steps": [
-        "1. Ensure the Quick Grading Mode checkbox is unchecked",
-        "2. Focus the Final Grade cell for a visible submission row",
-        "3. Type <numeric grade> into the Final Grade cell",
-        "4. Press Enter to attempt to submit the inline grade"
+        "1. Locate a submission row for <student>",
+        "2. Click the Final Grade cell for that row"
       ],
-      "expected_result": "Final Grade cell is not editable: the cell remains disabled / does not accept focus or input; typing has no effect and pressing Enter does not persist a grade. The Final Grade value remains unchanged for the row; no grading action is performed and no editable input appears for Final Grade.",
+      "expected_result": "The Final Grade cell does not open an inline editor; the cell remains read-only/disabled (visually indicated, e.g., grayed out or no edit affordance). No inline input appears and no change is accepted or saved; Final Grade value remains unchanged.",
       "priority": "high"
     },
     {
       "tc_id": "N-002",
-      "test_case": "In-progress inline grade edit is cancelled when Quick Grading Mode is turned off before saving",
+      "wf_ref": null,
+      "test_case": "Student profile link is not navigable (non-implemented/broken link)",
       "preconditions": [
-        "User is viewing the Submissions page",
-        "There is at least one submission row visible in the Submissions table",
-        "Quick Grading Mode is initially checked/enabled"
+        "User is on the Submissions view with at least one submission row containing a Student Profile link"
       ],
       "steps": [
-        "1. Check/enable the Quick Grading Mode checkbox",
-        "2. Focus the Final Grade cell for a visible submission row",
-        "3. Type <numeric grade> into the Final Grade cell but do NOT press Enter yet",
-        "4. Uncheck/disable the Quick Grading Mode checkbox while the cell is still being edited",
-        "5. Press Enter (or attempt to commit the inline edit) after Quick Grading Mode is disabled"
+        "1. Click the Student Profile link in a submission row for <student>"
       ],
-      "expected_result": "The inline edit is cancelled and not persisted: the Final Grade cell becomes disabled when Quick Grading Mode is turned off; the attempted grade entry is not saved and the Final Grade value remains unchanged. No partial or new grade is recorded; the UI reflects Final Grade cells as disabled.",
-      "priority": "high"
-    },
-    {
-      "tc_id": "N-003",
-      "test_case": "Attempt to open Grading Workflow when search/filter returns no submissions",
-      "preconditions": [
-        "User is viewing the Submissions page"
-      ],
-      "steps": [
-        "1. Enter <student name or filter criteria that yields no results> into the Student Name search field",
-        "2. Apply the filter (trigger search) to narrow the Submissions table",
-        "3. Observe that the Submissions table shows zero rows",
-        "4. Attempt to open an 'Open Grading Workflow' action from any table row"
-      ],
-      "expected_result": "No row action is available: the Submissions table displays no rows and there are no 'Open Grading Workflow' controls visible or clickable. The user cannot open the grading workflow; no navigation or workflow is opened and the page remains on the empty search results.",
+      "expected_result": "Navigation to the student's profile does not succeed: the browser lands on an error page or shows an unavailable profile (e.g., '404 Not Found' or 'Profile not available') and the student profile cannot be accessed. The Submissions view does not open the profile and no profile content is displayed.",
       "priority": "medium"
     }
   ],
   "summary": {
-    "total": 3,
-    "high_priority": 2,
+    "total": 2,
+    "high_priority": 1,
     "medium_priority": 1,
     "low_priority": 0
   }
 }
 
 ------------------------------------------------------------
-[21:49:24] Test-Negative - PARSED JSON
+[15:31:14] Test-Negative - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Assignment Submissions",
@@ -391,58 +411,36 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "N-001",
-      "test_case": "Attempt to edit Final Grade when Quick Grading Mode is disabled",
+      "wf_ref": "WF-003",
+      "test_case": "Attempt inline Final Grade edit when Quick Grading is disabled",
       "preconditions": [
-        "User is viewing the Submissions page",
-        "There is at least one submission row visible in the Submissions table",
-        "Quick Grading Mode is unchecked/disabled"
+        "User is on the Submissions view with at least one submission row",
+        "Quick Grading checkbox is unchecked (Quick_Grading == false)"
       ],
       "steps": [
-        "1. Ensure the Quick Grading Mode checkbox is unchecked",
-        "2. Focus the Final Grade cell for a visible submission row",
-        "3. Type <numeric grade> into the Final Grade cell",
-        "4. Press Enter to attempt to submit the inline grade"
+        "1. Locate a submission row for <student>",
+        "2. Click the Final Grade cell for that row"
       ],
-      "expected_result": "Final Grade cell is not editable: the cell remains disabled / does not accept focus or input; typing has no effect and pressing Enter does not persist a grade. The Final Grade value remains unchanged for the row; no grading action is performed and no editable input appears for Final Grade.",
+      "expected_result": "The Final Grade cell does not open an inline editor; the cell remains read-only/disabled (visually indicated, e.g., grayed out or no edit affordance). No inline input appears and no change is accepted or saved; Final Grade value remains unchanged.",
       "priority": "high"
     },
     {
       "tc_id": "N-002",
-      "test_case": "In-progress inline grade edit is cancelled when Quick Grading Mode is turned off before saving",
+      "wf_ref": null,
+      "test_case": "Student profile link is not navigable (non-implemented/broken link)",
       "preconditions": [
-        "User is viewing the Submissions page",
-        "There is at least one submission row visible in the Submissions table",
-        "Quick Grading Mode is initially checked/enabled"
+        "User is on the Submissions view with at least one submission row containing a Student Profile link"
       ],
       "steps": [
-        "1. Check/enable the Quick Grading Mode checkbox",
-        "2. Focus the Final Grade cell for a visible submission row",
-        "3. Type <numeric grade> into the Final Grade cell but do NOT press Enter yet",
-        "4. Uncheck/disable the Quick Grading Mode checkbox while the cell is still being edited",
-        "5. Press Enter (or attempt to commit the inline edit) after Quick Grading Mode is disabled"
+        "1. Click the Student Profile link in a submission row for <student>"
       ],
-      "expected_result": "The inline edit is cancelled and not persisted: the Final Grade cell becomes disabled when Quick Grading Mode is turned off; the attempted grade entry is not saved and the Final Grade value remains unchanged. No partial or new grade is recorded; the UI reflects Final Grade cells as disabled.",
-      "priority": "high"
-    },
-    {
-      "tc_id": "N-003",
-      "test_case": "Attempt to open Grading Workflow when search/filter returns no submissions",
-      "preconditions": [
-        "User is viewing the Submissions page"
-      ],
-      "steps": [
-        "1. Enter <student name or filter criteria that yields no results> into the Student Name search field",
-        "2. Apply the filter (trigger search) to narrow the Submissions table",
-        "3. Observe that the Submissions table shows zero rows",
-        "4. Attempt to open an 'Open Grading Workflow' action from any table row"
-      ],
-      "expected_result": "No row action is available: the Submissions table displays no rows and there are no 'Open Grading Workflow' controls visible or clickable. The user cannot open the grading workflow; no navigation or workflow is opened and the page remains on the empty search results.",
+      "expected_result": "Navigation to the student's profile does not succeed: the browser lands on an error page or shows an unavailable profile (e.g., '404 Not Found' or 'Profile not available') and the student profile cannot be accessed. The Submissions view does not open the profile and no profile content is displayed.",
       "priority": "medium"
     }
   ],
   "summary": {
-    "total": 3,
-    "high_priority": 2,
+    "total": 2,
+    "high_priority": 1,
     "medium_priority": 1,
     "low_priority": 0
   }

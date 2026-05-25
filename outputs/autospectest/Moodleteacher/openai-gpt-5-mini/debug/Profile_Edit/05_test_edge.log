@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-22T21:47:19.061013
+DEBUG SESSION STARTED: 2026-05-25T15:28:46.020803
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[21:47:19] Test-Edge - SYSTEM PROMPT
+[15:28:46] Test-Edge - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Edge Case and Boundary Test Generator. You receive (1) a UI-AST JSON for one module and (2) the original functional description. Your job is to produce ONLY boundary and edge case tests — scenarios at the limits of valid/invalid input and unusual-but-plausible user behaviors.
 
@@ -24,6 +24,10 @@ You are NOT producing happy paths (positive prompt) or standard validation failu
 <description>
 {Original functional description text for this module}
 </description>
+
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
 
 ---
 
@@ -176,6 +180,15 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 
 ---
 
+**WORKFLOW-AWARE BOUNDARY SCOPING (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- For each workflow where `conditional_branch` activates a numeric or date field, check if that field has a boundary (a numeric/date threshold in the AST `constraints` or description).
+- If yes, that workflow's branch is a **candidate for a boundary edge test** — add or confirm a boundary TC exists for it.
+- Add `"wf_ref": "WF-NNN"` to each TC that maps to a specific workflow's boundary. Set `"wf_ref": null` for generic input/interaction edge tests.
+
+---
+
 **OUTPUT — JSON only, no prose, no markdown fencing:**
 
 {
@@ -184,6 +197,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": null,
       "subcategory": "boundary | input_edge | interaction_edge | state_edge | data_edge",
       "test_case": "Short descriptive name",
       "preconditions": ["precondition 1"],
@@ -206,7 +220,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 
 
 ------------------------------------------------------------
-[21:47:19] Test-Edge - USER PROMPT
+[15:28:46] Test-Edge - USER PROMPT
 ------------------------------------------------------------
 <module_name>Profile Edit</module_name>
 
@@ -216,50 +230,36 @@ If the module has any numeric/date/count threshold in the AST or description, pr
   "components": {
     "Edit_Profile_Form": {
       "type": "form",
-      "top_actions": [
-        {
-          "element_name": "Expand all",
+      "fields": {
+        "Expand_All_Link": {
           "type": "link",
-          "on_click": "expands all collapsible sections",
-          "affects": [
-            "General",
-            "User Picture",
-            "Additional names",
-            "Interests",
-            "Optional fields"
-          ]
-        }
-      ],
-      "sections": [
-        {
-          "section_name": "General",
-          "collapsible": true,
-          "toggle_action": {
-            "action_name": "Toggle General",
-            "type": "button"
-          },
+          "element_name": "Expand all",
+          "on_success": "expands all collapsible sections"
+        },
+        "General": {
+          "type": "collapsible_section",
           "fields": {
-            "First name": {
+            "First_Name": {
               "type": "unspecified",
               "required": true
             },
-            "Last name": {
+            "Last_Name": {
               "type": "unspecified",
               "required": true
             },
-            "Email address": {
+            "Email_Address": {
               "type": "email",
               "required": true
             },
-            "Email visibility": {
+            "Email_Visibility": {
               "type": "dropdown",
               "required": false
             },
-            "MoodleNet profile ID": {
+            "MoodleNet_Profile_ID": {
               "type": "unspecified",
               "required": false
             },
-            "City/town": {
+            "City_Town": {
               "type": "unspecified",
               "required": false
             },
@@ -274,45 +274,37 @@ If the module has any numeric/date/count threshold in the AST or description, pr
             "Description": {
               "type": "unspecified",
               "required": false,
-              "format": "rich_text"
+              "constraints": [
+                "rich text editor input"
+              ]
             }
           }
         },
-        {
-          "section_name": "User Picture",
-          "collapsible": true,
-          "toggle_action": {
-            "action_name": "Toggle User Picture",
-            "type": "button"
-          },
+        "User_Picture": {
+          "type": "collapsible_section",
           "fields": {
-            "New picture upload": {
+            "Picture_Upload": {
               "type": "file_upload",
               "required": false,
-              "drag_and_drop": true,
               "constraints": [
-                "must meet site upload constraints"
+                "supports drag-and-drop",
+                "must meet site upload constraints (validated on submit)"
               ]
             },
-            "Picture description": {
+            "Picture_Description": {
               "type": "unspecified",
               "required": false
             }
           }
         },
-        {
-          "section_name": "Additional names",
-          "collapsible": true,
-          "toggle_action": {
-            "action_name": "Toggle Additional names",
-            "type": "button"
-          },
+        "Additional_Names": {
+          "type": "collapsible_section",
           "fields": {
-            "Additional_Names": {
+            "Additional_Names_List": {
               "type": "repeating_group",
-              "required": false,
+              "min": 0,
               "item_fields": {
-                "Alternative name format": {
+                "Alternative_Name": {
                   "type": "unspecified",
                   "required": false
                 }
@@ -320,44 +312,42 @@ If the module has any numeric/date/count threshold in the AST or description, pr
             }
           }
         },
-        {
-          "section_name": "Interests",
-          "collapsible": true,
-          "toggle_action": {
-            "action_name": "Toggle Interests",
-            "type": "button"
-          },
+        "Interests": {
+          "type": "collapsible_section",
           "fields": {
-            "Interests": {
+            "Interests_Tags": {
               "type": "unspecified",
               "required": false,
-              "input_mode": "tag"
+              "constraints": [
+                "tag-based input"
+              ]
             }
           }
         },
-        {
-          "section_name": "Optional fields",
-          "collapsible": true,
-          "toggle_action": {
-            "action_name": "Toggle Optional fields",
-            "type": "button"
-          },
-          "fields": {}
+        "Optional_Fields": {
+          "type": "collapsible_section",
+          "fields": {
+            "Site_Defined_Custom_Fields": {
+              "type": "unspecified",
+              "required": false,
+              "constraints": [
+                "represents any site-defined custom profile fields; validated on submit"
+              ]
+            }
+          }
         }
-      ],
+      },
       "submit_actions": [
         {
           "element_name": "Update profile",
-          "type": "button",
           "constraints": [
-            "validates all required fields",
-            "validates upload constraints"
+            "validates all required fields before saving",
+            "validates upload constraints before saving"
           ],
-          "on_success": "refreshes the profile page and saves changes"
+          "on_success": "refreshes the profile page"
         },
         {
           "element_name": "Cancel",
-          "type": "button",
           "on_success": "exits without making changes"
         }
       ]
@@ -375,10 +365,15 @@ The Edit profile form contains collapsible sections with an "Expand all" link at
 
 </description>
 
+<workflows>
+WF-001 | Update profile (save changes) | actor: <role> | branch: none | terminal: Update profile | on_success: refreshes the profile page
+WF-002 | Cancel (exit without saving) | actor: <role> | branch: none | terminal: Cancel | on_success: exits without making changes
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[21:49:55] Test-Edge - LLM RESPONSE
+[15:32:10] Test-Edge - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Profile Edit",
@@ -386,122 +381,168 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": "WF-001",
       "subcategory": "boundary",
-      "test_case": "Upload file exactly at site upload size limit to New picture upload",
+      "test_case": "Upload file exactly at the site's maximum allowed upload size and save",
       "preconditions": [
-        "User is logged in and on the Edit Profile page",
-        "User Picture section is present (per AST field 'New picture upload' with site upload constraints)"
+        "User is logged in",
+        "Edit Profile form is open on the Edit Profile page",
+        "User has access to a file exactly at the site's maximum allowed upload size"
       ],
       "steps": [
-        "1. Click the 'Expand all' link",
-        "2. Focus the 'New picture upload' file drop area in the User Picture section",
-        "3. Upload a file that is exactly the site upload size limit to the 'New picture upload' field",
-        "4. Click the 'Update profile' button"
+        "1. Expand the 'User picture' collapsible section",
+        "2. Drag-and-drop the file that is exactly the site's maximum allowed upload size onto the Picture_Upload area",
+        "3. Click the 'Update profile' button"
       ],
-      "expected_result": "The upload is accepted and the profile update succeeds; the profile page refreshes and the new picture is displayed and/or the file upload area shows a visible success indicator (succeeds)",
+      "expected_result": "Upload and save succeeds; clicking 'Update profile' submits successfully, the profile page refreshes, and the new picture is visible on the profile page (picture replaced by the uploaded file).",
       "priority": "medium"
     },
     {
       "tc_id": "E-002",
+      "wf_ref": "WF-001",
       "subcategory": "boundary",
-      "test_case": "Upload file one unit over the site upload size limit to New picture upload",
+      "test_case": "Upload file one unit over the site's maximum allowed upload size and attempt to save",
       "preconditions": [
-        "User is logged in and on the Edit Profile page",
-        "User Picture section is present (per AST field 'New picture upload' with site upload constraints)"
+        "User is logged in",
+        "Edit Profile form is open on the Edit Profile page",
+        "User has access to a file that is one unit (e.g., 1 byte) larger than the site's maximum allowed upload size"
       ],
       "steps": [
-        "1. Click the 'Expand all' link",
-        "2. Focus the 'New picture upload' file drop area in the User Picture section",
-        "3. Attempt to upload a file that is one unit larger than the site upload size limit to the 'New picture upload' field",
-        "4. Click the 'Update profile' button"
+        "1. Expand the 'User picture' collapsible section",
+        "2. Drag-and-drop the file that is one unit over the site's maximum allowed upload size onto the Picture_Upload area",
+        "3. Click the 'Update profile' button"
       ],
-      "expected_result": "The upload is blocked; an inline error is shown on the file upload control indicating the file exceeds the site upload size limit and the profile is not saved (is blocked; error shown)",
+      "expected_result": "Upload is blocked / error shown; submission is blocked and an inline error is shown near the Picture_Upload field indicating the file exceeds the site's maximum allowed upload size, and the profile page does not refresh.",
       "priority": "medium"
     },
     {
       "tc_id": "E-003",
+      "wf_ref": null,
       "subcategory": "input_edge",
-      "test_case": "Enter very long rich text in Description (200+ characters)",
+      "test_case": "Enter a very long string (200+ characters) into the Description rich text editor and save",
       "preconditions": [
-        "User is logged in and on the Edit Profile page",
-        "General section contains 'Description' rich text editor (AST: 'Description' with format 'rich_text')"
+        "User is logged in",
+        "Edit Profile form is open on the Edit Profile page",
+        "The Description field is visible in the General section"
       ],
       "steps": [
-        "1. Click the 'Expand all' link",
-        "2. Click into the 'Description' rich text editor",
-        "3. Enter a very long text string (200+ characters) into the 'Description' field",
+        "1. Expand the 'General' collapsible section",
+        "2. Place the cursor in the Description rich text editor",
+        "3. Paste a continuous text block of 200+ characters into the Description editor",
         "4. Click the 'Update profile' button"
       ],
-      "expected_result": "If the system accepts long rich text, the update succeeds and the saved profile's Description displays the full entered text; if the system truncates or limits rich text, the editor displays a clear truncation/limit indicator and the form is blocked with an inline message (either: form submits successfully and saved Description shows the full text (succeeds) OR submission is blocked and an inline message indicates Description exceeds allowed length (is blocked; error shown))",
-      "priority": "medium"
+      "expected_result": "Form submission proceeds; after clicking 'Update profile' the profile page refreshes. The saved Description either (a) displays the full long text on the profile detail page (accepted), or (b) displays a visibly truncated Description with an explicit truncation indicator/ellipsis or inline message indicating the Description was trimmed. Either outcome must be visible on the refreshed profile page.",
+      "priority": "low"
     },
     {
       "tc_id": "E-004",
+      "wf_ref": null,
       "subcategory": "input_edge",
-      "test_case": "Use Unicode / emoji / special characters in First name and Last name",
+      "test_case": "Enter emoji and non-Latin Unicode characters into Description and First Name fields and save",
       "preconditions": [
-        "User is logged in and on the Edit Profile page",
-        "General section contains 'First name' and 'Last name' fields (both required in AST)"
+        "User is logged in",
+        "Edit Profile form is open on the Edit Profile page",
+        "General and Description fields are visible"
       ],
       "steps": [
-        "1. Click the 'Expand all' link",
-        "2. Enter a name containing Unicode characters and emoji into the 'First name' field",
-        "3. Enter a name containing Unicode characters and emoji into the 'Last name' field",
-        "4. Enter a valid value into the required 'Email address' field",
-        "5. Click the 'Update profile' button"
+        "1. Expand the 'General' collapsible section",
+        "2. Enter emoji and non-Latin Unicode characters into the First_Name field",
+        "3. Enter emoji and non-Latin Unicode characters into the Description rich text editor",
+        "4. Click the 'Update profile' button"
       ],
-      "expected_result": "The profile update succeeds and the profile page displays the saved First name and Last name with the Unicode/emoji characters preserved (succeeds), or if the system disallows such characters the form is blocked with an inline validation error next to the name field (is blocked; error shown)",
+      "expected_result": "Unicode input handling visible; after clicking 'Update profile' the profile page refreshes. The saved values either appear exactly as entered (emoji and Unicode characters visible) or an inline validation error is shown indicating unsupported characters. The visible outcome must clearly show whether the characters were saved or rejected.",
       "priority": "low"
     },
     {
       "tc_id": "E-005",
+      "wf_ref": "WF-001",
       "subcategory": "input_edge",
-      "test_case": "Leading and trailing whitespace in First name / Last name / Email is trimmed on save",
+      "test_case": "Enter leading and trailing whitespace in required First Name and Last Name and save",
       "preconditions": [
-        "User is logged in and on the Edit Profile page",
-        "General section contains 'First name', 'Last name', and 'Email address' fields (AST marks them required)"
+        "User is logged in",
+        "Edit Profile form is open on the Edit Profile page",
+        "First_Name and Last_Name fields are visible in the General section"
       ],
       "steps": [
-        "1. Click the 'Expand all' link",
-        "2. Enter a value with leading and trailing spaces into the 'First name' field",
-        "3. Enter a value with leading and trailing spaces into the 'Last name' field",
-        "4. Enter an email value with leading and trailing spaces into the 'Email address' field",
-        "5. Click the 'Update profile' button"
+        "1. Expand the 'General' collapsible section",
+        "2. Enter a value with leading and trailing spaces into the First_Name field",
+        "3. Enter a value with leading and trailing spaces into the Last_Name field",
+        "4. Click the 'Update profile' button"
       ],
-      "expected_result": "The update succeeds and leading/trailing whitespace is trimmed in the saved data; the profile page displays First name, Last name, and Email without the extra spaces (succeeds). If trimming is not performed, the system shows the saved values preserving whitespace or displays an inline normalization warning (visible outcome shown)",
-      "priority": "low"
+      "expected_result": "Whitespace trimming behavior visible; submission succeeds. On the refreshed profile page, the First and Last name values are shown without leading or trailing spaces (whitespace trimmed). If the system treats whitespace-only as empty, submission is blocked and an inline required-field error is shown for the affected field(s).",
+      "priority": "medium"
     },
     {
       "tc_id": "E-006",
+      "wf_ref": "WF-001",
       "subcategory": "interaction_edge",
-      "test_case": "Immediate browser Back after successful Update profile to check for duplicate submissions",
+      "test_case": "Add an Additional Name, remove it, then save (repeating group add-then-remove all)",
       "preconditions": [
-        "User is logged in and on the Edit Profile page",
-        "General required fields can be filled to achieve a successful save (AST: 'Update profile' refreshes the profile page on success)"
+        "User is logged in",
+        "Edit Profile form is open on the Edit Profile page",
+        "The 'Additional names' collapsible section is visible"
       ],
       "steps": [
-        "1. Fill required fields: enter valid 'First name', 'Last name', and 'Email address'",
-        "2. Click the 'Update profile' button and wait for the profile page to refresh",
+        "1. Expand the 'Additional names' collapsible section",
+        "2. Click to add a new item in Additional_Names_List",
+        "3. Enter a value into the Alternative_Name field for the new item",
+        "4. Remove the Additional_Names_List item just added",
+        "5. Click the 'Update profile' button"
+      ],
+      "expected_result": "Submission succeeds; because Additional_Names_List has min=0, the form submits successfully and the refreshed profile page shows no additional names entries (no residual empty/ghost entries).",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "E-007",
+      "wf_ref": "WF-001",
+      "subcategory": "interaction_edge",
+      "test_case": "Immediately press browser Back after successful Update profile to check for duplicate or stale edit form behavior",
+      "preconditions": [
+        "User is logged in",
+        "Edit Profile form is open on the Edit Profile page",
+        "User has made a change that can be saved (e.g., change Description)"
+      ],
+      "steps": [
+        "1. Click the 'Update profile' button to save changes",
+        "2. Wait for the profile page to refresh (successful save)",
         "3. Immediately press the browser Back button"
       ],
-      "expected_result": "Pressing Back does not trigger a duplicate profile update; only the single intended update exists and the profile page continues to display the saved changes (succeeds). Any attempt by the browser to re-submit the previous POST is prevented by the UI/navigation and no additional changes or duplicate artifacts (e.g. repeated picture uploads) appear (succeeds)",
+      "expected_result": "No duplicate or unintended state; after pressing Back the browser either (a) shows the refreshed profile page (not the edit form), or (b) shows the edit form but with fields blank or reflecting the saved values (not causing a second save). No additional profile entities are created and only the single intended save exists.",
       "priority": "low"
+    },
+    {
+      "tc_id": "E-008",
+      "wf_ref": "WF-002",
+      "subcategory": "interaction_edge",
+      "test_case": "Make multiple edits then click Cancel to ensure no changes are saved",
+      "preconditions": [
+        "User is logged in",
+        "Edit Profile form is open on the Edit Profile page"
+      ],
+      "steps": [
+        "1. Expand the 'General' collapsible section",
+        "2. Change the First_Name field",
+        "3. Change the Description rich text editor",
+        "4. Click the 'Cancel' button"
+      ],
+      "expected_result": "Cancel exits without saving; the profile page is shown (or user is navigated away) and the previously saved profile values remain unchanged (the changes made in the edit form are not persisted).",
+      "priority": "medium"
     }
   ],
   "summary": {
-    "total": 6,
+    "total": 8,
     "boundary": 2,
-    "input_edge": 3,
-    "interaction_edge": 1,
+    "input_edge": 4,
+    "interaction_edge": 3,
     "state_edge": 0,
     "data_edge": 0,
-    "medium_priority": 3,
+    "medium_priority": 5,
     "low_priority": 3
   }
 }
 
 ------------------------------------------------------------
-[21:49:55] Test-Edge - PARSED JSON
+[15:32:10] Test-Edge - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Profile Edit",
@@ -509,116 +550,162 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": "WF-001",
       "subcategory": "boundary",
-      "test_case": "Upload file exactly at site upload size limit to New picture upload",
+      "test_case": "Upload file exactly at the site's maximum allowed upload size and save",
       "preconditions": [
-        "User is logged in and on the Edit Profile page",
-        "User Picture section is present (per AST field 'New picture upload' with site upload constraints)"
+        "User is logged in",
+        "Edit Profile form is open on the Edit Profile page",
+        "User has access to a file exactly at the site's maximum allowed upload size"
       ],
       "steps": [
-        "1. Click the 'Expand all' link",
-        "2. Focus the 'New picture upload' file drop area in the User Picture section",
-        "3. Upload a file that is exactly the site upload size limit to the 'New picture upload' field",
-        "4. Click the 'Update profile' button"
+        "1. Expand the 'User picture' collapsible section",
+        "2. Drag-and-drop the file that is exactly the site's maximum allowed upload size onto the Picture_Upload area",
+        "3. Click the 'Update profile' button"
       ],
-      "expected_result": "The upload is accepted and the profile update succeeds; the profile page refreshes and the new picture is displayed and/or the file upload area shows a visible success indicator (succeeds)",
+      "expected_result": "Upload and save succeeds; clicking 'Update profile' submits successfully, the profile page refreshes, and the new picture is visible on the profile page (picture replaced by the uploaded file).",
       "priority": "medium"
     },
     {
       "tc_id": "E-002",
+      "wf_ref": "WF-001",
       "subcategory": "boundary",
-      "test_case": "Upload file one unit over the site upload size limit to New picture upload",
+      "test_case": "Upload file one unit over the site's maximum allowed upload size and attempt to save",
       "preconditions": [
-        "User is logged in and on the Edit Profile page",
-        "User Picture section is present (per AST field 'New picture upload' with site upload constraints)"
+        "User is logged in",
+        "Edit Profile form is open on the Edit Profile page",
+        "User has access to a file that is one unit (e.g., 1 byte) larger than the site's maximum allowed upload size"
       ],
       "steps": [
-        "1. Click the 'Expand all' link",
-        "2. Focus the 'New picture upload' file drop area in the User Picture section",
-        "3. Attempt to upload a file that is one unit larger than the site upload size limit to the 'New picture upload' field",
-        "4. Click the 'Update profile' button"
+        "1. Expand the 'User picture' collapsible section",
+        "2. Drag-and-drop the file that is one unit over the site's maximum allowed upload size onto the Picture_Upload area",
+        "3. Click the 'Update profile' button"
       ],
-      "expected_result": "The upload is blocked; an inline error is shown on the file upload control indicating the file exceeds the site upload size limit and the profile is not saved (is blocked; error shown)",
+      "expected_result": "Upload is blocked / error shown; submission is blocked and an inline error is shown near the Picture_Upload field indicating the file exceeds the site's maximum allowed upload size, and the profile page does not refresh.",
       "priority": "medium"
     },
     {
       "tc_id": "E-003",
+      "wf_ref": null,
       "subcategory": "input_edge",
-      "test_case": "Enter very long rich text in Description (200+ characters)",
+      "test_case": "Enter a very long string (200+ characters) into the Description rich text editor and save",
       "preconditions": [
-        "User is logged in and on the Edit Profile page",
-        "General section contains 'Description' rich text editor (AST: 'Description' with format 'rich_text')"
+        "User is logged in",
+        "Edit Profile form is open on the Edit Profile page",
+        "The Description field is visible in the General section"
       ],
       "steps": [
-        "1. Click the 'Expand all' link",
-        "2. Click into the 'Description' rich text editor",
-        "3. Enter a very long text string (200+ characters) into the 'Description' field",
+        "1. Expand the 'General' collapsible section",
+        "2. Place the cursor in the Description rich text editor",
+        "3. Paste a continuous text block of 200+ characters into the Description editor",
         "4. Click the 'Update profile' button"
       ],
-      "expected_result": "If the system accepts long rich text, the update succeeds and the saved profile's Description displays the full entered text; if the system truncates or limits rich text, the editor displays a clear truncation/limit indicator and the form is blocked with an inline message (either: form submits successfully and saved Description shows the full text (succeeds) OR submission is blocked and an inline message indicates Description exceeds allowed length (is blocked; error shown))",
-      "priority": "medium"
+      "expected_result": "Form submission proceeds; after clicking 'Update profile' the profile page refreshes. The saved Description either (a) displays the full long text on the profile detail page (accepted), or (b) displays a visibly truncated Description with an explicit truncation indicator/ellipsis or inline message indicating the Description was trimmed. Either outcome must be visible on the refreshed profile page.",
+      "priority": "low"
     },
     {
       "tc_id": "E-004",
+      "wf_ref": null,
       "subcategory": "input_edge",
-      "test_case": "Use Unicode / emoji / special characters in First name and Last name",
+      "test_case": "Enter emoji and non-Latin Unicode characters into Description and First Name fields and save",
       "preconditions": [
-        "User is logged in and on the Edit Profile page",
-        "General section contains 'First name' and 'Last name' fields (both required in AST)"
+        "User is logged in",
+        "Edit Profile form is open on the Edit Profile page",
+        "General and Description fields are visible"
       ],
       "steps": [
-        "1. Click the 'Expand all' link",
-        "2. Enter a name containing Unicode characters and emoji into the 'First name' field",
-        "3. Enter a name containing Unicode characters and emoji into the 'Last name' field",
-        "4. Enter a valid value into the required 'Email address' field",
-        "5. Click the 'Update profile' button"
+        "1. Expand the 'General' collapsible section",
+        "2. Enter emoji and non-Latin Unicode characters into the First_Name field",
+        "3. Enter emoji and non-Latin Unicode characters into the Description rich text editor",
+        "4. Click the 'Update profile' button"
       ],
-      "expected_result": "The profile update succeeds and the profile page displays the saved First name and Last name with the Unicode/emoji characters preserved (succeeds), or if the system disallows such characters the form is blocked with an inline validation error next to the name field (is blocked; error shown)",
+      "expected_result": "Unicode input handling visible; after clicking 'Update profile' the profile page refreshes. The saved values either appear exactly as entered (emoji and Unicode characters visible) or an inline validation error is shown indicating unsupported characters. The visible outcome must clearly show whether the characters were saved or rejected.",
       "priority": "low"
     },
     {
       "tc_id": "E-005",
+      "wf_ref": "WF-001",
       "subcategory": "input_edge",
-      "test_case": "Leading and trailing whitespace in First name / Last name / Email is trimmed on save",
+      "test_case": "Enter leading and trailing whitespace in required First Name and Last Name and save",
       "preconditions": [
-        "User is logged in and on the Edit Profile page",
-        "General section contains 'First name', 'Last name', and 'Email address' fields (AST marks them required)"
+        "User is logged in",
+        "Edit Profile form is open on the Edit Profile page",
+        "First_Name and Last_Name fields are visible in the General section"
       ],
       "steps": [
-        "1. Click the 'Expand all' link",
-        "2. Enter a value with leading and trailing spaces into the 'First name' field",
-        "3. Enter a value with leading and trailing spaces into the 'Last name' field",
-        "4. Enter an email value with leading and trailing spaces into the 'Email address' field",
-        "5. Click the 'Update profile' button"
+        "1. Expand the 'General' collapsible section",
+        "2. Enter a value with leading and trailing spaces into the First_Name field",
+        "3. Enter a value with leading and trailing spaces into the Last_Name field",
+        "4. Click the 'Update profile' button"
       ],
-      "expected_result": "The update succeeds and leading/trailing whitespace is trimmed in the saved data; the profile page displays First name, Last name, and Email without the extra spaces (succeeds). If trimming is not performed, the system shows the saved values preserving whitespace or displays an inline normalization warning (visible outcome shown)",
-      "priority": "low"
+      "expected_result": "Whitespace trimming behavior visible; submission succeeds. On the refreshed profile page, the First and Last name values are shown without leading or trailing spaces (whitespace trimmed). If the system treats whitespace-only as empty, submission is blocked and an inline required-field error is shown for the affected field(s).",
+      "priority": "medium"
     },
     {
       "tc_id": "E-006",
+      "wf_ref": "WF-001",
       "subcategory": "interaction_edge",
-      "test_case": "Immediate browser Back after successful Update profile to check for duplicate submissions",
+      "test_case": "Add an Additional Name, remove it, then save (repeating group add-then-remove all)",
       "preconditions": [
-        "User is logged in and on the Edit Profile page",
-        "General required fields can be filled to achieve a successful save (AST: 'Update profile' refreshes the profile page on success)"
+        "User is logged in",
+        "Edit Profile form is open on the Edit Profile page",
+        "The 'Additional names' collapsible section is visible"
       ],
       "steps": [
-        "1. Fill required fields: enter valid 'First name', 'Last name', and 'Email address'",
-        "2. Click the 'Update profile' button and wait for the profile page to refresh",
+        "1. Expand the 'Additional names' collapsible section",
+        "2. Click to add a new item in Additional_Names_List",
+        "3. Enter a value into the Alternative_Name field for the new item",
+        "4. Remove the Additional_Names_List item just added",
+        "5. Click the 'Update profile' button"
+      ],
+      "expected_result": "Submission succeeds; because Additional_Names_List has min=0, the form submits successfully and the refreshed profile page shows no additional names entries (no residual empty/ghost entries).",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "E-007",
+      "wf_ref": "WF-001",
+      "subcategory": "interaction_edge",
+      "test_case": "Immediately press browser Back after successful Update profile to check for duplicate or stale edit form behavior",
+      "preconditions": [
+        "User is logged in",
+        "Edit Profile form is open on the Edit Profile page",
+        "User has made a change that can be saved (e.g., change Description)"
+      ],
+      "steps": [
+        "1. Click the 'Update profile' button to save changes",
+        "2. Wait for the profile page to refresh (successful save)",
         "3. Immediately press the browser Back button"
       ],
-      "expected_result": "Pressing Back does not trigger a duplicate profile update; only the single intended update exists and the profile page continues to display the saved changes (succeeds). Any attempt by the browser to re-submit the previous POST is prevented by the UI/navigation and no additional changes or duplicate artifacts (e.g. repeated picture uploads) appear (succeeds)",
+      "expected_result": "No duplicate or unintended state; after pressing Back the browser either (a) shows the refreshed profile page (not the edit form), or (b) shows the edit form but with fields blank or reflecting the saved values (not causing a second save). No additional profile entities are created and only the single intended save exists.",
       "priority": "low"
+    },
+    {
+      "tc_id": "E-008",
+      "wf_ref": "WF-002",
+      "subcategory": "interaction_edge",
+      "test_case": "Make multiple edits then click Cancel to ensure no changes are saved",
+      "preconditions": [
+        "User is logged in",
+        "Edit Profile form is open on the Edit Profile page"
+      ],
+      "steps": [
+        "1. Expand the 'General' collapsible section",
+        "2. Change the First_Name field",
+        "3. Change the Description rich text editor",
+        "4. Click the 'Cancel' button"
+      ],
+      "expected_result": "Cancel exits without saving; the profile page is shown (or user is navigated away) and the previously saved profile values remain unchanged (the changes made in the edit form are not persisted).",
+      "priority": "medium"
     }
   ],
   "summary": {
-    "total": 6,
+    "total": 8,
     "boundary": 2,
-    "input_edge": 3,
-    "interaction_edge": 1,
+    "input_edge": 4,
+    "interaction_edge": 3,
     "state_edge": 0,
     "data_edge": 0,
-    "medium_priority": 3,
+    "medium_priority": 5,
     "low_priority": 3
   }
 }

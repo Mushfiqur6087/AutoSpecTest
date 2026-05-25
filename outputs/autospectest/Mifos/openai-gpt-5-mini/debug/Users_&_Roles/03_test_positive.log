@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-21T22:29:06.551939
+DEBUG SESSION STARTED: 2026-05-25T14:24:50.741097
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[22:29:06] Test-Positive - SYSTEM PROMPT
+[14:24:50] Test-Positive - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Expert UI Test Case Generator. You receive (1) a UI-AST JSON for one specific module and (2) the original functional description for that module.
 
@@ -24,6 +24,10 @@ Your job is to produce ONLY positive/functional UI test cases — tests where va
 <description>
 {Original functional description text for this module}
 </description>
+
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
 
 ---
 
@@ -146,6 +150,13 @@ Because you are testing a module in isolation, establish the required entry stat
 **1. Forms & Wizards (`form`, `wizard`):**
 - Generate ONE happy path per distinct success outcome.
 - *Conditional UI Check:* If a toggle/dropdown reveals new mandatory fields (`visible_when`), generate a separate test for that conditional branch.
+- **Wizard step coverage (CRITICAL):** If a wizard has multiple steps and any step beyond Step 1 contains its own named field group (e.g., "Address Details", "Family Members", "Identifiers"), generate ONE dedicated positive TC per such step. The TC must:
+  - Navigate to that specific step (include the preceding steps as preconditions or brief navigation steps)
+  - Fill the fields described for that step (not just pass through)
+  - Assert the step's content is visible/saved on the detail page after final submission
+  - **Do NOT collapse all wizard steps into one happy-path TC** — if Steps 2, 3, and 4 each have their own named section in the spec, they each need their own TC.
+- **Wizard in-step identifiers/duplicates:** If a wizard step allows adding identifiers, documents, or similar entries that have a uniqueness constraint, include a TC for that wizard step that also verifies the constraint (e.g., attempting to add a duplicate Document Type+Key pair inside the wizard). This is a different code path from adding the same post-creation on the detail page.
+- **Action dialogs:** If a `state_bound_action_bar` action opens a dialog with its own `fields{}` (e.g., Activate requires Activation Date, Reject requires Reason), generate ONE positive TC per such action-dialog — distinct from the state-transition TC. The TC fills the dialog field and completes the action.
 
 **2. State Machines (`state_bound_action_bar`):**
 - For each unique action available in a specific state, generate ONE test performing that action.
@@ -200,6 +211,19 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 
 ---
 
+**WORKFLOW COVERAGE OBLIGATION (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- Your test cases must **collectively cover every workflow** listed.
+- For each `wf_id`, at least one TC must:
+  - Activate the `conditional_branch` (if not null) — i.e. the test must set up the condition described.
+  - Assert the `on_success` as its `expected_result` (verbatim or as the primary basis for the expected result).
+- Add `"wf_ref": "WF-NNN"` to each TC to identify which workflow it covers.
+- If one TC naturally covers multiple workflows (e.g., the base path overlaps), pick the most specific `wf_ref`.
+- If a TC does not map to any workflow (e.g., a navigation-only test), set `"wf_ref": null`.
+
+---
+
 **OUTPUT — JSON only, no prose, no markdown fencing:**
 
 {
@@ -208,6 +232,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
   "test_cases": [
     {
       "tc_id": "P-001",
+      "wf_ref": "WF-001",
       "test_case": "Short descriptive name",
       "preconditions": ["User logged in as <Role>", "<Prerequisite state>"],
       "steps": ["1. Step one", "2. Step two"],
@@ -224,7 +249,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 }
 
 ------------------------------------------------------------
-[22:29:06] Test-Positive - USER PROMPT
+[14:24:50] Test-Positive - USER PROMPT
 ------------------------------------------------------------
 <module_name>Users & Roles</module_name>
 
@@ -232,7 +257,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 {
   "module_name": "Users & Roles",
   "components": {
-    "Users_Table": {
+    "Users_Page": {
       "type": "data_table",
       "columns": [
         "Username",
@@ -242,19 +267,21 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
         "Office",
         "Status"
       ],
+      "top_actions": [
+        {
+          "element_name": "+ Create User",
+          "action_type": "open_form",
+          "opens": "Create_User_Form"
+        }
+      ],
       "row_actions": [
         {
-          "action_name": "Open User",
-          "type": "link",
-          "triggered_by_column": "Username",
-          "target": "User_Detail"
+          "action_name": "Open_User_Detail",
+          "trigger": "click on Username",
+          "action_type": "navigation",
+          "navigates_to": "User_Detail_Page"
         }
       ]
-    },
-    "Create_User_Button": {
-      "type": "button",
-      "element_name": "+ Create User",
-      "opens": "Create_User_Form"
     },
     "Create_User_Form": {
       "type": "form",
@@ -278,15 +305,17 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
           "type": "email",
           "required": true,
           "constraints": [
-            "must be valid email format"
+            "must be a valid email format"
           ]
         },
         "Office": {
-          "type": "dropdown",
+          "type": "unspecified",
           "required": true
         },
         "Staff": {
-          "type": "dropdown"
+          "type": "dropdown",
+          "required": false,
+          "links_to": "Staff record"
         },
         "Password": {
           "type": "password",
@@ -297,6 +326,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
         },
         "Repeat_Password": {
           "type": "password",
+          "required": true,
           "constraints": [
             "must match Password"
           ]
@@ -314,21 +344,24 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
       },
       "submit_actions": [
         {
+          "element_name": "unspecified_submit",
           "on_success": "creates user"
         }
       ]
     },
-    "Roles_Table": {
+    "Roles_Page": {
       "type": "data_table",
       "columns": [
         "Name",
         "Description"
+      ],
+      "top_actions": [
+        {
+          "element_name": "+ Create Role",
+          "action_type": "open_form",
+          "opens": "Create_Role_Form"
+        }
       ]
-    },
-    "Create_Role_Button": {
-      "type": "button",
-      "element_name": "+ Create Role",
-      "opens": "Create_Role_Form"
     },
     "Create_Role_Form": {
       "type": "form",
@@ -342,42 +375,42 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
       },
       "submit_actions": [
         {
-          "on_success": "navigates to Role_Permissions_Page"
+          "element_name": "unspecified_submit",
+          "on_success": "opens Role_Permissions_Page"
         }
       ]
     },
     "Role_Permissions_Page": {
       "type": "form",
       "fields": {
-        "Permission_Categories": {
-          "type": "repeating_group",
-          "item_fields": {
-            "Category_Name": {
-              "type": "dropdown",
-              "options": [
-                "User Management",
-                "Portfolio",
-                "Organization",
-                "Accounting",
-                "Reports",
-                "etc."
-              ]
-            },
-            "Permissions": {
-              "type": "repeating_group",
-              "item_fields": {
-                "Permission_Name": {
-                  "type": "unspecified"
-                },
-                "Enabled": {
-                  "type": "checkbox"
-                }
-              }
-            }
-          }
+        "User_Management": {
+          "type": "checkbox",
+          "multiple": true
+        },
+        "Portfolio": {
+          "type": "checkbox",
+          "multiple": true
+        },
+        "Organization": {
+          "type": "checkbox",
+          "multiple": true
+        },
+        "Accounting": {
+          "type": "checkbox",
+          "multiple": true
+        },
+        "Reports": {
+          "type": "checkbox",
+          "multiple": true
+        },
+        "Other_Permissions": {
+          "type": "checkbox",
+          "multiple": true
         }
       },
-      "on_change_effects": "Enabling or disabling permissions controls what menu items, pages, and actions the role can access"
+      "effects": [
+        "Enabling or disabling permissions controls what menu items, pages, and actions the role can access"
+      ]
     }
   }
 }
@@ -394,10 +427,16 @@ The Roles page displays all roles with Name and Description columns. A "+ Create
 
 </description>
 
+<workflows>
+WF-001 | Open User Detail (click Username) | actor: <role> | branch: none | terminal: Open_User_Detail | on_success: navigates to User_Detail_Page
+WF-002 | Create User (submit Create_User_Form) | actor: <role> | branch: none | terminal: unspecified_submit | on_success: creates user
+WF-003 | Create Role and open Role Permissions (submit Create_Role_Form) | actor: <role> | branch: none | terminal: unspecified_submit | on_success: opens Role_Permissions_Page
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[22:35:24] Test-Positive - LLM RESPONSE
+[14:31:17] Test-Positive - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Users & Roles",
@@ -405,108 +444,88 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Create a new user with required fields",
+      "wf_ref": "WF-001",
+      "test_case": "Navigate to User detail by clicking Username in Users table",
       "preconditions": [
         "User logged in as <Administrator>",
-        "Users & Roles page is open"
+        "Users page is open and contains an existing user with Username <existing username>"
       ],
       "steps": [
-        "1. Click '+ Create User' to open the Create User form",
-        "2. Enter <Username> in the Username field",
-        "3. Enter <First Name> in the First Name field",
-        "4. Enter <Last Name> in the Last Name field",
-        "5. Enter <valid email> in the Email field",
-        "6. Select <Office> from the Office dropdown",
-        "7. Enter <valid password> in the Password field (meets password policy)",
-        "8. Enter the same <valid password> in the Repeat Password field",
-        "9. (Optional) Select one or more <Roles> checkboxes",
-        "10. Click Save to submit the form"
+        "1. On the Users page, locate the row with Username <existing username>",
+        "2. Click the Username link for <existing username>"
       ],
-      "expected_result": "New row appears in the Users table with the entered Username, First Name, Last Name, Email, and Office",
+      "expected_result": "The User_Detail_Page for <existing username> is displayed (the detail view for the clicked Username is visible)",
       "priority": "high"
     },
     {
       "tc_id": "P-002",
-      "test_case": "Open an existing user's detail from the Users table",
+      "wf_ref": "WF-002",
+      "test_case": "Create a new user using the Create User form (happy path including optional fields)",
       "preconditions": [
         "User logged in as <Administrator>",
-        "Users & Roles page is open",
-        "At least one user exists in the Users table with a clickable Username"
+        "Users page is open",
+        "Username <new username> is not already present in the Users table"
       ],
       "steps": [
-        "1. Click the Username link for <existing user> in the Users table"
+        "1. Click the '+ Create User' button on the Users page to open the Create User form",
+        "2. Enter <new username> in the Username field",
+        "3. Enter <first name> in the First Name field",
+        "4. Enter <last name> in the Last Name field",
+        "5. Enter <email address> in the Email field",
+        "6. Enter or select <office> in the Office field",
+        "7. Select <staff record> from the Staff dropdown (optional link to staff)",
+        "8. Enter <valid password> in the Password field (meets password policy)",
+        "9. Enter the same <valid password> in the Repeat Password field",
+        "10. Select one or more Roles from the Roles checkboxes",
+        "11. Optionally check 'Override Password Expiry Policy' and/or 'Send Password to Email' as desired",
+        "12. Click the Submit button on the Create User form"
       ],
-      "expected_result": "User Detail page for <existing user> is displayed",
-      "priority": "medium"
+      "expected_result": "A new row appears in the Users table with the entered Username <new username> and Email <email address>",
+      "priority": "high"
     },
     {
       "tc_id": "P-003",
-      "test_case": "Create a new role and navigate to the Role Permissions page",
+      "wf_ref": "WF-003",
+      "test_case": "Create a role and open the Role Permissions page",
       "preconditions": [
         "User logged in as <Administrator>",
-        "Users & Roles page is open"
+        "Roles page is open"
       ],
       "steps": [
-        "1. Click '+ Create Role' to open the Create Role form",
-        "2. Enter <Role Name> in the Role Name field",
-        "3. Enter <Description> in the Description field",
-        "4. Click Save to submit the form"
+        "1. Click the '+ Create Role' button on the Roles page to open the Create Role form",
+        "2. Enter <role name> in the Role Name field",
+        "3. Enter <description> in the Description field",
+        "4. Click the Submit button on the Create Role form"
       ],
-      "expected_result": "Role Permissions page is displayed; Permission Categories include 'User Management', 'Portfolio', 'Organization', 'Accounting', and 'Reports'",
+      "expected_result": "The Role Permissions page is displayed for the new role with a permissions matrix showing categories User Management, Portfolio, Organization, Accounting, Reports, and Other_Permissions; each category shows its permission checkboxes",
       "priority": "high"
     },
     {
       "tc_id": "P-004",
-      "test_case": "Add a permission category and add an enabled permission under it",
+      "wf_ref": null,
+      "test_case": "Enable a permission checkbox on the Role Permissions page",
       "preconditions": [
         "User logged in as <Administrator>",
-        "Users & Roles page is open"
+        "Role Permissions page is open for <role name>"
       ],
       "steps": [
-        "1. Click '+ Create Role' to open the Create Role form",
-        "2. Enter <Role Name> in the Role Name field",
-        "3. Enter <Description> in the Description field",
-        "4. Click Save to submit the form and navigate to the Role Permissions page",
-        "5. Click Add Category to add a new Permission Category row",
-        "6. Select 'User Management' from the Category Name dropdown",
-        "7. Click Add Permission to add a new permission row under the 'User Management' category",
-        "8. Enter <Permission_Name> in the Permission Name field for the new permission",
-        "9. Check the Enabled checkbox for the new permission"
+        "1. On the Role Permissions page for <role name>, locate the User Management permission group",
+        "2. Check the checkbox for <specific permission> under User Management"
       ],
-      "expected_result": "Under Permission Categories, the 'User Management' category displays a permission row for <Permission_Name> with the Enabled checkbox checked",
-      "priority": "medium"
-    },
-    {
-      "tc_id": "P-005",
-      "test_case": "Disable an enabled permission on the Role Permissions page",
-      "preconditions": [
-        "User logged in as <Administrator>",
-        "Users & Roles page is open"
-      ],
-      "steps": [
-        "1. Click '+ Create Role' to open the Create Role form",
-        "2. Enter <Role Name> in the Role Name field",
-        "3. Enter <Description> in the Description field",
-        "4. Click Save to submit the form and navigate to the Role Permissions page",
-        "5. Click Add Category and select 'User Management' from the Category Name dropdown",
-        "6. Click Add Permission and enter <Permission_Name> in the Permission Name field",
-        "7. Check the Enabled checkbox for <Permission_Name> to enable it",
-        "8. Click the Enabled checkbox for <Permission_Name> again to disable it"
-      ],
-      "expected_result": "Under the 'User Management' category, the permission row for <Permission_Name> shows the Enabled checkbox unchecked",
+      "expected_result": "The checkbox for <specific permission> is checked on the Role Permissions page for <role name>",
       "priority": "medium"
     }
   ],
   "summary": {
-    "total": 5,
-    "high_priority": 2,
-    "medium_priority": 3,
+    "total": 4,
+    "high_priority": 3,
+    "medium_priority": 1,
     "low_priority": 0
   }
 }
 
 ------------------------------------------------------------
-[22:35:24] Test-Positive - PARSED JSON
+[14:31:17] Test-Positive - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Users & Roles",
@@ -514,102 +533,82 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Create a new user with required fields",
+      "wf_ref": "WF-001",
+      "test_case": "Navigate to User detail by clicking Username in Users table",
       "preconditions": [
         "User logged in as <Administrator>",
-        "Users & Roles page is open"
+        "Users page is open and contains an existing user with Username <existing username>"
       ],
       "steps": [
-        "1. Click '+ Create User' to open the Create User form",
-        "2. Enter <Username> in the Username field",
-        "3. Enter <First Name> in the First Name field",
-        "4. Enter <Last Name> in the Last Name field",
-        "5. Enter <valid email> in the Email field",
-        "6. Select <Office> from the Office dropdown",
-        "7. Enter <valid password> in the Password field (meets password policy)",
-        "8. Enter the same <valid password> in the Repeat Password field",
-        "9. (Optional) Select one or more <Roles> checkboxes",
-        "10. Click Save to submit the form"
+        "1. On the Users page, locate the row with Username <existing username>",
+        "2. Click the Username link for <existing username>"
       ],
-      "expected_result": "New row appears in the Users table with the entered Username, First Name, Last Name, Email, and Office",
+      "expected_result": "The User_Detail_Page for <existing username> is displayed (the detail view for the clicked Username is visible)",
       "priority": "high"
     },
     {
       "tc_id": "P-002",
-      "test_case": "Open an existing user's detail from the Users table",
+      "wf_ref": "WF-002",
+      "test_case": "Create a new user using the Create User form (happy path including optional fields)",
       "preconditions": [
         "User logged in as <Administrator>",
-        "Users & Roles page is open",
-        "At least one user exists in the Users table with a clickable Username"
+        "Users page is open",
+        "Username <new username> is not already present in the Users table"
       ],
       "steps": [
-        "1. Click the Username link for <existing user> in the Users table"
+        "1. Click the '+ Create User' button on the Users page to open the Create User form",
+        "2. Enter <new username> in the Username field",
+        "3. Enter <first name> in the First Name field",
+        "4. Enter <last name> in the Last Name field",
+        "5. Enter <email address> in the Email field",
+        "6. Enter or select <office> in the Office field",
+        "7. Select <staff record> from the Staff dropdown (optional link to staff)",
+        "8. Enter <valid password> in the Password field (meets password policy)",
+        "9. Enter the same <valid password> in the Repeat Password field",
+        "10. Select one or more Roles from the Roles checkboxes",
+        "11. Optionally check 'Override Password Expiry Policy' and/or 'Send Password to Email' as desired",
+        "12. Click the Submit button on the Create User form"
       ],
-      "expected_result": "User Detail page for <existing user> is displayed",
-      "priority": "medium"
+      "expected_result": "A new row appears in the Users table with the entered Username <new username> and Email <email address>",
+      "priority": "high"
     },
     {
       "tc_id": "P-003",
-      "test_case": "Create a new role and navigate to the Role Permissions page",
+      "wf_ref": "WF-003",
+      "test_case": "Create a role and open the Role Permissions page",
       "preconditions": [
         "User logged in as <Administrator>",
-        "Users & Roles page is open"
+        "Roles page is open"
       ],
       "steps": [
-        "1. Click '+ Create Role' to open the Create Role form",
-        "2. Enter <Role Name> in the Role Name field",
-        "3. Enter <Description> in the Description field",
-        "4. Click Save to submit the form"
+        "1. Click the '+ Create Role' button on the Roles page to open the Create Role form",
+        "2. Enter <role name> in the Role Name field",
+        "3. Enter <description> in the Description field",
+        "4. Click the Submit button on the Create Role form"
       ],
-      "expected_result": "Role Permissions page is displayed; Permission Categories include 'User Management', 'Portfolio', 'Organization', 'Accounting', and 'Reports'",
+      "expected_result": "The Role Permissions page is displayed for the new role with a permissions matrix showing categories User Management, Portfolio, Organization, Accounting, Reports, and Other_Permissions; each category shows its permission checkboxes",
       "priority": "high"
     },
     {
       "tc_id": "P-004",
-      "test_case": "Add a permission category and add an enabled permission under it",
+      "wf_ref": null,
+      "test_case": "Enable a permission checkbox on the Role Permissions page",
       "preconditions": [
         "User logged in as <Administrator>",
-        "Users & Roles page is open"
+        "Role Permissions page is open for <role name>"
       ],
       "steps": [
-        "1. Click '+ Create Role' to open the Create Role form",
-        "2. Enter <Role Name> in the Role Name field",
-        "3. Enter <Description> in the Description field",
-        "4. Click Save to submit the form and navigate to the Role Permissions page",
-        "5. Click Add Category to add a new Permission Category row",
-        "6. Select 'User Management' from the Category Name dropdown",
-        "7. Click Add Permission to add a new permission row under the 'User Management' category",
-        "8. Enter <Permission_Name> in the Permission Name field for the new permission",
-        "9. Check the Enabled checkbox for the new permission"
+        "1. On the Role Permissions page for <role name>, locate the User Management permission group",
+        "2. Check the checkbox for <specific permission> under User Management"
       ],
-      "expected_result": "Under Permission Categories, the 'User Management' category displays a permission row for <Permission_Name> with the Enabled checkbox checked",
-      "priority": "medium"
-    },
-    {
-      "tc_id": "P-005",
-      "test_case": "Disable an enabled permission on the Role Permissions page",
-      "preconditions": [
-        "User logged in as <Administrator>",
-        "Users & Roles page is open"
-      ],
-      "steps": [
-        "1. Click '+ Create Role' to open the Create Role form",
-        "2. Enter <Role Name> in the Role Name field",
-        "3. Enter <Description> in the Description field",
-        "4. Click Save to submit the form and navigate to the Role Permissions page",
-        "5. Click Add Category and select 'User Management' from the Category Name dropdown",
-        "6. Click Add Permission and enter <Permission_Name> in the Permission Name field",
-        "7. Check the Enabled checkbox for <Permission_Name> to enable it",
-        "8. Click the Enabled checkbox for <Permission_Name> again to disable it"
-      ],
-      "expected_result": "Under the 'User Management' category, the permission row for <Permission_Name> shows the Enabled checkbox unchecked",
+      "expected_result": "The checkbox for <specific permission> is checked on the Role Permissions page for <role name>",
       "priority": "medium"
     }
   ],
   "summary": {
-    "total": 5,
-    "high_priority": 2,
-    "medium_priority": 3,
+    "total": 4,
+    "high_priority": 3,
+    "medium_priority": 1,
     "low_priority": 0
   }
 }

@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-22T21:43:51.770157
+DEBUG SESSION STARTED: 2026-05-25T15:20:32.029430
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[21:44:29] Semantic Critic - SYSTEM PROMPT
+[15:21:31] Semantic Critic - SYSTEM PROMPT
 ------------------------------------------------------------
 You are a UI-AST Semantic Critic. You receive (1) a raw functional description and (2) a generated UI-AST JSON.
 
@@ -106,7 +106,7 @@ Output ONLY the JSON object. No explanation, no markdown fencing, no preamble.
 
 
 ------------------------------------------------------------
-[21:44:29] Semantic Critic - USER PROMPT
+[15:21:31] Semantic Critic - USER PROMPT
 ------------------------------------------------------------
 <description>
 
@@ -130,7 +130,7 @@ The Gradebook Grader report provides a spreadsheet-style view of grades. A repor
         "Overview report"
       ]
     },
-    "User_Search_and_Filters": {
+    "User_Filters": {
       "type": "form",
       "fields": {
         "User_Search": {
@@ -143,67 +143,63 @@ The Gradebook Grader report provides a spreadsheet-style view of grades. A repor
         }
       }
     },
-    "Grade_Table": {
+    "Edit_Mode_Toggle": {
+      "type": "checkbox",
+      "required": false,
+      "element_name": "Edit Mode"
+    },
+    "Grades_Table": {
       "type": "data_table",
-      "description": "Spreadsheet-style grid of activities (columns) \u00d7 enrolled students (rows)",
-      "controls": {
-        "Edit_Mode_Toggle": {
-          "element_name": "Toggle Edit Mode",
-          "type": "button",
-          "on_success": "enables inline editing of grade cells",
-          "toggles": "inline_editing"
-        },
-        "Save_Changes": {
-          "element_name": "Save changes",
-          "type": "button",
-          "preconditions": [
-            "Edit mode must be enabled"
-          ],
-          "constraints": [
-            "no grade entries outside configured grade range"
-          ],
-          "on_success": "applies edits to gradebook"
-        }
-      },
-      "cell_template": {
-        "Grade_Cell": {
-          "type": "number",
-          "editable_when": "Edit_Mode == enabled",
-          "required": false,
-          "constraints": [
-            "must be within configured grade range for the activity"
-          ]
-        }
-      },
-      "column_template": {
-        "type": "unspecified",
-        "notes": "Represents an activity column; each column header exposes column_actions"
-      },
+      "description": "Spreadsheet-style table with activities as columns and enrolled students as rows",
+      "columns_dynamic": true,
       "column_actions": [
         {
           "action_name": "Edit activity grade settings",
-          "type": "button",
-          "on_success": "updates activity grade settings",
-          "constraints": [],
-          "preconditions": []
+          "fields": {},
+          "on_success": "updates activity grade settings"
         }
       ],
       "cell_actions": [
         {
           "action_name": "Edit grade entry",
-          "type": "button",
           "fields": {
-            "Grade_Value": {
-              "type": "number",
+            "Grade": {
+              "type": "unspecified",
               "required": true,
               "constraints": [
-                "must be within configured grade range for the activity"
+                "must be within activity's configured grade range"
               ]
+            },
+            "Comment": {
+              "type": "unspecified",
+              "required": false
             }
           },
-          "on_success": "updates single grade entry"
+          "on_success": "updates single grade entry",
+          "on_failure": "flags invalid value inline"
         }
-      ]
+      ],
+      "cell_field_spec": {
+        "Grade_Value": {
+          "type": "unspecified",
+          "enabled_when": "Edit_Mode == true",
+          "constraints": [
+            "must be within activity's configured grade range (violations flagged inline and block Save changes)"
+          ]
+        }
+      }
+    },
+    "Save_Changes_Action": {
+      "type": "button",
+      "element_name": "Save changes",
+      "preconditions": [
+        "Edit_Mode == true"
+      ],
+      "constraints": [
+        "no grade cell may violate its activity's configured grade range (violations block Save changes)"
+      ],
+      "on_success": "applies edits to gradebook",
+      "on_failure": "blocks save and leaves inline validation flags on invalid cells"
     }
   }
 }
@@ -212,23 +208,27 @@ The Gradebook Grader report provides a spreadsheet-style view of grades. A repor
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[21:44:43] Semantic Critic - LLM RESPONSE
+[15:21:55] Semantic Critic - LLM RESPONSE
 ------------------------------------------------------------
 {
   "verdict": "yes",
-  "summary": "AST includes the report-type selector, user search and group filter, per-column and per-cell actions, edit-mode toggle, inline-editable grade cells with range validation, and Save changes with blocking constraint — matching the description.",
+  "summary": "AST matches the described interactive elements (report selector, user search/group filter, per-column actions, per-cell edit menu, Edit mode toggle, inline editable cells, and Save changes with validation); one minor phantom (a Comment field) was inferred but non-critical.",
   "missing": [],
-  "phantoms": [],
+  "phantoms": [
+    "components.Grades_Table.cell_actions[0].fields.Comment"
+  ],
   "fixes": []
 }
 
 ------------------------------------------------------------
-[21:44:43] Semantic Critic - PARSED JSON
+[15:21:55] Semantic Critic - PARSED JSON
 ------------------------------------------------------------
 {
   "verdict": "yes",
-  "summary": "AST includes the report-type selector, user search and group filter, per-column and per-cell actions, edit-mode toggle, inline-editable grade cells with range validation, and Save changes with blocking constraint \u2014 matching the description.",
+  "summary": "AST matches the described interactive elements (report selector, user search/group filter, per-column actions, per-cell edit menu, Edit mode toggle, inline editable cells, and Save changes with validation); one minor phantom (a Comment field) was inferred but non-critical.",
   "missing": [],
-  "phantoms": [],
+  "phantoms": [
+    "components.Grades_Table.cell_actions[0].fields.Comment"
+  ],
   "fixes": []
 }

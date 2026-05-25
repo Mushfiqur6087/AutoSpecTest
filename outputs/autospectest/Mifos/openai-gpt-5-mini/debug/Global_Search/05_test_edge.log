@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-21T22:29:06.514952
+DEBUG SESSION STARTED: 2026-05-25T14:24:50.717262
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[22:29:06] Test-Edge - SYSTEM PROMPT
+[14:24:50] Test-Edge - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Edge Case and Boundary Test Generator. You receive (1) a UI-AST JSON for one module and (2) the original functional description. Your job is to produce ONLY boundary and edge case tests — scenarios at the limits of valid/invalid input and unusual-but-plausible user behaviors.
 
@@ -25,6 +25,10 @@ You are NOT producing happy paths (positive prompt) or standard validation failu
 {Original functional description text for this module}
 </description>
 
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
+
 ---
 
 **UI-AST REFERENCE — How to Read the AST for Edge Testing:**
@@ -35,7 +39,7 @@ You are NOT producing happy paths (positive prompt) or standard validation failu
 | `repeating_group` with `max` | Test adding exactly `max` entries (should succeed) then one more (should block) |
 | `visible_when` / `required_when` | Edge: trigger condition, fill revealed field with boundary value |
 | `state_bound_action_bar` | State edges: rapid consecutive state transitions, transition from a boundary state |
-| `submit_actions[]` with multiple buttons | Interaction edge: double-click a submit button rapidly |
+
 | `type: "date"` fields | Data edges: today, yesterday, far future, Feb 29 leap year |
 | `type: "file_upload"` | Edge: file exactly at size limit, file at 1 byte over limit |
 
@@ -132,7 +136,6 @@ Pick only the ones that apply to field types present in this module's AST:
 
 Pick only the ones that match component types in this module's AST:
 
-- **Double-click submit** (any form/wizard with a submit button): rapidly double-click the submit button → assert only one record is created; no duplicate row appears in the listing table
 - **Rapid re-submission after redirect** (any form that redirects to a detail page on success): after a successful submit, press the browser back button → assert the creation form is shown blank (not pre-filled) OR the user is redirected to the detail page without a second entity being created
 - **Wizard step skip — enforced navigation** (wizard where steps must be completed sequentially): attempt to click a later step tab directly without completing earlier steps → assert navigation is blocked and the earlier step remains active
 - **Wizard step skip — free navigation** (wizard that allows free tab navigation): navigate to a later step without filling earlier steps → assert the later step displays and returning to the earlier step shows fields blank (no data was lost from the later step)
@@ -173,7 +176,16 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 
 - **High:** None — edge tests are secondary to core functionality
 - **Medium:** Boundary tests at thresholds (financial amounts, date ordering, count limits, file size limits)
-- **Low:** Input edge cases (long text, special chars, whitespace, decimal precision), interaction edge cases (double-click, browser back, wizard skip)
+- **Low:** Input edge cases (long text, special chars, whitespace, decimal precision), interaction edge cases (browser back, wizard skip)
+
+---
+
+**WORKFLOW-AWARE BOUNDARY SCOPING (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- For each workflow where `conditional_branch` activates a numeric or date field, check if that field has a boundary (a numeric/date threshold in the AST `constraints` or description).
+- If yes, that workflow's branch is a **candidate for a boundary edge test** — add or confirm a boundary TC exists for it.
+- Add `"wf_ref": "WF-NNN"` to each TC that maps to a specific workflow's boundary. Set `"wf_ref": null` for generic input/interaction edge tests.
 
 ---
 
@@ -185,6 +197,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": null,
       "subcategory": "boundary | input_edge | interaction_edge | state_edge | data_edge",
       "test_case": "Short descriptive name",
       "preconditions": ["precondition 1"],
@@ -207,7 +220,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 
 
 ------------------------------------------------------------
-[22:29:06] Test-Edge - USER PROMPT
+[14:24:50] Test-Edge - USER PROMPT
 ------------------------------------------------------------
 <module_name>Global Search</module_name>
 
@@ -215,116 +228,107 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 {
   "module_name": "Global Search",
   "components": {
-    "Toolbar_Search_Button": {
-      "type": "button",
-      "element_name": "Search Icon",
+    "Global_Search_Widget": {
+      "type": "search_component",
       "preconditions": [
         "user must be logged in"
       ],
-      "on_click": "opens Global_Search"
-    },
-    "Global_Search": {
-      "type": "search",
-      "preconditions": [
-        "user must be logged in"
-      ],
-      "fields": {
-        "Query": {
-          "type": "search",
-          "required": false,
-          "constraints": [
-            "supports partial matching",
-            "case-insensitive"
-          ],
-          "live_search": true
-        }
+      "launcher": {
+        "element_name": "Search Icon",
+        "type": "button",
+        "on_click": "opens Search_Input"
       },
-      "results_dropdown": {
-        "type": "dropdown",
-        "visible_when": "Query != ''",
-        "grouped_by": [
-          "Clients",
-          "Groups",
-          "Loans",
-          "Savings accounts"
+      "Search_Input": {
+        "type": "search",
+        "constraints": [
+          "searches across Clients, Groups, Loans, Savings accounts",
+          "supports partial matching",
+          "case-insensitive"
         ],
-        "groups": [
-          {
-            "group_name": "Clients",
-            "result_item_fields": {
-              "Entity_Name": {
-                "type": "unspecified"
+        "results_dropdown": {
+          "type": "results_dropdown",
+          "grouped_by": [
+            "entity_type"
+          ],
+          "groups": {
+            "Clients": {
+              "item_fields": {
+                "entity_name": {
+                  "type": "unspecified"
+                },
+                "identifier": {
+                  "type": "unspecified"
+                },
+                "status": {
+                  "type": "unspecified"
+                }
               },
-              "Identifier": {
-                "type": "unspecified"
-              },
-              "Status": {
-                "type": "unspecified"
-              }
+              "row_actions": [
+                {
+                  "action_name": "Select",
+                  "on_success": "navigates to {entity_type} detail page"
+                }
+              ]
             },
-            "row_action": {
-              "action_name": "Select Client",
-              "on_select": "navigates to Client detail page"
+            "Groups": {
+              "item_fields": {
+                "entity_name": {
+                  "type": "unspecified"
+                },
+                "identifier": {
+                  "type": "unspecified"
+                },
+                "status": {
+                  "type": "unspecified"
+                }
+              },
+              "row_actions": [
+                {
+                  "action_name": "Select",
+                  "on_success": "navigates to {entity_type} detail page"
+                }
+              ]
+            },
+            "Loans": {
+              "item_fields": {
+                "entity_name": {
+                  "type": "unspecified"
+                },
+                "identifier": {
+                  "type": "unspecified"
+                },
+                "status": {
+                  "type": "unspecified"
+                }
+              },
+              "row_actions": [
+                {
+                  "action_name": "Select",
+                  "on_success": "navigates to {entity_type} detail page"
+                }
+              ]
+            },
+            "Savings accounts": {
+              "item_fields": {
+                "entity_name": {
+                  "type": "unspecified"
+                },
+                "identifier": {
+                  "type": "unspecified"
+                },
+                "status": {
+                  "type": "unspecified"
+                }
+              },
+              "row_actions": [
+                {
+                  "action_name": "Select",
+                  "on_success": "navigates to {entity_type} detail page"
+                }
+              ]
             }
           },
-          {
-            "group_name": "Groups",
-            "result_item_fields": {
-              "Entity_Name": {
-                "type": "unspecified"
-              },
-              "Identifier": {
-                "type": "unspecified"
-              },
-              "Status": {
-                "type": "unspecified"
-              }
-            },
-            "row_action": {
-              "action_name": "Select Group",
-              "on_select": "navigates to Group detail page"
-            }
-          },
-          {
-            "group_name": "Loans",
-            "result_item_fields": {
-              "Entity_Name": {
-                "type": "unspecified"
-              },
-              "Identifier": {
-                "type": "unspecified"
-              },
-              "Status": {
-                "type": "unspecified"
-              }
-            },
-            "row_action": {
-              "action_name": "Select Loan",
-              "on_select": "navigates to Loan detail page"
-            }
-          },
-          {
-            "group_name": "Savings accounts",
-            "result_item_fields": {
-              "Entity_Name": {
-                "type": "unspecified"
-              },
-              "Identifier": {
-                "type": "unspecified"
-              },
-              "Status": {
-                "type": "unspecified"
-              }
-            },
-            "row_action": {
-              "action_name": "Select Savings",
-              "on_select": "navigates to Savings account detail page"
-            }
-          }
-        ],
-        "empty_state": {
-          "message": "No results found",
-          "visible_when": "no_matches"
+          "on_no_results": "displays 'No results found'"
         }
       }
     }
@@ -341,10 +345,16 @@ Global search is accessible from the search icon in the top toolbar from any pag
 
 </description>
 
+<workflows>
+WF-001 | Open search input | actor: <role> | branch: none | terminal: Search Icon | on_success: opens Search_Input
+WF-002 | Select a search result from dropdown | actor: <role> | branch: none | terminal: Select | on_success: navigates to {entity_type} detail page
+WF-003 | Search returns no matches | actor: <role> | branch: none | terminal: displays 'No results found' | on_success: displays 'No results found'
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[22:30:16] Test-Edge - LLM RESPONSE
+[14:25:51] Test-Edge - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Global Search",
@@ -352,84 +362,89 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "E-001",
-      "subcategory": "boundary",
-      "test_case": "Empty query hides results dropdown",
+      "wf_ref": "WF-001",
+      "subcategory": "input_edge",
+      "test_case": "Very long search query (200+ characters)",
       "preconditions": [
-        "user must be logged in"
+        "user must be logged in",
+        "Search Icon is visible in the top toolbar"
       ],
       "steps": [
-        "1. Click the Search Icon in the top toolbar to open Global Search",
-        "2. Ensure the Query input is focused",
-        "3. Do not type anything (leave Query empty) and wait the live_search debounce period"
+        "1. Click the Search Icon",
+        "2. Enter <very long search string (200+ characters)> into Search_Input"
       ],
-      "expected_result": "The results dropdown does not appear and no groups or 'No results found' message are visible; this behavior succeeds (Query == '' keeps dropdown hidden).",
+      "expected_result": "Search executes and the results dropdown updates (succeeds). If matches exist they are displayed grouped by entity type with entity_name, identifier, and status; if none exist the dropdown displays 'No results found'.",
       "priority": "medium"
     },
     {
       "tc_id": "E-002",
-      "subcategory": "boundary",
-      "test_case": "Single-character Query shows dropdown with grouped results",
+      "wf_ref": "WF-002",
+      "subcategory": "input_edge",
+      "test_case": "Leading and trailing whitespace in query then selecting a result",
       "preconditions": [
         "user must be logged in",
-        "Global Search opened"
+        "Search Icon is visible in the top toolbar",
+        "There is at least one entity whose name matches the trimmed form of the query"
       ],
       "steps": [
-        "1. Click the Search Icon in the top toolbar to open Global Search",
-        "2. Enter one character into the Query input",
-        "3. Wait for the live_search results to load"
+        "1. Click the Search Icon",
+        "2. Enter <search term with leading and trailing whitespace> into Search_Input",
+        "3. Wait for the results dropdown to appear",
+        "4. Click 'Select' on the matching result item"
       ],
-      "expected_result": "Search results dropdown appears grouped by entity type (Clients, Groups, Loans, Savings accounts) showing Entity_Name, Identifier, and Status where matches exist; the dropdown visibility and grouped results succeed for a single-character Query.",
-      "priority": "medium"
+      "expected_result": "Leading and trailing whitespace is ignored for matching; clicking 'Select' navigates to the correct entity detail page and the navigation succeeds. The clicked item's detail page is displayed (succeeds).",
+      "priority": "low"
     },
     {
       "tc_id": "E-003",
-      "subcategory": "boundary",
-      "test_case": "Whitespace-only Query is treated as empty (dropdown remains hidden)",
+      "wf_ref": "WF-003",
+      "subcategory": "input_edge",
+      "test_case": "Query containing only special characters / emoji / unicode",
       "preconditions": [
         "user must be logged in",
-        "Global Search opened"
+        "Search Icon is visible in the top toolbar"
       ],
       "steps": [
-        "1. Click the Search Icon in the top toolbar to open Global Search",
-        "2. Enter only whitespace characters into the Query input (e.g., a single space)",
-        "3. Wait for the live_search debounce period"
+        "1. Click the Search Icon",
+        "2. Enter <string of special characters and emoji/unicode> into Search_Input"
       ],
-      "expected_result": "The system treats a whitespace-only Query as empty: the results dropdown does not appear and 'No results found' is not shown; this behavior succeeds (Query effectively treated as '').",
-      "priority": "medium"
+      "expected_result": "The search input accepts special characters/emoji and the search executes (succeeds). If no matching entities exist the results dropdown displays 'No results found'. If matches exist they are displayed grouped by entity type with entity_name, identifier, and status.",
+      "priority": "low"
     },
     {
       "tc_id": "E-004",
+      "wf_ref": "WF-002",
       "subcategory": "interaction_edge",
-      "test_case": "Rapid typing then immediate change yields results only for final Query (no stale selectable results)",
+      "test_case": "Select a result while dropdown is updating (race condition)",
       "preconditions": [
         "user must be logged in",
-        "Global Search opened"
+        "Search Icon is visible in the top toolbar",
+        "There are multiple entities that will match incremental updates for the partial query"
       ],
       "steps": [
-        "1. Click the Search Icon in the top toolbar to open Global Search",
-        "2. Rapidly type a short sequence of characters into Query (keystroke cadence faster than the live_search debounce)",
-        "3. Immediately after, use backspace/typing to change the Query to a different short final value",
-        "4. Wait for the live_search results to load for the final Query",
-        "5. Click a visible result item in the dropdown"
+        "1. Click the Search Icon",
+        "2. Enter <partial query expected to return multiple results> into Search_Input rapidly (character-by-character)",
+        "3. Immediately click 'Select' on a visible result item while the dropdown is still updating",
+        "4. Observe navigation"
       ],
-      "expected_result": "Only results corresponding to the final Query are displayed in the dropdown (no stale/intermediate results remain selectable), and clicking a visible result navigates to that item's detail page exactly once; the system correctly shows final-search results and navigation succeeds.",
+      "expected_result": "The click is applied to the specific item clicked and navigation to that item's detail page succeeds. No stale or incorrect entity detail is opened as a result of concurrent result updates (succeeds).",
       "priority": "medium"
     }
   ],
   "summary": {
     "total": 4,
-    "boundary": 3,
-    "input_edge": 0,
+    "boundary": 0,
+    "input_edge": 3,
     "interaction_edge": 1,
     "state_edge": 0,
     "data_edge": 0,
-    "medium_priority": 4,
-    "low_priority": 0
+    "medium_priority": 2,
+    "low_priority": 2
   }
 }
 
 ------------------------------------------------------------
-[22:30:16] Test-Edge - PARSED JSON
+[14:25:51] Test-Edge - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Global Search",
@@ -437,78 +452,83 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "E-001",
-      "subcategory": "boundary",
-      "test_case": "Empty query hides results dropdown",
+      "wf_ref": "WF-001",
+      "subcategory": "input_edge",
+      "test_case": "Very long search query (200+ characters)",
       "preconditions": [
-        "user must be logged in"
+        "user must be logged in",
+        "Search Icon is visible in the top toolbar"
       ],
       "steps": [
-        "1. Click the Search Icon in the top toolbar to open Global Search",
-        "2. Ensure the Query input is focused",
-        "3. Do not type anything (leave Query empty) and wait the live_search debounce period"
+        "1. Click the Search Icon",
+        "2. Enter <very long search string (200+ characters)> into Search_Input"
       ],
-      "expected_result": "The results dropdown does not appear and no groups or 'No results found' message are visible; this behavior succeeds (Query == '' keeps dropdown hidden).",
+      "expected_result": "Search executes and the results dropdown updates (succeeds). If matches exist they are displayed grouped by entity type with entity_name, identifier, and status; if none exist the dropdown displays 'No results found'.",
       "priority": "medium"
     },
     {
       "tc_id": "E-002",
-      "subcategory": "boundary",
-      "test_case": "Single-character Query shows dropdown with grouped results",
+      "wf_ref": "WF-002",
+      "subcategory": "input_edge",
+      "test_case": "Leading and trailing whitespace in query then selecting a result",
       "preconditions": [
         "user must be logged in",
-        "Global Search opened"
+        "Search Icon is visible in the top toolbar",
+        "There is at least one entity whose name matches the trimmed form of the query"
       ],
       "steps": [
-        "1. Click the Search Icon in the top toolbar to open Global Search",
-        "2. Enter one character into the Query input",
-        "3. Wait for the live_search results to load"
+        "1. Click the Search Icon",
+        "2. Enter <search term with leading and trailing whitespace> into Search_Input",
+        "3. Wait for the results dropdown to appear",
+        "4. Click 'Select' on the matching result item"
       ],
-      "expected_result": "Search results dropdown appears grouped by entity type (Clients, Groups, Loans, Savings accounts) showing Entity_Name, Identifier, and Status where matches exist; the dropdown visibility and grouped results succeed for a single-character Query.",
-      "priority": "medium"
+      "expected_result": "Leading and trailing whitespace is ignored for matching; clicking 'Select' navigates to the correct entity detail page and the navigation succeeds. The clicked item's detail page is displayed (succeeds).",
+      "priority": "low"
     },
     {
       "tc_id": "E-003",
-      "subcategory": "boundary",
-      "test_case": "Whitespace-only Query is treated as empty (dropdown remains hidden)",
+      "wf_ref": "WF-003",
+      "subcategory": "input_edge",
+      "test_case": "Query containing only special characters / emoji / unicode",
       "preconditions": [
         "user must be logged in",
-        "Global Search opened"
+        "Search Icon is visible in the top toolbar"
       ],
       "steps": [
-        "1. Click the Search Icon in the top toolbar to open Global Search",
-        "2. Enter only whitespace characters into the Query input (e.g., a single space)",
-        "3. Wait for the live_search debounce period"
+        "1. Click the Search Icon",
+        "2. Enter <string of special characters and emoji/unicode> into Search_Input"
       ],
-      "expected_result": "The system treats a whitespace-only Query as empty: the results dropdown does not appear and 'No results found' is not shown; this behavior succeeds (Query effectively treated as '').",
-      "priority": "medium"
+      "expected_result": "The search input accepts special characters/emoji and the search executes (succeeds). If no matching entities exist the results dropdown displays 'No results found'. If matches exist they are displayed grouped by entity type with entity_name, identifier, and status.",
+      "priority": "low"
     },
     {
       "tc_id": "E-004",
+      "wf_ref": "WF-002",
       "subcategory": "interaction_edge",
-      "test_case": "Rapid typing then immediate change yields results only for final Query (no stale selectable results)",
+      "test_case": "Select a result while dropdown is updating (race condition)",
       "preconditions": [
         "user must be logged in",
-        "Global Search opened"
+        "Search Icon is visible in the top toolbar",
+        "There are multiple entities that will match incremental updates for the partial query"
       ],
       "steps": [
-        "1. Click the Search Icon in the top toolbar to open Global Search",
-        "2. Rapidly type a short sequence of characters into Query (keystroke cadence faster than the live_search debounce)",
-        "3. Immediately after, use backspace/typing to change the Query to a different short final value",
-        "4. Wait for the live_search results to load for the final Query",
-        "5. Click a visible result item in the dropdown"
+        "1. Click the Search Icon",
+        "2. Enter <partial query expected to return multiple results> into Search_Input rapidly (character-by-character)",
+        "3. Immediately click 'Select' on a visible result item while the dropdown is still updating",
+        "4. Observe navigation"
       ],
-      "expected_result": "Only results corresponding to the final Query are displayed in the dropdown (no stale/intermediate results remain selectable), and clicking a visible result navigates to that item's detail page exactly once; the system correctly shows final-search results and navigation succeeds.",
+      "expected_result": "The click is applied to the specific item clicked and navigation to that item's detail page succeeds. No stale or incorrect entity detail is opened as a result of concurrent result updates (succeeds).",
       "priority": "medium"
     }
   ],
   "summary": {
     "total": 4,
-    "boundary": 3,
-    "input_edge": 0,
+    "boundary": 0,
+    "input_edge": 3,
     "interaction_edge": 1,
     "state_edge": 0,
     "data_edge": 0,
-    "medium_priority": 4,
-    "low_priority": 0
+    "medium_priority": 2,
+    "low_priority": 2
   }
 }

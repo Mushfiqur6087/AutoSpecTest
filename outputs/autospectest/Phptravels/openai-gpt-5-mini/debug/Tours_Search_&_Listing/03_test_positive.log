@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-21T22:54:00.266521
+DEBUG SESSION STARTED: 2026-05-25T14:51:20.254744
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[22:54:00] Test-Positive - SYSTEM PROMPT
+[14:51:20] Test-Positive - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Expert UI Test Case Generator. You receive (1) a UI-AST JSON for one specific module and (2) the original functional description for that module.
 
@@ -24,6 +24,10 @@ Your job is to produce ONLY positive/functional UI test cases — tests where va
 <description>
 {Original functional description text for this module}
 </description>
+
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
 
 ---
 
@@ -146,6 +150,13 @@ Because you are testing a module in isolation, establish the required entry stat
 **1. Forms & Wizards (`form`, `wizard`):**
 - Generate ONE happy path per distinct success outcome.
 - *Conditional UI Check:* If a toggle/dropdown reveals new mandatory fields (`visible_when`), generate a separate test for that conditional branch.
+- **Wizard step coverage (CRITICAL):** If a wizard has multiple steps and any step beyond Step 1 contains its own named field group (e.g., "Address Details", "Family Members", "Identifiers"), generate ONE dedicated positive TC per such step. The TC must:
+  - Navigate to that specific step (include the preceding steps as preconditions or brief navigation steps)
+  - Fill the fields described for that step (not just pass through)
+  - Assert the step's content is visible/saved on the detail page after final submission
+  - **Do NOT collapse all wizard steps into one happy-path TC** — if Steps 2, 3, and 4 each have their own named section in the spec, they each need their own TC.
+- **Wizard in-step identifiers/duplicates:** If a wizard step allows adding identifiers, documents, or similar entries that have a uniqueness constraint, include a TC for that wizard step that also verifies the constraint (e.g., attempting to add a duplicate Document Type+Key pair inside the wizard). This is a different code path from adding the same post-creation on the detail page.
+- **Action dialogs:** If a `state_bound_action_bar` action opens a dialog with its own `fields{}` (e.g., Activate requires Activation Date, Reject requires Reason), generate ONE positive TC per such action-dialog — distinct from the state-transition TC. The TC fills the dialog field and completes the action.
 
 **2. State Machines (`state_bound_action_bar`):**
 - For each unique action available in a specific state, generate ONE test performing that action.
@@ -200,6 +211,19 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 
 ---
 
+**WORKFLOW COVERAGE OBLIGATION (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- Your test cases must **collectively cover every workflow** listed.
+- For each `wf_id`, at least one TC must:
+  - Activate the `conditional_branch` (if not null) — i.e. the test must set up the condition described.
+  - Assert the `on_success` as its `expected_result` (verbatim or as the primary basis for the expected result).
+- Add `"wf_ref": "WF-NNN"` to each TC to identify which workflow it covers.
+- If one TC naturally covers multiple workflows (e.g., the base path overlaps), pick the most specific `wf_ref`.
+- If a TC does not map to any workflow (e.g., a navigation-only test), set `"wf_ref": null`.
+
+---
+
 **OUTPUT — JSON only, no prose, no markdown fencing:**
 
 {
@@ -208,6 +232,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
   "test_cases": [
     {
       "tc_id": "P-001",
+      "wf_ref": "WF-001",
       "test_case": "Short descriptive name",
       "preconditions": ["User logged in as <Role>", "<Prerequisite state>"],
       "steps": ["1. Step one", "2. Step two"],
@@ -224,7 +249,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 }
 
 ------------------------------------------------------------
-[22:54:00] Test-Positive - USER PROMPT
+[14:51:20] Test-Positive - USER PROMPT
 ------------------------------------------------------------
 <module_name>Tours Search & Listing</module_name>
 
@@ -236,7 +261,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
       "type": "form",
       "fields": {
         "Destination": {
-          "type": "search",
+          "type": "unspecified",
           "required": false
         },
         "Travel_Start_Date": {
@@ -257,12 +282,8 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
             "Wildlife"
           ]
         },
-        "Duration_Min_Days": {
-          "type": "number",
-          "required": false
-        },
-        "Duration_Max_Days": {
-          "type": "number",
+        "Duration": {
+          "type": "unspecified",
           "required": false
         },
         "Budget_Min": {
@@ -277,19 +298,18 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
       "submit_actions": [
         {
           "element_name": "Search",
-          "type": "button",
-          "on_success": "redirects to Tours Listing page"
+          "on_success": "redirects to Tours_Listing_Page"
         }
       ]
     },
     "Tours_Listing_Page": {
       "type": "page",
       "components": {
-        "Filters_Sidebar": {
+        "Sidebar_Filters": {
           "type": "form",
           "fields": {
             "Destination": {
-              "type": "search",
+              "type": "unspecified",
               "required": false
             },
             "Tour_Type": {
@@ -310,12 +330,8 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
               "type": "number",
               "required": false
             },
-            "Duration_Min_Days": {
-              "type": "number",
-              "required": false
-            },
-            "Duration_Max_Days": {
-              "type": "number",
+            "Duration": {
+              "type": "unspecified",
               "required": false
             },
             "Departure_Start_Date": {
@@ -330,7 +346,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
         },
         "Sort_Control": {
           "type": "dropdown",
-          "element_name": "Sort By",
+          "element_name": "Sort_By",
           "options": [
             "Popularity",
             "Price",
@@ -338,15 +354,34 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
             "Rating"
           ]
         },
-        "Results_List": {
-          "type": "list",
-          "description": "Card-based results (cards are passive displays per spec)",
-          "sortable_options": [
-            "Popularity",
-            "Price",
-            "Duration",
-            "Rating"
-          ]
+        "Tours_Card_List": {
+          "type": "card_list",
+          "card_fields": {
+            "Image": {
+              "type": "unspecified"
+            },
+            "Name": {
+              "type": "unspecified"
+            },
+            "Destination": {
+              "type": "unspecified"
+            },
+            "Duration": {
+              "type": "unspecified"
+            },
+            "Starting_Price_Per_Person": {
+              "type": "number"
+            },
+            "Brief_Description": {
+              "type": "unspecified"
+            },
+            "Availability_Status": {
+              "type": "unspecified"
+            },
+            "Traveler_Rating": {
+              "type": "unspecified"
+            }
+          }
         }
       }
     }
@@ -363,10 +398,14 @@ The tours search form collects destination, travel dates, tour type (Adventure, 
 
 </description>
 
+<workflows>
+WF-001 | Search tours using the main search form | actor: <role> | branch: none | terminal: Search | on_success: redirects to Tours_Listing_Page
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[22:55:47] Test-Positive - LLM RESPONSE
+[14:52:37] Test-Positive - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Tours Search & Listing",
@@ -374,77 +413,97 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Search form redirects to Tours Listing page and shows results",
+      "wf_ref": "WF-001",
+      "test_case": "Perform a full search from the main Tours Search form and navigate to results",
       "preconditions": [
-        "User on Tours Search page"
+        "User logged in as <Traveler>",
+        "Tours Search page is open"
       ],
       "steps": [
-        "1. Enter <destination> in the Destination field on the Tours Search form",
-        "2. Select <travel start date> in Travel Start Date and <travel end date> in Travel End Date",
-        "3. Select <tour type> from Tour Type",
-        "4. Enter <min days> in Duration Min Days and <max days> in Duration Max Days",
-        "5. Enter <min budget> in Budget Min and <max budget> in Budget Max",
-        "6. Click the Search button"
+        "1. Enter <destination> in the Destination field",
+        "2. Enter <start date> in the Travel_Start_Date field",
+        "3. Enter <end date> in the Travel_End_Date field",
+        "4. Select <tour type> from the Tour_Type dropdown",
+        "5. Enter <duration> in the Duration field",
+        "6. Enter <min budget> in the Budget_Min field and <max budget> in the Budget_Max field",
+        "7. Click the Search button"
       ],
-      "expected_result": "Tours Listing page is displayed with the Results list visible; one or more tour cards are shown and each visible card includes an image, tour name, destination, duration, starting price per person, a brief description, availability status, and traveler rating.",
+      "expected_result": "redirects to Tours_Listing_Page",
       "priority": "high"
     },
     {
       "tc_id": "P-002",
-      "test_case": "Applying sidebar filters narrows results to matching tours",
+      "wf_ref": null,
+      "test_case": "Apply sidebar filters (Destination, Tour Type, Price range) and verify filtered results",
       "preconditions": [
-        "User on Tours Search page"
+        "User logged in as <Traveler>",
+        "Tours Listing page is open with multiple tours available"
       ],
       "steps": [
-        "1. On Tours Search page, enter <destination> and click Search to open the Tours Listing page",
-        "2. In the Filters sidebar, enter <destination> in Destination",
-        "3. Select <tour type> from Tour Type in the Filters sidebar",
-        "4. Enter <price min> in Price Min and <price max> in Price Max",
-        "5. Enter <duration min> in Duration Min Days and <duration max> in Duration Max Days",
-        "6. Enter <departure start date> in Departure Start Date and <departure end date> in Departure End Date",
-        "7. Select 'Price' from the Sort By dropdown to refresh results ordering"
+        "1. In the Sidebar Filters, enter <destination> in Destination",
+        "2. Select <tour type> from the Tour_Type dropdown",
+        "3. Enter <min price> in Price_Min and <max price> in Price_Max",
+        "4. Click Apply Filters (or confirm filter application if filters apply automatically)"
       ],
-      "expected_result": "Results list displays only tour cards that match the entered Destination and selected Tour Type, with starting prices within the specified price range, durations within the specified day range, and departure dates within the specified date range; unrelated tour cards are no longer visible.",
-      "priority": "high"
+      "expected_result": "Tours Card List displays only cards whose Destination matches <destination> and Tour Type is <tour type>; cards with Starting Price per person outside the range <min price>-<max price> are not visible",
+      "priority": "medium"
     },
     {
       "tc_id": "P-003",
-      "test_case": "Sort control reorders results by Rating",
+      "wf_ref": null,
+      "test_case": "Change Sort_By to 'Rating' and verify the listing order reflects traveler ratings",
       "preconditions": [
-        "User on Tours Search page"
+        "User logged in as <Traveler>",
+        "Tours Listing page is open with multiple tours showing varied Traveler_Rating values"
       ],
       "steps": [
-        "1. On Tours Search page, enter <destination> and click Search to open the Tours Listing page with multiple results",
-        "2. Click the Sort By dropdown",
-        "3. Select 'Rating' from the Sort By options"
+        "1. Open the Sort_By dropdown on the Tours Listing page",
+        "2. Select 'Rating' from the Sort_By options"
       ],
-      "expected_result": "Results list is reordered according to traveler rating; the top visible tour card has the highest traveler rating among the displayed results.",
+      "expected_result": "Sort_By shows 'Rating' selected and the Tours Card List is reordered to reflect the Rating selection, with cards arranged so higher Traveler_Rating values appear before lower ones",
       "priority": "medium"
     },
     {
       "tc_id": "P-004",
-      "test_case": "Tour card displays required fields on the listing",
+      "wf_ref": null,
+      "test_case": "Verify each tour card displays image, name, destination, duration, starting price, description, availability, and rating",
       "preconditions": [
-        "User on Tours Search page"
+        "User logged in as <Traveler>",
+        "Tours Listing page is open with at least one tour result"
       ],
       "steps": [
-        "1. On Tours Search page, enter <destination> and click Search to open the Tours Listing page with at least one result",
-        "2. Inspect the first tour card in the Results list"
+        "1. Observe the first page of results on the Tours Card List"
       ],
-      "expected_result": "The inspected tour card shows an image, the tour name, destination, duration, starting price per person, a brief description, availability status, and traveler rating.",
+      "expected_result": "Each displayed tour card contains an Image, Name, Destination, Duration, Starting Price per person, a Brief Description, an Availability Status label, and a Traveler Rating",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-005",
+      "wf_ref": null,
+      "test_case": "Filter by departure date range and verify only tours with departures in that range are shown",
+      "preconditions": [
+        "User logged in as <Traveler>",
+        "Tours Listing page is open with tours having various departure dates"
+      ],
+      "steps": [
+        "1. In the Sidebar Filters, enter <departure start date> in Departure_Start_Date",
+        "2. Enter <departure end date> in Departure_End_Date",
+        "3. Click Apply Filters (or confirm filter application if filters apply automatically)"
+      ],
+      "expected_result": "Tours Card List displays only tours with departure dates between <departure start date> and <departure end date>; tours with departure dates outside that range are not visible",
       "priority": "medium"
     }
   ],
   "summary": {
-    "total": 4,
+    "total": 5,
     "high_priority": 2,
-    "medium_priority": 2,
+    "medium_priority": 3,
     "low_priority": 0
   }
 }
 
 ------------------------------------------------------------
-[22:55:47] Test-Positive - PARSED JSON
+[14:52:37] Test-Positive - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Tours Search & Listing",
@@ -452,71 +511,91 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Search form redirects to Tours Listing page and shows results",
+      "wf_ref": "WF-001",
+      "test_case": "Perform a full search from the main Tours Search form and navigate to results",
       "preconditions": [
-        "User on Tours Search page"
+        "User logged in as <Traveler>",
+        "Tours Search page is open"
       ],
       "steps": [
-        "1. Enter <destination> in the Destination field on the Tours Search form",
-        "2. Select <travel start date> in Travel Start Date and <travel end date> in Travel End Date",
-        "3. Select <tour type> from Tour Type",
-        "4. Enter <min days> in Duration Min Days and <max days> in Duration Max Days",
-        "5. Enter <min budget> in Budget Min and <max budget> in Budget Max",
-        "6. Click the Search button"
+        "1. Enter <destination> in the Destination field",
+        "2. Enter <start date> in the Travel_Start_Date field",
+        "3. Enter <end date> in the Travel_End_Date field",
+        "4. Select <tour type> from the Tour_Type dropdown",
+        "5. Enter <duration> in the Duration field",
+        "6. Enter <min budget> in the Budget_Min field and <max budget> in the Budget_Max field",
+        "7. Click the Search button"
       ],
-      "expected_result": "Tours Listing page is displayed with the Results list visible; one or more tour cards are shown and each visible card includes an image, tour name, destination, duration, starting price per person, a brief description, availability status, and traveler rating.",
+      "expected_result": "redirects to Tours_Listing_Page",
       "priority": "high"
     },
     {
       "tc_id": "P-002",
-      "test_case": "Applying sidebar filters narrows results to matching tours",
+      "wf_ref": null,
+      "test_case": "Apply sidebar filters (Destination, Tour Type, Price range) and verify filtered results",
       "preconditions": [
-        "User on Tours Search page"
+        "User logged in as <Traveler>",
+        "Tours Listing page is open with multiple tours available"
       ],
       "steps": [
-        "1. On Tours Search page, enter <destination> and click Search to open the Tours Listing page",
-        "2. In the Filters sidebar, enter <destination> in Destination",
-        "3. Select <tour type> from Tour Type in the Filters sidebar",
-        "4. Enter <price min> in Price Min and <price max> in Price Max",
-        "5. Enter <duration min> in Duration Min Days and <duration max> in Duration Max Days",
-        "6. Enter <departure start date> in Departure Start Date and <departure end date> in Departure End Date",
-        "7. Select 'Price' from the Sort By dropdown to refresh results ordering"
+        "1. In the Sidebar Filters, enter <destination> in Destination",
+        "2. Select <tour type> from the Tour_Type dropdown",
+        "3. Enter <min price> in Price_Min and <max price> in Price_Max",
+        "4. Click Apply Filters (or confirm filter application if filters apply automatically)"
       ],
-      "expected_result": "Results list displays only tour cards that match the entered Destination and selected Tour Type, with starting prices within the specified price range, durations within the specified day range, and departure dates within the specified date range; unrelated tour cards are no longer visible.",
-      "priority": "high"
+      "expected_result": "Tours Card List displays only cards whose Destination matches <destination> and Tour Type is <tour type>; cards with Starting Price per person outside the range <min price>-<max price> are not visible",
+      "priority": "medium"
     },
     {
       "tc_id": "P-003",
-      "test_case": "Sort control reorders results by Rating",
+      "wf_ref": null,
+      "test_case": "Change Sort_By to 'Rating' and verify the listing order reflects traveler ratings",
       "preconditions": [
-        "User on Tours Search page"
+        "User logged in as <Traveler>",
+        "Tours Listing page is open with multiple tours showing varied Traveler_Rating values"
       ],
       "steps": [
-        "1. On Tours Search page, enter <destination> and click Search to open the Tours Listing page with multiple results",
-        "2. Click the Sort By dropdown",
-        "3. Select 'Rating' from the Sort By options"
+        "1. Open the Sort_By dropdown on the Tours Listing page",
+        "2. Select 'Rating' from the Sort_By options"
       ],
-      "expected_result": "Results list is reordered according to traveler rating; the top visible tour card has the highest traveler rating among the displayed results.",
+      "expected_result": "Sort_By shows 'Rating' selected and the Tours Card List is reordered to reflect the Rating selection, with cards arranged so higher Traveler_Rating values appear before lower ones",
       "priority": "medium"
     },
     {
       "tc_id": "P-004",
-      "test_case": "Tour card displays required fields on the listing",
+      "wf_ref": null,
+      "test_case": "Verify each tour card displays image, name, destination, duration, starting price, description, availability, and rating",
       "preconditions": [
-        "User on Tours Search page"
+        "User logged in as <Traveler>",
+        "Tours Listing page is open with at least one tour result"
       ],
       "steps": [
-        "1. On Tours Search page, enter <destination> and click Search to open the Tours Listing page with at least one result",
-        "2. Inspect the first tour card in the Results list"
+        "1. Observe the first page of results on the Tours Card List"
       ],
-      "expected_result": "The inspected tour card shows an image, the tour name, destination, duration, starting price per person, a brief description, availability status, and traveler rating.",
+      "expected_result": "Each displayed tour card contains an Image, Name, Destination, Duration, Starting Price per person, a Brief Description, an Availability Status label, and a Traveler Rating",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-005",
+      "wf_ref": null,
+      "test_case": "Filter by departure date range and verify only tours with departures in that range are shown",
+      "preconditions": [
+        "User logged in as <Traveler>",
+        "Tours Listing page is open with tours having various departure dates"
+      ],
+      "steps": [
+        "1. In the Sidebar Filters, enter <departure start date> in Departure_Start_Date",
+        "2. Enter <departure end date> in Departure_End_Date",
+        "3. Click Apply Filters (or confirm filter application if filters apply automatically)"
+      ],
+      "expected_result": "Tours Card List displays only tours with departure dates between <departure start date> and <departure end date>; tours with departure dates outside that range are not visible",
       "priority": "medium"
     }
   ],
   "summary": {
-    "total": 4,
+    "total": 5,
     "high_priority": 2,
-    "medium_priority": 2,
+    "medium_priority": 3,
     "low_priority": 0
   }
 }

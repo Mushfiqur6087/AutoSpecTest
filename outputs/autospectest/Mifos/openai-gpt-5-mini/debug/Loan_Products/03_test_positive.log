@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-21T22:29:06.523568
+DEBUG SESSION STARTED: 2026-05-25T14:24:50.721559
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[22:29:06] Test-Positive - SYSTEM PROMPT
+[14:24:50] Test-Positive - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Expert UI Test Case Generator. You receive (1) a UI-AST JSON for one specific module and (2) the original functional description for that module.
 
@@ -24,6 +24,10 @@ Your job is to produce ONLY positive/functional UI test cases — tests where va
 <description>
 {Original functional description text for this module}
 </description>
+
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
 
 ---
 
@@ -146,6 +150,13 @@ Because you are testing a module in isolation, establish the required entry stat
 **1. Forms & Wizards (`form`, `wizard`):**
 - Generate ONE happy path per distinct success outcome.
 - *Conditional UI Check:* If a toggle/dropdown reveals new mandatory fields (`visible_when`), generate a separate test for that conditional branch.
+- **Wizard step coverage (CRITICAL):** If a wizard has multiple steps and any step beyond Step 1 contains its own named field group (e.g., "Address Details", "Family Members", "Identifiers"), generate ONE dedicated positive TC per such step. The TC must:
+  - Navigate to that specific step (include the preceding steps as preconditions or brief navigation steps)
+  - Fill the fields described for that step (not just pass through)
+  - Assert the step's content is visible/saved on the detail page after final submission
+  - **Do NOT collapse all wizard steps into one happy-path TC** — if Steps 2, 3, and 4 each have their own named section in the spec, they each need their own TC.
+- **Wizard in-step identifiers/duplicates:** If a wizard step allows adding identifiers, documents, or similar entries that have a uniqueness constraint, include a TC for that wizard step that also verifies the constraint (e.g., attempting to add a duplicate Document Type+Key pair inside the wizard). This is a different code path from adding the same post-creation on the detail page.
+- **Action dialogs:** If a `state_bound_action_bar` action opens a dialog with its own `fields{}` (e.g., Activate requires Activation Date, Reject requires Reason), generate ONE positive TC per such action-dialog — distinct from the state-transition TC. The TC fills the dialog field and completes the action.
 
 **2. State Machines (`state_bound_action_bar`):**
 - For each unique action available in a specific state, generate ONE test performing that action.
@@ -200,6 +211,19 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 
 ---
 
+**WORKFLOW COVERAGE OBLIGATION (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- Your test cases must **collectively cover every workflow** listed.
+- For each `wf_id`, at least one TC must:
+  - Activate the `conditional_branch` (if not null) — i.e. the test must set up the condition described.
+  - Assert the `on_success` as its `expected_result` (verbatim or as the primary basis for the expected result).
+- Add `"wf_ref": "WF-NNN"` to each TC to identify which workflow it covers.
+- If one TC naturally covers multiple workflows (e.g., the base path overlaps), pick the most specific `wf_ref`.
+- If a TC does not map to any workflow (e.g., a navigation-only test), set `"wf_ref": null`.
+
+---
+
 **OUTPUT — JSON only, no prose, no markdown fencing:**
 
 {
@@ -208,6 +232,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
   "test_cases": [
     {
       "tc_id": "P-001",
+      "wf_ref": "WF-001",
       "test_case": "Short descriptive name",
       "preconditions": ["User logged in as <Role>", "<Prerequisite state>"],
       "steps": ["1. Step one", "2. Step two"],
@@ -224,7 +249,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 }
 
 ------------------------------------------------------------
-[22:29:06] Test-Positive - USER PROMPT
+[14:24:50] Test-Positive - USER PROMPT
 ------------------------------------------------------------
 <module_name>Loan Products</module_name>
 
@@ -232,9 +257,19 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 {
   "module_name": "Loan Products",
   "components": {
-    "Filter_Bar": {
+    "Loan_Products_Filter_Bar": {
       "type": "filter_bar",
-      "fields": {}
+      "fields": {
+        "Search": {
+          "type": "search",
+          "required": false
+        }
+      }
+    },
+    "Create_Loan_Product_Button": {
+      "type": "button",
+      "element_name": "+ Create Loan Product",
+      "on_click": "opens Create_Loan_Product_Wizard"
     },
     "Loan_Products_Table": {
       "type": "data_table",
@@ -244,22 +279,25 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
         "Expiry Date",
         "Status"
       ],
-      "columns_clickable": [
-        "Name"
-      ],
       "row_actions": [
         {
-          "action_name": "Open_Detail",
-          "trigger": "click_Name_link"
+          "action_name": "Open",
+          "element_type": "link",
+          "target_column": "Name",
+          "on_success": "opens product detail view"
         }
-      ],
-      "bulk_actions": []
+      ]
     },
-    "Create_Loan_Product_Button": {
-      "type": "button",
-      "element_name": "+ Create Loan Product",
-      "action": "opens_wizard",
-      "opens": "Create_Loan_Product_Wizard"
+    "Loan_Product_Detail_View": {
+      "type": "detail_view",
+      "fields": {},
+      "actions": [
+        {
+          "action_name": "Edit",
+          "type": "button",
+          "on_success": "enables edit mode for loan product"
+        }
+      ]
     },
     "Create_Loan_Product_Wizard": {
       "type": "wizard",
@@ -269,21 +307,21 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
           "step_name": "Details",
           "fields": {
             "Product_Name": {
-              "type": "text",
+              "type": "unspecified",
               "required": true,
               "constraints": [
-                "shows inline validation errors"
+                "shows inline validation error when empty"
               ]
             },
             "Short_Name": {
-              "type": "text",
+              "type": "unspecified",
               "required": true,
               "constraints": [
-                "shows inline validation errors"
+                "shows inline validation error when empty"
               ]
             },
             "External_Id": {
-              "type": "text",
+              "type": "unspecified",
               "required": false
             },
             "Fund": {
@@ -303,7 +341,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
               "required": false
             },
             "Description": {
-              "type": "text",
+              "type": "unspecified",
               "required": false
             }
           }
@@ -325,9 +363,8 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
               "required": false
             },
             "Principal_Amount": {
-              "type": "object",
-              "required": false,
-              "item_fields": {
+              "type": "group",
+              "fields": {
                 "Minimum": {
                   "type": "number",
                   "required": false
@@ -408,9 +445,8 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
           "step_name": "Terms",
           "fields": {
             "Number_of_Repayments": {
-              "type": "object",
-              "required": false,
-              "item_fields": {
+              "type": "group",
+              "fields": {
                 "Minimum": {
                   "type": "number",
                   "required": false
@@ -426,10 +462,9 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
               }
             },
             "Repaid_Every": {
-              "type": "object",
-              "required": false,
-              "item_fields": {
-                "Value": {
+              "type": "group",
+              "fields": {
+                "Frequency": {
                   "type": "number",
                   "required": false
                 },
@@ -445,9 +480,8 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
               }
             },
             "Nominal_Interest_Rate": {
-              "type": "object",
-              "required": false,
-              "item_fields": {
+              "type": "group",
+              "fields": {
                 "Minimum": {
                   "type": "number",
                   "required": false
@@ -468,19 +502,30 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
           "step_index": 5,
           "step_name": "Charges",
           "fields": {
-            "Charge_Search": {
+            "Charges_Search": {
               "type": "search",
               "required": false
             },
+            "Add_Charge": {
+              "type": "button",
+              "element_name": "Add",
+              "required": false,
+              "on_click": "adds selected predefined charge to Selected_Charges"
+            },
             "Selected_Charges": {
               "type": "repeating_group",
-              "required": false,
               "item_fields": {
                 "Charge": {
                   "type": "unspecified",
                   "required": false
+                },
+                "Remove": {
+                  "type": "button",
+                  "element_name": "Remove",
+                  "on_click": "removes this charge from Selected_Charges"
                 }
-              }
+              },
+              "required": false
             }
           }
         },
@@ -498,56 +543,42 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
                 "Accrual (upfront)"
               ]
             },
-            "GL_Mappings": {
-              "type": "object",
+            "Fund_Source_GL_Account": {
+              "type": "dropdown",
               "required": false,
-              "item_fields": {
-                "Fund_Source": {
-                  "type": "dropdown",
-                  "required": false,
-                  "visible_when": "Accounting_Method != None"
-                },
-                "Loan_Portfolio": {
-                  "type": "dropdown",
-                  "required": false,
-                  "visible_when": "Accounting_Method != None"
-                },
-                "Interest_on_Loans": {
-                  "type": "dropdown",
-                  "required": false,
-                  "visible_when": "Accounting_Method != None"
-                },
-                "Income_from_Fees": {
-                  "type": "dropdown",
-                  "required": false,
-                  "visible_when": "Accounting_Method != None"
-                },
-                "Income_from_Penalties": {
-                  "type": "dropdown",
-                  "required": false,
-                  "visible_when": "Accounting_Method != None"
-                },
-                "Losses_Written_Off": {
-                  "type": "dropdown",
-                  "required": false,
-                  "visible_when": "Accounting_Method != None"
-                },
-                "Overpayment_Liability": {
-                  "type": "dropdown",
-                  "required": false,
-                  "visible_when": "Accounting_Method != None"
-                }
-              }
+              "visible_when": "Accounting_Method != None"
+            },
+            "Loan_Portfolio_GL_Account": {
+              "type": "dropdown",
+              "required": false,
+              "visible_when": "Accounting_Method != None"
+            },
+            "Interest_on_Loans_GL_Account": {
+              "type": "dropdown",
+              "required": false,
+              "visible_when": "Accounting_Method != None"
+            },
+            "Income_from_Fees_GL_Account": {
+              "type": "dropdown",
+              "required": false,
+              "visible_when": "Accounting_Method != None"
+            },
+            "Income_from_Penalties_GL_Account": {
+              "type": "dropdown",
+              "required": false,
+              "visible_when": "Accounting_Method != None"
+            },
+            "Losses_Written_Off_GL_Account": {
+              "type": "dropdown",
+              "required": false,
+              "visible_when": "Accounting_Method != None"
+            },
+            "Overpayment_Liability_GL_Account": {
+              "type": "dropdown",
+              "required": false,
+              "visible_when": "Accounting_Method != None"
             }
           }
-        }
-      ]
-    },
-    "Loan_Product_Detail": {
-      "type": "detail_view",
-      "actions": [
-        {
-          "action_name": "Edit"
         }
       ]
     }
@@ -564,10 +595,18 @@ The Loan Products page displays a filter bar and a data table listing all loan p
 
 </description>
 
+<workflows>
+WF-001 | Open Create Loan Product wizard | actor: <role> | branch: none | terminal: + Create Loan Product | on_success: opens Create_Loan_Product_Wizard
+WF-002 | Open loan product detail from table | actor: <role> | branch: none | terminal: Open | on_success: opens product detail view
+WF-003 | Enter edit mode from loan product detail | actor: <role> | branch: none | terminal: Edit | on_success: enables edit mode for loan product
+WF-004 | Add a predefined charge in Charges step | actor: <role> | branch: none | terminal: Add | on_success: adds selected predefined charge to Selected_Charges
+WF-005 | Remove a selected charge from Selected_Charges | actor: <role> | branch: none | terminal: Remove | on_success: removes this charge from Selected_Charges
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[22:31:07] Test-Positive - LLM RESPONSE
+[14:26:58] Test-Positive - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Loan Products",
@@ -575,129 +614,215 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Create loan product with only required fields (happy path)",
+      "wf_ref": "WF-001",
+      "test_case": "Open Create Loan Product wizard",
       "preconditions": [
-        "User logged in as <Product Manager>"
+        "User logged in as <role>",
+        "Loan Products page is open"
       ],
       "steps": [
-        "1. Navigate to the Loan Products page",
-        "2. Click the '+ Create Loan Product' button",
-        "3. Enter <valid product name> in the Product Name field",
-        "4. Enter <valid short name> in the Short Name field",
-        "5. Click Next to go to Step 2 (Currency)",
-        "6. Click Next to go to Step 3 (Settings)",
-        "7. Click Next to go to Step 4 (Terms)",
-        "8. Click Next to go to Step 5 (Charges)",
-        "9. Click Next to go to Step 6 (Accounting)",
-        "10. Click Submit on the Create Loan Product wizard"
+        "1. Click the '+ Create Loan Product' button"
       ],
-      "expected_result": "A new row appears in the Loan Products table with the entered Product Name <valid product name> and Short Name <valid short name>",
+      "expected_result": "Create Loan Product wizard opens on the 'Details' step and displays the Product Name and Short Name fields",
       "priority": "high"
     },
     {
       "tc_id": "P-002",
-      "test_case": "Create loan product and add a charge in Step 5 Charges",
+      "wf_ref": "WF-002",
+      "test_case": "Open loan product detail from the table via Name link",
       "preconditions": [
-        "User logged in as <Product Manager>"
+        "User logged in as <role>",
+        "Loan Products page is open with the target product visible in the table"
       ],
       "steps": [
-        "1. Navigate to the Loan Products page",
-        "2. Click the '+ Create Loan Product' button",
-        "3. Enter <valid product name> in the Product Name field",
-        "4. Enter <valid short name> in the Short Name field",
-        "5. Click Next to go to Step 2 (Currency)",
-        "6. Click Next to go to Step 3 (Settings)",
-        "7. Click Next to go to Step 4 (Terms)",
-        "8. Click Next to go to Step 5 (Charges)",
-        "9. Enter <charge search term> in the Charge search field",
-        "10. Select <matching charge> from the search results to add it to Selected Charges",
-        "11. Click Next to go to Step 6 (Accounting)",
-        "12. Click Submit on the Create Loan Product wizard"
+        "1. Click the Name link for <target product> in the Loan Products table"
       ],
-      "expected_result": "A new row appears in the Loan Products table with the entered Product Name <valid product name> and Short Name <valid short name>",
-      "priority": "medium"
+      "expected_result": "Product detail view for <target product> is visible",
+      "priority": "high"
     },
     {
       "tc_id": "P-003",
-      "test_case": "Selecting a non-'None' Accounting Method reveals GL mapping dropdowns in Step 6",
+      "wf_ref": "WF-003",
+      "test_case": "Enter edit mode from loan product detail",
       "preconditions": [
-        "User logged in as <Product Manager>"
+        "User logged in as <role>",
+        "Loan Products page is open"
       ],
       "steps": [
-        "1. Navigate to the Loan Products page",
-        "2. Click the '+ Create Loan Product' button",
-        "3. Enter <valid product name> in the Product Name field",
-        "4. Enter <valid short name> in the Short Name field",
-        "5. Click Next repeatedly to advance to Step 6 (Accounting)",
-        "6. Select <non-None accounting method> (for example, select 'Cash-based') in the Accounting Method radio options"
+        "1. Click the Name link for <target product> in the Loan Products table to open its detail view",
+        "2. Click the 'Edit' button on the loan product detail view"
       ],
-      "expected_result": "In Step 6 (Accounting) the GL mapping dropdowns for Fund Source, Loan Portfolio, Interest on Loans, Income from Fees, Income from Penalties, Losses Written Off, and Overpayment Liability are visible",
-      "priority": "medium"
+      "expected_result": "Edit mode for the loan product is enabled; Product Name and Short Name fields are editable and a Save button is visible",
+      "priority": "high"
     },
     {
       "tc_id": "P-004",
-      "test_case": "Create loan product while specifying Principal Amount object fields in Step 2",
+      "wf_ref": "WF-004",
+      "test_case": "Add a predefined charge in Charges step of the Create Loan Product wizard",
       "preconditions": [
-        "User logged in as <Product Manager>"
+        "User logged in as <role>",
+        "Loan Products page is open"
       ],
       "steps": [
-        "1. Navigate to the Loan Products page",
-        "2. Click the '+ Create Loan Product' button",
-        "3. Enter <valid product name> in the Product Name field",
-        "4. Enter <valid short name> in the Short Name field",
-        "5. Click Next to go to Step 2 (Currency)",
-        "6. Select <currency> from the Currency dropdown",
-        "7. Enter <minimum principal> in Principal Amount -> Minimum",
-        "8. Enter <default principal> in Principal Amount -> Default",
-        "9. Enter <maximum principal> in Principal Amount -> Maximum",
-        "10. Click Next to go to Step 3 (Settings)",
-        "11. Click Next to go to Step 4 (Terms)",
-        "12. Click Next to go to Step 5 (Charges)",
-        "13. Click Next to go to Step 6 (Accounting)",
-        "14. Click Submit on the Create Loan Product wizard"
+        "1. Click the '+ Create Loan Product' button to open the wizard",
+        "2. In 'Details' step enter <Product Name> in Product Name and <Short Name> in Short Name; click Next",
+        "3. In 'Currency' step enter <Currency> in Currency (or leave defaults); click Next",
+        "4. In 'Settings' step leave defaults or select <Amortization Method> and <Interest Method>; click Next",
+        "5. In 'Terms' step leave defaults or enter required values; click Next to reach 'Charges' step",
+        "6. Enter <search term for charge> in the Charges search field and select <selected charge> from the results",
+        "7. Click the 'Add' button to add the selected charge"
       ],
-      "expected_result": "A new row appears in the Loan Products table with the entered Product Name <valid product name> and Short Name <valid short name>",
+      "expected_result": "Selected Charges list in the wizard shows an entry for <selected charge>",
       "priority": "medium"
     },
     {
       "tc_id": "P-005",
-      "test_case": "Open an existing loan product's detail view by clicking the Name link",
+      "wf_ref": "WF-005",
+      "test_case": "Remove a selected charge from Selected_Charges in Charges step",
       "preconditions": [
-        "User logged in as <Product Manager>",
-        "Loan Products page includes a row for <existing product>"
+        "User logged in as <role>",
+        "Loan Products page is open"
       ],
       "steps": [
-        "1. Navigate to the Loan Products page",
-        "2. Click the Product Name link for <existing product> in the Name column"
+        "1. Click the '+ Create Loan Product' button to open the wizard",
+        "2. Complete 'Details', 'Currency', 'Settings', and 'Terms' steps as needed to navigate to 'Charges' (enter <Product Name> and <Short Name> in Details and click Next until Charges step is visible)",
+        "3. In 'Charges' step search for and add <selected charge> (use Charges search and click Add)",
+        "4. In Selected Charges list click the 'Remove' button next to <selected charge>"
       ],
-      "expected_result": "The Loan Product detail view is displayed for <existing product> and shows the Product Name and an Edit action",
+      "expected_result": "The entry for <selected charge> is no longer present in the Selected Charges list",
       "priority": "medium"
     },
     {
       "tc_id": "P-006",
-      "test_case": "Filter Loan Products table using the filter bar",
+      "wf_ref": null,
+      "test_case": "Create product: submit wizard with Details step values saved to product detail",
       "preconditions": [
-        "User logged in as <Product Manager>",
-        "Loan Products page displays multiple products including at least one matching <filter term>"
+        "User logged in as <role>",
+        "Loan Products page is open"
       ],
       "steps": [
-        "1. Navigate to the Loan Products page",
-        "2. Enter <filter term> in the Filter Bar and apply the filter"
+        "1. Click the '+ Create Loan Product' button to open the wizard",
+        "2. In 'Details' step enter <Product Name> in Product Name and <Short Name> in Short Name (fill other optional fields as needed); click Next through remaining steps without changes",
+        "3. On the final wizard step click Submit/Finish to complete creation"
       ],
-      "expected_result": "Loan Products table displays only rows matching <filter term>; unrelated rows are no longer visible",
+      "expected_result": "Product detail page displays Product Name '<Product Name>' and Short Name '<Short Name>'",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-007",
+      "wf_ref": null,
+      "test_case": "Create product: Currency step values are persisted to product detail after submit",
+      "preconditions": [
+        "User logged in as <role>",
+        "Loan Products page is open"
+      ],
+      "steps": [
+        "1. Click the '+ Create Loan Product' button to open the wizard",
+        "2. In 'Details' step enter required values <Product Name> and <Short Name>; click Next",
+        "3. In 'Currency' step select <Currency> and enter <Principal Default> in Principal Amount Default (optionally fill Minimum/Maximum); click Next through remaining steps",
+        "4. On the final wizard step click Submit/Finish"
+      ],
+      "expected_result": "Product detail page displays Currency '<Currency>' and Principal Amount Default '<Principal Default>'",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-008",
+      "wf_ref": null,
+      "test_case": "Create product: Settings step selections are persisted to product detail after submit",
+      "preconditions": [
+        "User logged in as <role>",
+        "Loan Products page is open"
+      ],
+      "steps": [
+        "1. Click the '+ Create Loan Product' button to open the wizard",
+        "2. In 'Details' step enter required values <Product Name> and <Short Name>; click Next",
+        "3. In 'Currency' step click Next",
+        "4. In 'Settings' step select <Amortization Method> and <Interest Method> and set <Days in Year> and <Days in Month> as needed; click Next through remaining steps",
+        "5. On the final wizard step click Submit/Finish"
+      ],
+      "expected_result": "Product detail page displays Amortization Method '<Amortization Method>' and Interest Method '<Interest Method>'",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-009",
+      "wf_ref": null,
+      "test_case": "Create product: Terms step values are persisted to product detail after submit",
+      "preconditions": [
+        "User logged in as <role>",
+        "Loan Products page is open"
+      ],
+      "steps": [
+        "1. Click the '+ Create Loan Product' button to open the wizard",
+        "2. In 'Details' step enter required values <Product Name> and <Short Name>; click Next",
+        "3. Click Next through 'Currency' and 'Settings' steps",
+        "4. In 'Terms' step enter <Number of Repayments Default> for Number of Repayments Default, set Repaid Every Frequency to <Frequency> and Unit to <Unit>, and enter <Nominal Interest Rate Default>; click Next",
+        "5. On the final wizard step click Submit/Finish"
+      ],
+      "expected_result": "Product detail page displays Number of Repayments Default '<Number of Repayments Default>', Repaid Every '<Frequency> <Unit>', and Nominal Interest Rate Default '<Nominal Interest Rate Default>'",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-010",
+      "wf_ref": null,
+      "test_case": "Create product: Charges added in Charges step appear on product detail after submit",
+      "preconditions": [
+        "User logged in as <role>",
+        "Loan Products page is open"
+      ],
+      "steps": [
+        "1. Click the '+ Create Loan Product' button to open the wizard",
+        "2. In 'Details' step enter required values <Product Name> and <Short Name>; click Next",
+        "3. Click Next through 'Currency', 'Settings', and 'Terms' steps to reach 'Charges'",
+        "4. In 'Charges' step search for and add <selected charge> using the Charges search and Add button; click Next",
+        "5. On the final wizard step click Submit/Finish"
+      ],
+      "expected_result": "Product detail page shows a Charges section listing '<selected charge>'",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-011",
+      "wf_ref": null,
+      "test_case": "Create product: Accounting step reveals GL account fields when a non-None Accounting Method is selected and values persist after submit",
+      "preconditions": [
+        "User logged in as <role>",
+        "Loan Products page is open"
+      ],
+      "steps": [
+        "1. Click the '+ Create Loan Product' button to open the wizard",
+        "2. In 'Details' step enter required values <Product Name> and <Short Name>; click Next",
+        "3. Click Next through 'Currency', 'Settings', 'Terms', and 'Charges' steps to reach 'Accounting'",
+        "4. In 'Accounting' step select <Accounting Method other than None> for Accounting Method",
+        "5. Verify the Fund Source GL Account, Loan Portfolio GL Account, Interest on Loans GL Account, Income from Fees GL Account, Income from Penalties GL Account, Losses Written Off GL Account, and Overpayment Liability GL Account dropdowns are displayed; select <Fund Source GL Account>, <Loan Portfolio GL Account>, <Interest on Loans GL Account>, <Income from Fees GL Account>, <Income from Penalties GL Account>, <Losses Written Off GL Account>, and <Overpayment Liability GL Account> respectively",
+        "6. Click Submit/Finish on the final wizard step"
+      ],
+      "expected_result": "Product detail page displays Accounting Method '<Accounting Method other than None>' and shows GL account mappings: Fund Source '<Fund Source GL Account>', Loan Portfolio '<Loan Portfolio GL Account>', Interest on Loans '<Interest on Loans GL Account>', Income from Fees '<Income from Fees GL Account>', Income from Penalties '<Income from Penalties GL Account>', Losses Written Off '<Losses Written Off GL Account>', and Overpayment Liability '<Overpayment Liability GL Account>'",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-012",
+      "wf_ref": null,
+      "test_case": "Filter Loan Products table using search bar",
+      "preconditions": [
+        "User logged in as <role>",
+        "Loan Products page is open with multiple products listed"
+      ],
+      "steps": [
+        "1. Enter <search term> in the Loan Products Search field and execute the search"
+      ],
+      "expected_result": "Loan Products table displays only rows matching <search term>; unrelated rows are no longer visible",
       "priority": "medium"
     }
   ],
   "summary": {
-    "total": 6,
-    "high_priority": 1,
-    "medium_priority": 5,
+    "total": 12,
+    "high_priority": 4,
+    "medium_priority": 8,
     "low_priority": 0
   }
 }
 
 ------------------------------------------------------------
-[22:31:07] Test-Positive - PARSED JSON
+[14:26:58] Test-Positive - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Loan Products",
@@ -705,123 +830,209 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Create loan product with only required fields (happy path)",
+      "wf_ref": "WF-001",
+      "test_case": "Open Create Loan Product wizard",
       "preconditions": [
-        "User logged in as <Product Manager>"
+        "User logged in as <role>",
+        "Loan Products page is open"
       ],
       "steps": [
-        "1. Navigate to the Loan Products page",
-        "2. Click the '+ Create Loan Product' button",
-        "3. Enter <valid product name> in the Product Name field",
-        "4. Enter <valid short name> in the Short Name field",
-        "5. Click Next to go to Step 2 (Currency)",
-        "6. Click Next to go to Step 3 (Settings)",
-        "7. Click Next to go to Step 4 (Terms)",
-        "8. Click Next to go to Step 5 (Charges)",
-        "9. Click Next to go to Step 6 (Accounting)",
-        "10. Click Submit on the Create Loan Product wizard"
+        "1. Click the '+ Create Loan Product' button"
       ],
-      "expected_result": "A new row appears in the Loan Products table with the entered Product Name <valid product name> and Short Name <valid short name>",
+      "expected_result": "Create Loan Product wizard opens on the 'Details' step and displays the Product Name and Short Name fields",
       "priority": "high"
     },
     {
       "tc_id": "P-002",
-      "test_case": "Create loan product and add a charge in Step 5 Charges",
+      "wf_ref": "WF-002",
+      "test_case": "Open loan product detail from the table via Name link",
       "preconditions": [
-        "User logged in as <Product Manager>"
+        "User logged in as <role>",
+        "Loan Products page is open with the target product visible in the table"
       ],
       "steps": [
-        "1. Navigate to the Loan Products page",
-        "2. Click the '+ Create Loan Product' button",
-        "3. Enter <valid product name> in the Product Name field",
-        "4. Enter <valid short name> in the Short Name field",
-        "5. Click Next to go to Step 2 (Currency)",
-        "6. Click Next to go to Step 3 (Settings)",
-        "7. Click Next to go to Step 4 (Terms)",
-        "8. Click Next to go to Step 5 (Charges)",
-        "9. Enter <charge search term> in the Charge search field",
-        "10. Select <matching charge> from the search results to add it to Selected Charges",
-        "11. Click Next to go to Step 6 (Accounting)",
-        "12. Click Submit on the Create Loan Product wizard"
+        "1. Click the Name link for <target product> in the Loan Products table"
       ],
-      "expected_result": "A new row appears in the Loan Products table with the entered Product Name <valid product name> and Short Name <valid short name>",
-      "priority": "medium"
+      "expected_result": "Product detail view for <target product> is visible",
+      "priority": "high"
     },
     {
       "tc_id": "P-003",
-      "test_case": "Selecting a non-'None' Accounting Method reveals GL mapping dropdowns in Step 6",
+      "wf_ref": "WF-003",
+      "test_case": "Enter edit mode from loan product detail",
       "preconditions": [
-        "User logged in as <Product Manager>"
+        "User logged in as <role>",
+        "Loan Products page is open"
       ],
       "steps": [
-        "1. Navigate to the Loan Products page",
-        "2. Click the '+ Create Loan Product' button",
-        "3. Enter <valid product name> in the Product Name field",
-        "4. Enter <valid short name> in the Short Name field",
-        "5. Click Next repeatedly to advance to Step 6 (Accounting)",
-        "6. Select <non-None accounting method> (for example, select 'Cash-based') in the Accounting Method radio options"
+        "1. Click the Name link for <target product> in the Loan Products table to open its detail view",
+        "2. Click the 'Edit' button on the loan product detail view"
       ],
-      "expected_result": "In Step 6 (Accounting) the GL mapping dropdowns for Fund Source, Loan Portfolio, Interest on Loans, Income from Fees, Income from Penalties, Losses Written Off, and Overpayment Liability are visible",
-      "priority": "medium"
+      "expected_result": "Edit mode for the loan product is enabled; Product Name and Short Name fields are editable and a Save button is visible",
+      "priority": "high"
     },
     {
       "tc_id": "P-004",
-      "test_case": "Create loan product while specifying Principal Amount object fields in Step 2",
+      "wf_ref": "WF-004",
+      "test_case": "Add a predefined charge in Charges step of the Create Loan Product wizard",
       "preconditions": [
-        "User logged in as <Product Manager>"
+        "User logged in as <role>",
+        "Loan Products page is open"
       ],
       "steps": [
-        "1. Navigate to the Loan Products page",
-        "2. Click the '+ Create Loan Product' button",
-        "3. Enter <valid product name> in the Product Name field",
-        "4. Enter <valid short name> in the Short Name field",
-        "5. Click Next to go to Step 2 (Currency)",
-        "6. Select <currency> from the Currency dropdown",
-        "7. Enter <minimum principal> in Principal Amount -> Minimum",
-        "8. Enter <default principal> in Principal Amount -> Default",
-        "9. Enter <maximum principal> in Principal Amount -> Maximum",
-        "10. Click Next to go to Step 3 (Settings)",
-        "11. Click Next to go to Step 4 (Terms)",
-        "12. Click Next to go to Step 5 (Charges)",
-        "13. Click Next to go to Step 6 (Accounting)",
-        "14. Click Submit on the Create Loan Product wizard"
+        "1. Click the '+ Create Loan Product' button to open the wizard",
+        "2. In 'Details' step enter <Product Name> in Product Name and <Short Name> in Short Name; click Next",
+        "3. In 'Currency' step enter <Currency> in Currency (or leave defaults); click Next",
+        "4. In 'Settings' step leave defaults or select <Amortization Method> and <Interest Method>; click Next",
+        "5. In 'Terms' step leave defaults or enter required values; click Next to reach 'Charges' step",
+        "6. Enter <search term for charge> in the Charges search field and select <selected charge> from the results",
+        "7. Click the 'Add' button to add the selected charge"
       ],
-      "expected_result": "A new row appears in the Loan Products table with the entered Product Name <valid product name> and Short Name <valid short name>",
+      "expected_result": "Selected Charges list in the wizard shows an entry for <selected charge>",
       "priority": "medium"
     },
     {
       "tc_id": "P-005",
-      "test_case": "Open an existing loan product's detail view by clicking the Name link",
+      "wf_ref": "WF-005",
+      "test_case": "Remove a selected charge from Selected_Charges in Charges step",
       "preconditions": [
-        "User logged in as <Product Manager>",
-        "Loan Products page includes a row for <existing product>"
+        "User logged in as <role>",
+        "Loan Products page is open"
       ],
       "steps": [
-        "1. Navigate to the Loan Products page",
-        "2. Click the Product Name link for <existing product> in the Name column"
+        "1. Click the '+ Create Loan Product' button to open the wizard",
+        "2. Complete 'Details', 'Currency', 'Settings', and 'Terms' steps as needed to navigate to 'Charges' (enter <Product Name> and <Short Name> in Details and click Next until Charges step is visible)",
+        "3. In 'Charges' step search for and add <selected charge> (use Charges search and click Add)",
+        "4. In Selected Charges list click the 'Remove' button next to <selected charge>"
       ],
-      "expected_result": "The Loan Product detail view is displayed for <existing product> and shows the Product Name and an Edit action",
+      "expected_result": "The entry for <selected charge> is no longer present in the Selected Charges list",
       "priority": "medium"
     },
     {
       "tc_id": "P-006",
-      "test_case": "Filter Loan Products table using the filter bar",
+      "wf_ref": null,
+      "test_case": "Create product: submit wizard with Details step values saved to product detail",
       "preconditions": [
-        "User logged in as <Product Manager>",
-        "Loan Products page displays multiple products including at least one matching <filter term>"
+        "User logged in as <role>",
+        "Loan Products page is open"
       ],
       "steps": [
-        "1. Navigate to the Loan Products page",
-        "2. Enter <filter term> in the Filter Bar and apply the filter"
+        "1. Click the '+ Create Loan Product' button to open the wizard",
+        "2. In 'Details' step enter <Product Name> in Product Name and <Short Name> in Short Name (fill other optional fields as needed); click Next through remaining steps without changes",
+        "3. On the final wizard step click Submit/Finish to complete creation"
       ],
-      "expected_result": "Loan Products table displays only rows matching <filter term>; unrelated rows are no longer visible",
+      "expected_result": "Product detail page displays Product Name '<Product Name>' and Short Name '<Short Name>'",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-007",
+      "wf_ref": null,
+      "test_case": "Create product: Currency step values are persisted to product detail after submit",
+      "preconditions": [
+        "User logged in as <role>",
+        "Loan Products page is open"
+      ],
+      "steps": [
+        "1. Click the '+ Create Loan Product' button to open the wizard",
+        "2. In 'Details' step enter required values <Product Name> and <Short Name>; click Next",
+        "3. In 'Currency' step select <Currency> and enter <Principal Default> in Principal Amount Default (optionally fill Minimum/Maximum); click Next through remaining steps",
+        "4. On the final wizard step click Submit/Finish"
+      ],
+      "expected_result": "Product detail page displays Currency '<Currency>' and Principal Amount Default '<Principal Default>'",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-008",
+      "wf_ref": null,
+      "test_case": "Create product: Settings step selections are persisted to product detail after submit",
+      "preconditions": [
+        "User logged in as <role>",
+        "Loan Products page is open"
+      ],
+      "steps": [
+        "1. Click the '+ Create Loan Product' button to open the wizard",
+        "2. In 'Details' step enter required values <Product Name> and <Short Name>; click Next",
+        "3. In 'Currency' step click Next",
+        "4. In 'Settings' step select <Amortization Method> and <Interest Method> and set <Days in Year> and <Days in Month> as needed; click Next through remaining steps",
+        "5. On the final wizard step click Submit/Finish"
+      ],
+      "expected_result": "Product detail page displays Amortization Method '<Amortization Method>' and Interest Method '<Interest Method>'",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-009",
+      "wf_ref": null,
+      "test_case": "Create product: Terms step values are persisted to product detail after submit",
+      "preconditions": [
+        "User logged in as <role>",
+        "Loan Products page is open"
+      ],
+      "steps": [
+        "1. Click the '+ Create Loan Product' button to open the wizard",
+        "2. In 'Details' step enter required values <Product Name> and <Short Name>; click Next",
+        "3. Click Next through 'Currency' and 'Settings' steps",
+        "4. In 'Terms' step enter <Number of Repayments Default> for Number of Repayments Default, set Repaid Every Frequency to <Frequency> and Unit to <Unit>, and enter <Nominal Interest Rate Default>; click Next",
+        "5. On the final wizard step click Submit/Finish"
+      ],
+      "expected_result": "Product detail page displays Number of Repayments Default '<Number of Repayments Default>', Repaid Every '<Frequency> <Unit>', and Nominal Interest Rate Default '<Nominal Interest Rate Default>'",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-010",
+      "wf_ref": null,
+      "test_case": "Create product: Charges added in Charges step appear on product detail after submit",
+      "preconditions": [
+        "User logged in as <role>",
+        "Loan Products page is open"
+      ],
+      "steps": [
+        "1. Click the '+ Create Loan Product' button to open the wizard",
+        "2. In 'Details' step enter required values <Product Name> and <Short Name>; click Next",
+        "3. Click Next through 'Currency', 'Settings', and 'Terms' steps to reach 'Charges'",
+        "4. In 'Charges' step search for and add <selected charge> using the Charges search and Add button; click Next",
+        "5. On the final wizard step click Submit/Finish"
+      ],
+      "expected_result": "Product detail page shows a Charges section listing '<selected charge>'",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-011",
+      "wf_ref": null,
+      "test_case": "Create product: Accounting step reveals GL account fields when a non-None Accounting Method is selected and values persist after submit",
+      "preconditions": [
+        "User logged in as <role>",
+        "Loan Products page is open"
+      ],
+      "steps": [
+        "1. Click the '+ Create Loan Product' button to open the wizard",
+        "2. In 'Details' step enter required values <Product Name> and <Short Name>; click Next",
+        "3. Click Next through 'Currency', 'Settings', 'Terms', and 'Charges' steps to reach 'Accounting'",
+        "4. In 'Accounting' step select <Accounting Method other than None> for Accounting Method",
+        "5. Verify the Fund Source GL Account, Loan Portfolio GL Account, Interest on Loans GL Account, Income from Fees GL Account, Income from Penalties GL Account, Losses Written Off GL Account, and Overpayment Liability GL Account dropdowns are displayed; select <Fund Source GL Account>, <Loan Portfolio GL Account>, <Interest on Loans GL Account>, <Income from Fees GL Account>, <Income from Penalties GL Account>, <Losses Written Off GL Account>, and <Overpayment Liability GL Account> respectively",
+        "6. Click Submit/Finish on the final wizard step"
+      ],
+      "expected_result": "Product detail page displays Accounting Method '<Accounting Method other than None>' and shows GL account mappings: Fund Source '<Fund Source GL Account>', Loan Portfolio '<Loan Portfolio GL Account>', Interest on Loans '<Interest on Loans GL Account>', Income from Fees '<Income from Fees GL Account>', Income from Penalties '<Income from Penalties GL Account>', Losses Written Off '<Losses Written Off GL Account>', and Overpayment Liability '<Overpayment Liability GL Account>'",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-012",
+      "wf_ref": null,
+      "test_case": "Filter Loan Products table using search bar",
+      "preconditions": [
+        "User logged in as <role>",
+        "Loan Products page is open with multiple products listed"
+      ],
+      "steps": [
+        "1. Enter <search term> in the Loan Products Search field and execute the search"
+      ],
+      "expected_result": "Loan Products table displays only rows matching <search term>; unrelated rows are no longer visible",
       "priority": "medium"
     }
   ],
   "summary": {
-    "total": 6,
-    "high_priority": 1,
-    "medium_priority": 5,
+    "total": 12,
+    "high_priority": 4,
+    "medium_priority": 8,
     "low_priority": 0
   }
 }

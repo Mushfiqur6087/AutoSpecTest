@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-22T21:47:19.054760
+DEBUG SESSION STARTED: 2026-05-25T15:28:46.014234
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[21:47:19] Test-Negative - SYSTEM PROMPT
+[15:28:46] Test-Negative - SYSTEM PROMPT
 ------------------------------------------------------------
 You are a Negative Test Case Generator. You receive (1) a UI-AST JSON for one module and (2) the original functional description. Your job is to produce ONLY negative test cases — tests where invalid input is provided or business rules are violated, and the system correctly rejects or blocks the action.
 
@@ -22,6 +22,10 @@ You are a Negative Test Case Generator. You receive (1) a UI-AST JSON for one mo
 <description>
 {Original functional description text for this module}
 </description>
+
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
 
 ---
 
@@ -111,6 +115,9 @@ Group required fields by type: `text/unspecified`, `email`, `password`, `number`
 
 Do NOT generate a separate blank-field test for every required field. If 5 text fields are all required, one representative covers them all.
 
+**Action dialog required fields — NOT subject to cross-form deduplication:**
+If a `state_bound_action_bar` action opens a dialog with its own required `fields{}` (e.g., Activate requires Activation Date, Reject requires a Reason, Withdraw requires a Reason, Close requires a Closure Reason), each such dialog is its own testing scope. Generate ONE "leave the required dialog field blank and submit" test per distinct action dialog. These are HIGH priority — they block state transitions and are common defect sites. Do not suppress them because the main wizard already has a blank-field test.
+
 **2. Format violations:**
 
 For fields with type-specific format rules (from AST type or description):
@@ -143,6 +150,10 @@ For each unique `constraints[]` entry in the AST, and for cross-field rules desc
 
 One test per unique constraint. Do not duplicate the same mechanism.
 
+**Constraint timing tests:** If the spec states an action is blocked by a pre-existing system state (e.g., "cannot close with active accounts", "cannot transfer to the same office"), generate TWO tests:
+1. The standard constraint violation test (user opens the dialog, fills required fields, submits → blocked).
+2. A constraint-timing test: user opens the dialog WITHOUT filling required fields → assert whether the block is shown immediately on dialog open (before the user fills anything) OR only on submit. This distinguishes whether the UI enforces the constraint eagerly or lazily. Steps: open the dialog, observe the state → assert what is visible before any interaction. If the spec is silent on timing, generate only the first test.
+
 **5. Precondition violations (auth, role, and state):**
 
 For each `preconditions[]` entry on any action — and for auth/role rules described in the spec:
@@ -154,18 +165,18 @@ For each `preconditions[]` entry on any action — and for auth/role rules descr
 **6. State-machine violations:**
 
 From `state_bound_action_bar` nodes:
-- For each state where an action is NOT listed in `available_actions`, generate one test attempting that action from that state. Example: attempting "Approve" on an entity already in "Active" state.
+- **Every defined state must have at least one wrong-state test.** For each state, identify at least one action that is NOT in its `available_actions` list and generate a test attempting that action from that state.
 - If a state has an empty `available_actions` array, generate one test verifying no action buttons are visible in that state.
-
-One test per unique wrong-state scenario — do not enumerate every action × every invalid state.
+- **Do not stop after 1–2 representative examples** when the module defines 4+ distinct states. The states Active, Pending, Closed, Rejected, and Withdrawn each have different action sets — each must be independently verified.
+- One test per state is sufficient — pick the most distinct unavailable action for that state. Do not enumerate every action × every state (that would be exponential).
 
 ---
 
 **DEDUPLICATION GATE (run before outputting):**
 
-1. **Required field dedup:** Multiple required text fields → ONE representative test, not one per field.
+1. **Required field dedup:** Multiple required text fields in the **same form or dialog** → ONE representative test, not one per field.
 2. **Sub-rule dedup:** A field with multiple validation sub-rules (e.g., password: length + uppercase + lowercase + number + special char) → ONE representative violation test, not one per sub-rule.
-3. **Cross-form dedup:** If two forms in the same module share the same validation mechanism (e.g., both have a required text field) → test it on the primary form only.
+3. **Cross-form dedup:** If two **main forms** in the same module share the same validation mechanism → test it on the primary form only. **Exception: action dialogs are never suppressed by cross-form dedup** — each action dialog with a required field gets its own blank-field test regardless.
 4. **Uniqueness check:** Before outputting, ask for each TC: "Does this test catch a bug that NO other test in this module would catch?" If no → remove it.
 
 ---
@@ -174,9 +185,11 @@ One test per unique wrong-state scenario — do not enumerate every action × ev
 
 - Simple module (login, single form, display page): **2–4 tests**
 - Medium module (standard CRUD form, form with constraints): **4–8 tests**
-- Complex module (state machine, multi-form, wizard with many constraints): **8–12 tests**
+- Complex module (state machine, multi-form, wizard with many constraints): **10–16 tests**
 
-If you exceed these ranges, you are generating redundant tests. Apply the deduplication gate again before outputting.
+For modules with a `state_bound_action_bar` defining 4+ states, the state-machine violation tests alone will produce 4–5 tests. This is expected and correct — do not suppress them to hit a lower target.
+
+If you exceed the upper range, apply the deduplication gate again before outputting.
 
 ---
 
@@ -184,6 +197,17 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
 
 - **High:** State precondition violations, constraint violations that could corrupt data, unauthenticated access, required field representatives
 - **Medium:** Format violations, cross-field validation, numeric bounds, wrong-role access, wrong-state action attempts
+
+---
+
+**WORKFLOW-AWARE FAILURE INJECTION (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- For each workflow that contains a form interaction (terminal action is a submit/save/create/approve button):
+  - Identify the most **critical blocking failure** for that workflow's `conditional_branch`.
+  - If that failure mode is NOT already covered by another workflow's negative test, generate one negative TC for it.
+- **Do NOT generate one negative TC per workflow mechanically.** Apply the existing deduplication gate first — only add a TC if it catches a bug that no other test would catch.
+- Add `"wf_ref": "WF-NNN"` to each TC that maps to a workflow. Set `"wf_ref": null` for generic validation tests.
 
 ---
 
@@ -195,6 +219,7 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
   "test_cases": [
     {
       "tc_id": "N-001",
+      "wf_ref": null,
       "test_case": "Short descriptive name",
       "preconditions": ["precondition 1"],
       "steps": ["1. Step one", "2. Step two"],
@@ -212,7 +237,7 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
 
 
 ------------------------------------------------------------
-[21:47:19] Test-Negative - USER PROMPT
+[15:28:46] Test-Negative - USER PROMPT
 ------------------------------------------------------------
 <module_name>Assignment Creation</module_name>
 
@@ -220,10 +245,10 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
 {
   "module_name": "Assignment Creation",
   "components": {
-    "Assignment_Form": {
+    "Assignment_Creation_Form": {
       "type": "form",
       "constraints": [
-        "required fields validated inline before saving"
+        "validate required fields inline before saving"
       ],
       "panels": [
         {
@@ -233,21 +258,16 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
             "Assignment_Name": {
               "type": "text",
               "required": true,
-              "constraints": [
-                "required",
-                "must be non-empty"
-              ]
+              "constraints": []
             },
             "Description": {
               "type": "rich_text",
               "required": false
             },
-            "Additional_Files_Upload": {
+            "Additional_Files": {
               "type": "file_upload",
               "required": false,
-              "constraints": [
-                "optional"
-              ]
+              "constraints": []
             }
           }
         },
@@ -256,31 +276,40 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
           "collapsible": true,
           "fields": {
             "Allow_Submissions_From_Enable": {
-              "type": "toggle",
+              "type": "checkbox",
               "required": false
             },
-            "Allow_Submissions_From_Date": {
+            "Allow_Submissions_From": {
               "type": "datetime",
               "required": false,
-              "enabled_when": "Allow_Submissions_From_Enable == true"
+              "enabled_when": "Allow_Submissions_From_Enable == true",
+              "constraints": [
+                "ignored when Allow_Submissions_From_Enable == false"
+              ]
             },
             "Due_Date_Enable": {
-              "type": "toggle",
+              "type": "checkbox",
               "required": false
             },
             "Due_Date": {
               "type": "datetime",
               "required": false,
-              "enabled_when": "Due_Date_Enable == true"
+              "enabled_when": "Due_Date_Enable == true",
+              "constraints": [
+                "ignored when Due_Date_Enable == false"
+              ]
             },
             "Cutoff_Date_Enable": {
-              "type": "toggle",
+              "type": "checkbox",
               "required": false
             },
             "Cutoff_Date": {
               "type": "datetime",
               "required": false,
-              "enabled_when": "Cutoff_Date_Enable == true"
+              "enabled_when": "Cutoff_Date_Enable == true",
+              "constraints": [
+                "ignored when Cutoff_Date_Enable == false"
+              ]
             }
           }
         },
@@ -288,41 +317,40 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
           "panel_name": "Submission types",
           "collapsible": true,
           "fields": {
-            "Online_Text_Submissions": {
+            "Online_text": {
               "type": "checkbox",
               "required": false
             },
-            "File_Submissions": {
+            "File_submissions": {
               "type": "checkbox",
               "required": false
             },
-            "Max_Number_Uploaded_Files": {
+            "Max_number_of_uploaded_files": {
               "type": "number",
               "required": false,
-              "visible_when": "File_Submissions == true",
+              "visible_when": "File_submissions == true",
               "constraints": [
                 "must be integer",
-                "min 1"
+                "min 1",
+                "visible only when File_submissions == true"
               ]
             },
-            "Max_Submission_Size": {
-              "type": "size",
+            "Maximum_submission_size_MB": {
+              "type": "number",
               "required": false,
-              "visible_when": "File_Submissions == true",
-              "units": [
-                "MB",
-                "GB"
-              ],
+              "visible_when": "File_submissions == true",
               "constraints": [
-                "must be a positive number"
+                "value in MB",
+                "min 1",
+                "visible only when File_submissions == true"
               ]
             },
-            "Accepted_File_Types": {
-              "type": "file_type_list",
+            "Accepted_file_types": {
+              "type": "text",
               "required": false,
-              "visible_when": "File_Submissions == true",
+              "visible_when": "File_submissions == true",
               "constraints": [
-                "comma-separated list or file type tokens"
+                "visible only when File_submissions == true"
               ]
             }
           }
@@ -331,15 +359,15 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
           "panel_name": "Feedback types",
           "collapsible": true,
           "fields": {
-            "Feedback_Comments": {
+            "Feedback_comments": {
               "type": "checkbox",
               "required": false
             },
-            "Feedback_Files": {
+            "Feedback_files": {
               "type": "checkbox",
               "required": false
             },
-            "Offline_Grading_Worksheet": {
+            "Offline_grading_worksheet": {
               "type": "checkbox",
               "required": false
             }
@@ -349,30 +377,21 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
           "panel_name": "Submission settings",
           "collapsible": true,
           "fields": {
-            "Require_Submit_Button": {
-              "type": "toggle",
+            "Require_submit_button": {
+              "type": "checkbox",
               "required": false
             },
-            "Require_Submission_Statement": {
-              "type": "toggle",
+            "Require_submission_statement": {
+              "type": "checkbox",
               "required": false
             },
-            "Attempts_Reopened": {
+            "Attempts_reopened_settings": {
               "type": "dropdown",
-              "required": false,
-              "options": [
-                "Never",
-                "Manually",
-                "Automatically until pass"
-              ]
+              "required": false
             },
-            "Maximum_Attempts": {
+            "Maximum_attempts": {
               "type": "number",
-              "required": false,
-              "constraints": [
-                "must be integer",
-                "min 1"
-              ]
+              "required": false
             }
           }
         },
@@ -380,19 +399,19 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
           "panel_name": "Group submission settings",
           "collapsible": true,
           "fields": {
-            "Group_Submissions": {
-              "type": "toggle",
+            "Group_submissions": {
+              "type": "checkbox",
               "required": false
             },
-            "Require_All_Group_Members_To_Submit": {
-              "type": "toggle",
+            "Require_all_group_members_to_submit": {
+              "type": "checkbox",
               "required": false,
-              "visible_when": "Group_Submissions == true"
+              "visible_when": "Group_submissions == true"
             },
-            "Grouping_Selection": {
-              "type": "group_selector",
+            "Grouping_selection": {
+              "type": "dropdown",
               "required": false,
-              "visible_when": "Group_Submissions == true"
+              "visible_when": "Group_submissions == true"
             }
           }
         },
@@ -400,12 +419,12 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
           "panel_name": "Notifications",
           "collapsible": true,
           "fields": {
-            "Notify_Graders_New_Submissions": {
-              "type": "toggle",
+            "Notify_graders_of_new_submissions": {
+              "type": "checkbox",
               "required": false
             },
-            "Notify_Graders_Late_Submissions": {
-              "type": "toggle",
+            "Notify_graders_of_late_submissions": {
+              "type": "checkbox",
               "required": false
             }
           }
@@ -414,33 +433,25 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
           "panel_name": "Grade",
           "collapsible": true,
           "fields": {
-            "Grade_Type": {
+            "Grade_type": {
               "type": "dropdown",
               "required": false
             },
-            "Maximum_Points": {
+            "Maximum_points": {
               "type": "number",
-              "required": false,
-              "constraints": [
-                "must be numeric",
-                "min 0"
-              ]
+              "required": false
             },
-            "Grading_Method": {
+            "Grading_method": {
               "type": "dropdown",
               "required": false
             },
-            "Grade_Category": {
-              "type": "category_selector",
+            "Grade_category": {
+              "type": "dropdown",
               "required": false
             },
-            "Grade_To_Pass": {
+            "Grade_to_pass": {
               "type": "number",
-              "required": false,
-              "constraints": [
-                "must be numeric",
-                "min 0"
-              ]
+              "required": false
             }
           }
         },
@@ -448,28 +459,14 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
           "panel_name": "Access restrictions",
           "collapsible": true,
           "fields": {
-            "Restrictions_List": {
-              "type": "repeating_group",
-              "min": 0,
-              "item_fields": {
-                "Restriction_Type": {
-                  "type": "dropdown",
-                  "required": true,
-                  "constraints": [
-                    "required"
-                  ]
-                },
-                "Restriction_Parameters": {
-                  "type": "unspecified",
-                  "required": false
-                }
-              }
-            },
-            "Add_Restriction_Button": {
+            "Add_restriction": {
               "type": "button",
-              "element_name": "Add restriction",
-              "action": "opens_dialog",
-              "opens": "Restriction_Type_Picker"
+              "element_name": "+ Add restriction",
+              "triggers": "opens Restriction_Type_Picker"
+            },
+            "Restrictions": {
+              "type": "repeating_group",
+              "item_fields": {}
             }
           }
         },
@@ -477,23 +474,13 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
           "panel_name": "Activity completion",
           "collapsible": true,
           "fields": {
-            "Completion_Tracking": {
+            "Completion_tracking": {
               "type": "dropdown",
               "required": false
             },
-            "Required_Conditions": {
+            "Required_conditions": {
               "type": "repeating_group",
-              "min": 0,
-              "item_fields": {
-                "Condition_Type": {
-                  "type": "dropdown",
-                  "required": true
-                },
-                "Condition_Parameters": {
-                  "type": "unspecified",
-                  "required": false
-                }
-              }
+              "item_fields": {}
             }
           }
         },
@@ -502,8 +489,11 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
           "collapsible": true,
           "fields": {
             "Tags": {
-              "type": "tag_entry",
-              "required": false
+              "type": "text",
+              "required": false,
+              "constraints": [
+                "tag entry field"
+              ]
             }
           }
         },
@@ -511,12 +501,14 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
           "panel_name": "Competencies",
           "collapsible": true,
           "fields": {
-            "Competency_Link": {
-              "type": "competency_selector",
-              "required": false,
-              "constraints": [
-                "links course competencies to this activity"
-              ]
+            "Add_competency": {
+              "type": "button",
+              "element_name": "Link competency",
+              "triggers": "opens Competency_Linker"
+            },
+            "Linked_competencies": {
+              "type": "repeating_group",
+              "item_fields": {}
             }
           }
         }
@@ -524,17 +516,11 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
       "submit_actions": [
         {
           "element_name": "Save and return to course",
-          "on_success": "creates assignment and redirects to course page",
-          "constraints": [
-            "form-level inline validation must pass before save"
-          ]
+          "on_success": "creates assignment and redirects to course page"
         },
         {
           "element_name": "Save and display",
-          "on_success": "creates assignment and opens the new assignment's page",
-          "constraints": [
-            "form-level inline validation must pass before save"
-          ]
+          "on_success": "creates assignment and opens the new assignment page"
         },
         {
           "element_name": "Cancel",
@@ -543,30 +529,22 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
       ]
     },
     "Restriction_Type_Picker": {
-      "type": "dialog",
+      "type": "modal",
       "fields": {
         "Restriction_Type": {
           "type": "dropdown",
-          "required": true,
-          "constraints": [
-            "required"
-          ]
+          "required": true
         }
-      },
-      "submit_actions": [
-        {
-          "element_name": "Add restriction",
-          "on_success": "adds restriction to Restrictions_List and closes dialog",
-          "preconditions": [],
-          "constraints": [
-            "Restriction_Type required"
-          ]
-        },
-        {
-          "element_name": "Cancel",
-          "on_success": "closes dialog without adding restriction"
+      }
+    },
+    "Competency_Linker": {
+      "type": "modal",
+      "fields": {
+        "Competency_Type": {
+          "type": "dropdown",
+          "required": false
         }
-      ]
+      }
     }
   }
 }
@@ -581,10 +559,25 @@ The assignment creation form opens after selecting Assignment from the Activity 
 
 </description>
 
+<workflows>
+WF-001 | Save and return to course — File submissions ON, Group submissions ON | actor: <role> | branch: File_submissions == true AND Group_submissions == true | terminal: Save and return to course | on_success: creates assignment and redirects to course page
+WF-002 | Save and display — File submissions ON, Group submissions ON | actor: <role> | branch: File_submissions == true AND Group_submissions == true | terminal: Save and display | on_success: creates assignment and opens the new assignment page
+WF-003 | Cancel — File submissions ON, Group submissions ON | actor: <role> | branch: File_submissions == true AND Group_submissions == true | terminal: Cancel | on_success: discards all changes
+WF-004 | Save and return to course — File submissions ON, Group submissions OFF | actor: <role> | branch: File_submissions == true AND Group_submissions == false | terminal: Save and return to course | on_success: creates assignment and redirects to course page
+WF-005 | Save and display — File submissions ON, Group submissions OFF | actor: <role> | branch: File_submissions == true AND Group_submissions == false | terminal: Save and display | on_success: creates assignment and opens the new assignment page
+WF-006 | Cancel — File submissions ON, Group submissions OFF | actor: <role> | branch: File_submissions == true AND Group_submissions == false | terminal: Cancel | on_success: discards all changes
+WF-007 | Save and return to course — File submissions OFF, Group submissions ON | actor: <role> | branch: File_submissions == false AND Group_submissions == true | terminal: Save and return to course | on_success: creates assignment and redirects to course page
+WF-008 | Save and display — File submissions OFF, Group submissions ON | actor: <role> | branch: File_submissions == false AND Group_submissions == true | terminal: Save and display | on_success: creates assignment and opens the new assignment page
+WF-009 | Cancel — File submissions OFF, Group submissions ON | actor: <role> | branch: File_submissions == false AND Group_submissions == true | terminal: Cancel | on_success: discards all changes
+WF-010 | Save and return to course — File submissions OFF, Group submissions OFF | actor: <role> | branch: File_submissions == false AND Group_submissions == false | terminal: Save and return to course | on_success: creates assignment and redirects to course page
+WF-011 | Save and display — File submissions OFF, Group submissions OFF | actor: <role> | branch: File_submissions == false AND Group_submissions == false | terminal: Save and display | on_success: creates assignment and opens the new assignment page
+WF-012 | Cancel — File submissions OFF, Group submissions OFF | actor: <role> | branch: File_submissions == false AND Group_submissions == false | terminal: Cancel | on_success: discards all changes
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[21:48:41] Test-Negative - LLM RESPONSE
+[15:30:38] Test-Negative - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Assignment Creation",
@@ -592,124 +585,124 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "N-001",
-      "test_case": "Submit form with required Assignment name left blank",
+      "wf_ref": null,
+      "test_case": "Save fails when Assignment Name is blank",
       "preconditions": [
-        "Assignment creation form is open"
+        "User has navigated to the Assignment Creation form"
       ],
       "steps": [
-        "1. Leave the Assignment_Name field blank",
-        "2. Click the 'Save and return to course' button"
+        "1. Ensure the Assignment Creation form is visible",
+        "2. Leave the Assignment_Name field blank",
+        "3. Click the 'Save and return to course' button"
       ],
-      "expected_result": "Inline validation error appears on the Assignment_Name field indicating it is required; form does not submit; no assignment is created; user remains on the form",
+      "expected_result": "Assignment_Name field displays an inline validation error indicating it is required; the form does not submit; no assignment is created; the page does not redirect to the course page",
       "priority": "high"
     },
     {
       "tc_id": "N-002",
-      "test_case": "Attempt to save with all required fields empty (form-level validation)",
+      "wf_ref": "WF-002",
+      "test_case": "Save and display blocked when all required fields are empty",
       "preconditions": [
-        "Assignment creation form is open"
+        "User has navigated to the Assignment Creation form"
       ],
       "steps": [
-        "1. Ensure all fields that are required are left empty (Assignment_Name blank)",
-        "2. Click the 'Save and display' button"
+        "1. Ensure the Assignment Creation form is visible",
+        "2. Leave all required fields on the main form blank (at minimum Assignment_Name left blank)",
+        "3. Click the 'Save and display' button"
       ],
-      "expected_result": "Form-level inline validation prevents save; Assignment_Name field displays an inline validation error indicating it is required; the form does not submit and no assignment is created",
+      "expected_result": "Assignment_Name field displays an inline validation error indicating it is required; the form does not submit; no assignment is created; the page does not open the new assignment page",
       "priority": "high"
     },
     {
       "tc_id": "N-003",
-      "test_case": "Enter non-integer into Max_Number_Uploaded_Files after enabling file submissions",
+      "wf_ref": null,
+      "test_case": "Cannot add restriction without selecting Restriction Type (modal required field)",
       "preconditions": [
-        "Assignment creation form is open"
+        "User has navigated to the Assignment Creation form"
       ],
       "steps": [
-        "1. Check the File_Submissions checkbox to reveal file-related controls",
-        "2. Enter <non-integer value> in the Max_Number_Uploaded_Files field",
-        "3. Click the 'Save and return to course' button"
+        "1. Click the '+ Add restriction' button",
+        "2. In the Restriction Type modal, leave the Restriction_Type dropdown blank",
+        "3. Click the modal's Save/Confirm button"
       ],
-      "expected_result": "Max_Number_Uploaded_Files field displays an inline validation error: 'must be integer'; form does not submit; no assignment is created",
-      "priority": "medium"
+      "expected_result": "Restriction_Type field in the modal displays an inline validation error indicating it is required; the modal remains open; no restriction item is added to the form; the assignment form is not submitted",
+      "priority": "high"
     },
     {
       "tc_id": "N-004",
-      "test_case": "Set Max_Number_Uploaded_Files below allowed minimum (min 1)",
+      "wf_ref": "WF-001",
+      "test_case": "Max number of uploaded files rejects non-integer input when File submissions enabled",
       "preconditions": [
-        "Assignment creation form is open"
+        "User has navigated to the Assignment Creation form",
+        "File_submissions checkbox is enabled"
       ],
       "steps": [
-        "1. Check the File_Submissions checkbox to reveal file-related controls",
-        "2. Enter <number less than 1> in the Max_Number_Uploaded_Files field",
-        "3. Click the 'Save and display' button"
+        "1. Check the File_submissions checkbox to reveal file-related fields",
+        "2. Enter <non-integer value> into the Max_number_of_uploaded_files field",
+        "3. Click the 'Save and return to course' button"
       ],
-      "expected_result": "Max_Number_Uploaded_Files field displays an inline validation error: 'min 1'; form does not submit; no assignment is created",
+      "expected_result": "Max_number_of_uploaded_files field displays an inline validation error indicating the value must be an integer; the form does not submit; no assignment is created; the page does not redirect to the course page",
       "priority": "medium"
     },
     {
       "tc_id": "N-005",
-      "test_case": "Enter non-positive value for Max_Submission_Size when File submissions enabled",
+      "wf_ref": "WF-001",
+      "test_case": "Max number of uploaded files rejects values below minimum (min 1)",
       "preconditions": [
-        "Assignment creation form is open"
+        "User has navigated to the Assignment Creation form",
+        "File_submissions checkbox is enabled"
       ],
       "steps": [
-        "1. Check the File_Submissions checkbox to reveal file-related controls",
-        "2. Enter <non-positive number> in the Max_Submission_Size field",
+        "1. Check the File_submissions checkbox to reveal file-related fields",
+        "2. Enter <number less than 1> into the Max_number_of_uploaded_files field",
         "3. Click the 'Save and return to course' button"
       ],
-      "expected_result": "Max_Submission_Size field displays an inline validation error: 'must be a positive number'; form does not submit; no assignment is created",
+      "expected_result": "Max_number_of_uploaded_files field displays an inline validation error indicating the minimum allowed value is 1; the form does not submit; no assignment is created; the page does not redirect to the course page",
       "priority": "medium"
     },
     {
       "tc_id": "N-006",
-      "test_case": "Enter invalid/impossible Due_Date after enabling Due date toggle",
+      "wf_ref": "WF-002",
+      "test_case": "Maximum submission size rejects non-numeric input when File submissions enabled",
       "preconditions": [
-        "Assignment creation form is open"
+        "User has navigated to the Assignment Creation form",
+        "File_submissions checkbox is enabled"
       ],
       "steps": [
-        "1. Toggle Due_Date_Enable to true to enable the Due_Date field",
-        "2. Enter <invalid or impossible date/time> into the Due_Date field",
+        "1. Check the File_submissions checkbox to reveal file-related fields",
+        "2. Enter <non-numeric value> into the Maximum_submission_size_MB field",
         "3. Click the 'Save and display' button"
       ],
-      "expected_result": "Due_Date field displays an inline validation error indicating the date/time is invalid or impossible; form does not submit; no assignment is created",
+      "expected_result": "Maximum_submission_size_MB field displays an inline validation error indicating the value must be a number (in MB) and meet the minimum requirement; the form does not submit; no assignment is created; the page does not open the new assignment page",
       "priority": "medium"
     },
     {
       "tc_id": "N-007",
-      "test_case": "Set Maximum_Attempts below allowed minimum (min 1)",
+      "wf_ref": "WF-001",
+      "test_case": "Maximum submission size rejects values below minimum (min 1 MB)",
       "preconditions": [
-        "Assignment creation form is open"
+        "User has navigated to the Assignment Creation form",
+        "File_submissions checkbox is enabled"
       ],
       "steps": [
-        "1. In Submission settings, enter <number less than 1> in the Maximum_Attempts field",
-        "2. Click the 'Save and return to course' button"
+        "1. Check the File_submissions checkbox to reveal file-related fields",
+        "2. Enter <number less than 1> into the Maximum_submission_size_MB field",
+        "3. Click the 'Save and return to course' button"
       ],
-      "expected_result": "Maximum_Attempts field displays an inline validation error: 'min 1'; form does not submit; no assignment is created",
+      "expected_result": "Maximum_submission_size_MB field displays an inline validation error indicating the minimum allowed value is 1 MB; the form does not submit; no assignment is created; the page does not redirect to the course page",
       "priority": "medium"
-    },
-    {
-      "tc_id": "N-008",
-      "test_case": "Attempt to add a restriction without selecting a Restriction_Type",
-      "preconditions": [
-        "Assignment creation form is open"
-      ],
-      "steps": [
-        "1. Click the 'Add restriction' button to open the Restriction_Type_Picker dialog",
-        "2. Leave the Restriction_Type field blank in the dialog",
-        "3. Click the 'Add restriction' button inside the dialog"
-      ],
-      "expected_result": "Restriction_Type field in the dialog displays an inline validation error indicating it is required (constraint: 'Restriction_Type required'); the dialog remains open; no restriction is added to the Restrictions_List",
-      "priority": "high"
     }
   ],
   "summary": {
-    "total": 8,
+    "total": 7,
     "high_priority": 3,
-    "medium_priority": 5,
+    "medium_priority": 4,
     "low_priority": 0
   }
 }
 
 ------------------------------------------------------------
-[21:48:41] Test-Negative - PARSED JSON
+[15:30:38] Test-Negative - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Assignment Creation",
@@ -717,118 +710,118 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "N-001",
-      "test_case": "Submit form with required Assignment name left blank",
+      "wf_ref": null,
+      "test_case": "Save fails when Assignment Name is blank",
       "preconditions": [
-        "Assignment creation form is open"
+        "User has navigated to the Assignment Creation form"
       ],
       "steps": [
-        "1. Leave the Assignment_Name field blank",
-        "2. Click the 'Save and return to course' button"
+        "1. Ensure the Assignment Creation form is visible",
+        "2. Leave the Assignment_Name field blank",
+        "3. Click the 'Save and return to course' button"
       ],
-      "expected_result": "Inline validation error appears on the Assignment_Name field indicating it is required; form does not submit; no assignment is created; user remains on the form",
+      "expected_result": "Assignment_Name field displays an inline validation error indicating it is required; the form does not submit; no assignment is created; the page does not redirect to the course page",
       "priority": "high"
     },
     {
       "tc_id": "N-002",
-      "test_case": "Attempt to save with all required fields empty (form-level validation)",
+      "wf_ref": "WF-002",
+      "test_case": "Save and display blocked when all required fields are empty",
       "preconditions": [
-        "Assignment creation form is open"
+        "User has navigated to the Assignment Creation form"
       ],
       "steps": [
-        "1. Ensure all fields that are required are left empty (Assignment_Name blank)",
-        "2. Click the 'Save and display' button"
+        "1. Ensure the Assignment Creation form is visible",
+        "2. Leave all required fields on the main form blank (at minimum Assignment_Name left blank)",
+        "3. Click the 'Save and display' button"
       ],
-      "expected_result": "Form-level inline validation prevents save; Assignment_Name field displays an inline validation error indicating it is required; the form does not submit and no assignment is created",
+      "expected_result": "Assignment_Name field displays an inline validation error indicating it is required; the form does not submit; no assignment is created; the page does not open the new assignment page",
       "priority": "high"
     },
     {
       "tc_id": "N-003",
-      "test_case": "Enter non-integer into Max_Number_Uploaded_Files after enabling file submissions",
+      "wf_ref": null,
+      "test_case": "Cannot add restriction without selecting Restriction Type (modal required field)",
       "preconditions": [
-        "Assignment creation form is open"
+        "User has navigated to the Assignment Creation form"
       ],
       "steps": [
-        "1. Check the File_Submissions checkbox to reveal file-related controls",
-        "2. Enter <non-integer value> in the Max_Number_Uploaded_Files field",
-        "3. Click the 'Save and return to course' button"
+        "1. Click the '+ Add restriction' button",
+        "2. In the Restriction Type modal, leave the Restriction_Type dropdown blank",
+        "3. Click the modal's Save/Confirm button"
       ],
-      "expected_result": "Max_Number_Uploaded_Files field displays an inline validation error: 'must be integer'; form does not submit; no assignment is created",
-      "priority": "medium"
+      "expected_result": "Restriction_Type field in the modal displays an inline validation error indicating it is required; the modal remains open; no restriction item is added to the form; the assignment form is not submitted",
+      "priority": "high"
     },
     {
       "tc_id": "N-004",
-      "test_case": "Set Max_Number_Uploaded_Files below allowed minimum (min 1)",
+      "wf_ref": "WF-001",
+      "test_case": "Max number of uploaded files rejects non-integer input when File submissions enabled",
       "preconditions": [
-        "Assignment creation form is open"
+        "User has navigated to the Assignment Creation form",
+        "File_submissions checkbox is enabled"
       ],
       "steps": [
-        "1. Check the File_Submissions checkbox to reveal file-related controls",
-        "2. Enter <number less than 1> in the Max_Number_Uploaded_Files field",
-        "3. Click the 'Save and display' button"
+        "1. Check the File_submissions checkbox to reveal file-related fields",
+        "2. Enter <non-integer value> into the Max_number_of_uploaded_files field",
+        "3. Click the 'Save and return to course' button"
       ],
-      "expected_result": "Max_Number_Uploaded_Files field displays an inline validation error: 'min 1'; form does not submit; no assignment is created",
+      "expected_result": "Max_number_of_uploaded_files field displays an inline validation error indicating the value must be an integer; the form does not submit; no assignment is created; the page does not redirect to the course page",
       "priority": "medium"
     },
     {
       "tc_id": "N-005",
-      "test_case": "Enter non-positive value for Max_Submission_Size when File submissions enabled",
+      "wf_ref": "WF-001",
+      "test_case": "Max number of uploaded files rejects values below minimum (min 1)",
       "preconditions": [
-        "Assignment creation form is open"
+        "User has navigated to the Assignment Creation form",
+        "File_submissions checkbox is enabled"
       ],
       "steps": [
-        "1. Check the File_Submissions checkbox to reveal file-related controls",
-        "2. Enter <non-positive number> in the Max_Submission_Size field",
+        "1. Check the File_submissions checkbox to reveal file-related fields",
+        "2. Enter <number less than 1> into the Max_number_of_uploaded_files field",
         "3. Click the 'Save and return to course' button"
       ],
-      "expected_result": "Max_Submission_Size field displays an inline validation error: 'must be a positive number'; form does not submit; no assignment is created",
+      "expected_result": "Max_number_of_uploaded_files field displays an inline validation error indicating the minimum allowed value is 1; the form does not submit; no assignment is created; the page does not redirect to the course page",
       "priority": "medium"
     },
     {
       "tc_id": "N-006",
-      "test_case": "Enter invalid/impossible Due_Date after enabling Due date toggle",
+      "wf_ref": "WF-002",
+      "test_case": "Maximum submission size rejects non-numeric input when File submissions enabled",
       "preconditions": [
-        "Assignment creation form is open"
+        "User has navigated to the Assignment Creation form",
+        "File_submissions checkbox is enabled"
       ],
       "steps": [
-        "1. Toggle Due_Date_Enable to true to enable the Due_Date field",
-        "2. Enter <invalid or impossible date/time> into the Due_Date field",
+        "1. Check the File_submissions checkbox to reveal file-related fields",
+        "2. Enter <non-numeric value> into the Maximum_submission_size_MB field",
         "3. Click the 'Save and display' button"
       ],
-      "expected_result": "Due_Date field displays an inline validation error indicating the date/time is invalid or impossible; form does not submit; no assignment is created",
+      "expected_result": "Maximum_submission_size_MB field displays an inline validation error indicating the value must be a number (in MB) and meet the minimum requirement; the form does not submit; no assignment is created; the page does not open the new assignment page",
       "priority": "medium"
     },
     {
       "tc_id": "N-007",
-      "test_case": "Set Maximum_Attempts below allowed minimum (min 1)",
+      "wf_ref": "WF-001",
+      "test_case": "Maximum submission size rejects values below minimum (min 1 MB)",
       "preconditions": [
-        "Assignment creation form is open"
+        "User has navigated to the Assignment Creation form",
+        "File_submissions checkbox is enabled"
       ],
       "steps": [
-        "1. In Submission settings, enter <number less than 1> in the Maximum_Attempts field",
-        "2. Click the 'Save and return to course' button"
+        "1. Check the File_submissions checkbox to reveal file-related fields",
+        "2. Enter <number less than 1> into the Maximum_submission_size_MB field",
+        "3. Click the 'Save and return to course' button"
       ],
-      "expected_result": "Maximum_Attempts field displays an inline validation error: 'min 1'; form does not submit; no assignment is created",
+      "expected_result": "Maximum_submission_size_MB field displays an inline validation error indicating the minimum allowed value is 1 MB; the form does not submit; no assignment is created; the page does not redirect to the course page",
       "priority": "medium"
-    },
-    {
-      "tc_id": "N-008",
-      "test_case": "Attempt to add a restriction without selecting a Restriction_Type",
-      "preconditions": [
-        "Assignment creation form is open"
-      ],
-      "steps": [
-        "1. Click the 'Add restriction' button to open the Restriction_Type_Picker dialog",
-        "2. Leave the Restriction_Type field blank in the dialog",
-        "3. Click the 'Add restriction' button inside the dialog"
-      ],
-      "expected_result": "Restriction_Type field in the dialog displays an inline validation error indicating it is required (constraint: 'Restriction_Type required'); the dialog remains open; no restriction is added to the Restrictions_List",
-      "priority": "high"
     }
   ],
   "summary": {
-    "total": 8,
+    "total": 7,
     "high_priority": 3,
-    "medium_priority": 5,
+    "medium_priority": 4,
     "low_priority": 0
   }
 }

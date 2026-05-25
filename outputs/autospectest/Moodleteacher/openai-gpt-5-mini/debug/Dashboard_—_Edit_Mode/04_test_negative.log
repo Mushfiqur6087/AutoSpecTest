@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-22T21:47:19.037049
+DEBUG SESSION STARTED: 2026-05-25T15:28:46.002913
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[21:47:19] Test-Negative - SYSTEM PROMPT
+[15:28:46] Test-Negative - SYSTEM PROMPT
 ------------------------------------------------------------
 You are a Negative Test Case Generator. You receive (1) a UI-AST JSON for one module and (2) the original functional description. Your job is to produce ONLY negative test cases — tests where invalid input is provided or business rules are violated, and the system correctly rejects or blocks the action.
 
@@ -22,6 +22,10 @@ You are a Negative Test Case Generator. You receive (1) a UI-AST JSON for one mo
 <description>
 {Original functional description text for this module}
 </description>
+
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
 
 ---
 
@@ -111,6 +115,9 @@ Group required fields by type: `text/unspecified`, `email`, `password`, `number`
 
 Do NOT generate a separate blank-field test for every required field. If 5 text fields are all required, one representative covers them all.
 
+**Action dialog required fields — NOT subject to cross-form deduplication:**
+If a `state_bound_action_bar` action opens a dialog with its own required `fields{}` (e.g., Activate requires Activation Date, Reject requires a Reason, Withdraw requires a Reason, Close requires a Closure Reason), each such dialog is its own testing scope. Generate ONE "leave the required dialog field blank and submit" test per distinct action dialog. These are HIGH priority — they block state transitions and are common defect sites. Do not suppress them because the main wizard already has a blank-field test.
+
 **2. Format violations:**
 
 For fields with type-specific format rules (from AST type or description):
@@ -143,6 +150,10 @@ For each unique `constraints[]` entry in the AST, and for cross-field rules desc
 
 One test per unique constraint. Do not duplicate the same mechanism.
 
+**Constraint timing tests:** If the spec states an action is blocked by a pre-existing system state (e.g., "cannot close with active accounts", "cannot transfer to the same office"), generate TWO tests:
+1. The standard constraint violation test (user opens the dialog, fills required fields, submits → blocked).
+2. A constraint-timing test: user opens the dialog WITHOUT filling required fields → assert whether the block is shown immediately on dialog open (before the user fills anything) OR only on submit. This distinguishes whether the UI enforces the constraint eagerly or lazily. Steps: open the dialog, observe the state → assert what is visible before any interaction. If the spec is silent on timing, generate only the first test.
+
 **5. Precondition violations (auth, role, and state):**
 
 For each `preconditions[]` entry on any action — and for auth/role rules described in the spec:
@@ -154,18 +165,18 @@ For each `preconditions[]` entry on any action — and for auth/role rules descr
 **6. State-machine violations:**
 
 From `state_bound_action_bar` nodes:
-- For each state where an action is NOT listed in `available_actions`, generate one test attempting that action from that state. Example: attempting "Approve" on an entity already in "Active" state.
+- **Every defined state must have at least one wrong-state test.** For each state, identify at least one action that is NOT in its `available_actions` list and generate a test attempting that action from that state.
 - If a state has an empty `available_actions` array, generate one test verifying no action buttons are visible in that state.
-
-One test per unique wrong-state scenario — do not enumerate every action × every invalid state.
+- **Do not stop after 1–2 representative examples** when the module defines 4+ distinct states. The states Active, Pending, Closed, Rejected, and Withdrawn each have different action sets — each must be independently verified.
+- One test per state is sufficient — pick the most distinct unavailable action for that state. Do not enumerate every action × every state (that would be exponential).
 
 ---
 
 **DEDUPLICATION GATE (run before outputting):**
 
-1. **Required field dedup:** Multiple required text fields → ONE representative test, not one per field.
+1. **Required field dedup:** Multiple required text fields in the **same form or dialog** → ONE representative test, not one per field.
 2. **Sub-rule dedup:** A field with multiple validation sub-rules (e.g., password: length + uppercase + lowercase + number + special char) → ONE representative violation test, not one per sub-rule.
-3. **Cross-form dedup:** If two forms in the same module share the same validation mechanism (e.g., both have a required text field) → test it on the primary form only.
+3. **Cross-form dedup:** If two **main forms** in the same module share the same validation mechanism → test it on the primary form only. **Exception: action dialogs are never suppressed by cross-form dedup** — each action dialog with a required field gets its own blank-field test regardless.
 4. **Uniqueness check:** Before outputting, ask for each TC: "Does this test catch a bug that NO other test in this module would catch?" If no → remove it.
 
 ---
@@ -174,9 +185,11 @@ One test per unique wrong-state scenario — do not enumerate every action × ev
 
 - Simple module (login, single form, display page): **2–4 tests**
 - Medium module (standard CRUD form, form with constraints): **4–8 tests**
-- Complex module (state machine, multi-form, wizard with many constraints): **8–12 tests**
+- Complex module (state machine, multi-form, wizard with many constraints): **10–16 tests**
 
-If you exceed these ranges, you are generating redundant tests. Apply the deduplication gate again before outputting.
+For modules with a `state_bound_action_bar` defining 4+ states, the state-machine violation tests alone will produce 4–5 tests. This is expected and correct — do not suppress them to hit a lower target.
+
+If you exceed the upper range, apply the deduplication gate again before outputting.
 
 ---
 
@@ -184,6 +197,17 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
 
 - **High:** State precondition violations, constraint violations that could corrupt data, unauthenticated access, required field representatives
 - **Medium:** Format violations, cross-field validation, numeric bounds, wrong-role access, wrong-state action attempts
+
+---
+
+**WORKFLOW-AWARE FAILURE INJECTION (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- For each workflow that contains a form interaction (terminal action is a submit/save/create/approve button):
+  - Identify the most **critical blocking failure** for that workflow's `conditional_branch`.
+  - If that failure mode is NOT already covered by another workflow's negative test, generate one negative TC for it.
+- **Do NOT generate one negative TC per workflow mechanically.** Apply the existing deduplication gate first — only add a TC if it catches a bug that no other test would catch.
+- Add `"wf_ref": "WF-NNN"` to each TC that maps to a workflow. Set `"wf_ref": null` for generic validation tests.
 
 ---
 
@@ -195,6 +219,7 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
   "test_cases": [
     {
       "tc_id": "N-001",
+      "wf_ref": null,
       "test_case": "Short descriptive name",
       "preconditions": ["precondition 1"],
       "steps": ["1. Step one", "2. Step two"],
@@ -212,109 +237,96 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
 
 
 ------------------------------------------------------------
-[21:47:19] Test-Negative - USER PROMPT
+[15:28:46] Test-Negative - USER PROMPT
 ------------------------------------------------------------
 <module_name>Dashboard — Edit Mode</module_name>
 
 <ast>
 {
-  "module_name": "Dashboard \u2014 Edit Mode",
+  "module_name": "Dashboard - Edit Mode",
   "components": {
     "Edit_Mode_Toggle": {
       "type": "checkbox",
-      "element_name": "Edit mode",
+      "element_name": "Edit Mode",
       "required": false
     },
-    "Reset_Page_to_Default_Button": {
+    "Reset_Page_To_Default_Button": {
       "type": "button",
       "element_name": "Reset page to default",
-      "visible_when": "Edit mode == on",
-      "preconditions": [
-        "Edit mode == on"
-      ],
-      "on_success": "reverts layout to default for current user"
+      "visible_when": "Edit_Mode == true",
+      "on_trigger": "reverts layout to default for user",
+      "on_success": "reverts layout to default for user"
     },
-    "Add_a_block_Button": {
+    "Add_Block_Button": {
       "type": "button",
       "element_name": "+ Add a block",
-      "visible_when": "Edit mode == on",
-      "preconditions": [
-        "Edit mode == on"
-      ],
-      "on_click": "navigates to Add_a_block_Page"
+      "visible_when": "Edit_Mode == true",
+      "on_trigger": "opens Add_Block_Page"
     },
-    "Add_a_block_Page": {
-      "type": "data_table",
-      "element_name": "Add a block",
-      "rows": [
-        "Comments",
-        "Course overview",
-        "Latest announcements",
-        "Latest badges",
-        "Learning plans",
-        "Logged in user",
-        "Mentees",
-        "Online users",
-        "Private files",
-        "Random glossary entry",
-        "Recently accessed courses",
-        "Starred courses",
-        "Tags",
-        "Text",
-        "Upcoming events"
-      ],
-      "row_actions": [
-        {
-          "action_name": "Add",
-          "on_success": "adds block of the selected type to the dashboard and persists layout changes per user",
-          "preconditions": [
-            "Edit mode == on"
-          ]
-        }
-      ],
-      "links": [
-        {
-          "element_name": "Cancel",
+    "Add_Block_Page": {
+      "type": "form",
+      "visible_when": "Edit_Mode == true",
+      "fields": {
+        "Block_Type": {
+          "type": "dropdown",
+          "required": true,
+          "options": [
+            "Comments",
+            "Course overview",
+            "Latest announcements",
+            "Latest badges",
+            "Learning plans",
+            "Logged in user",
+            "Mentees",
+            "Online users",
+            "Private files",
+            "Random glossary entry",
+            "Recently accessed courses",
+            "Starred courses",
+            "Tags",
+            "Text",
+            "Upcoming events"
+          ],
+          "on_select": "adds selected block to user's layout and persists layout; closes Add_Block_Page",
+          "on_success": "adds selected block to user's layout and persists layout; closes Add_Block_Page"
+        },
+        "Cancel": {
           "type": "link",
-          "on_click": "navigates back to Dashboard without adding a block"
+          "element_name": "Cancel",
+          "on_trigger": "closes Add_Block_Page without adding a block"
         }
-      ]
+      }
     },
-    "Dashboard_Blocks": {
+    "Blocks_Layout": {
       "type": "repeating_group",
       "item_fields": {
         "Move_Handle": {
           "type": "button",
-          "element_name": "move handle (drag)",
-          "visible_when": "Edit mode == on",
-          "preconditions": [
-            "Edit mode == on"
-          ],
-          "actions": [
-            {
-              "action_name": "Drag_Move",
-              "on_success": "persists layout changes per user"
-            }
-          ]
+          "element_name": "Move icon",
+          "visible_when": "Edit_Mode == true",
+          "on_trigger": "initiates drag-and-drop reorder for this block",
+          "on_success": "persists layout per user"
         },
         "Options_Menu": {
-          "type": "unspecified",
-          "visible_when": "Edit mode == on",
-          "preconditions": [
-            "Edit mode == on"
-          ],
-          "actions": [
+          "type": "menu",
+          "visible_when": "Edit_Mode == true",
+          "item_actions": [
             {
               "action_name": "Configure",
-              "on_success": "opens configuration UI for the block"
+              "action_type": "link",
+              "on_trigger": "opens configuration UI for this block"
             },
             {
               "action_name": "Move",
-              "on_success": "persists layout changes per user"
+              "action_type": "button",
+              "on_trigger": "initiates move operation for this block (alternative to drag handle)",
+              "on_success": "persists layout per user"
             },
             {
               "action_name": "Delete",
-              "on_success": "removes block from dashboard and persists layout changes per user"
+              "action_type": "button",
+              "on_trigger": "removes this block from user's layout",
+              "on_success": "persists layout per user"
             }
           ]
         }
@@ -333,10 +345,37 @@ When Edit mode is toggled on, a "Reset page to default" button appears at the to
 
 </description>
 
+<workflows>
+WF-001 | Enable Edit Mode | actor: <role> | branch: none | terminal: Edit Mode | on_success: Edit mode enabled; edit controls (Reset, + Add a block, move icons, options menus) become visible
+WF-002 | Disable Edit Mode | actor: <role> | branch: none | terminal: Edit Mode | on_success: Edit mode disabled; edit controls hidden
+WF-003 | Reset page to default (while in Edit Mode) | actor: <role> | branch: Edit_Mode == true | terminal: Reset page to default | on_success: reverts layout to default for user
+WF-004 | Open Add a block page (while in Edit Mode) | actor: <role> | branch: Edit_Mode == true | terminal: + Add a block | on_success: opens Add_Block_Page
+WF-005 | Add 'Comments' block (while in Edit Mode) | actor: <role> | branch: Edit_Mode == true AND Block_Type == Comments | terminal: Comments | on_success: adds selected block to user's layout and persists layout; closes Add_Block_Page
+WF-006 | Add 'Course overview' block (while in Edit Mode) | actor: <role> | branch: Edit_Mode == true AND Block_Type == Course overview | terminal: Course overview | on_success: adds selected block to user's layout and persists layout; closes Add_Block_Page
+WF-007 | Add 'Latest announcements' block (while in Edit Mode) | actor: <role> | branch: Edit_Mode == true AND Block_Type == Latest announcements | terminal: Latest announcements | on_success: adds selected block to user's layout and persists layout; closes Add_Block_Page
+WF-008 | Add 'Latest badges' block (while in Edit Mode) | actor: <role> | branch: Edit_Mode == true AND Block_Type == Latest badges | terminal: Latest badges | on_success: adds selected block to user's layout and persists layout; closes Add_Block_Page
+WF-009 | Add 'Learning plans' block (while in Edit Mode) | actor: <role> | branch: Edit_Mode == true AND Block_Type == Learning plans | terminal: Learning plans | on_success: adds selected block to user's layout and persists layout; closes Add_Block_Page
+WF-010 | Add 'Logged in user' block (while in Edit Mode) | actor: <role> | branch: Edit_Mode == true AND Block_Type == Logged in user | terminal: Logged in user | on_success: adds selected block to user's layout and persists layout; closes Add_Block_Page
+WF-011 | Add 'Mentees' block (while in Edit Mode) | actor: <role> | branch: Edit_Mode == true AND Block_Type == Mentees | terminal: Mentees | on_success: adds selected block to user's layout and persists layout; closes Add_Block_Page
+WF-012 | Add 'Online users' block (while in Edit Mode) | actor: <role> | branch: Edit_Mode == true AND Block_Type == Online users | terminal: Online users | on_success: adds selected block to user's layout and persists layout; closes Add_Block_Page
+WF-013 | Add 'Private files' block (while in Edit Mode) | actor: <role> | branch: Edit_Mode == true AND Block_Type == Private files | terminal: Private files | on_success: adds selected block to user's layout and persists layout; closes Add_Block_Page
+WF-014 | Add 'Random glossary entry' block (while in Edit Mode) | actor: <role> | branch: Edit_Mode == true AND Block_Type == Random glossary entry | terminal: Random glossary entry | on_success: adds selected block to user's layout and persists layout; closes Add_Block_Page
+WF-015 | Add 'Recently accessed courses' block (while in Edit Mode) | actor: <role> | branch: Edit_Mode == true AND Block_Type == Recently accessed courses | terminal: Recently accessed courses | on_success: adds selected block to user's layout and persists layout; closes Add_Block_Page
+WF-016 | Add 'Starred courses' block (while in Edit Mode) | actor: <role> | branch: Edit_Mode == true AND Block_Type == Starred courses | terminal: Starred courses | on_success: adds selected block to user's layout and persists layout; closes Add_Block_Page
+WF-017 | Add 'Tags' block (while in Edit Mode) | actor: <role> | branch: Edit_Mode == true AND Block_Type == Tags | terminal: Tags | on_success: adds selected block to user's layout and persists layout; closes Add_Block_Page
+WF-018 | Add 'Text' block (while in Edit Mode) | actor: <role> | branch: Edit_Mode == true AND Block_Type == Text | terminal: Text | on_success: adds selected block to user's layout and persists layout; closes Add_Block_Page
+WF-019 | Add 'Upcoming events' block (while in Edit Mode) | actor: <role> | branch: Edit_Mode == true AND Block_Type == Upcoming events | terminal: Upcoming events | on_success: adds selected block to user's layout and persists layout; closes Add_Block_Page
+WF-020 | Cancel Add a block (while in Edit Mode) | actor: <role> | branch: Edit_Mode == true | terminal: Cancel | on_success: closes Add_Block_Page without adding a block
+WF-021 | Initiate drag-and-drop to move a block (while in Edit Mode) | actor: <role> | branch: Edit_Mode == true | terminal: Move icon | on_success: persists layout per user
+WF-022 | Open Configure for a block (while in Edit Mode) | actor: <role> | branch: Edit_Mode == true | terminal: Configure | on_success: opens configuration UI for this block
+WF-023 | Move a block via Options menu (while in Edit Mode) | actor: <role> | branch: Edit_Mode == true | terminal: Move | on_success: persists layout per user
+WF-024 | Delete a block via Options menu (while in Edit Mode) | actor: <role> | branch: Edit_Mode == true | terminal: Delete | on_success: persists layout per user
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[21:47:56] Test-Negative - LLM RESPONSE
+[15:29:34] Test-Negative - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Dashboard — Edit Mode",
@@ -344,107 +383,97 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "N-001",
-      "test_case": "Reset page to default is not available when Edit mode is off",
+      "wf_ref": "WF-004",
+      "test_case": "'+ Add a block' button is not visible or accessible when Edit Mode is off",
       "preconditions": [
-        "User is viewing their Dashboard",
-        "Edit mode == off"
+        "User is on the Dashboard page",
+        "Edit Mode is toggled OFF"
       ],
       "steps": [
-        "1. Ensure Edit mode is off",
-        "2. Look at the top-right area of the Dashboard for a 'Reset page to default' button",
-        "3. Attempt to click a hidden or missing 'Reset page to default' control (if present)"
+        "1. Ensure Edit Mode toggle is OFF",
+        "2. Inspect the Dashboard header area where '+ Add a block' appears in Edit Mode",
+        "3. Attempt to click the area where the '+ Add a block' button would appear"
       ],
-      "expected_result": "The 'Reset page to default' button is not present/visible when Edit mode is off; it cannot be clicked; the Dashboard layout is not reverted and remains unchanged.",
+      "expected_result": "The '+ Add a block' control is not visible on the page and cannot be clicked; Add_Block_Page cannot be opened from the header while Edit Mode is OFF; no layout change occurs",
       "priority": "high"
     },
     {
       "tc_id": "N-002",
-      "test_case": "'+ Add a block' button is not visible or clickable when Edit mode is off",
+      "wf_ref": "WF-003",
+      "test_case": "'Reset page to default' button is not visible when Edit Mode is off",
       "preconditions": [
-        "User is viewing their Dashboard",
-        "Edit mode == off"
+        "User is on the Dashboard page",
+        "Edit Mode is toggled OFF"
       ],
       "steps": [
-        "1. Ensure Edit mode is off",
-        "2. Inspect below the Dashboard heading for the '+ Add a block' button",
-        "3. Attempt to click '+ Add a block' if it appears"
+        "1. Ensure Edit Mode toggle is OFF",
+        "2. Inspect the top-right area of the Dashboard where 'Reset page to default' would appear",
+        "3. Attempt to activate/reset via any visible control (if present)"
       ],
-      "expected_result": "The '+ Add a block' button is not visible when Edit mode is off; it cannot be clicked or used to navigate to the Add a block page; no Add a block page is opened and no block can be added.",
+      "expected_result": "The 'Reset page to default' button is not visible when Edit Mode is OFF; the reset action cannot be triggered and the user's layout remains unchanged",
       "priority": "high"
     },
     {
       "tc_id": "N-003",
-      "test_case": "Adding a block is blocked if Edit mode is turned off after opening Add a block page",
+      "wf_ref": "WF-021",
+      "test_case": "Move handle (drag icon) is not visible or usable when Edit Mode is off",
       "preconditions": [
-        "User is viewing their Dashboard containing at least one block",
-        "Edit mode == on"
+        "User is on the Dashboard page with at least one block present",
+        "Edit Mode is toggled OFF"
       ],
       "steps": [
-        "1. Toggle Edit mode on",
-        "2. Click '+ Add a block' to open the Add a block page",
-        "3. On the Add a block page, toggle Edit mode off",
-        "4. Click the 'Add' action for any listed block row"
+        "1. Ensure Edit Mode toggle is OFF",
+        "2. Locate an existing block in the Blocks_Layout",
+        "3. Inspect the block for a move handle / move icon",
+        "4. Attempt to initiate a drag-and-drop or click the move handle"
       ],
-      "expected_result": "The 'Add' action is disabled or has no effect when Edit mode is not on; no new block is added to the Dashboard; the Dashboard layout remains unchanged and the Add a block page does not add or persist any block.",
+      "expected_result": "The Move handle (Move icon) is not visible on the block while Edit Mode is OFF; the move action cannot be initiated and the layout is not changed",
       "priority": "high"
     },
     {
       "tc_id": "N-004",
-      "test_case": "Move (drag) handle is not available and blocks cannot be dragged when Edit mode is off",
+      "wf_ref": "WF-022",
+      "test_case": "Options menu (Configure/Move/Delete) is not visible or usable when Edit Mode is off",
       "preconditions": [
-        "User is viewing their Dashboard containing at least one block",
-        "Edit mode == off"
+        "User is on the Dashboard page with at least one block present",
+        "Edit Mode is toggled OFF"
       ],
       "steps": [
-        "1. Ensure Edit mode is off",
-        "2. Attempt to locate the move handle (drag icon) on any existing block",
-        "3. Attempt to drag a block using the move handle"
+        "1. Ensure Edit Mode toggle is OFF",
+        "2. Locate the three-dot Options_Menu for an existing block",
+        "3. Attempt to open the Options_Menu or activate Configure / Move / Delete actions"
       ],
-      "expected_result": "Move handle (drag icon) is not visible when Edit mode is off; dragging is not possible; no layout changes occur and the block remains in its original position.",
+      "expected_result": "The Options_Menu and its item actions (Configure, Move, Delete) are not visible or accessible while Edit Mode is OFF; none of the configure/move/delete actions can be triggered and the block/layout remains unchanged",
       "priority": "high"
     },
     {
       "tc_id": "N-005",
-      "test_case": "Options menu (three-dot) and its actions are not available when Edit mode is off",
+      "wf_ref": "WF-005",
+      "test_case": "Add a block is blocked when Block_Type dropdown is left blank (required field)",
       "preconditions": [
-        "User is viewing their Dashboard containing at least one block",
-        "Edit mode == off"
+        "User is on the Dashboard page",
+        "Edit Mode is toggled ON"
       ],
       "steps": [
-        "1. Ensure Edit mode is off",
-        "2. Attempt to open the three-dot options menu for any block",
-        "3. If the menu is visible, attempt to select 'Configure', 'Move', and 'Delete'"
+        "1. Ensure Edit Mode toggle is ON",
+        "2. Click the '+ Add a block' button to open Add_Block_Page",
+        "3. Do not select any option from the Block_Type dropdown (leave Block_Type blank)",
+        "4. Attempt to submit the Add_Block_Page (e.g., press Enter or click the dialog's submit control)"
       ],
-      "expected_result": "The three-dot options menu is not visible when Edit mode is off; Configure/Move/Delete actions are not accessible; no block configuration, movement, or deletion occurs and the block remains unchanged.",
-      "priority": "high"
-    },
-    {
-      "tc_id": "N-006",
-      "test_case": "Block Delete action is blocked if Edit mode is turned off after opening the options menu",
-      "preconditions": [
-        "User is viewing their Dashboard containing at least one block",
-        "Edit mode == on"
-      ],
-      "steps": [
-        "1. Toggle Edit mode on",
-        "2. Open the options menu (three-dot) for a block and reveal the 'Delete' action",
-        "3. Toggle Edit mode off while the options menu is open",
-        "4. Click the 'Delete' action"
-      ],
-      "expected_result": "The 'Delete' action is disabled or has no effect when Edit mode is not on; the block is not removed from the Dashboard; no layout change is persisted and the block remains present.",
+      "expected_result": "The Block_Type field displays an inline validation error indicating it is required; the Add_Block_Page remains open; no block is added to the user's layout and no layout persistence/changes occur",
       "priority": "high"
     }
   ],
   "summary": {
-    "total": 6,
-    "high_priority": 6,
+    "total": 5,
+    "high_priority": 5,
     "medium_priority": 0,
     "low_priority": 0
   }
 }
 
 ------------------------------------------------------------
-[21:47:56] Test-Negative - PARSED JSON
+[15:29:34] Test-Negative - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Dashboard \u2014 Edit Mode",
@@ -452,100 +481,90 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "N-001",
-      "test_case": "Reset page to default is not available when Edit mode is off",
+      "wf_ref": "WF-004",
+      "test_case": "'+ Add a block' button is not visible or accessible when Edit Mode is off",
       "preconditions": [
-        "User is viewing their Dashboard",
-        "Edit mode == off"
+        "User is on the Dashboard page",
+        "Edit Mode is toggled OFF"
       ],
       "steps": [
-        "1. Ensure Edit mode is off",
-        "2. Look at the top-right area of the Dashboard for a 'Reset page to default' button",
-        "3. Attempt to click a hidden or missing 'Reset page to default' control (if present)"
+        "1. Ensure Edit Mode toggle is OFF",
+        "2. Inspect the Dashboard header area where '+ Add a block' appears in Edit Mode",
+        "3. Attempt to click the area where the '+ Add a block' button would appear"
       ],
-      "expected_result": "The 'Reset page to default' button is not present/visible when Edit mode is off; it cannot be clicked; the Dashboard layout is not reverted and remains unchanged.",
+      "expected_result": "The '+ Add a block' control is not visible on the page and cannot be clicked; Add_Block_Page cannot be opened from the header while Edit Mode is OFF; no layout change occurs",
       "priority": "high"
     },
     {
       "tc_id": "N-002",
-      "test_case": "'+ Add a block' button is not visible or clickable when Edit mode is off",
+      "wf_ref": "WF-003",
+      "test_case": "'Reset page to default' button is not visible when Edit Mode is off",
       "preconditions": [
-        "User is viewing their Dashboard",
-        "Edit mode == off"
+        "User is on the Dashboard page",
+        "Edit Mode is toggled OFF"
       ],
       "steps": [
-        "1. Ensure Edit mode is off",
-        "2. Inspect below the Dashboard heading for the '+ Add a block' button",
-        "3. Attempt to click '+ Add a block' if it appears"
+        "1. Ensure Edit Mode toggle is OFF",
+        "2. Inspect the top-right area of the Dashboard where 'Reset page to default' would appear",
+        "3. Attempt to activate/reset via any visible control (if present)"
       ],
-      "expected_result": "The '+ Add a block' button is not visible when Edit mode is off; it cannot be clicked or used to navigate to the Add a block page; no Add a block page is opened and no block can be added.",
+      "expected_result": "The 'Reset page to default' button is not visible when Edit Mode is OFF; the reset action cannot be triggered and the user's layout remains unchanged",
       "priority": "high"
     },
     {
       "tc_id": "N-003",
-      "test_case": "Adding a block is blocked if Edit mode is turned off after opening Add a block page",
+      "wf_ref": "WF-021",
+      "test_case": "Move handle (drag icon) is not visible or usable when Edit Mode is off",
       "preconditions": [
-        "User is viewing their Dashboard containing at least one block",
-        "Edit mode == on"
+        "User is on the Dashboard page with at least one block present",
+        "Edit Mode is toggled OFF"
       ],
       "steps": [
-        "1. Toggle Edit mode on",
-        "2. Click '+ Add a block' to open the Add a block page",
-        "3. On the Add a block page, toggle Edit mode off",
-        "4. Click the 'Add' action for any listed block row"
+        "1. Ensure Edit Mode toggle is OFF",
+        "2. Locate an existing block in the Blocks_Layout",
+        "3. Inspect the block for a move handle / move icon",
+        "4. Attempt to initiate a drag-and-drop or click the move handle"
       ],
-      "expected_result": "The 'Add' action is disabled or has no effect when Edit mode is not on; no new block is added to the Dashboard; the Dashboard layout remains unchanged and the Add a block page does not add or persist any block.",
+      "expected_result": "The Move handle (Move icon) is not visible on the block while Edit Mode is OFF; the move action cannot be initiated and the layout is not changed",
       "priority": "high"
     },
     {
       "tc_id": "N-004",
-      "test_case": "Move (drag) handle is not available and blocks cannot be dragged when Edit mode is off",
+      "wf_ref": "WF-022",
+      "test_case": "Options menu (Configure/Move/Delete) is not visible or usable when Edit Mode is off",
       "preconditions": [
-        "User is viewing their Dashboard containing at least one block",
-        "Edit mode == off"
+        "User is on the Dashboard page with at least one block present",
+        "Edit Mode is toggled OFF"
       ],
       "steps": [
-        "1. Ensure Edit mode is off",
-        "2. Attempt to locate the move handle (drag icon) on any existing block",
-        "3. Attempt to drag a block using the move handle"
+        "1. Ensure Edit Mode toggle is OFF",
+        "2. Locate the three-dot Options_Menu for an existing block",
+        "3. Attempt to open the Options_Menu or activate Configure / Move / Delete actions"
       ],
-      "expected_result": "Move handle (drag icon) is not visible when Edit mode is off; dragging is not possible; no layout changes occur and the block remains in its original position.",
+      "expected_result": "The Options_Menu and its item actions (Configure, Move, Delete) are not visible or accessible while Edit Mode is OFF; none of the configure/move/delete actions can be triggered and the block/layout remains unchanged",
       "priority": "high"
     },
     {
       "tc_id": "N-005",
-      "test_case": "Options menu (three-dot) and its actions are not available when Edit mode is off",
+      "wf_ref": "WF-005",
+      "test_case": "Add a block is blocked when Block_Type dropdown is left blank (required field)",
       "preconditions": [
-        "User is viewing their Dashboard containing at least one block",
-        "Edit mode == off"
+        "User is on the Dashboard page",
+        "Edit Mode is toggled ON"
       ],
       "steps": [
-        "1. Ensure Edit mode is off",
-        "2. Attempt to open the three-dot options menu for any block",
-        "3. If the menu is visible, attempt to select 'Configure', 'Move', and 'Delete'"
+        "1. Ensure Edit Mode toggle is ON",
+        "2. Click the '+ Add a block' button to open Add_Block_Page",
+        "3. Do not select any option from the Block_Type dropdown (leave Block_Type blank)",
+        "4. Attempt to submit the Add_Block_Page (e.g., press Enter or click the dialog's submit control)"
       ],
-      "expected_result": "The three-dot options menu is not visible when Edit mode is off; Configure/Move/Delete actions are not accessible; no block configuration, movement, or deletion occurs and the block remains unchanged.",
-      "priority": "high"
-    },
-    {
-      "tc_id": "N-006",
-      "test_case": "Block Delete action is blocked if Edit mode is turned off after opening the options menu",
-      "preconditions": [
-        "User is viewing their Dashboard containing at least one block",
-        "Edit mode == on"
-      ],
-      "steps": [
-        "1. Toggle Edit mode on",
-        "2. Open the options menu (three-dot) for a block and reveal the 'Delete' action",
-        "3. Toggle Edit mode off while the options menu is open",
-        "4. Click the 'Delete' action"
-      ],
-      "expected_result": "The 'Delete' action is disabled or has no effect when Edit mode is not on; the block is not removed from the Dashboard; no layout change is persisted and the block remains present.",
+      "expected_result": "The Block_Type field displays an inline validation error indicating it is required; the Add_Block_Page remains open; no block is added to the user's layout and no layout persistence/changes occur",
       "priority": "high"
     }
   ],
   "summary": {
-    "total": 6,
-    "high_priority": 6,
+    "total": 5,
+    "high_priority": 5,
     "medium_priority": 0,
     "low_priority": 0
   }

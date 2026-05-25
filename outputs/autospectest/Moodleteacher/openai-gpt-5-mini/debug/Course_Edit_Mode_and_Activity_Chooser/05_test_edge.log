@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-22T21:47:19.053286
+DEBUG SESSION STARTED: 2026-05-25T15:28:46.013013
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[21:47:19] Test-Edge - SYSTEM PROMPT
+[15:28:46] Test-Edge - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Edge Case and Boundary Test Generator. You receive (1) a UI-AST JSON for one module and (2) the original functional description. Your job is to produce ONLY boundary and edge case tests — scenarios at the limits of valid/invalid input and unusual-but-plausible user behaviors.
 
@@ -24,6 +24,10 @@ You are NOT producing happy paths (positive prompt) or standard validation failu
 <description>
 {Original functional description text for this module}
 </description>
+
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
 
 ---
 
@@ -176,6 +180,15 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 
 ---
 
+**WORKFLOW-AWARE BOUNDARY SCOPING (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- For each workflow where `conditional_branch` activates a numeric or date field, check if that field has a boundary (a numeric/date threshold in the AST `constraints` or description).
+- If yes, that workflow's branch is a **candidate for a boundary edge test** — add or confirm a boundary TC exists for it.
+- Add `"wf_ref": "WF-NNN"` to each TC that maps to a specific workflow's boundary. Set `"wf_ref": null` for generic input/interaction edge tests.
+
+---
+
 **OUTPUT — JSON only, no prose, no markdown fencing:**
 
 {
@@ -184,6 +197,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": null,
       "subcategory": "boundary | input_edge | interaction_edge | state_edge | data_edge",
       "test_case": "Short descriptive name",
       "preconditions": ["precondition 1"],
@@ -206,7 +220,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 
 
 ------------------------------------------------------------
-[21:47:19] Test-Edge - USER PROMPT
+[15:28:46] Test-Edge - USER PROMPT
 ------------------------------------------------------------
 <module_name>Course Edit Mode and Activity Chooser</module_name>
 
@@ -217,100 +231,161 @@ If the module has any numeric/date/count threshold in the AST or description, pr
     "Edit_Mode_Toggle": {
       "type": "button",
       "element_name": "Turn editing on/off",
-      "on_success": "enables authoring interface; inline controls appear on sections and activities"
+      "on_success": "toggles course page into/out of authoring interface",
+      "state_effects": [
+        "Edit_Mode toggled"
+      ]
     },
     "Course_Sections": {
       "type": "repeating_group",
       "item_fields": {
-        "Section_Quick_Rename": {
+        "Section_Edit_Icon": {
           "type": "button",
-          "element_name": "Inline quick rename (edit icon)",
-          "fields": {}
+          "element_name": "Section inline edit (rename)",
+          "visible_when": "Edit_Mode == On",
+          "fields": {
+            "New_Name": {
+              "type": "unspecified",
+              "required": true
+            }
+          },
+          "on_success": "renames section inline"
         },
         "Section_Menu": {
           "type": "menu",
+          "element_name": "Section three-dot menu",
+          "visible_when": "Edit_Mode == On",
           "available_actions": [
             {
-              "action_name": "Edit"
+              "action_name": "Edit",
+              "on_success": "opens section edit dialog"
             },
             {
-              "action_name": "Duplicate"
+              "action_name": "Duplicate",
+              "on_success": "creates duplicate of section"
             },
             {
-              "action_name": "Hide"
+              "action_name": "Hide",
+              "on_success": "section set to Hidden"
             },
             {
-              "action_name": "Delete"
+              "action_name": "Delete",
+              "on_success": "deletes section"
             },
             {
-              "action_name": "Move"
+              "action_name": "Move",
+              "on_success": "opens move interface for section"
             }
           ]
         },
         "Activities": {
           "type": "repeating_group",
           "item_fields": {
-            "Activity_Quick_Rename": {
+            "Select_For_Bulk": {
+              "type": "checkbox",
+              "visible_when": "Edit_Mode == On",
+              "element_name": "Select activity for bulk actions"
+            },
+            "Activity_Edit_Icon": {
               "type": "button",
-              "element_name": "Inline quick rename (edit icon)",
-              "fields": {}
+              "element_name": "Activity inline edit (rename)",
+              "visible_when": "Edit_Mode == On",
+              "fields": {
+                "New_Name": {
+                  "type": "unspecified",
+                  "required": true
+                }
+              },
+              "on_success": "renames activity inline"
             },
             "Activity_Menu": {
               "type": "menu",
+              "element_name": "Activity three-dot menu",
+              "visible_when": "Edit_Mode == On",
               "available_actions": [
                 {
-                  "action_name": "Edit settings"
+                  "action_name": "Edit settings",
+                  "on_success": "opens activity settings form"
                 },
                 {
-                  "action_name": "Move"
+                  "action_name": "Move",
+                  "on_success": "opens move interface for activity"
                 },
                 {
-                  "action_name": "Duplicate"
+                  "action_name": "Duplicate",
+                  "on_success": "creates duplicate of activity"
                 },
                 {
-                  "action_name": "Hide"
+                  "action_name": "Hide",
+                  "on_success": "activity set to Hidden"
                 },
                 {
-                  "action_name": "Set access restrictions"
+                  "action_name": "Set access restrictions",
+                  "on_success": "opens access restrictions dialog"
                 },
                 {
-                  "action_name": "Delete"
+                  "action_name": "Delete",
+                  "on_success": "deletes activity"
                 }
               ]
-            },
-            "Activity_Selection_Checkbox": {
-              "type": "checkbox",
-              "element_name": "Select activity for bulk actions"
             }
           }
         },
         "Add_Activity_Button": {
           "type": "button",
           "element_name": "+ Add an activity or resource",
-          "on_success": "opens Activity Chooser modal"
+          "visible_when": "Edit_Mode == On",
+          "on_click": "opens Activity_Chooser_Modal"
         },
         "Add_Subsection": {
           "type": "button",
           "element_name": "+ Add a subsection",
-          "on_success": "creates nested subsection for hierarchical content"
+          "visible_when": "Edit_Mode == On",
+          "fields": {
+            "Subsection_Title": {
+              "type": "unspecified",
+              "required": true
+            }
+          },
+          "on_success": "adds nested subsection under this section"
         },
-        "Subsections": {
-          "type": "repeating_group",
-          "item_fields": {}
+        "Section_Move_Handle": {
+          "type": "button",
+          "element_name": "Drag/move handle",
+          "visible_when": "Edit_Mode == On",
+          "on_success": "enables drag-and-drop reordering of section"
         }
       }
     },
     "Bulk_Actions_Toolbar": {
       "type": "toolbar",
-      "visible_when": "Edit_Mode_Toggle == enabled",
-      "description": "Appears for batch operations on multiple selected activities",
-      "bulk_actions": []
+      "visible_when": "Edit_Mode == On",
+      "fields": {
+        "Bulk_Action_Selector": {
+          "type": "unspecified",
+          "element_name": "Choose bulk operation",
+          "constraints": []
+        },
+        "Apply_Bulk_Action": {
+          "type": "button",
+          "element_name": "Apply",
+          "constraints": [
+            "requires at least one activity selected"
+          ],
+          "on_success": "applies chosen bulk operation to selected activities"
+        }
+      }
     },
     "Activity_Chooser_Modal": {
       "type": "modal",
+      "visible_when": "Activity_Chooser_Invoked == true",
+      "preconditions": [
+        "Edit_Mode == On"
+      ],
       "fields": {
         "Category_Filter": {
           "type": "dropdown",
+          "element_name": "Category filter bar",
           "options": [
             "All",
             "Activities",
@@ -319,110 +394,55 @@ If the module has any numeric/date/count threshold in the AST or description, pr
           ]
         },
         "Search": {
-          "type": "search"
+          "type": "search",
+          "element_name": "Search activities/resources"
         },
-        "Activity_Tiles": {
+        "Tiles": {
           "type": "repeating_group",
-          "options": [
-            "Assignment",
-            "Forum",
-            "Quiz",
-            "File",
-            "Page",
-            "Lesson",
-            "SCORM",
-            "URL",
-            "Workshop"
-          ],
           "item_fields": {
             "Tile_Select": {
               "type": "radio",
-              "required": false,
-              "description": "Select a tile to add"
+              "element_name": "Select activity/resource tile",
+              "constraints": []
+            },
+            "Tile_Name": {
+              "type": "unspecified",
+              "element_name": "Activity/Resource name",
+              "options": [
+                "Assignment",
+                "Forum",
+                "Quiz",
+                "File",
+                "Page",
+                "Lesson",
+                "SCORM",
+                "URL",
+                "Workshop"
+              ]
             },
             "Favorite_Toggle": {
               "type": "checkbox",
-              "element_name": "Star / favorite toggle"
+              "element_name": "Star/favorite toggle",
+              "on_success": "toggles favorite for this tile"
             }
           }
-        },
-        "Add_Button": {
-          "type": "button",
+        }
+      },
+      "submit_actions": [
+        {
           "element_name": "Add",
-          "preconditions": [
-            "a tile must be selected"
+          "enabled_when": "a tile is selected",
+          "constraints": [
+            "requires a tile selected"
           ],
-          "on_success": "opens creation form for the selected activity/resource"
+          "on_success": "opens selected activity's creation form"
+        },
+        {
+          "element_name": "Cancel",
+          "type": "button",
+          "on_success": "closes Activity Chooser modal"
         }
-      }
-    },
-    "Activity_Creation_Forms": {
-      "type": "container",
-      "forms": {
-        "Assignment": {
-          "type": "form",
-          "fields": {},
-          "preconditions": [
-            "opened via Activity Chooser Add"
-          ]
-        },
-        "Forum": {
-          "type": "form",
-          "fields": {},
-          "preconditions": [
-            "opened via Activity Chooser Add"
-          ]
-        },
-        "Quiz": {
-          "type": "form",
-          "fields": {},
-          "preconditions": [
-            "opened via Activity Chooser Add"
-          ]
-        },
-        "File": {
-          "type": "form",
-          "fields": {},
-          "preconditions": [
-            "opened via Activity Chooser Add"
-          ]
-        },
-        "Page": {
-          "type": "form",
-          "fields": {},
-          "preconditions": [
-            "opened via Activity Chooser Add"
-          ]
-        },
-        "Lesson": {
-          "type": "form",
-          "fields": {},
-          "preconditions": [
-            "opened via Activity Chooser Add"
-          ]
-        },
-        "SCORM": {
-          "type": "form",
-          "fields": {},
-          "preconditions": [
-            "opened via Activity Chooser Add"
-          ]
-        },
-        "URL": {
-          "type": "form",
-          "fields": {},
-          "preconditions": [
-            "opened via Activity Chooser Add"
-          ]
-        },
-        "Workshop": {
-          "type": "form",
-          "fields": {},
-          "preconditions": [
-            "opened via Activity Chooser Add"
-          ]
-        }
-      }
+      ]
     }
   }
 }
@@ -437,10 +457,36 @@ Enabling Edit mode turns the Course page into an authoring interface. Each secti
 
 </description>
 
+<workflows>
+WF-001 | Toggle Edit Mode | actor: <role> | branch: none | terminal: Turn editing on/off | on_success: toggles course page into/out of authoring interface
+WF-002 | Inline rename section | actor: <role> | branch: Edit_Mode == On | terminal: Section inline edit (rename) | on_success: renames section inline
+WF-003 | Section menu — Edit | actor: <role> | branch: Edit_Mode == On | terminal: Edit | on_success: opens section edit dialog
+WF-004 | Section menu — Duplicate | actor: <role> | branch: Edit_Mode == On | terminal: Duplicate | on_success: creates duplicate of section
+WF-005 | Section menu — Hide | actor: <role> | branch: Edit_Mode == On | terminal: Hide | on_success: section set to Hidden
+WF-006 | Section menu — Delete | actor: <role> | branch: Edit_Mode == On | terminal: Delete | on_success: deletes section
+WF-007 | Section menu — Move | actor: <role> | branch: Edit_Mode == On | terminal: Move | on_success: opens move interface for section
+WF-008 | Select activity for bulk actions (checkbox) | actor: <role> | branch: Edit_Mode == On | terminal: Select activity for bulk actions | on_success: marks activity as selected for bulk actions
+WF-009 | Inline rename activity | actor: <role> | branch: Edit_Mode == On | terminal: Activity inline edit (rename) | on_success: renames activity inline
+WF-010 | Activity menu — Edit settings | actor: <role> | branch: Edit_Mode == On | terminal: Edit settings | on_success: opens activity settings form
+WF-011 | Activity menu — Move | actor: <role> | branch: Edit_Mode == On | terminal: Move | on_success: opens move interface for activity
+WF-012 | Activity menu — Duplicate | actor: <role> | branch: Edit_Mode == On | terminal: Duplicate | on_success: creates duplicate of activity
+WF-013 | Activity menu — Hide | actor: <role> | branch: Edit_Mode == On | terminal: Hide | on_success: activity set to Hidden
+WF-014 | Activity menu — Set access restrictions | actor: <role> | branch: Edit_Mode == On | terminal: Set access restrictions | on_success: opens access restrictions dialog
+WF-015 | Activity menu — Delete | actor: <role> | branch: Edit_Mode == On | terminal: Delete | on_success: deletes activity
+WF-016 | Open Activity Chooser modal | actor: <role> | branch: Edit_Mode == On | terminal: + Add an activity or resource | on_success: opens Activity_Chooser_Modal
+WF-017 | Add a subsection | actor: <role> | branch: Edit_Mode == On | terminal: + Add a subsection | on_success: adds nested subsection under this section
+WF-018 | Section drag/move handle (start reorder) | actor: <role> | branch: Edit_Mode == On | terminal: Drag/move handle | on_success: enables drag-and-drop reordering of section
+WF-019 | Apply bulk action to selected activities | actor: <role> | branch: Edit_Mode == On AND exists(activity.Select_For_Bulk == true) | terminal: Apply | on_success: applies chosen bulk operation to selected activities
+WF-020 | Activity Chooser — Add selected tile | actor: <role> | branch: Activity_Chooser_Invoked == true AND Tile_Select == true | terminal: Add | on_success: opens selected activity's creation form
+WF-021 | Activity Chooser — Cancel | actor: <role> | branch: Activity_Chooser_Invoked == true | terminal: Cancel | on_success: closes Activity Chooser modal
+WF-022 | Toggle favorite on a tile | actor: <role> | branch: Activity_Chooser_Invoked == true | terminal: Star/favorite toggle | on_success: toggles favorite for this tile
+WF-023 | Select activity/resource tile | actor: <role> | branch: Activity_Chooser_Invoked == true | terminal: Select activity/resource tile | on_success: selects this activity/resource tile (enables Add)
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[21:48:35] Test-Edge - LLM RESPONSE
+[15:30:18] Test-Edge - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Course Edit Mode and Activity Chooser",
@@ -448,156 +494,164 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": "WF-020",
       "subcategory": "boundary",
-      "test_case": "Activity Chooser Add button with no tile selected is blocked",
+      "test_case": "Activity Chooser: select one tile then Add (minimum selection boundary)",
       "preconditions": [
-        "User is on the Course page",
-        "Edit mode is enabled"
+        "User with editing permission is on the Course page",
+        "Course page is loaded"
       ],
       "steps": [
-        "1. Click '+ Add an activity or resource' on a section",
-        "2. Wait for the Activity Chooser modal to open",
-        "3. Ensure no activity/resource tile radio is selected",
-        "4. Click the 'Add' button in the Activity Chooser"
+        "1. Click the Turn editing on/off button to enable Edit_Mode",
+        "2. Click + Add an activity or resource on any section to open the Activity Chooser modal",
+        "3. In the Activity Chooser modal, click one Tile_Select radio for a tile",
+        "4. Click the Add button"
       ],
-      "expected_result": "Clicking 'Add' is blocked / error shown: the Add action does not open a creation form; the Add button remains disabled or an inline validation message indicating 'a tile must be selected' is shown and the Activity Chooser modal stays open",
+      "expected_result": "Opening the selected activity's creation form succeeds; the creation form for the selected tile is visible (Activity_Chooser modal closed and new form opened).",
       "priority": "medium"
     },
     {
       "tc_id": "E-002",
+      "wf_ref": "WF-020",
       "subcategory": "boundary",
-      "test_case": "Selecting a tile then clicking Add opens the creation form (boundary pass for selection precondition)",
+      "test_case": "Activity Chooser: attempt Add with zero tiles selected (below minimum)",
       "preconditions": [
-        "User is on the Course page",
-        "Edit mode is enabled"
+        "User with editing permission is on the Course page",
+        "Edit_Mode == On",
+        "Activity Chooser modal is open"
       ],
       "steps": [
-        "1. Click '+ Add an activity or resource' on a section",
-        "2. Wait for the Activity Chooser modal to open",
-        "3. Select exactly one activity/resource tile radio (one tile only)",
-        "4. Click the 'Add' button in the Activity Chooser"
+        "1. Ensure no Tile_Select radio is selected in the Activity Chooser modal",
+        "2. Attempt to click the Add button"
       ],
-      "expected_result": "Opening the selected activity's creation form succeeds: the Activity Chooser closes and the Activity Creation Form for the selected tile is displayed",
+      "expected_result": "The Add action is blocked; the Add button remains disabled (or clicking it does not open a creation form) and no activity creation form opens. A visible indication prevents proceeding without a selection.",
       "priority": "medium"
     },
     {
       "tc_id": "E-003",
-      "subcategory": "interaction_edge",
-      "test_case": "Rapidly toggling Edit mode off while Activity Chooser is open closes the chooser and removes authoring controls",
+      "wf_ref": "WF-019",
+      "subcategory": "boundary",
+      "test_case": "Bulk Apply with exactly one activity selected (minimum for Apply)",
       "preconditions": [
-        "User is on the Course page",
-        "Edit mode is enabled"
+        "User with editing permission is on the Course page",
+        "Edit_Mode == On",
+        "At least one activity exists in a section"
       ],
       "steps": [
-        "1. Click '+ Add an activity or resource' on a section",
-        "2. Wait for the Activity Chooser modal to open",
-        "3. Immediately click 'Turn editing off' while the modal is still visible"
+        "1. Click the Turn editing on/off button to enable Edit_Mode",
+        "2. In any activity row, click the Select activity for bulk actions checkbox to select exactly one activity",
+        "3. In the Bulk Action Selector choose a bulk operation",
+        "4. Click the Apply button"
       ],
-      "expected_result": "Action succeeds: Edit mode is turned off, authoring inline controls are removed and the Activity Chooser modal is dismissed; no creation form is opened",
+      "expected_result": "The bulk operation is applied to the single selected activity and the UI reflects the change (operation succeeds).",
       "priority": "medium"
     },
     {
       "tc_id": "E-004",
-      "subcategory": "state_edge",
-      "test_case": "Selections and Bulk Actions toolbar cleared when Edit mode is disabled immediately after selecting activities",
+      "wf_ref": "WF-019",
+      "subcategory": "boundary",
+      "test_case": "Bulk Apply with zero activities selected (below minimum)",
       "preconditions": [
-        "User is on the Course page",
-        "Edit mode is enabled",
-        "There are at least two activities visible in a section"
+        "User with editing permission is on the Course page",
+        "Edit_Mode == On",
+        "No activities are selected for bulk actions"
       ],
       "steps": [
-        "1. Click the Activity Selection checkbox for activity A",
-        "2. Click the Activity Selection checkbox for activity B",
-        "3. Observe the Bulk Actions toolbar becomes visible",
-        "4. Click 'Turn editing off' immediately after the toolbar appears"
+        "1. Ensure no Select activity for bulk actions checkboxes are checked",
+        "2. Click the Apply button in the Bulk_Actions_Toolbar"
       ],
-      "expected_result": "Disabling edit mode succeeds: the Bulk Actions toolbar is hidden and all activity selection checkboxes are cleared (no activities remain selected); no bulk action is executed",
+      "expected_result": "The Apply action is blocked; clicking Apply does not perform an operation and a visible error or inline message appears indicating that at least one activity must be selected.",
       "priority": "medium"
     },
     {
       "tc_id": "E-005",
-      "subcategory": "input_edge",
-      "test_case": "Inline quick rename with a very long name (200+ characters) to probe truncation/validation behavior",
+      "wf_ref": "WF-001",
+      "subcategory": "state_edge",
+      "test_case": "Rapid consecutive toggles of Edit Mode on then off",
       "preconditions": [
-        "User is on the Course page",
-        "Edit mode is enabled",
-        "A section is present with an inline quick rename control"
+        "User with editing permission is on the Course page",
+        "Course page is loaded"
       ],
       "steps": [
-        "1. Click the section's Inline quick rename edit icon",
-        "2. Enter a very long name (200+ characters) into the inline name input",
-        "3. Confirm the rename (press Enter or click Save in the inline control)"
+        "1. Click the Turn editing on/off button to enable Edit_Mode",
+        "2. Immediately (within 1 second) click the Turn editing on/off button again to disable Edit_Mode",
+        "3. Observe the course page UI after the second click"
       ],
-      "expected_result": "Either the rename succeeds or is blocked/error shown: if the system accepts names of this length the rename succeeds and the section header shows the saved name (if truncated by UI it is visually truncated in the header); if the system enforces a maximum name length the action is blocked and an inline validation error indicating the name exceeds the maximum length is shown",
-      "priority": "low"
+      "expected_result": "The second toggle succeeds and the UI ends in the Edit_Mode matching the last action (editing controls are hidden when Edit_Mode is Off); no duplicate or partially-rendered edit controls or orphaned modals remain visible.",
+      "priority": "medium"
     },
     {
       "tc_id": "E-006",
+      "wf_ref": "WF-002",
       "subcategory": "input_edge",
-      "test_case": "Inline quick rename with leading and trailing whitespace is trimmed on save",
+      "test_case": "Inline rename section using leading and trailing whitespace in New_Name",
       "preconditions": [
-        "User is on the Course page",
-        "Edit mode is enabled",
-        "A section is present with an inline quick rename control"
+        "User with editing permission is on the Course page",
+        "Edit_Mode == On",
+        "A section is visible with the Section_Edit_Icon available"
       ],
       "steps": [
-        "1. Click the section's Inline quick rename edit icon",
-        "2. Enter a name with leading and trailing spaces into the inline name input",
-        "3. Confirm the rename (press Enter or click Save in the inline control)",
-        "4. Observe the displayed section title after save"
+        "1. Click the Section_Edit_Icon to open the inline rename field",
+        "2. Enter a New_Name value that contains leading and trailing whitespace around meaningful text",
+        "3. Confirm/save the inline rename"
       ],
-      "expected_result": "Rename succeeds and leading/trailing whitespace is trimmed: the saved section title displayed in the UI contains no leading or trailing spaces",
+      "expected_result": "Leading and trailing whitespace are trimmed in the saved section name (rename succeeds); the section's displayed name shows no extra surrounding spaces.",
       "priority": "low"
     },
     {
       "tc_id": "E-007",
-      "subcategory": "boundary",
-      "test_case": "Toggling a tile's Favorite star does not satisfy the 'tile selected' precondition — Add remains blocked",
+      "wf_ref": "WF-002",
+      "subcategory": "input_edge",
+      "test_case": "Inline rename section with a very long name (200+ chars)",
       "preconditions": [
-        "User is on the Course page",
-        "Edit mode is enabled"
+        "User with editing permission is on the Course page",
+        "Edit_Mode == On",
+        "A section is visible with the Section_Edit_Icon available"
       ],
       "steps": [
-        "1. Click '+ Add an activity or resource' on a section",
-        "2. Wait for the Activity Chooser modal to open",
-        "3. Toggle the Favorite checkbox/star on a tile without selecting its radio",
-        "4. Click the 'Add' button"
+        "1. Click the Section_Edit_Icon to open the inline rename field",
+        "2. Enter a very long string (well over 200 characters) into New_Name",
+        "3. Confirm/save the inline rename"
       ],
-      "expected_result": "Clicking 'Add' is blocked / error shown: favoriting a tile does not select it; the Add action does not open a creation form and an inline message or disabled Add state indicates a tile must be selected",
-      "priority": "medium"
+      "expected_result": "Either the long name is accepted and saved (rename succeeds) and the full or truncated name is shown in the UI, or the UI displays a visible truncation warning/inline error preventing the save. The visible outcome (saved/truncated or error shown) is presented to the user.",
+      "priority": "low"
     },
     {
       "tc_id": "E-008",
-      "subcategory": "interaction_edge",
-      "test_case": "Double-clicking Add rapidly after selecting a tile should not open duplicate creation forms",
+      "wf_ref": "WF-022",
+      "subcategory": "data_edge",
+      "test_case": "Rapidly toggle Favorite on a tile multiple times and verify persisted state",
       "preconditions": [
-        "User is on the Course page",
-        "Edit mode is enabled"
+        "User with editing permission is on the Course page",
+        "Edit_Mode == On",
+        "Activity Chooser modal can be opened"
       ],
       "steps": [
-        "1. Click '+ Add an activity or resource' on a section",
-        "2. Wait for the Activity Chooser modal to open",
-        "3. Select one activity/resource tile radio",
-        "4. Double-click the 'Add' button rapidly (two clicks in quick succession)"
+        "1. Click the Turn editing on/off button to enable Edit_Mode",
+        "2. Click + Add an activity or resource to open the Activity Chooser modal",
+        "3. Identify a tile and click its Favorite_Toggle checkbox to toggle favorite state",
+        "4. Immediately toggle the same Favorite_Toggle multiple times (rapid clicks)",
+        "5. Close the Activity Chooser modal",
+        "6. Reopen the Activity Chooser modal and check the favorite state of the same tile"
       ],
-      "expected_result": "Action is protected: only one Activity Creation Form instance opens for the selected tile (first click succeeds and the second click is ignored or blocked); no duplicate creation forms are displayed",
-      "priority": "medium"
+      "expected_result": "The final favorite state reflects the last toggle action and persists when the modal is reopened (favorite toggle succeeds); rapid toggling does not create duplicate favorites or inconsistent UI state.",
+      "priority": "low"
     }
   ],
   "summary": {
     "total": 8,
-    "boundary": 3,
+    "boundary": 4,
     "input_edge": 2,
-    "interaction_edge": 2,
+    "interaction_edge": 0,
     "state_edge": 1,
-    "data_edge": 0,
-    "medium_priority": 6,
-    "low_priority": 2
+    "data_edge": 1,
+    "medium_priority": 5,
+    "low_priority": 3
   }
 }
 
 ------------------------------------------------------------
-[21:48:35] Test-Edge - PARSED JSON
+[15:30:18] Test-Edge - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Course Edit Mode and Activity Chooser",
@@ -605,150 +659,158 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": "WF-020",
       "subcategory": "boundary",
-      "test_case": "Activity Chooser Add button with no tile selected is blocked",
+      "test_case": "Activity Chooser: select one tile then Add (minimum selection boundary)",
       "preconditions": [
-        "User is on the Course page",
-        "Edit mode is enabled"
+        "User with editing permission is on the Course page",
+        "Course page is loaded"
       ],
       "steps": [
-        "1. Click '+ Add an activity or resource' on a section",
-        "2. Wait for the Activity Chooser modal to open",
-        "3. Ensure no activity/resource tile radio is selected",
-        "4. Click the 'Add' button in the Activity Chooser"
+        "1. Click the Turn editing on/off button to enable Edit_Mode",
+        "2. Click + Add an activity or resource on any section to open the Activity Chooser modal",
+        "3. In the Activity Chooser modal, click one Tile_Select radio for a tile",
+        "4. Click the Add button"
       ],
-      "expected_result": "Clicking 'Add' is blocked / error shown: the Add action does not open a creation form; the Add button remains disabled or an inline validation message indicating 'a tile must be selected' is shown and the Activity Chooser modal stays open",
+      "expected_result": "Opening the selected activity's creation form succeeds; the creation form for the selected tile is visible (Activity_Chooser modal closed and new form opened).",
       "priority": "medium"
     },
     {
       "tc_id": "E-002",
+      "wf_ref": "WF-020",
       "subcategory": "boundary",
-      "test_case": "Selecting a tile then clicking Add opens the creation form (boundary pass for selection precondition)",
+      "test_case": "Activity Chooser: attempt Add with zero tiles selected (below minimum)",
       "preconditions": [
-        "User is on the Course page",
-        "Edit mode is enabled"
+        "User with editing permission is on the Course page",
+        "Edit_Mode == On",
+        "Activity Chooser modal is open"
       ],
       "steps": [
-        "1. Click '+ Add an activity or resource' on a section",
-        "2. Wait for the Activity Chooser modal to open",
-        "3. Select exactly one activity/resource tile radio (one tile only)",
-        "4. Click the 'Add' button in the Activity Chooser"
+        "1. Ensure no Tile_Select radio is selected in the Activity Chooser modal",
+        "2. Attempt to click the Add button"
       ],
-      "expected_result": "Opening the selected activity's creation form succeeds: the Activity Chooser closes and the Activity Creation Form for the selected tile is displayed",
+      "expected_result": "The Add action is blocked; the Add button remains disabled (or clicking it does not open a creation form) and no activity creation form opens. A visible indication prevents proceeding without a selection.",
       "priority": "medium"
     },
     {
       "tc_id": "E-003",
-      "subcategory": "interaction_edge",
-      "test_case": "Rapidly toggling Edit mode off while Activity Chooser is open closes the chooser and removes authoring controls",
+      "wf_ref": "WF-019",
+      "subcategory": "boundary",
+      "test_case": "Bulk Apply with exactly one activity selected (minimum for Apply)",
       "preconditions": [
-        "User is on the Course page",
-        "Edit mode is enabled"
+        "User with editing permission is on the Course page",
+        "Edit_Mode == On",
+        "At least one activity exists in a section"
       ],
       "steps": [
-        "1. Click '+ Add an activity or resource' on a section",
-        "2. Wait for the Activity Chooser modal to open",
-        "3. Immediately click 'Turn editing off' while the modal is still visible"
+        "1. Click the Turn editing on/off button to enable Edit_Mode",
+        "2. In any activity row, click the Select activity for bulk actions checkbox to select exactly one activity",
+        "3. In the Bulk Action Selector choose a bulk operation",
+        "4. Click the Apply button"
       ],
-      "expected_result": "Action succeeds: Edit mode is turned off, authoring inline controls are removed and the Activity Chooser modal is dismissed; no creation form is opened",
+      "expected_result": "The bulk operation is applied to the single selected activity and the UI reflects the change (operation succeeds).",
       "priority": "medium"
     },
     {
       "tc_id": "E-004",
-      "subcategory": "state_edge",
-      "test_case": "Selections and Bulk Actions toolbar cleared when Edit mode is disabled immediately after selecting activities",
+      "wf_ref": "WF-019",
+      "subcategory": "boundary",
+      "test_case": "Bulk Apply with zero activities selected (below minimum)",
       "preconditions": [
-        "User is on the Course page",
-        "Edit mode is enabled",
-        "There are at least two activities visible in a section"
+        "User with editing permission is on the Course page",
+        "Edit_Mode == On",
+        "No activities are selected for bulk actions"
       ],
       "steps": [
-        "1. Click the Activity Selection checkbox for activity A",
-        "2. Click the Activity Selection checkbox for activity B",
-        "3. Observe the Bulk Actions toolbar becomes visible",
-        "4. Click 'Turn editing off' immediately after the toolbar appears"
+        "1. Ensure no Select activity for bulk actions checkboxes are checked",
+        "2. Click the Apply button in the Bulk_Actions_Toolbar"
       ],
-      "expected_result": "Disabling edit mode succeeds: the Bulk Actions toolbar is hidden and all activity selection checkboxes are cleared (no activities remain selected); no bulk action is executed",
+      "expected_result": "The Apply action is blocked; clicking Apply does not perform an operation and a visible error or inline message appears indicating that at least one activity must be selected.",
       "priority": "medium"
     },
     {
       "tc_id": "E-005",
-      "subcategory": "input_edge",
-      "test_case": "Inline quick rename with a very long name (200+ characters) to probe truncation/validation behavior",
+      "wf_ref": "WF-001",
+      "subcategory": "state_edge",
+      "test_case": "Rapid consecutive toggles of Edit Mode on then off",
       "preconditions": [
-        "User is on the Course page",
-        "Edit mode is enabled",
-        "A section is present with an inline quick rename control"
+        "User with editing permission is on the Course page",
+        "Course page is loaded"
       ],
       "steps": [
-        "1. Click the section's Inline quick rename edit icon",
-        "2. Enter a very long name (200+ characters) into the inline name input",
-        "3. Confirm the rename (press Enter or click Save in the inline control)"
+        "1. Click the Turn editing on/off button to enable Edit_Mode",
+        "2. Immediately (within 1 second) click the Turn editing on/off button again to disable Edit_Mode",
+        "3. Observe the course page UI after the second click"
       ],
-      "expected_result": "Either the rename succeeds or is blocked/error shown: if the system accepts names of this length the rename succeeds and the section header shows the saved name (if truncated by UI it is visually truncated in the header); if the system enforces a maximum name length the action is blocked and an inline validation error indicating the name exceeds the maximum length is shown",
-      "priority": "low"
+      "expected_result": "The second toggle succeeds and the UI ends in the Edit_Mode matching the last action (editing controls are hidden when Edit_Mode is Off); no duplicate or partially-rendered edit controls or orphaned modals remain visible.",
+      "priority": "medium"
     },
     {
       "tc_id": "E-006",
+      "wf_ref": "WF-002",
       "subcategory": "input_edge",
-      "test_case": "Inline quick rename with leading and trailing whitespace is trimmed on save",
+      "test_case": "Inline rename section using leading and trailing whitespace in New_Name",
       "preconditions": [
-        "User is on the Course page",
-        "Edit mode is enabled",
-        "A section is present with an inline quick rename control"
+        "User with editing permission is on the Course page",
+        "Edit_Mode == On",
+        "A section is visible with the Section_Edit_Icon available"
       ],
       "steps": [
-        "1. Click the section's Inline quick rename edit icon",
-        "2. Enter a name with leading and trailing spaces into the inline name input",
-        "3. Confirm the rename (press Enter or click Save in the inline control)",
-        "4. Observe the displayed section title after save"
+        "1. Click the Section_Edit_Icon to open the inline rename field",
+        "2. Enter a New_Name value that contains leading and trailing whitespace around meaningful text",
+        "3. Confirm/save the inline rename"
       ],
-      "expected_result": "Rename succeeds and leading/trailing whitespace is trimmed: the saved section title displayed in the UI contains no leading or trailing spaces",
+      "expected_result": "Leading and trailing whitespace are trimmed in the saved section name (rename succeeds); the section's displayed name shows no extra surrounding spaces.",
       "priority": "low"
     },
     {
       "tc_id": "E-007",
-      "subcategory": "boundary",
-      "test_case": "Toggling a tile's Favorite star does not satisfy the 'tile selected' precondition \u2014 Add remains blocked",
+      "wf_ref": "WF-002",
+      "subcategory": "input_edge",
+      "test_case": "Inline rename section with a very long name (200+ chars)",
       "preconditions": [
-        "User is on the Course page",
-        "Edit mode is enabled"
+        "User with editing permission is on the Course page",
+        "Edit_Mode == On",
+        "A section is visible with the Section_Edit_Icon available"
       ],
       "steps": [
-        "1. Click '+ Add an activity or resource' on a section",
-        "2. Wait for the Activity Chooser modal to open",
-        "3. Toggle the Favorite checkbox/star on a tile without selecting its radio",
-        "4. Click the 'Add' button"
+        "1. Click the Section_Edit_Icon to open the inline rename field",
+        "2. Enter a very long string (well over 200 characters) into New_Name",
+        "3. Confirm/save the inline rename"
       ],
-      "expected_result": "Clicking 'Add' is blocked / error shown: favoriting a tile does not select it; the Add action does not open a creation form and an inline message or disabled Add state indicates a tile must be selected",
-      "priority": "medium"
+      "expected_result": "Either the long name is accepted and saved (rename succeeds) and the full or truncated name is shown in the UI, or the UI displays a visible truncation warning/inline error preventing the save. The visible outcome (saved/truncated or error shown) is presented to the user.",
+      "priority": "low"
     },
     {
       "tc_id": "E-008",
-      "subcategory": "interaction_edge",
-      "test_case": "Double-clicking Add rapidly after selecting a tile should not open duplicate creation forms",
+      "wf_ref": "WF-022",
+      "subcategory": "data_edge",
+      "test_case": "Rapidly toggle Favorite on a tile multiple times and verify persisted state",
       "preconditions": [
-        "User is on the Course page",
-        "Edit mode is enabled"
+        "User with editing permission is on the Course page",
+        "Edit_Mode == On",
+        "Activity Chooser modal can be opened"
       ],
       "steps": [
-        "1. Click '+ Add an activity or resource' on a section",
-        "2. Wait for the Activity Chooser modal to open",
-        "3. Select one activity/resource tile radio",
-        "4. Double-click the 'Add' button rapidly (two clicks in quick succession)"
+        "1. Click the Turn editing on/off button to enable Edit_Mode",
+        "2. Click + Add an activity or resource to open the Activity Chooser modal",
+        "3. Identify a tile and click its Favorite_Toggle checkbox to toggle favorite state",
+        "4. Immediately toggle the same Favorite_Toggle multiple times (rapid clicks)",
+        "5. Close the Activity Chooser modal",
+        "6. Reopen the Activity Chooser modal and check the favorite state of the same tile"
       ],
-      "expected_result": "Action is protected: only one Activity Creation Form instance opens for the selected tile (first click succeeds and the second click is ignored or blocked); no duplicate creation forms are displayed",
-      "priority": "medium"
+      "expected_result": "The final favorite state reflects the last toggle action and persists when the modal is reopened (favorite toggle succeeds); rapid toggling does not create duplicate favorites or inconsistent UI state.",
+      "priority": "low"
     }
   ],
   "summary": {
     "total": 8,
-    "boundary": 3,
+    "boundary": 4,
     "input_edge": 2,
-    "interaction_edge": 2,
+    "interaction_edge": 0,
     "state_edge": 1,
-    "data_edge": 0,
-    "medium_priority": 6,
-    "low_priority": 2
+    "data_edge": 1,
+    "medium_priority": 5,
+    "low_priority": 3
   }
 }

@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-21T22:29:06.558304
+DEBUG SESSION STARTED: 2026-05-25T14:24:50.746296
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[22:29:06] Test-Edge - SYSTEM PROMPT
+[14:24:50] Test-Edge - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Edge Case and Boundary Test Generator. You receive (1) a UI-AST JSON for one module and (2) the original functional description. Your job is to produce ONLY boundary and edge case tests — scenarios at the limits of valid/invalid input and unusual-but-plausible user behaviors.
 
@@ -25,6 +25,10 @@ You are NOT producing happy paths (positive prompt) or standard validation failu
 {Original functional description text for this module}
 </description>
 
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
+
 ---
 
 **UI-AST REFERENCE — How to Read the AST for Edge Testing:**
@@ -35,7 +39,7 @@ You are NOT producing happy paths (positive prompt) or standard validation failu
 | `repeating_group` with `max` | Test adding exactly `max` entries (should succeed) then one more (should block) |
 | `visible_when` / `required_when` | Edge: trigger condition, fill revealed field with boundary value |
 | `state_bound_action_bar` | State edges: rapid consecutive state transitions, transition from a boundary state |
-| `submit_actions[]` with multiple buttons | Interaction edge: double-click a submit button rapidly |
+
 | `type: "date"` fields | Data edges: today, yesterday, far future, Feb 29 leap year |
 | `type: "file_upload"` | Edge: file exactly at size limit, file at 1 byte over limit |
 
@@ -132,7 +136,6 @@ Pick only the ones that apply to field types present in this module's AST:
 
 Pick only the ones that match component types in this module's AST:
 
-- **Double-click submit** (any form/wizard with a submit button): rapidly double-click the submit button → assert only one record is created; no duplicate row appears in the listing table
 - **Rapid re-submission after redirect** (any form that redirects to a detail page on success): after a successful submit, press the browser back button → assert the creation form is shown blank (not pre-filled) OR the user is redirected to the detail page without a second entity being created
 - **Wizard step skip — enforced navigation** (wizard where steps must be completed sequentially): attempt to click a later step tab directly without completing earlier steps → assert navigation is blocked and the earlier step remains active
 - **Wizard step skip — free navigation** (wizard that allows free tab navigation): navigate to a later step without filling earlier steps → assert the later step displays and returning to the earlier step shows fields blank (no data was lost from the later step)
@@ -173,7 +176,16 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 
 - **High:** None — edge tests are secondary to core functionality
 - **Medium:** Boundary tests at thresholds (financial amounts, date ordering, count limits, file size limits)
-- **Low:** Input edge cases (long text, special chars, whitespace, decimal precision), interaction edge cases (double-click, browser back, wizard skip)
+- **Low:** Input edge cases (long text, special chars, whitespace, decimal precision), interaction edge cases (browser back, wizard skip)
+
+---
+
+**WORKFLOW-AWARE BOUNDARY SCOPING (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- For each workflow where `conditional_branch` activates a numeric or date field, check if that field has a boundary (a numeric/date threshold in the AST `constraints` or description).
+- If yes, that workflow's branch is a **candidate for a boundary edge test** — add or confirm a boundary TC exists for it.
+- Add `"wf_ref": "WF-NNN"` to each TC that maps to a specific workflow's boundary. Set `"wf_ref": null` for generic input/interaction edge tests.
 
 ---
 
@@ -185,6 +197,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": null,
       "subcategory": "boundary | input_edge | interaction_edge | state_edge | data_edge",
       "test_case": "Short descriptive name",
       "preconditions": ["precondition 1"],
@@ -207,7 +220,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 
 
 ------------------------------------------------------------
-[22:29:06] Test-Edge - USER PROMPT
+[14:24:50] Test-Edge - USER PROMPT
 ------------------------------------------------------------
 <module_name>Organization Settings</module_name>
 
@@ -215,22 +228,19 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 {
   "module_name": "Organization Settings",
   "components": {
-    "Holidays_Page": {
+    "Holidays_Table": {
       "type": "data_table",
-      "sortable_columns": [
+      "columns": [
         "Name",
         "Start Date",
         "To Date",
-        "Status",
         "Rescheduling Type"
       ],
-      "bulk_actions": [],
-      "row_actions": [],
-      "page_actions": [
+      "actions": [
         {
-          "element_name": "+ Create Holiday",
-          "action": "open_form",
-          "target": "Create_Holiday_Form"
+          "action_name": "+ Create Holiday",
+          "action_type": "button",
+          "opens": "Create_Holiday_Form"
         }
       ]
     },
@@ -241,342 +251,274 @@ If the module has any numeric/date/count threshold in the AST or description, pr
           "type": "unspecified",
           "required": true
         },
-        "From Date": {
+        "From_Date": {
           "type": "date",
           "required": true
         },
-        "To Date": {
+        "To_Date": {
           "type": "date",
           "required": true
         },
-        "Repayments Rescheduled To date": {
-          "type": "date",
-          "required": false
+        "Repayments_Rescheduled_To": {
+          "type": "date"
         },
-        "Rescheduling Type": {
-          "type": "dropdown",
-          "required": false
+        "Rescheduling_Type": {
+          "type": "dropdown"
         },
         "Description": {
-          "type": "unspecified",
-          "required": false
+          "type": "unspecified"
         },
-        "Applicable Offices": {
-          "type": "unspecified",
-          "multi_select": true,
-          "required": false
+        "Applicable_Offices": {
+          "type": "dropdown",
+          "multi_select": true
         }
       },
       "submit_actions": [
         {
-          "on_success": "creates holiday and reschedules loan installments that fall on the holiday per the configured rescheduling type"
+          "on_success": "creates holiday; installments falling on holidays are rescheduled per configured type"
         }
       ]
+    },
+    "Holiday_State_Actions": {
+      "type": "state_bound_action_bar",
+      "states": {
+        "Pending": {
+          "available_actions": []
+        },
+        "Active": {
+          "available_actions": []
+        }
+      }
     },
     "Working_Days_Page": {
       "type": "form",
       "fields": {
         "Monday": {
-          "type": "checkbox",
-          "required": false
+          "type": "checkbox"
         },
         "Tuesday": {
-          "type": "checkbox",
-          "required": false
+          "type": "checkbox"
         },
         "Wednesday": {
-          "type": "checkbox",
-          "required": false
+          "type": "checkbox"
         },
         "Thursday": {
-          "type": "checkbox",
-          "required": false
+          "type": "checkbox"
         },
         "Friday": {
-          "type": "checkbox",
-          "required": false
+          "type": "checkbox"
         },
         "Saturday": {
-          "type": "checkbox",
-          "required": false
+          "type": "checkbox"
         },
         "Sunday": {
-          "type": "checkbox",
-          "required": false
+          "type": "checkbox"
         },
-        "Repayment Rescheduling": {
-          "type": "dropdown",
-          "required": false
+        "Repayment_Rescheduling": {
+          "type": "dropdown"
         }
-      },
-      "submit_actions": [
-        {
-          "on_success": "saves working days configuration and reschedules loan installments that fall on non-working days per the selected rescheduling option"
-        }
-      ]
+      }
     },
     "Currencies_Page": {
       "type": "data_table",
-      "sortable_columns": [
+      "columns": [
         "Code",
         "Name",
         "Decimal Places"
       ],
-      "fields": {
-        "Currencies": {
-          "type": "repeating_group",
-          "item_fields": {
-            "Code": {
-              "type": "unspecified",
-              "required": true
-            },
-            "Name": {
-              "type": "unspecified",
-              "required": true
-            },
-            "Decimal Places": {
-              "type": "number",
-              "required": true
-            },
-            "Is Active": {
-              "type": "checkbox",
-              "required": false
-            }
-          }
-        }
-      },
-      "submit_actions": [
-        {
-          "on_success": "updates which currencies are active for the system"
-        }
-      ]
+      "selectable_rows": true,
+      "selection_effect": "selected rows are marked active currencies"
     },
     "Funds_Page": {
       "type": "data_table",
-      "sortable_columns": [
+      "columns": [
         "Fund Name",
         "External ID"
       ],
-      "row_actions": [],
-      "page_actions": [
+      "actions": [
         {
-          "action": "open_form",
-          "target": "Create_Fund_Form"
+          "action_name": "Create Fund",
+          "action_type": "button",
+          "opens": "Create_Fund_Form"
         }
       ]
     },
     "Create_Fund_Form": {
       "type": "form",
       "fields": {
-        "Fund Name": {
-          "type": "unspecified",
-          "required": false
+        "Fund_Name": {
+          "type": "unspecified"
         },
-        "External ID": {
-          "type": "unspecified",
-          "required": false
+        "External_ID": {
+          "type": "unspecified"
         }
       },
       "submit_actions": [
         {
-          "on_success": "creates fund and makes it available as a funding source for loans"
+          "on_success": "creates fund"
         }
       ]
     },
     "Payment_Types_Page": {
       "type": "data_table",
-      "sortable_columns": [
+      "columns": [
         "Name",
+        "Description",
+        "Is Cash Payment",
         "Position"
       ],
-      "fields": {
-        "Payment_Types": {
-          "type": "repeating_group",
-          "item_fields": {
-            "Name": {
-              "type": "unspecified",
-              "required": true
-            },
-            "Description": {
-              "type": "unspecified",
-              "required": false
-            },
-            "Is Cash Payment": {
-              "type": "checkbox",
-              "required": false
-            },
-            "Position": {
-              "type": "number",
-              "required": false
-            }
-          }
-        }
-      },
-      "page_actions": [
+      "rows": [
         {
-          "element_name": "+ Create",
-          "action": "open_form",
-          "target": "Create_Payment_Type_Form"
+          "Name": "Cash",
+          "Description": null,
+          "Is Cash Payment": true,
+          "Position": null
+        },
+        {
+          "Name": "Bank Transfer",
+          "Description": null,
+          "Is Cash Payment": false,
+          "Position": null
+        },
+        {
+          "Name": "Mobile Money",
+          "Description": null,
+          "Is Cash Payment": false,
+          "Position": null
+        },
+        {
+          "Name": "Check",
+          "Description": null,
+          "Is Cash Payment": false,
+          "Position": null
+        },
+        {
+          "Name": "Receipt",
+          "Description": null,
+          "Is Cash Payment": false,
+          "Position": null
         }
       ],
-      "row_actions": [],
-      "bulk_actions": []
+      "actions": [
+        {
+          "action_name": "+ Create",
+          "action_type": "button",
+          "opens": "Create_Payment_Type_Form"
+        }
+      ]
     },
     "Create_Payment_Type_Form": {
       "type": "form",
       "fields": {
         "Name": {
-          "type": "unspecified",
-          "required": true
+          "type": "unspecified"
         },
         "Description": {
-          "type": "unspecified",
-          "required": false
+          "type": "unspecified"
         },
-        "Is Cash Payment": {
-          "type": "checkbox",
-          "required": false
+        "Is_Cash_Payment": {
+          "type": "checkbox"
         },
         "Position": {
-          "type": "number",
-          "required": false
+          "type": "unspecified"
         }
       },
       "submit_actions": [
         {
-          "on_success": "creates payment type and adds it as a dropdown option in all transaction forms"
+          "on_success": "adds payment type; appears as dropdown option in all transaction forms"
         }
       ]
     },
     "Bulk_Import_Page": {
       "type": "page",
-      "sections": [
+      "entity_imports": [
         {
-          "entity": "Clients",
-          "actions": [
-            {
-              "action_name": "Download template"
+          "entity_name": "Clients",
+          "actions": {
+            "download_template": {
+              "type": "button"
             },
-            {
-              "action_name": "Upload",
-              "field": {
-                "type": "file_upload"
-              }
+            "upload": {
+              "type": "file_upload"
             }
-          ]
+          }
         },
         {
-          "entity": "Groups",
-          "actions": [
-            {
-              "action_name": "Download template"
+          "entity_name": "Groups",
+          "actions": {
+            "download_template": {
+              "type": "button"
             },
-            {
-              "action_name": "Upload",
-              "field": {
-                "type": "file_upload"
-              }
+            "upload": {
+              "type": "file_upload"
             }
-          ]
+          }
         },
         {
-          "entity": "Centers",
-          "actions": [
-            {
-              "action_name": "Download template"
+          "entity_name": "Centers",
+          "actions": {
+            "download_template": {
+              "type": "button"
             },
-            {
-              "action_name": "Upload",
-              "field": {
-                "type": "file_upload"
-              }
+            "upload": {
+              "type": "file_upload"
             }
-          ]
+          }
         },
         {
-          "entity": "Offices",
-          "actions": [
-            {
-              "action_name": "Download template"
+          "entity_name": "Offices",
+          "actions": {
+            "download_template": {
+              "type": "button"
             },
-            {
-              "action_name": "Upload",
-              "field": {
-                "type": "file_upload"
-              }
+            "upload": {
+              "type": "file_upload"
             }
-          ]
+          }
         },
         {
-          "entity": "Staff",
-          "actions": [
-            {
-              "action_name": "Download template"
+          "entity_name": "Staff",
+          "actions": {
+            "download_template": {
+              "type": "button"
             },
-            {
-              "action_name": "Upload",
-              "field": {
-                "type": "file_upload"
-              }
+            "upload": {
+              "type": "file_upload"
             }
-          ]
+          }
         },
         {
-          "entity": "Users",
-          "actions": [
-            {
-              "action_name": "Download template"
+          "entity_name": "Users",
+          "actions": {
+            "download_template": {
+              "type": "button"
             },
-            {
-              "action_name": "Upload",
-              "field": {
-                "type": "file_upload"
-              }
+            "upload": {
+              "type": "file_upload"
             }
-          ]
+          }
         },
         {
-          "entity": "Loans",
-          "actions": [
-            {
-              "action_name": "Download template"
+          "entity_name": "Loans",
+          "actions": {
+            "download_template": {
+              "type": "button"
             },
-            {
-              "action_name": "Upload",
-              "field": {
-                "type": "file_upload"
-              }
+            "upload": {
+              "type": "file_upload"
             }
-          ]
+          }
         },
         {
-          "entity": "Savings",
-          "actions": [
-            {
-              "action_name": "Download template"
+          "entity_name": "Savings",
+          "actions": {
+            "download_template": {
+              "type": "button"
             },
-            {
-              "action_name": "Upload",
-              "field": {
-                "type": "file_upload"
-              }
+            "upload": {
+              "type": "file_upload"
             }
-          ]
-        },
-        {
-          "entity": "Other",
-          "description": "additional entity types supported",
-          "actions": [
-            {
-              "action_name": "Download template"
-            },
-            {
-              "action_name": "Upload",
-              "field": {
-                "type": "file_upload"
-              }
-            }
-          ]
+          }
         }
       ]
     }
@@ -595,10 +537,33 @@ The Working Days page allows configuring which days of the week are working days
 
 </description>
 
+<workflows>
+WF-001 | Create Holiday | actor: <role> | branch: none | terminal: Submit | on_success: creates holiday; installments falling on holidays are rescheduled per configured type
+WF-002 | Create Fund | actor: <role> | branch: none | terminal: Submit | on_success: creates fund
+WF-003 | Create Payment Type | actor: <role> | branch: none | terminal: Submit | on_success: adds payment type; appears as dropdown option in all transaction forms
+WF-004 | Select Active Currencies | actor: <role> | branch: none | terminal: Select currencies | on_success: selected rows are marked active currencies
+WF-005 | Download Clients template | actor: <role> | branch: none | terminal: download_template | on_success: template downloaded for Clients
+WF-006 | Upload Clients file | actor: <role> | branch: none | terminal: upload | on_success: file uploaded; Clients imported per template
+WF-007 | Download Groups template | actor: <role> | branch: none | terminal: download_template | on_success: template downloaded for Groups
+WF-008 | Upload Groups file | actor: <role> | branch: none | terminal: upload | on_success: file uploaded; Groups imported per template
+WF-009 | Download Centers template | actor: <role> | branch: none | terminal: download_template | on_success: template downloaded for Centers
+WF-010 | Upload Centers file | actor: <role> | branch: none | terminal: upload | on_success: file uploaded; Centers imported per template
+WF-011 | Download Offices template | actor: <role> | branch: none | terminal: download_template | on_success: template downloaded for Offices
+WF-012 | Upload Offices file | actor: <role> | branch: none | terminal: upload | on_success: file uploaded; Offices imported per template
+WF-013 | Download Staff template | actor: <role> | branch: none | terminal: download_template | on_success: template downloaded for Staff
+WF-014 | Upload Staff file | actor: <role> | branch: none | terminal: upload | on_success: file uploaded; Staff imported per template
+WF-015 | Download Users template | actor: <role> | branch: none | terminal: download_template | on_success: template downloaded for Users
+WF-016 | Upload Users file | actor: <role> | branch: none | terminal: upload | on_success: file uploaded; Users imported per template
+WF-017 | Download Loans template | actor: <role> | branch: none | terminal: download_template | on_success: template downloaded for Loans
+WF-018 | Upload Loans file | actor: <role> | branch: none | terminal: upload | on_success: file uploaded; Loans imported per template
+WF-019 | Download Savings template | actor: <role> | branch: none | terminal: download_template | on_success: template downloaded for Savings
+WF-020 | Upload Savings file | actor: <role> | branch: none | terminal: upload | on_success: file uploaded; Savings imported per template
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[22:36:00] Test-Edge - LLM RESPONSE
+[14:32:36] Test-Edge - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Organization Settings",
@@ -606,139 +571,153 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": "WF-001",
       "subcategory": "boundary",
-      "test_case": "Create holiday where From Date equals To Date (single-day holiday)",
+      "test_case": "Create Holiday with From Date equal to To Date (same-day holiday)",
       "preconditions": [
-        "User is on Holidays page"
+        "User is logged in with access to Organization > Holidays",
+        "Holidays table is visible"
       ],
       "steps": [
         "1. Click \"+ Create Holiday\"",
-        "2. Enter <valid name> in the Name field",
+        "2. Enter <Name> in the Name field",
         "3. Enter <a date> in the From Date field",
-        "4. Enter <the same date as From Date> in the To Date field",
-        "5. Click Submit"
+        "4. Enter the same <date> as From Date in the To Date field",
+        "5. (optional) Select a <Rescheduling Type> in the Rescheduling Type dropdown",
+        "6. Click Submit"
       ],
-      "expected_result": "Form submits successfully; a new holiday is created (succeeds) and the Holidays table displays a row with Start Date and To Date both showing <the same date>",
+      "expected_result": "Form submits successfully; holiday is created and a new row appears in the Holidays table with Start Date = <From Date> and To Date = same <From Date>; installments falling on that date are rescheduled per the configured type (creation succeeds).",
       "priority": "medium"
     },
     {
       "tc_id": "E-002",
+      "wf_ref": "WF-001",
       "subcategory": "boundary",
-      "test_case": "Prevent To Date that is one day before From Date",
+      "test_case": "Create Holiday with To Date one day before From Date (date-order violation)",
       "preconditions": [
-        "User is on Holidays page"
+        "User is logged in with access to Organization > Holidays",
+        "Holidays table is visible"
       ],
       "steps": [
         "1. Click \"+ Create Holiday\"",
-        "2. Enter <valid name> in the Name field",
+        "2. Enter <Name> in the Name field",
         "3. Enter <a date> in the From Date field",
         "4. Enter <one day before the From Date> in the To Date field",
         "5. Click Submit"
       ],
-      "expected_result": "Submission is blocked; To Date field displays an inline error indicating it must not be before From Date and the holiday is not created (is blocked / error shown)",
+      "expected_result": "Submission is blocked; the To Date field displays an inline error indicating it cannot be before the From Date (form is blocked / error shown).",
       "priority": "medium"
     },
     {
       "tc_id": "E-003",
+      "wf_ref": "WF-001",
       "subcategory": "input_edge",
-      "test_case": "Description field accepts very long text (200+ characters)",
+      "test_case": "Create Holiday with very long Description (200+ characters)",
       "preconditions": [
-        "User is on Holidays page"
+        "User is logged in with access to Organization > Holidays",
+        "Create Holiday form is available"
       ],
       "steps": [
         "1. Click \"+ Create Holiday\"",
-        "2. Enter <valid name> in the Name field",
-        "3. Enter <valid From Date> in the From Date field",
-        "4. Enter <valid To Date> in the To Date field",
-        "5. Enter <a very long text of 200+ characters> into the Description field",
+        "2. Enter <Name> in the Name field",
+        "3. Enter <From Date> in the From Date field",
+        "4. Enter <To Date> in the To Date field",
+        "5. Enter a very long string (>200 characters) in the Description field",
         "6. Click Submit"
       ],
-      "expected_result": "Form submits successfully; the created holiday's detail (or the Description column/display) shows the full entered text untruncated (succeeds)",
+      "expected_result": "Form submission succeeds; on the Holidays table or holiday detail the Description is shown. If the UI stores the full text the full Description is visible on detail; if the UI truncates long text a visible truncation/preview indicator (e.g., ellipsis or \"show more\") is shown in the table/detail (observable saved/truncated behavior is visible).",
       "priority": "low"
     },
     {
       "tc_id": "E-004",
+      "wf_ref": "WF-003",
       "subcategory": "input_edge",
-      "test_case": "Name field with special characters and emoji",
+      "test_case": "Create Payment Type with special characters and emoji in Name",
       "preconditions": [
-        "User is on Holidays page"
+        "User is logged in with access to Organization > Payment Types",
+        "Payment Types table is visible"
       ],
       "steps": [
-        "1. Click \"+ Create Holiday\"",
-        "2. Enter <string containing special characters and emoji> in the Name field",
-        "3. Enter <valid From Date> in the From Date field",
-        "4. Enter <valid To Date> in the To Date field",
-        "5. Click Submit"
+        "1. Click \"+ Create\" on the Payment Types page",
+        "2. Enter a Name containing special characters and emoji (e.g., punctuation, symbols, emoji) in the Name field",
+        "3. (optional) Enter a Description",
+        "4. Click Submit"
       ],
-      "expected_result": "Form submits successfully; the Holidays table shows the new holiday and the Name cell displays the exact string with special characters/emoji (succeeds)",
+      "expected_result": "Form submits successfully; the new payment type appears in the Payment Types table and the Name displayed preserves the special characters/emoji; the new payment type is available as an option in transaction forms' payment type dropdown (creation succeeds).",
       "priority": "low"
     },
     {
       "tc_id": "E-005",
+      "wf_ref": "WF-002",
       "subcategory": "input_edge",
-      "test_case": "Currencies: Decimal Places rejects non-integer values",
+      "test_case": "Create Fund with leading and trailing whitespace in Fund Name",
       "preconditions": [
-        "User is on Currencies page"
+        "User is logged in with access to Organization > Funds",
+        "Create Fund form is available"
       ],
       "steps": [
-        "1. Click to add a new row in the Currencies repeating group",
-        "2. Enter <valid Code> in the Code field",
-        "3. Enter <valid Name> in the Name field",
-        "4. Enter <a non-integer value> in the Decimal Places field",
-        "5. Click Save/Submit on the Currencies page"
+        "1. Click \"Create Fund\"",
+        "2. Enter a Fund Name with leading and trailing whitespace in the Fund Name field",
+        "3. Enter <External ID> in the External ID field",
+        "4. Click Submit"
       ],
-      "expected_result": "Submission is blocked; Decimal Places field displays an inline error indicating the value must be an integer and the new currency row is not saved (is blocked / error shown)",
-      "priority": "medium"
+      "expected_result": "Form submits successfully; the Funds table displays the saved Fund Name trimmed of leading and trailing whitespace (no visible extra spaces in the Fund Name cell).",
+      "priority": "low"
     },
     {
       "tc_id": "E-006",
+      "wf_ref": "WF-001",
       "subcategory": "interaction_edge",
-      "test_case": "Double-click Submit on Create Payment Type to ensure single creation",
+      "test_case": "Rapid re-submission after successful Create Holiday (prevent duplicate creation)",
       "preconditions": [
-        "User is on Payment Types page"
+        "User is logged in with access to Organization > Holidays",
+        "Create Holiday form is available"
       ],
       "steps": [
-        "1. Click \"+ Create\" to open Create Payment Type form",
-        "2. Enter <valid Name> in the Name field",
-        "3. (Single action) Double-click the Submit button rapidly"
+        "1. Click \"+ Create Holiday\"",
+        "2. Enter <Name> in the Name field",
+        "3. Enter <From Date> in the From Date field",
+        "4. Enter <To Date> in the To Date field",
+        "5. Click Submit",
+        "6. After success and viewing the holiday detail or Holidays table, click the browser Back button to return to the Create Holiday form (or click \"+ Create Holiday\" again)",
+        "7. Immediately click Submit again with the same field values"
       ],
-      "expected_result": "Only one payment type is created; the Payment Types table shows a single new row for the Name entered and no duplicate rows appear (succeeds)",
+      "expected_result": "Second submission attempt is blocked; only one holiday record with those values appears in the Holidays table and no duplicate record is created (user-visible error or blocking message is shown on the second submit if duplicates are prevented).",
       "priority": "medium"
     },
     {
       "tc_id": "E-007",
-      "subcategory": "interaction_edge",
-      "test_case": "Add then remove all entries from Payment Types repeating group and save",
+      "wf_ref": "WF-006",
+      "subcategory": "data_edge",
+      "test_case": "Bulk Import: upload Clients template file with headers only and zero data rows",
       "preconditions": [
-        "User is on Payment Types page"
+        "User is logged in with access to Organization > Bulk Import",
+        "Clients upload control is visible"
       ],
       "steps": [
-        "1. In the Payment Types repeating group, add a new item row",
-        "2. Enter <valid Name> in the new row's Name field",
-        "3. Add a second new item row",
-        "4. Enter <valid Name> in the second new row's Name field",
-        "5. Delete/remove the first new row",
-        "6. Delete/remove the second new row so no new rows remain",
-        "7. Click Save/Submit on the Payment Types page"
+        "1. Navigate to Bulk Import > Clients",
+        "2. Click Upload",
+        "3. Select a file that exactly matches the Clients template headers but contains zero data rows",
+        "4. Click Upload/Submit on the import interface"
       ],
-      "expected_result": "Save submits successfully (no minimum required) and no new payment types are added; the Payment Types table shows only the pre-existing entries (succeeds)",
-      "priority": "low"
+      "expected_result": "File upload succeeds; the import summary is displayed showing 0 records imported and a visible warning or informational message indicating no data rows were found (upload succeeds but no records processed).",
+      "priority": "medium"
     }
   ],
   "summary": {
     "total": 7,
     "boundary": 2,
     "input_edge": 3,
-    "interaction_edge": 2,
+    "interaction_edge": 1,
     "state_edge": 0,
-    "data_edge": 0,
+    "data_edge": 1,
     "medium_priority": 4,
     "low_priority": 3
   }
 }
 
 ------------------------------------------------------------
-[22:36:00] Test-Edge - PARSED JSON
+[14:32:36] Test-Edge - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Organization Settings",
@@ -746,132 +725,146 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": "WF-001",
       "subcategory": "boundary",
-      "test_case": "Create holiday where From Date equals To Date (single-day holiday)",
+      "test_case": "Create Holiday with From Date equal to To Date (same-day holiday)",
       "preconditions": [
-        "User is on Holidays page"
+        "User is logged in with access to Organization > Holidays",
+        "Holidays table is visible"
       ],
       "steps": [
         "1. Click \"+ Create Holiday\"",
-        "2. Enter <valid name> in the Name field",
+        "2. Enter <Name> in the Name field",
         "3. Enter <a date> in the From Date field",
-        "4. Enter <the same date as From Date> in the To Date field",
-        "5. Click Submit"
+        "4. Enter the same <date> as From Date in the To Date field",
+        "5. (optional) Select a <Rescheduling Type> in the Rescheduling Type dropdown",
+        "6. Click Submit"
       ],
-      "expected_result": "Form submits successfully; a new holiday is created (succeeds) and the Holidays table displays a row with Start Date and To Date both showing <the same date>",
+      "expected_result": "Form submits successfully; holiday is created and a new row appears in the Holidays table with Start Date = <From Date> and To Date = same <From Date>; installments falling on that date are rescheduled per the configured type (creation succeeds).",
       "priority": "medium"
     },
     {
       "tc_id": "E-002",
+      "wf_ref": "WF-001",
       "subcategory": "boundary",
-      "test_case": "Prevent To Date that is one day before From Date",
+      "test_case": "Create Holiday with To Date one day before From Date (date-order violation)",
       "preconditions": [
-        "User is on Holidays page"
+        "User is logged in with access to Organization > Holidays",
+        "Holidays table is visible"
       ],
       "steps": [
         "1. Click \"+ Create Holiday\"",
-        "2. Enter <valid name> in the Name field",
+        "2. Enter <Name> in the Name field",
         "3. Enter <a date> in the From Date field",
         "4. Enter <one day before the From Date> in the To Date field",
         "5. Click Submit"
       ],
-      "expected_result": "Submission is blocked; To Date field displays an inline error indicating it must not be before From Date and the holiday is not created (is blocked / error shown)",
+      "expected_result": "Submission is blocked; the To Date field displays an inline error indicating it cannot be before the From Date (form is blocked / error shown).",
       "priority": "medium"
     },
     {
       "tc_id": "E-003",
+      "wf_ref": "WF-001",
       "subcategory": "input_edge",
-      "test_case": "Description field accepts very long text (200+ characters)",
+      "test_case": "Create Holiday with very long Description (200+ characters)",
       "preconditions": [
-        "User is on Holidays page"
+        "User is logged in with access to Organization > Holidays",
+        "Create Holiday form is available"
       ],
       "steps": [
         "1. Click \"+ Create Holiday\"",
-        "2. Enter <valid name> in the Name field",
-        "3. Enter <valid From Date> in the From Date field",
-        "4. Enter <valid To Date> in the To Date field",
-        "5. Enter <a very long text of 200+ characters> into the Description field",
+        "2. Enter <Name> in the Name field",
+        "3. Enter <From Date> in the From Date field",
+        "4. Enter <To Date> in the To Date field",
+        "5. Enter a very long string (>200 characters) in the Description field",
         "6. Click Submit"
       ],
-      "expected_result": "Form submits successfully; the created holiday's detail (or the Description column/display) shows the full entered text untruncated (succeeds)",
+      "expected_result": "Form submission succeeds; on the Holidays table or holiday detail the Description is shown. If the UI stores the full text the full Description is visible on detail; if the UI truncates long text a visible truncation/preview indicator (e.g., ellipsis or \"show more\") is shown in the table/detail (observable saved/truncated behavior is visible).",
       "priority": "low"
     },
     {
       "tc_id": "E-004",
+      "wf_ref": "WF-003",
       "subcategory": "input_edge",
-      "test_case": "Name field with special characters and emoji",
+      "test_case": "Create Payment Type with special characters and emoji in Name",
       "preconditions": [
-        "User is on Holidays page"
+        "User is logged in with access to Organization > Payment Types",
+        "Payment Types table is visible"
       ],
       "steps": [
-        "1. Click \"+ Create Holiday\"",
-        "2. Enter <string containing special characters and emoji> in the Name field",
-        "3. Enter <valid From Date> in the From Date field",
-        "4. Enter <valid To Date> in the To Date field",
-        "5. Click Submit"
+        "1. Click \"+ Create\" on the Payment Types page",
+        "2. Enter a Name containing special characters and emoji (e.g., punctuation, symbols, emoji) in the Name field",
+        "3. (optional) Enter a Description",
+        "4. Click Submit"
       ],
-      "expected_result": "Form submits successfully; the Holidays table shows the new holiday and the Name cell displays the exact string with special characters/emoji (succeeds)",
+      "expected_result": "Form submits successfully; the new payment type appears in the Payment Types table and the Name displayed preserves the special characters/emoji; the new payment type is available as an option in transaction forms' payment type dropdown (creation succeeds).",
       "priority": "low"
     },
     {
       "tc_id": "E-005",
+      "wf_ref": "WF-002",
       "subcategory": "input_edge",
-      "test_case": "Currencies: Decimal Places rejects non-integer values",
+      "test_case": "Create Fund with leading and trailing whitespace in Fund Name",
       "preconditions": [
-        "User is on Currencies page"
+        "User is logged in with access to Organization > Funds",
+        "Create Fund form is available"
       ],
       "steps": [
-        "1. Click to add a new row in the Currencies repeating group",
-        "2. Enter <valid Code> in the Code field",
-        "3. Enter <valid Name> in the Name field",
-        "4. Enter <a non-integer value> in the Decimal Places field",
-        "5. Click Save/Submit on the Currencies page"
+        "1. Click \"Create Fund\"",
+        "2. Enter a Fund Name with leading and trailing whitespace in the Fund Name field",
+        "3. Enter <External ID> in the External ID field",
+        "4. Click Submit"
       ],
-      "expected_result": "Submission is blocked; Decimal Places field displays an inline error indicating the value must be an integer and the new currency row is not saved (is blocked / error shown)",
-      "priority": "medium"
+      "expected_result": "Form submits successfully; the Funds table displays the saved Fund Name trimmed of leading and trailing whitespace (no visible extra spaces in the Fund Name cell).",
+      "priority": "low"
     },
     {
       "tc_id": "E-006",
+      "wf_ref": "WF-001",
       "subcategory": "interaction_edge",
-      "test_case": "Double-click Submit on Create Payment Type to ensure single creation",
+      "test_case": "Rapid re-submission after successful Create Holiday (prevent duplicate creation)",
       "preconditions": [
-        "User is on Payment Types page"
+        "User is logged in with access to Organization > Holidays",
+        "Create Holiday form is available"
       ],
       "steps": [
-        "1. Click \"+ Create\" to open Create Payment Type form",
-        "2. Enter <valid Name> in the Name field",
-        "3. (Single action) Double-click the Submit button rapidly"
+        "1. Click \"+ Create Holiday\"",
+        "2. Enter <Name> in the Name field",
+        "3. Enter <From Date> in the From Date field",
+        "4. Enter <To Date> in the To Date field",
+        "5. Click Submit",
+        "6. After success and viewing the holiday detail or Holidays table, click the browser Back button to return to the Create Holiday form (or click \"+ Create Holiday\" again)",
+        "7. Immediately click Submit again with the same field values"
       ],
-      "expected_result": "Only one payment type is created; the Payment Types table shows a single new row for the Name entered and no duplicate rows appear (succeeds)",
+      "expected_result": "Second submission attempt is blocked; only one holiday record with those values appears in the Holidays table and no duplicate record is created (user-visible error or blocking message is shown on the second submit if duplicates are prevented).",
       "priority": "medium"
     },
     {
       "tc_id": "E-007",
-      "subcategory": "interaction_edge",
-      "test_case": "Add then remove all entries from Payment Types repeating group and save",
+      "wf_ref": "WF-006",
+      "subcategory": "data_edge",
+      "test_case": "Bulk Import: upload Clients template file with headers only and zero data rows",
       "preconditions": [
-        "User is on Payment Types page"
+        "User is logged in with access to Organization > Bulk Import",
+        "Clients upload control is visible"
       ],
       "steps": [
-        "1. In the Payment Types repeating group, add a new item row",
-        "2. Enter <valid Name> in the new row's Name field",
-        "3. Add a second new item row",
-        "4. Enter <valid Name> in the second new row's Name field",
-        "5. Delete/remove the first new row",
-        "6. Delete/remove the second new row so no new rows remain",
-        "7. Click Save/Submit on the Payment Types page"
+        "1. Navigate to Bulk Import > Clients",
+        "2. Click Upload",
+        "3. Select a file that exactly matches the Clients template headers but contains zero data rows",
+        "4. Click Upload/Submit on the import interface"
       ],
-      "expected_result": "Save submits successfully (no minimum required) and no new payment types are added; the Payment Types table shows only the pre-existing entries (succeeds)",
-      "priority": "low"
+      "expected_result": "File upload succeeds; the import summary is displayed showing 0 records imported and a visible warning or informational message indicating no data rows were found (upload succeeds but no records processed).",
+      "priority": "medium"
     }
   ],
   "summary": {
     "total": 7,
     "boundary": 2,
     "input_edge": 3,
-    "interaction_edge": 2,
+    "interaction_edge": 1,
     "state_edge": 0,
-    "data_edge": 0,
+    "data_edge": 1,
     "medium_priority": 4,
     "low_priority": 3
   }

@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-21T22:19:56.397009
+DEBUG SESSION STARTED: 2026-05-25T14:09:57.020666
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[22:21:48] Semantic Critic - SYSTEM PROMPT
+[14:12:28] Semantic Critic - SYSTEM PROMPT
 ------------------------------------------------------------
 You are a UI-AST Semantic Critic. You receive (1) a raw functional description and (2) a generated UI-AST JSON.
 
@@ -106,7 +106,7 @@ Output ONLY the JSON object. No explanation, no markdown fencing, no preamble.
 
 
 ------------------------------------------------------------
-[22:21:48] Semantic Critic - USER PROMPT
+[14:12:28] Semantic Critic - USER PROMPT
 ------------------------------------------------------------
 <description>
 
@@ -125,25 +125,45 @@ The Offices page displays a hierarchical table of all offices with columns for O
       "type": "data_table",
       "hierarchical": true,
       "columns": [
-        "Office Name",
-        "External ID",
-        "Parent Office",
-        "Opened On Date",
-        "Hierarchy Position"
+        {
+          "name": "Office Name",
+          "type": "link",
+          "link_target": "Office_Detail_Page",
+          "description": "clicking navigates to Office Detail page"
+        },
+        {
+          "name": "External ID",
+          "type": "unspecified"
+        },
+        {
+          "name": "Parent Office",
+          "type": "unspecified"
+        },
+        {
+          "name": "Opened On Date",
+          "type": "date"
+        },
+        {
+          "name": "Hierarchy Position",
+          "type": "unspecified"
+        }
       ],
-      "clickable_column": "Office Name",
       "row_actions": [
         {
-          "action_name": "Open Office Detail",
-          "type": "link",
-          "on_success": "navigates to Office Detail page"
+          "action_name": "Edit",
+          "action_type": "button",
+          "opens": "Edit_Office_Form"
         }
       ],
-      "page_actions": [
+      "top_level_actions": [
         {
-          "element_name": "+ Create Office",
-          "on_trigger": "opens Create_Office_Form"
+          "action_name": "+ Create Office",
+          "action_type": "button",
+          "opens": "Create_Office_Form"
         }
+      ],
+      "interactive_behaviors": [
+        "expand_collapse_rows"
       ]
     },
     "Create_Office_Form": {
@@ -151,23 +171,27 @@ The Offices page displays a hierarchical table of all offices with columns for O
       "fields": {
         "Office_Name": {
           "type": "unspecified",
-          "required": true
+          "constraints": [
+            "required"
+          ]
         },
         "Parent_Office": {
           "type": "dropdown",
-          "required": true,
           "constraints": [
-            "must select a parent office",
+            "required",
+            "must reference an existing office",
             "Head Office is the root"
           ]
         },
         "Opened_On_Date": {
           "type": "date",
-          "required": true
+          "constraints": [
+            "required"
+          ]
         },
         "External_ID": {
           "type": "unspecified",
-          "required": false
+          "constraints": []
         }
       },
       "submit_actions": [
@@ -177,7 +201,7 @@ The Offices page displays a hierarchical table of all offices with columns for O
         },
         {
           "element_name": "Cancel",
-          "on_success": "closes form without creating office"
+          "on_success": "closes form without creating"
         }
       ]
     },
@@ -187,7 +211,8 @@ The Offices page displays a hierarchical table of all offices with columns for O
       "actions": [
         {
           "action_name": "Edit",
-          "on_trigger": "opens Edit_Office_Form"
+          "action_type": "button",
+          "opens": "Edit_Office_Form"
         }
       ]
     },
@@ -196,23 +221,27 @@ The Offices page displays a hierarchical table of all offices with columns for O
       "fields": {
         "Office_Name": {
           "type": "unspecified",
-          "required": true
+          "constraints": [
+            "required"
+          ]
         },
         "Parent_Office": {
           "type": "dropdown",
-          "required": true,
           "constraints": [
-            "must select a parent office",
+            "required",
+            "must reference an existing office",
             "Head Office is the root"
           ]
         },
         "Opened_On_Date": {
           "type": "date",
-          "required": true
+          "constraints": [
+            "required"
+          ]
         },
         "External_ID": {
           "type": "unspecified",
-          "required": false
+          "constraints": []
         }
       },
       "submit_actions": [
@@ -233,49 +262,49 @@ The Offices page displays a hierarchical table of all offices with columns for O
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[22:23:57] Semantic Critic - LLM RESPONSE
+[14:14:29] Semantic Critic - LLM RESPONSE
 ------------------------------------------------------------
 {
   "verdict": "retry",
-  "summary": "AST includes several inferred UI elements (not explicitly described) and should be regenerated to avoid phantom constructs.",
+  "summary": "AST contains multiple inferred/extra interactive items not present in the description (phantoms) and should be regenerated after removing them.",
   "missing": [],
   "phantoms": [
-    "components.Edit_Office_Form (entire Edit_Office_Form with fields is inferred; description only mentions an Edit option on the detail page)",
-    "components.Create_Office_Form.submit_actions[0] (Create button name is not specified in the description)",
-    "components.Create_Office_Form.submit_actions[1] (Cancel button name is not specified in the description)",
-    "components.Edit_Office_Form.submit_actions[0] (Save button name is not specified in the description)",
-    "components.Edit_Office_Form.submit_actions[1] (Cancel button name is not specified in the description)"
+    "components.Offices_Table.row_actions[0] (Edit row action on table not specified in the description; Edit is only mentioned on the Office Detail page)",
+    "components.Offices_Table.interactive_behaviors[0] (expand_collapse_rows inferred from 'hierarchical' but not explicitly described)",
+    "components.Create_Office_Form.submit_actions[1] (Cancel button on Create form is not mentioned in the description)",
+    "components.Edit_Office_Form.submit_actions[1] (Cancel button on Edit form is not mentioned in the description)"
   ],
   "fixes": [
-    "Remove components.Edit_Office_Form entirely, or replace it with only an action reference from components.Office_Detail_Page.actions.Edit without detailing form fields or submit buttons: change components.Office_Detail_Page.actions[0].on_trigger to 'opens edit flow' and delete components.Edit_Office_Form.",
-    "Remove components.Create_Office_Form.submit_actions array (or leave it empty) since the description does not name submit buttons; if a submit action must be represented, use a single generic submit action at components.Create_Office_Form.submit_actions[0] with element_name 'Submit' (or omit names).",
-    "Remove components.Edit_Office_Form.submit_actions array (or leave it empty) because the description does not specify edit form buttons; if necessary, use a single generic submit action named 'Submit' instead of 'Save'/'Cancel'."
+    "Remove the table row-level Edit action: delete components.Offices_Table.row_actions[0]. The description only specifies navigating to the Office Detail page via the Office Name link and an Edit option on the Detail page — do not add a separate row Edit action.",
+    "Remove the inferred interactive behavior: delete components.Offices_Table.interactive_behaviors (or at minimum remove the 'expand_collapse_rows' entry). If expand/collapse is required, it must be explicitly stated in the description.",
+    "Remove the unspecified Cancel button from the Create form: delete components.Create_Office_Form.submit_actions[1]. Keep only actions explicitly named in the description (or leave submit_actions empty if no labels provided).",
+    "Remove the unspecified Cancel button from the Edit form: delete components.Edit_Office_Form.submit_actions[1]. Keep only actions explicitly named in the description (or leave submit_actions empty if no labels provided)."
   ]
 }
 
 ------------------------------------------------------------
-[22:23:57] Semantic Critic - PARSED JSON
+[14:14:29] Semantic Critic - PARSED JSON
 ------------------------------------------------------------
 {
   "verdict": "retry",
-  "summary": "AST includes several inferred UI elements (not explicitly described) and should be regenerated to avoid phantom constructs.",
+  "summary": "AST contains multiple inferred/extra interactive items not present in the description (phantoms) and should be regenerated after removing them.",
   "missing": [],
   "phantoms": [
-    "components.Edit_Office_Form (entire Edit_Office_Form with fields is inferred; description only mentions an Edit option on the detail page)",
-    "components.Create_Office_Form.submit_actions[0] (Create button name is not specified in the description)",
-    "components.Create_Office_Form.submit_actions[1] (Cancel button name is not specified in the description)",
-    "components.Edit_Office_Form.submit_actions[0] (Save button name is not specified in the description)",
-    "components.Edit_Office_Form.submit_actions[1] (Cancel button name is not specified in the description)"
+    "components.Offices_Table.row_actions[0] (Edit row action on table not specified in the description; Edit is only mentioned on the Office Detail page)",
+    "components.Offices_Table.interactive_behaviors[0] (expand_collapse_rows inferred from 'hierarchical' but not explicitly described)",
+    "components.Create_Office_Form.submit_actions[1] (Cancel button on Create form is not mentioned in the description)",
+    "components.Edit_Office_Form.submit_actions[1] (Cancel button on Edit form is not mentioned in the description)"
   ],
   "fixes": [
-    "Remove components.Edit_Office_Form entirely, or replace it with only an action reference from components.Office_Detail_Page.actions.Edit without detailing form fields or submit buttons: change components.Office_Detail_Page.actions[0].on_trigger to 'opens edit flow' and delete components.Edit_Office_Form.",
-    "Remove components.Create_Office_Form.submit_actions array (or leave it empty) since the description does not name submit buttons; if a submit action must be represented, use a single generic submit action at components.Create_Office_Form.submit_actions[0] with element_name 'Submit' (or omit names).",
-    "Remove components.Edit_Office_Form.submit_actions array (or leave it empty) because the description does not specify edit form buttons; if necessary, use a single generic submit action named 'Submit' instead of 'Save'/'Cancel'."
+    "Remove the table row-level Edit action: delete components.Offices_Table.row_actions[0]. The description only specifies navigating to the Office Detail page via the Office Name link and an Edit option on the Detail page \u2014 do not add a separate row Edit action.",
+    "Remove the inferred interactive behavior: delete components.Offices_Table.interactive_behaviors (or at minimum remove the 'expand_collapse_rows' entry). If expand/collapse is required, it must be explicitly stated in the description.",
+    "Remove the unspecified Cancel button from the Create form: delete components.Create_Office_Form.submit_actions[1]. Keep only actions explicitly named in the description (or leave submit_actions empty if no labels provided).",
+    "Remove the unspecified Cancel button from the Edit form: delete components.Edit_Office_Form.submit_actions[1]. Keep only actions explicitly named in the description (or leave submit_actions empty if no labels provided)."
   ]
 }
 
 ------------------------------------------------------------
-[22:25:22] Semantic Critic - USER PROMPT
+[14:15:56] Semantic Critic - USER PROMPT
 ------------------------------------------------------------
 <description>
 
@@ -292,69 +321,92 @@ The Offices page displays a hierarchical table of all offices with columns for O
   "components": {
     "Offices_Table": {
       "type": "data_table",
-      "hierarchical": true,
-      "columns": [
-        "Office Name",
-        "External ID",
-        "Parent Office",
-        "Opened On Date",
-        "Hierarchy Position"
-      ],
-      "row_actions": [
-        {
-          "action_name": "Open",
+      "columns": {
+        "Office_Name": {
           "type": "link",
-          "on_trigger": "opens Office_Detail_Page",
-          "target_column": "Office Name"
+          "on_click": "navigates to Office Detail page"
+        },
+        "External_ID": {
+          "type": "unspecified"
+        },
+        "Parent_Office": {
+          "type": "unspecified"
+        },
+        "Opened_On_Date": {
+          "type": "date"
+        },
+        "Hierarchy_Position": {
+          "type": "unspecified"
         }
-      ],
-      "page_actions": [
+      },
+      "row_actions": [],
+      "actions": [
         {
-          "element_name": "Create Office",
-          "type": "button",
-          "on_trigger": "opens Create_Office_Form"
+          "element_name": "+ Create Office",
+          "element_type": "button",
+          "on_click": "opens Create_Office_Form"
         }
       ]
     },
     "Create_Office_Form": {
       "type": "form",
+      "submit_actions": [],
       "fields": {
-        "Office Name": {
+        "Office_Name": {
           "type": "unspecified",
           "required": true
         },
-        "Parent Office": {
+        "Parent_Office": {
           "type": "dropdown",
           "required": true,
           "constraints": [
-            "Head Office is the root and may be selected as Parent Office"
+            "Head Office is the root"
           ]
         },
-        "Opened On Date": {
+        "Opened_On_Date": {
           "type": "date",
           "required": true
         },
-        "External ID": {
+        "External_ID": {
           "type": "unspecified",
           "required": false
         }
-      },
-      "submit_actions": [
-        {
-          "element_name": "Submit",
-          "on_success": "creates office"
-        }
-      ]
+      }
     },
     "Office_Detail_Page": {
       "type": "detail_page",
       "actions": [
         {
-          "action_name": "Edit",
-          "type": "button",
-          "on_trigger": "opens edit flow"
+          "element_name": "Edit",
+          "element_type": "button",
+          "on_click": "opens Edit_Office_Form"
         }
       ]
+    },
+    "Edit_Office_Form": {
+      "type": "form",
+      "submit_actions": [],
+      "fields": {
+        "Office_Name": {
+          "type": "unspecified",
+          "required": true
+        },
+        "Parent_Office": {
+          "type": "dropdown",
+          "required": true,
+          "constraints": [
+            "Head Office is the root"
+          ]
+        },
+        "Opened_On_Date": {
+          "type": "date",
+          "required": true
+        },
+        "External_ID": {
+          "type": "unspecified",
+          "required": false
+        }
+      }
     }
   }
 }
@@ -363,27 +415,23 @@ The Offices page displays a hierarchical table of all offices with columns for O
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[22:26:25] Semantic Critic - LLM RESPONSE
+[14:17:03] Semantic Critic - LLM RESPONSE
 ------------------------------------------------------------
 {
   "verdict": "yes",
-  "summary": "AST correctly captures the hierarchical offices table, clickable office name, Create Office flow with required fields, and Office Detail page with Edit action; only a minor inferred submit button was added.",
+  "summary": "The AST accurately captures the interactive elements described: the hierarchical offices table with clickable Office Name, the + Create Office button and its form fields (with required constraints), and the Office Detail page Edit action with an edit form; no missing or extraneous interactive items identified.",
   "missing": [],
-  "phantoms": [
-    "Create_Office_Form.submit_actions[0] (Submit button label and explicit submit action are not specified in the description)"
-  ],
+  "phantoms": [],
   "fixes": []
 }
 
 ------------------------------------------------------------
-[22:26:25] Semantic Critic - PARSED JSON
+[14:17:03] Semantic Critic - PARSED JSON
 ------------------------------------------------------------
 {
   "verdict": "yes",
-  "summary": "AST correctly captures the hierarchical offices table, clickable office name, Create Office flow with required fields, and Office Detail page with Edit action; only a minor inferred submit button was added.",
+  "summary": "The AST accurately captures the interactive elements described: the hierarchical offices table with clickable Office Name, the + Create Office button and its form fields (with required constraints), and the Office Detail page Edit action with an edit form; no missing or extraneous interactive items identified.",
   "missing": [],
-  "phantoms": [
-    "Create_Office_Form.submit_actions[0] (Submit button label and explicit submit action are not specified in the description)"
-  ],
+  "phantoms": [],
   "fixes": []
 }

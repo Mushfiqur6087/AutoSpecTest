@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-21T22:50:10.014659
+DEBUG SESSION STARTED: 2026-05-25T14:45:09.073889
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[22:50:10] UI-AST Agent - SYSTEM PROMPT
+[14:45:09] UI-AST Agent - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Expert UI/UX Architect and Systems Analyst. Parse natural language functional specifications into a strict, deterministic UI Abstract Syntax Tree (UI-AST) formatted as a JSON Component Schema.
 
@@ -204,7 +204,7 @@ Mentally enumerate every interactive element in the source. Every field, button,
 }
 
 ------------------------------------------------------------
-[22:50:10] UI-AST Agent - USER PROMPT
+[14:45:09] UI-AST Agent - USER PROMPT
 ------------------------------------------------------------
 Module: Payment Processing
 
@@ -218,7 +218,7 @@ The payment page displays a full booking summary with a price breakdown (base pr
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[22:51:10] UI-AST Agent - LLM RESPONSE
+[14:45:57] UI-AST Agent - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module_name": "Payment Processing",
@@ -236,15 +236,6 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
             "Wallet/Credits"
           ]
         },
-        "Card_Brand": {
-          "type": "dropdown",
-          "options": [
-            "Visa",
-            "MasterCard",
-            "American Express"
-          ],
-          "visible_when": "Payment_Method == Credit/Debit Card"
-        },
         "Cardholder_Name": {
           "type": "unspecified",
           "required": true,
@@ -253,7 +244,11 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
         "Card_Number": {
           "type": "number",
           "required": true,
-          "visible_when": "Payment_Method == Credit/Debit Card"
+          "visible_when": "Payment_Method == Credit/Debit Card",
+          "constraints": [
+            "must be a valid card number",
+            "supported networks: Visa, MasterCard, American Express"
+          ]
         },
         "Expiration_Date": {
           "type": "date",
@@ -263,7 +258,10 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
         "CVV": {
           "type": "number",
           "required": true,
-          "visible_when": "Payment_Method == Credit/Debit Card"
+          "visible_when": "Payment_Method == Credit/Debit Card",
+          "constraints": [
+            "must be 3 or 4 digits depending on card network"
+          ]
         },
         "Save_Card": {
           "type": "checkbox",
@@ -273,35 +271,64 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
       },
       "submit_actions": [
         {
-          "element_name": "Pay",
+          "element_name": "Pay Now",
           "on_success": "redirects to booking confirmation page with reference number; confirmation email sent",
-          "on_failure": [
-            "displays error message (e.g., 'Card declined', 'Insufficient funds')",
-            "allows user to retry without losing booking details"
-          ]
+          "on_failure": "displays error message (e.g., 'Card declined', 'Insufficient funds') and allows user to retry without losing booking details"
         }
       ]
     },
-    "Booking_Confirmation_Page": {
+    "Confirmation_Page": {
       "type": "page",
-      "actions": [
-        {
-          "element_name": "Download Invoice",
-          "type": "button",
-          "on_action": "downloads invoice PDF"
-        },
-        {
-          "element_name": "Download Voucher",
-          "type": "button",
-          "on_action": "downloads voucher PDF"
+      "components": {
+        "Confirmation_Actions": {
+          "type": "action_group",
+          "actions": [
+            {
+              "action_name": "Download Invoice",
+              "on_success": "downloads invoice PDF"
+            },
+            {
+              "action_name": "Download Voucher",
+              "on_success": "downloads voucher PDF"
+            }
+          ]
         }
-      ]
+      }
+    },
+    "Payment_Result_Actions": {
+      "type": "state_bound_action_bar",
+      "states": {
+        "Success": {
+          "available_actions": [
+            {
+              "action_name": "Download Invoice",
+              "on_success": "downloads invoice PDF"
+            },
+            {
+              "action_name": "Download Voucher",
+              "on_success": "downloads voucher PDF"
+            }
+          ]
+        },
+        "Failure": {
+          "available_actions": [
+            {
+              "action_name": "Retry Payment",
+              "on_success": "re-attempts payment; on success redirects to booking confirmation page with reference number; confirmation email sent",
+              "constraints": [
+                "preserve booking and payment form data when retrying"
+              ]
+            }
+          ],
+          "on_enter": "displays error message (e.g., 'Card declined', 'Insufficient funds')"
+        }
+      }
     }
   }
 }
 
 ------------------------------------------------------------
-[22:51:10] UI-AST Agent - PARSED JSON
+[14:45:57] UI-AST Agent - PARSED JSON
 ------------------------------------------------------------
 {
   "module_name": "Payment Processing",
@@ -319,15 +346,6 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
             "Wallet/Credits"
           ]
         },
-        "Card_Brand": {
-          "type": "dropdown",
-          "options": [
-            "Visa",
-            "MasterCard",
-            "American Express"
-          ],
-          "visible_when": "Payment_Method == Credit/Debit Card"
-        },
         "Cardholder_Name": {
           "type": "unspecified",
           "required": true,
@@ -336,7 +354,11 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
         "Card_Number": {
           "type": "number",
           "required": true,
-          "visible_when": "Payment_Method == Credit/Debit Card"
+          "visible_when": "Payment_Method == Credit/Debit Card",
+          "constraints": [
+            "must be a valid card number",
+            "supported networks: Visa, MasterCard, American Express"
+          ]
         },
         "Expiration_Date": {
           "type": "date",
@@ -346,7 +368,10 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
         "CVV": {
           "type": "number",
           "required": true,
-          "visible_when": "Payment_Method == Credit/Debit Card"
+          "visible_when": "Payment_Method == Credit/Debit Card",
+          "constraints": [
+            "must be 3 or 4 digits depending on card network"
+          ]
         },
         "Save_Card": {
           "type": "checkbox",
@@ -356,35 +381,64 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
       },
       "submit_actions": [
         {
-          "element_name": "Pay",
+          "element_name": "Pay Now",
           "on_success": "redirects to booking confirmation page with reference number; confirmation email sent",
-          "on_failure": [
-            "displays error message (e.g., 'Card declined', 'Insufficient funds')",
-            "allows user to retry without losing booking details"
-          ]
+          "on_failure": "displays error message (e.g., 'Card declined', 'Insufficient funds') and allows user to retry without losing booking details"
         }
       ]
     },
-    "Booking_Confirmation_Page": {
+    "Confirmation_Page": {
       "type": "page",
-      "actions": [
-        {
-          "element_name": "Download Invoice",
-          "type": "button",
-          "on_action": "downloads invoice PDF"
-        },
-        {
-          "element_name": "Download Voucher",
-          "type": "button",
-          "on_action": "downloads voucher PDF"
+      "components": {
+        "Confirmation_Actions": {
+          "type": "action_group",
+          "actions": [
+            {
+              "action_name": "Download Invoice",
+              "on_success": "downloads invoice PDF"
+            },
+            {
+              "action_name": "Download Voucher",
+              "on_success": "downloads voucher PDF"
+            }
+          ]
         }
-      ]
+      }
+    },
+    "Payment_Result_Actions": {
+      "type": "state_bound_action_bar",
+      "states": {
+        "Success": {
+          "available_actions": [
+            {
+              "action_name": "Download Invoice",
+              "on_success": "downloads invoice PDF"
+            },
+            {
+              "action_name": "Download Voucher",
+              "on_success": "downloads voucher PDF"
+            }
+          ]
+        },
+        "Failure": {
+          "available_actions": [
+            {
+              "action_name": "Retry Payment",
+              "on_success": "re-attempts payment; on success redirects to booking confirmation page with reference number; confirmation email sent",
+              "constraints": [
+                "preserve booking and payment form data when retrying"
+              ]
+            }
+          ],
+          "on_enter": "displays error message (e.g., 'Card declined', 'Insufficient funds')"
+        }
+      }
     }
   }
 }
 
 ------------------------------------------------------------
-[22:51:52] UI-AST Agent - USER PROMPT
+[14:46:36] UI-AST Agent - USER PROMPT
 ------------------------------------------------------------
 Module: Payment Processing
 
@@ -396,25 +450,26 @@ The payment page displays a full booking summary with a price breakdown (base pr
 
 
 **CRITIC FEEDBACK FROM PREVIOUS ATTEMPT — address every point:**
-1. Remove the Card_Brand interactive field: delete components.Payment_Form.fields.Card_Brand entirely, or convert it to a passive display (e.g., components.Payment_Form.display_fields.Accepted_Cards) because the description only lists supported card brands as display information.
-2. Remove all inferred conditional visibility attributes since the description does not explicitly state conditional triggers: delete the 'visible_when' properties from components.Payment_Form.fields.Cardholder_Name, components.Payment_Form.fields.Card_Number, components.Payment_Form.fields.Expiration_Date, components.Payment_Form.fields.CVV, and components.Payment_Form.fields.Save_Card (i.e., remove components.Payment_Form.fields.<Field>.visible_when).
-3. Do not invent button/element labels not present in the description: remove components.Payment_Form.submit_actions[0].element_name (the 'Pay' label). Instead include a submit action without an invented label or explicitly mark the label as unspecified (e.g., components.Payment_Form.submit_actions[0].element_name = null) so regeneration can choose a neutral/unspecified label or follow explicit text from the source.
+1. Payment_Form.fields.Cardholder_Name.visible_when — remove the 'visible_when' conditional or make it explicit in the description; if the card fields should only appear when Credit/Debit Card is selected, update the description to say that, otherwise keep the fields without 'visible_when'.
+2. Payment_Form.fields.Card_Number.constraints — remove the inferred 'must be a valid card number' constraint and the explicit 'supported networks' constraint entry; instead, if validation rules are required, add them to the description so they can be represented exactly.
+3. Payment_Form.fields.Expiration_Date.type — remove the inferred type 'date' or change to a neutral representation (e.g., unspecified or 'text' with a note) unless the description specifies the exact input format (month/year or date picker).
+4. Payment_Form.fields.CVV.constraints — remove the inferred digit-length constraint unless the description explicitly specifies validation rules for CVV length per network.
+5. Payment_Form.submit_actions[0] — remove or rename the inferred 'element_name' ('Pay Now') unless the exact button label is provided in the description; use a generic submit action entry if no label is specified.
 
 
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[22:52:11] UI-AST Agent - LLM RESPONSE
+[14:47:09] UI-AST Agent - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module_name": "Payment Processing",
   "components": {
-    "Payment_Form": {
+    "Payment_Page": {
       "type": "form",
       "fields": {
         "Payment_Method": {
           "type": "dropdown",
-          "required": true,
           "options": [
             "Credit/Debit Card",
             "PayPal",
@@ -424,46 +479,55 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
         },
         "Cardholder_Name": {
           "type": "unspecified",
-          "required": false
+          "visible_when": "Payment_Method == Credit/Debit Card"
         },
         "Card_Number": {
-          "type": "number",
-          "required": false
+          "type": "unspecified",
+          "visible_when": "Payment_Method == Credit/Debit Card"
         },
         "Expiration_Date": {
-          "type": "date",
-          "required": false
+          "type": "unspecified",
+          "visible_when": "Payment_Method == Credit/Debit Card"
         },
         "CVV": {
-          "type": "number",
-          "required": false
+          "type": "unspecified",
+          "visible_when": "Payment_Method == Credit/Debit Card"
         },
-        "Save_Card": {
+        "Save_Card_For_Future_Use": {
           "type": "checkbox",
-          "required": false
+          "visible_when": "Payment_Method == Credit/Debit Card"
         }
       },
       "submit_actions": [
         {
-          "element_name": null,
-          "on_success": "redirects to booking confirmation page with reference number; confirmation email is sent",
-          "on_failure": "shows an error message (e.g., 'Card declined', 'Insufficient funds') and allows the user to retry without losing booking details"
+          "element_name": "Submit",
+          "on_success": "redirects to Booking Confirmation page with reference number",
+          "on_success_side_effects": [
+            "sends confirmation email"
+          ],
+          "on_failure": "displays an error message describing the issue and allows retry without losing booking details",
+          "error_messages": [
+            "Card declined",
+            "Insufficient funds"
+          ],
+          "allow_retry": true,
+          "preserve_booking_details": true
         }
       ]
     },
-    "Payment_Confirmation_Page": {
+    "Booking_Confirmation_Page": {
       "type": "page",
       "fields": {},
       "actions": [
         {
           "action_name": "Download Invoice",
-          "action_type": "download",
-          "on_success": "initiates invoice file download"
+          "type": "button",
+          "on_success": "downloads invoice PDF"
         },
         {
           "action_name": "Download Voucher",
-          "action_type": "download",
-          "on_success": "initiates voucher file download"
+          "type": "button",
+          "on_success": "downloads voucher PDF"
         }
       ]
     }
@@ -471,17 +535,16 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
 }
 
 ------------------------------------------------------------
-[22:52:11] UI-AST Agent - PARSED JSON
+[14:47:09] UI-AST Agent - PARSED JSON
 ------------------------------------------------------------
 {
   "module_name": "Payment Processing",
   "components": {
-    "Payment_Form": {
+    "Payment_Page": {
       "type": "form",
       "fields": {
         "Payment_Method": {
           "type": "dropdown",
-          "required": true,
           "options": [
             "Credit/Debit Card",
             "PayPal",
@@ -491,258 +554,57 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
         },
         "Cardholder_Name": {
           "type": "unspecified",
-          "required": false
+          "visible_when": "Payment_Method == Credit/Debit Card"
         },
         "Card_Number": {
-          "type": "number",
-          "required": false
+          "type": "unspecified",
+          "visible_when": "Payment_Method == Credit/Debit Card"
         },
         "Expiration_Date": {
-          "type": "date",
-          "required": false
+          "type": "unspecified",
+          "visible_when": "Payment_Method == Credit/Debit Card"
         },
         "CVV": {
-          "type": "number",
-          "required": false
+          "type": "unspecified",
+          "visible_when": "Payment_Method == Credit/Debit Card"
         },
-        "Save_Card": {
+        "Save_Card_For_Future_Use": {
           "type": "checkbox",
-          "required": false
+          "visible_when": "Payment_Method == Credit/Debit Card"
         }
       },
       "submit_actions": [
         {
-          "element_name": null,
-          "on_success": "redirects to booking confirmation page with reference number; confirmation email is sent",
-          "on_failure": "shows an error message (e.g., 'Card declined', 'Insufficient funds') and allows the user to retry without losing booking details"
+          "element_name": "Submit",
+          "on_success": "redirects to Booking Confirmation page with reference number",
+          "on_success_side_effects": [
+            "sends confirmation email"
+          ],
+          "on_failure": "displays an error message describing the issue and allows retry without losing booking details",
+          "error_messages": [
+            "Card declined",
+            "Insufficient funds"
+          ],
+          "allow_retry": true,
+          "preserve_booking_details": true
         }
       ]
     },
-    "Payment_Confirmation_Page": {
+    "Booking_Confirmation_Page": {
       "type": "page",
       "fields": {},
       "actions": [
         {
           "action_name": "Download Invoice",
-          "action_type": "download",
-          "on_success": "initiates invoice file download"
+          "type": "button",
+          "on_success": "downloads invoice PDF"
         },
         {
           "action_name": "Download Voucher",
-          "action_type": "download",
-          "on_success": "initiates voucher file download"
-        }
-      ]
-    }
-  }
-}
-
-------------------------------------------------------------
-[22:52:29] UI-AST Agent - USER PROMPT
-------------------------------------------------------------
-Module: Payment Processing
-
-
-The payment page displays a full booking summary with a price breakdown (base price, taxes, service fees, applicable discounts, and total). Supported payment methods include Credit/Debit Card (Visa, MasterCard, American Express), PayPal, Bank Transfer, and Wallet/Credits. The card form collects cardholder name, card number, expiration date, and CVV, with an option to save the card for future use. Security badges and SSL encryption indicators are displayed on the page. On success, the user is taken to a booking confirmation page with a reference number and options to download the invoice or voucher; a confirmation email is sent. If payment fails, an error message describes the issue (e.g., "Card declined," "Insufficient funds") and the user can retry without losing their booking details.
-
----
-
-
-
-**CRITIC FEEDBACK FROM PREVIOUS ATTEMPT — address every point:**
-1. Set Payment_Form.submit_actions[0].element_name to a concrete button label (e.g., 'Pay Now' or 'Submit Payment'): Payment_Form.submit_actions[0].element_name = 'Pay Now'.
-2. Mark card fields as required: set Payment_Form.fields.Cardholder_Name.required = true; Payment_Form.fields.Card_Number.required = true; Payment_Form.fields.Expiration_Date.required = true; Payment_Form.fields.CVV.required = true.
-3. Specify a concrete input type for the cardholder name: change Payment_Form.fields.Cardholder_Name.type from 'unspecified' to 'text'.
-4. Use a string/text type for card number rather than numeric to preserve leading zeros and formatting: change Payment_Form.fields.Card_Number.type from 'number' to 'text'.
-5. Adjust expiration date type to better reflect card expiry input (month/year) if possible: change Payment_Form.fields.Expiration_Date.type from 'date' to 'month' or a 'month_year' string type (or keep 'date' only if system requires full date).
-
-
-IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
-
-------------------------------------------------------------
-[22:52:55] UI-AST Agent - LLM RESPONSE
-------------------------------------------------------------
-{
-  "module_name": "Payment Processing",
-  "components": {
-    "Payment_Form": {
-      "type": "form",
-      "fields": {
-        "Payment_Method": {
-          "type": "dropdown",
-          "required": true,
-          "options": [
-            "Credit/Debit Card",
-            "PayPal",
-            "Bank Transfer",
-            "Wallet/Credits"
-          ]
-        },
-        "Cardholder_Name": {
-          "type": "text",
-          "required": true,
-          "visible_when": "Payment_Method == Credit/Debit Card"
-        },
-        "Card_Number": {
-          "type": "text",
-          "required": true,
-          "visible_when": "Payment_Method == Credit/Debit Card"
-        },
-        "Expiration_Date": {
-          "type": "month_year",
-          "required": true,
-          "visible_when": "Payment_Method == Credit/Debit Card"
-        },
-        "CVV": {
-          "type": "number",
-          "required": true,
-          "visible_when": "Payment_Method == Credit/Debit Card"
-        },
-        "Save_Card_For_Future_Use": {
-          "type": "checkbox",
-          "required": false,
-          "visible_when": "Payment_Method == Credit/Debit Card"
-        }
-      },
-      "submit_actions": [
-        {
-          "element_name": "Pay Now",
-          "on_success": "redirects to booking confirmation page with reference number; confirmation email sent",
-          "on_failure": "shows error message and allows retry without losing booking details",
-          "error_messages": [
-            "Card declined",
-            "Insufficient funds",
-            "Payment gateway error"
-          ]
-        }
-      ]
-    },
-    "Confirmation_Page": {
-      "type": "page",
-      "components": {
-        "Download_Actions": {
-          "type": "action_group",
-          "actions": [
-            {
-              "element_name": "Download Invoice",
-              "action_type": "button",
-              "on_success": "downloads invoice PDF"
-            },
-            {
-              "element_name": "Download Voucher",
-              "action_type": "button",
-              "on_success": "downloads voucher PDF"
-            }
-          ]
-        }
-      }
-    },
-    "Payment_Error_Recovery": {
-      "type": "form_helper",
-      "fields": {
-        "Retry_Payment": {
           "type": "button",
-          "element_name": "Retry",
-          "description": "Retries the payment using existing booking details",
-          "preconditions": [],
-          "on_success": "re-attempts payment using current form values; redirects to confirmation on success",
-          "on_failure": "shows error message and retains booking details"
-        }
-      }
-    }
-  }
-}
-
-------------------------------------------------------------
-[22:52:55] UI-AST Agent - PARSED JSON
-------------------------------------------------------------
-{
-  "module_name": "Payment Processing",
-  "components": {
-    "Payment_Form": {
-      "type": "form",
-      "fields": {
-        "Payment_Method": {
-          "type": "dropdown",
-          "required": true,
-          "options": [
-            "Credit/Debit Card",
-            "PayPal",
-            "Bank Transfer",
-            "Wallet/Credits"
-          ]
-        },
-        "Cardholder_Name": {
-          "type": "text",
-          "required": true,
-          "visible_when": "Payment_Method == Credit/Debit Card"
-        },
-        "Card_Number": {
-          "type": "text",
-          "required": true,
-          "visible_when": "Payment_Method == Credit/Debit Card"
-        },
-        "Expiration_Date": {
-          "type": "month_year",
-          "required": true,
-          "visible_when": "Payment_Method == Credit/Debit Card"
-        },
-        "CVV": {
-          "type": "number",
-          "required": true,
-          "visible_when": "Payment_Method == Credit/Debit Card"
-        },
-        "Save_Card_For_Future_Use": {
-          "type": "checkbox",
-          "required": false,
-          "visible_when": "Payment_Method == Credit/Debit Card"
-        }
-      },
-      "submit_actions": [
-        {
-          "element_name": "Pay Now",
-          "on_success": "redirects to booking confirmation page with reference number; confirmation email sent",
-          "on_failure": "shows error message and allows retry without losing booking details",
-          "error_messages": [
-            "Card declined",
-            "Insufficient funds",
-            "Payment gateway error"
-          ]
+          "on_success": "downloads voucher PDF"
         }
       ]
-    },
-    "Confirmation_Page": {
-      "type": "page",
-      "components": {
-        "Download_Actions": {
-          "type": "action_group",
-          "actions": [
-            {
-              "element_name": "Download Invoice",
-              "action_type": "button",
-              "on_success": "downloads invoice PDF"
-            },
-            {
-              "element_name": "Download Voucher",
-              "action_type": "button",
-              "on_success": "downloads voucher PDF"
-            }
-          ]
-        }
-      }
-    },
-    "Payment_Error_Recovery": {
-      "type": "form_helper",
-      "fields": {
-        "Retry_Payment": {
-          "type": "button",
-          "element_name": "Retry",
-          "description": "Retries the payment using existing booking details",
-          "preconditions": [],
-          "on_success": "re-attempts payment using current form values; redirects to confirmation on success",
-          "on_failure": "shows error message and retains booking details"
-        }
-      }
     }
   }
 }

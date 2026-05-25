@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-21T22:29:06.543103
+DEBUG SESSION STARTED: 2026-05-25T14:24:50.735447
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[22:29:06] Test-Positive - SYSTEM PROMPT
+[14:24:50] Test-Positive - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Expert UI Test Case Generator. You receive (1) a UI-AST JSON for one specific module and (2) the original functional description for that module.
 
@@ -24,6 +24,10 @@ Your job is to produce ONLY positive/functional UI test cases — tests where va
 <description>
 {Original functional description text for this module}
 </description>
+
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
 
 ---
 
@@ -146,6 +150,13 @@ Because you are testing a module in isolation, establish the required entry stat
 **1. Forms & Wizards (`form`, `wizard`):**
 - Generate ONE happy path per distinct success outcome.
 - *Conditional UI Check:* If a toggle/dropdown reveals new mandatory fields (`visible_when`), generate a separate test for that conditional branch.
+- **Wizard step coverage (CRITICAL):** If a wizard has multiple steps and any step beyond Step 1 contains its own named field group (e.g., "Address Details", "Family Members", "Identifiers"), generate ONE dedicated positive TC per such step. The TC must:
+  - Navigate to that specific step (include the preceding steps as preconditions or brief navigation steps)
+  - Fill the fields described for that step (not just pass through)
+  - Assert the step's content is visible/saved on the detail page after final submission
+  - **Do NOT collapse all wizard steps into one happy-path TC** — if Steps 2, 3, and 4 each have their own named section in the spec, they each need their own TC.
+- **Wizard in-step identifiers/duplicates:** If a wizard step allows adding identifiers, documents, or similar entries that have a uniqueness constraint, include a TC for that wizard step that also verifies the constraint (e.g., attempting to add a duplicate Document Type+Key pair inside the wizard). This is a different code path from adding the same post-creation on the detail page.
+- **Action dialogs:** If a `state_bound_action_bar` action opens a dialog with its own `fields{}` (e.g., Activate requires Activation Date, Reject requires Reason), generate ONE positive TC per such action-dialog — distinct from the state-transition TC. The TC fills the dialog field and completes the action.
 
 **2. State Machines (`state_bound_action_bar`):**
 - For each unique action available in a specific state, generate ONE test performing that action.
@@ -200,6 +211,19 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 
 ---
 
+**WORKFLOW COVERAGE OBLIGATION (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- Your test cases must **collectively cover every workflow** listed.
+- For each `wf_id`, at least one TC must:
+  - Activate the `conditional_branch` (if not null) — i.e. the test must set up the condition described.
+  - Assert the `on_success` as its `expected_result` (verbatim or as the primary basis for the expected result).
+- Add `"wf_ref": "WF-NNN"` to each TC to identify which workflow it covers.
+- If one TC naturally covers multiple workflows (e.g., the base path overlaps), pick the most specific `wf_ref`.
+- If a TC does not map to any workflow (e.g., a navigation-only test), set `"wf_ref": null`.
+
+---
+
 **OUTPUT — JSON only, no prose, no markdown fencing:**
 
 {
@@ -208,6 +232,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
   "test_cases": [
     {
       "tc_id": "P-001",
+      "wf_ref": "WF-001",
       "test_case": "Short descriptive name",
       "preconditions": ["User logged in as <Role>", "<Prerequisite state>"],
       "steps": ["1. Step one", "2. Step two"],
@@ -224,7 +249,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 }
 
 ------------------------------------------------------------
-[22:29:06] Test-Positive - USER PROMPT
+[14:24:50] Test-Positive - USER PROMPT
 ------------------------------------------------------------
 <module_name>Accounting — Chart of Accounts</module_name>
 
@@ -232,36 +257,30 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 {
   "module_name": "Accounting \u2014 Chart of Accounts",
   "components": {
-    "Chart_of_Accounts_Page": {
-      "type": "page",
-      "components": {
-        "Chart_of_Accounts_Tree": {
-          "type": "tree",
-          "description": "Hierarchical tree of all General Ledger accounts organized by account type",
-          "group_by_types": [
-            "Assets",
-            "Liabilities",
-            "Equity",
-            "Income",
-            "Expenses"
-          ],
-          "row_actions": [
-            {
-              "action_name": "Open Account Detail",
-              "trigger": "click Account Name",
-              "opens": "Account_Detail_View"
-            }
-          ]
-        },
-        "Create_GL_Account_Button": {
-          "type": "button",
+    "Chart_of_Accounts_Tree": {
+      "type": "data_table",
+      "hierarchy": true,
+      "description": "Hierarchical tree of GL accounts grouped by Account Type",
+      "top_actions": [
+        {
           "element_name": "+ Create GL Account",
-          "opens": "Create_GL_Account_Form"
+          "type": "button",
+          "on_click": "opens Create_GL_Account_Form"
         }
-      }
+      ],
+      "row_click_navigates_to": "Account_Detail_View",
+      "row_actions": [
+        {
+          "action_name": "Open",
+          "trigger": "click Account Name",
+          "opens": "Account_Detail_View"
+        }
+      ],
+      "bulk_actions": []
     },
     "Create_GL_Account_Form": {
       "type": "form",
+      "triggered_by": "+ Create GL Account",
       "fields": {
         "Account_Type": {
           "type": "dropdown",
@@ -277,13 +296,16 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
         "Parent_Account": {
           "type": "dropdown",
           "required": false,
-          "options_filter": "Usage == Header AND Account_Type == Account_Type"
+          "constraints": [
+            "options limited to header accounts of the selected Account_Type",
+            "Parent account (if chosen) must have Account_Usage == Header and Account_Type == selected Account_Type"
+          ]
         },
         "GL_Code": {
           "type": "unspecified",
           "required": true,
           "constraints": [
-            "must be unique across all GL Codes; duplicates produce a validation error"
+            "must be unique across all GL Codes (duplicates produce a validation error)"
           ]
         },
         "Account_Name": {
@@ -313,19 +335,96 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
       },
       "submit_actions": [
         {
-          "element_name": "submit"
+          "element_name": "Create",
+          "on_success": "creates GL account"
+        },
+        {
+          "element_name": "Cancel",
+          "on_success": "closes form without creating account"
         }
       ]
     },
     "Account_Detail_View": {
       "type": "detail_view",
-      "opens_from": "Chart_of_Accounts_Tree",
+      "opened_from": "Chart_of_Accounts_Tree (click Account Name)",
+      "fields": {},
       "actions": [
         {
-          "action_name": "Edit"
+          "action_name": "Edit",
+          "type": "button",
+          "on_click": "opens Edit_GL_Account_Form"
         },
         {
-          "action_name": "Delete"
+          "action_name": "Delete",
+          "type": "button",
+          "on_click": "deletes account",
+          "on_success": "deletes account"
+        }
+      ]
+    },
+    "Edit_GL_Account_Form": {
+      "type": "form",
+      "triggered_by": "Account_Detail_View -> Edit",
+      "fields": {
+        "Account_Type": {
+          "type": "dropdown",
+          "required": true,
+          "options": [
+            "Assets",
+            "Liabilities",
+            "Equity",
+            "Income",
+            "Expenses"
+          ]
+        },
+        "Parent_Account": {
+          "type": "dropdown",
+          "required": false,
+          "constraints": [
+            "options limited to header accounts of the selected Account_Type",
+            "Parent account (if chosen) must have Account_Usage == Header and Account_Type == selected Account_Type"
+          ]
+        },
+        "GL_Code": {
+          "type": "unspecified",
+          "required": true,
+          "constraints": [
+            "must be unique across all GL Codes (duplicates produce a validation error)"
+          ]
+        },
+        "Account_Name": {
+          "type": "unspecified",
+          "required": true
+        },
+        "Account_Usage": {
+          "type": "dropdown",
+          "required": false,
+          "options": [
+            "Header",
+            "Detail"
+          ]
+        },
+        "Manual_Entries_Allowed": {
+          "type": "checkbox",
+          "required": false
+        },
+        "Description": {
+          "type": "unspecified",
+          "required": false
+        },
+        "Tag": {
+          "type": "dropdown",
+          "required": false
+        }
+      },
+      "submit_actions": [
+        {
+          "element_name": "Save",
+          "on_success": "updates account"
+        },
+        {
+          "element_name": "Cancel",
+          "on_success": "closes edit form without saving"
         }
       ]
     }
@@ -342,10 +441,21 @@ The Chart of Accounts page displays a hierarchical tree of all General Ledger ac
 
 </description>
 
+<workflows>
+WF-001 | Open Create GL Account form | actor: <role> | branch: none | terminal: + Create GL Account | on_success: opens Create_GL_Account_Form
+WF-002 | Create GL account (Create) | actor: <role> | branch: none | terminal: Create | on_success: creates GL account
+WF-003 | Create GL account (Cancel) | actor: <role> | branch: none | terminal: Cancel | on_success: closes form without creating account
+WF-004 | Open account detail (row action 'Open') | actor: <role> | branch: none | terminal: Open | on_success: opens Account_Detail_View
+WF-005 | Open Edit GL Account from detail view (Edit) | actor: <role> | branch: none | terminal: Edit | on_success: opens Edit_GL_Account_Form
+WF-006 | Delete account from detail view | actor: <role> | branch: none | terminal: Delete | on_success: deletes account
+WF-007 | Edit GL account (Save) | actor: <role> | branch: none | terminal: Save | on_success: updates account
+WF-008 | Edit GL account (Cancel) | actor: <role> | branch: none | terminal: Cancel | on_success: closes edit form without saving
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[22:33:31] Test-Positive - LLM RESPONSE
+[14:29:56] Test-Positive - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Accounting — Chart of Accounts",
@@ -353,120 +463,152 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Open Account Detail from Chart tree",
+      "wf_ref": "WF-001",
+      "test_case": "Open Create GL Account form from Chart of Accounts",
       "preconditions": [
-        "User logged in as <Accounting Admin>",
-        "Chart of Accounts contains an existing account with GL Code <existing GL Code> and Account Name <existing Account Name>"
+        "User logged in as <role>",
+        "Chart of Accounts page is open"
       ],
       "steps": [
-        "1. Navigate to the Chart of Accounts page",
-        "2. In the Chart of Accounts tree, click the Account Name for the existing account"
+        "1. Click the '+ Create GL Account' button in the Chart of Accounts toolbar"
       ],
-      "expected_result": "The Account Detail view for the selected account is displayed showing GL Code, Account Name, an Account Type badge (color-coded), Manual Entries Allowed indicator, Usage (Header or Detail), Description, and visible Edit and Delete actions",
-      "priority": "high"
+      "expected_result": "Create_GL_Account_Form is displayed (Create GL Account form opens)",
+      "priority": "medium"
     },
     {
       "tc_id": "P-002",
-      "test_case": "Create a Detail GL Account under an existing Header",
+      "wf_ref": "WF-002",
+      "test_case": "Create a new Detail GL account under an existing Header account",
       "preconditions": [
-        "User logged in as <Accounting Admin>",
-        "Chart of Accounts contains at least one Header account in the selected <Account_Type>"
+        "User logged in as <role>",
+        "Chart of Accounts page is open",
+        "A header account exists in the Chart of Accounts with Account_Type = <Account_Type> and Account_Usage = Header"
       ],
       "steps": [
-        "1. Navigate to the Chart of Accounts page",
-        "2. Click the '+ Create GL Account' button",
-        "3. In the Create GL Account form, select <Account_Type> from Account Type",
-        "4. Select an existing header from Parent Account (a header belonging to the selected <Account_Type>)",
-        "5. Enter a unique <GL_Code> in the GL Code field",
-        "6. Enter <Account_Name> in the Account Name field",
-        "7. Select 'Detail' for Account Usage",
-        "8. Check the Manual Entries Allowed checkbox",
-        "9. Enter <Description> in the Description field",
-        "10. Select <Tag> from the Tag dropdown",
-        "11. Click Submit"
+        "1. Click the '+ Create GL Account' button",
+        "2. Select <Account_Type> from the Account Type dropdown",
+        "3. Select <existing header account> from the Parent Account dropdown",
+        "4. Enter <unique GL Code> in the GL Code field",
+        "5. Enter <Account Name> in the Account Name field",
+        "6. Select <Account Usage> (e.g. 'Detail') from the Account Usage dropdown",
+        "7. Check the Manual Entries Allowed checkbox",
+        "8. Click the 'Create' button"
       ],
-      "expected_result": "New row appears in the Chart of Accounts tree under the selected <Account_Type> > the chosen Parent Account with the entered <GL_Code> and <Account_Name>; the row shows Manual Entries Allowed indicator and Usage = 'Detail'",
+      "expected_result": "A new row appears in the Chart of Accounts tree under the '<Account_Type>' > '<existing header account>' node showing the entered <GL Code> and <Account Name>",
       "priority": "high"
     },
     {
       "tc_id": "P-003",
-      "test_case": "Create a Header GL Account with no parent",
+      "wf_ref": "WF-003",
+      "test_case": "Open Create GL Account form and cancel without creating",
       "preconditions": [
-        "User logged in as <Accounting Admin>"
+        "User logged in as <role>",
+        "Chart of Accounts page is open"
       ],
       "steps": [
-        "1. Navigate to the Chart of Accounts page",
-        "2. Click the '+ Create GL Account' button",
-        "3. In the Create GL Account form, select <Account_Type> from Account Type",
-        "4. Leave Parent Account blank",
-        "5. Enter a unique <GL_Code> in the GL Code field",
-        "6. Enter <Account_Name> in the Account Name field",
-        "7. Select 'Header' for Account Usage",
-        "8. Click Submit"
+        "1. Click the '+ Create GL Account' button",
+        "2. Select <Account_Type> from the Account Type dropdown",
+        "3. Enter <GL Code> in the GL Code field",
+        "4. Enter <Account Name> in the Account Name field",
+        "5. Click the 'Cancel' button"
       ],
-      "expected_result": "New header account appears under the <Account_Type> group in the Chart of Accounts tree with the entered <GL_Code> and <Account_Name> and is listed with Usage = 'Header'",
-      "priority": "medium"
+      "expected_result": "Create_GL_Account_Form is closed and the Chart of Accounts tree is visible with no new row for the entered <GL Code>",
+      "priority": "low"
     },
     {
       "tc_id": "P-004",
-      "test_case": "Parent Account dropdown shows only Header accounts of the selected Account Type",
+      "wf_ref": "WF-004",
+      "test_case": "Open Account Detail view by clicking an account row",
       "preconditions": [
-        "User logged in as <Accounting Admin>",
-        "Chart of Accounts contains header accounts across multiple Account Types"
+        "User logged in as <role>",
+        "Chart of Accounts page is open",
+        "An existing account with GL Code <existing GL Code> and Account Name <existing Account Name> is visible in the tree"
       ],
       "steps": [
-        "1. Navigate to the Chart of Accounts page",
-        "2. Click the '+ Create GL Account' button",
-        "3. In the Create GL Account form, select the desired <Account_Type> from Account Type",
-        "4. Open the Parent Account dropdown"
+        "1. Click the account name for <existing Account Name> in the Chart of Accounts tree"
       ],
-      "expected_result": "Parent Account dropdown lists only header accounts belonging to the selected <Account_Type>; header accounts of other Account Types are not shown",
-      "priority": "high"
+      "expected_result": "Account Detail view is displayed for <existing Account Name> showing GL Code, Account Type (color-coded), Manual Entries Allowed indicator, Usage (Header/Detail), Description, and Edit and Delete actions",
+      "priority": "medium"
     },
     {
       "tc_id": "P-005",
-      "test_case": "Create GL Account when another account with a different GL Code already exists (uniqueness allowed)",
+      "wf_ref": "WF-005",
+      "test_case": "Open Edit GL Account form from Account Detail view",
       "preconditions": [
-        "User logged in as <Accounting Admin>",
-        "Chart of Accounts contains an existing account with GL Code <existing GL Code>"
+        "User logged in as <role>",
+        "Chart of Accounts page is open",
+        "An existing account with GL Code <existing GL Code> and Account Name <existing Account Name> is visible in the tree"
       ],
       "steps": [
-        "1. Navigate to the Chart of Accounts page",
-        "2. Click the '+ Create GL Account' button",
-        "3. In the Create GL Account form, select <Account_Type> from Account Type",
-        "4. Enter a unique <GL_Code> different from <existing GL Code> in the GL Code field",
-        "5. Enter <Account_Name> in the Account Name field",
-        "6. Select 'Detail' or 'Header' for Account Usage",
-        "7. Click Submit"
+        "1. Click the account name for <existing Account Name> to open the Account Detail view",
+        "2. Click the 'Edit' button on the Account Detail view"
       ],
-      "expected_result": "New row appears in the Chart of Accounts tree with the entered <GL_Code> and <Account_Name>, indicating the GL Code was accepted (no validation error is shown)",
-      "priority": "high"
+      "expected_result": "Edit_GL_Account_Form is displayed with fields pre-filled with the account's current values",
+      "priority": "medium"
     },
     {
       "tc_id": "P-006",
-      "test_case": "Account rows display Account Type badges with the specified color mapping",
+      "wf_ref": "WF-006",
+      "test_case": "Delete an account from its Detail view",
       "preconditions": [
-        "User logged in as <Accounting Admin>",
-        "Chart of Accounts contains accounts of type Assets, Liabilities, Equity, Income, and Expenses"
+        "User logged in as <role>",
+        "Chart of Accounts page is open",
+        "An existing account with GL Code <existing GL Code> and Account Name <existing Account Name> is visible in the tree"
       ],
       "steps": [
-        "1. Navigate to the Chart of Accounts page",
-        "2. Locate account rows for each Account Type in the tree"
+        "1. Click the account name for <existing Account Name> to open the Account Detail view",
+        "2. Click the 'Delete' button on the Account Detail view"
       ],
-      "expected_result": "Each account row displays an Account Type badge with the correct color mapping visible: Assets (blue), Liabilities (red), Equity (green), Income (purple), Expenses (orange)",
-      "priority": "medium"
+      "expected_result": "Account Detail view closes and the account row for <existing Account Name> is no longer present in the Chart of Accounts tree",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-007",
+      "wf_ref": "WF-007",
+      "test_case": "Edit an existing account and save changes",
+      "preconditions": [
+        "User logged in as <role>",
+        "Chart of Accounts page is open",
+        "An existing account with GL Code <existing GL Code> and Account Name <existing Account Name> is visible in the tree"
+      ],
+      "steps": [
+        "1. Click the account name for <existing Account Name> to open the Account Detail view",
+        "2. Click the 'Edit' button on the Account Detail view",
+        "3. Enter <new Account Name> in the Account Name field",
+        "4. Click the 'Save' button"
+      ],
+      "expected_result": "Account Detail view shows the updated <new Account Name>, and the Chart of Accounts tree row for the account displays the updated <new Account Name>",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-008",
+      "wf_ref": "WF-008",
+      "test_case": "Open Edit GL Account form and cancel without saving",
+      "preconditions": [
+        "User logged in as <role>",
+        "Chart of Accounts page is open",
+        "An existing account with GL Code <existing GL Code> and Account Name <existing Account Name> is visible in the tree"
+      ],
+      "steps": [
+        "1. Click the account name for <existing Account Name> to open the Account Detail view",
+        "2. Click the 'Edit' button on the Account Detail view",
+        "3. Enter <modified Account Name> in the Account Name field",
+        "4. Click the 'Cancel' button"
+      ],
+      "expected_result": "Edit_GL_Account_Form is closed and the Account Detail view still shows the original <existing Account Name> (no changes were saved)",
+      "priority": "low"
     }
   ],
   "summary": {
-    "total": 6,
-    "high_priority": 4,
-    "medium_priority": 2,
-    "low_priority": 0
+    "total": 8,
+    "high_priority": 3,
+    "medium_priority": 3,
+    "low_priority": 2
   }
 }
 
 ------------------------------------------------------------
-[22:33:31] Test-Positive - PARSED JSON
+[14:29:56] Test-Positive - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Accounting \u2014 Chart of Accounts",
@@ -474,114 +616,146 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Open Account Detail from Chart tree",
+      "wf_ref": "WF-001",
+      "test_case": "Open Create GL Account form from Chart of Accounts",
       "preconditions": [
-        "User logged in as <Accounting Admin>",
-        "Chart of Accounts contains an existing account with GL Code <existing GL Code> and Account Name <existing Account Name>"
+        "User logged in as <role>",
+        "Chart of Accounts page is open"
       ],
       "steps": [
-        "1. Navigate to the Chart of Accounts page",
-        "2. In the Chart of Accounts tree, click the Account Name for the existing account"
+        "1. Click the '+ Create GL Account' button in the Chart of Accounts toolbar"
       ],
-      "expected_result": "The Account Detail view for the selected account is displayed showing GL Code, Account Name, an Account Type badge (color-coded), Manual Entries Allowed indicator, Usage (Header or Detail), Description, and visible Edit and Delete actions",
-      "priority": "high"
+      "expected_result": "Create_GL_Account_Form is displayed (Create GL Account form opens)",
+      "priority": "medium"
     },
     {
       "tc_id": "P-002",
-      "test_case": "Create a Detail GL Account under an existing Header",
+      "wf_ref": "WF-002",
+      "test_case": "Create a new Detail GL account under an existing Header account",
       "preconditions": [
-        "User logged in as <Accounting Admin>",
-        "Chart of Accounts contains at least one Header account in the selected <Account_Type>"
+        "User logged in as <role>",
+        "Chart of Accounts page is open",
+        "A header account exists in the Chart of Accounts with Account_Type = <Account_Type> and Account_Usage = Header"
       ],
       "steps": [
-        "1. Navigate to the Chart of Accounts page",
-        "2. Click the '+ Create GL Account' button",
-        "3. In the Create GL Account form, select <Account_Type> from Account Type",
-        "4. Select an existing header from Parent Account (a header belonging to the selected <Account_Type>)",
-        "5. Enter a unique <GL_Code> in the GL Code field",
-        "6. Enter <Account_Name> in the Account Name field",
-        "7. Select 'Detail' for Account Usage",
-        "8. Check the Manual Entries Allowed checkbox",
-        "9. Enter <Description> in the Description field",
-        "10. Select <Tag> from the Tag dropdown",
-        "11. Click Submit"
+        "1. Click the '+ Create GL Account' button",
+        "2. Select <Account_Type> from the Account Type dropdown",
+        "3. Select <existing header account> from the Parent Account dropdown",
+        "4. Enter <unique GL Code> in the GL Code field",
+        "5. Enter <Account Name> in the Account Name field",
+        "6. Select <Account Usage> (e.g. 'Detail') from the Account Usage dropdown",
+        "7. Check the Manual Entries Allowed checkbox",
+        "8. Click the 'Create' button"
       ],
-      "expected_result": "New row appears in the Chart of Accounts tree under the selected <Account_Type> > the chosen Parent Account with the entered <GL_Code> and <Account_Name>; the row shows Manual Entries Allowed indicator and Usage = 'Detail'",
+      "expected_result": "A new row appears in the Chart of Accounts tree under the '<Account_Type>' > '<existing header account>' node showing the entered <GL Code> and <Account Name>",
       "priority": "high"
     },
     {
       "tc_id": "P-003",
-      "test_case": "Create a Header GL Account with no parent",
+      "wf_ref": "WF-003",
+      "test_case": "Open Create GL Account form and cancel without creating",
       "preconditions": [
-        "User logged in as <Accounting Admin>"
+        "User logged in as <role>",
+        "Chart of Accounts page is open"
       ],
       "steps": [
-        "1. Navigate to the Chart of Accounts page",
-        "2. Click the '+ Create GL Account' button",
-        "3. In the Create GL Account form, select <Account_Type> from Account Type",
-        "4. Leave Parent Account blank",
-        "5. Enter a unique <GL_Code> in the GL Code field",
-        "6. Enter <Account_Name> in the Account Name field",
-        "7. Select 'Header' for Account Usage",
-        "8. Click Submit"
+        "1. Click the '+ Create GL Account' button",
+        "2. Select <Account_Type> from the Account Type dropdown",
+        "3. Enter <GL Code> in the GL Code field",
+        "4. Enter <Account Name> in the Account Name field",
+        "5. Click the 'Cancel' button"
       ],
-      "expected_result": "New header account appears under the <Account_Type> group in the Chart of Accounts tree with the entered <GL_Code> and <Account_Name> and is listed with Usage = 'Header'",
-      "priority": "medium"
+      "expected_result": "Create_GL_Account_Form is closed and the Chart of Accounts tree is visible with no new row for the entered <GL Code>",
+      "priority": "low"
     },
     {
       "tc_id": "P-004",
-      "test_case": "Parent Account dropdown shows only Header accounts of the selected Account Type",
+      "wf_ref": "WF-004",
+      "test_case": "Open Account Detail view by clicking an account row",
       "preconditions": [
-        "User logged in as <Accounting Admin>",
-        "Chart of Accounts contains header accounts across multiple Account Types"
+        "User logged in as <role>",
+        "Chart of Accounts page is open",
+        "An existing account with GL Code <existing GL Code> and Account Name <existing Account Name> is visible in the tree"
       ],
       "steps": [
-        "1. Navigate to the Chart of Accounts page",
-        "2. Click the '+ Create GL Account' button",
-        "3. In the Create GL Account form, select the desired <Account_Type> from Account Type",
-        "4. Open the Parent Account dropdown"
+        "1. Click the account name for <existing Account Name> in the Chart of Accounts tree"
       ],
-      "expected_result": "Parent Account dropdown lists only header accounts belonging to the selected <Account_Type>; header accounts of other Account Types are not shown",
-      "priority": "high"
+      "expected_result": "Account Detail view is displayed for <existing Account Name> showing GL Code, Account Type (color-coded), Manual Entries Allowed indicator, Usage (Header/Detail), Description, and Edit and Delete actions",
+      "priority": "medium"
     },
     {
       "tc_id": "P-005",
-      "test_case": "Create GL Account when another account with a different GL Code already exists (uniqueness allowed)",
+      "wf_ref": "WF-005",
+      "test_case": "Open Edit GL Account form from Account Detail view",
       "preconditions": [
-        "User logged in as <Accounting Admin>",
-        "Chart of Accounts contains an existing account with GL Code <existing GL Code>"
+        "User logged in as <role>",
+        "Chart of Accounts page is open",
+        "An existing account with GL Code <existing GL Code> and Account Name <existing Account Name> is visible in the tree"
       ],
       "steps": [
-        "1. Navigate to the Chart of Accounts page",
-        "2. Click the '+ Create GL Account' button",
-        "3. In the Create GL Account form, select <Account_Type> from Account Type",
-        "4. Enter a unique <GL_Code> different from <existing GL Code> in the GL Code field",
-        "5. Enter <Account_Name> in the Account Name field",
-        "6. Select 'Detail' or 'Header' for Account Usage",
-        "7. Click Submit"
+        "1. Click the account name for <existing Account Name> to open the Account Detail view",
+        "2. Click the 'Edit' button on the Account Detail view"
       ],
-      "expected_result": "New row appears in the Chart of Accounts tree with the entered <GL_Code> and <Account_Name>, indicating the GL Code was accepted (no validation error is shown)",
-      "priority": "high"
+      "expected_result": "Edit_GL_Account_Form is displayed with fields pre-filled with the account's current values",
+      "priority": "medium"
     },
     {
       "tc_id": "P-006",
-      "test_case": "Account rows display Account Type badges with the specified color mapping",
+      "wf_ref": "WF-006",
+      "test_case": "Delete an account from its Detail view",
       "preconditions": [
-        "User logged in as <Accounting Admin>",
-        "Chart of Accounts contains accounts of type Assets, Liabilities, Equity, Income, and Expenses"
+        "User logged in as <role>",
+        "Chart of Accounts page is open",
+        "An existing account with GL Code <existing GL Code> and Account Name <existing Account Name> is visible in the tree"
       ],
       "steps": [
-        "1. Navigate to the Chart of Accounts page",
-        "2. Locate account rows for each Account Type in the tree"
+        "1. Click the account name for <existing Account Name> to open the Account Detail view",
+        "2. Click the 'Delete' button on the Account Detail view"
       ],
-      "expected_result": "Each account row displays an Account Type badge with the correct color mapping visible: Assets (blue), Liabilities (red), Equity (green), Income (purple), Expenses (orange)",
-      "priority": "medium"
+      "expected_result": "Account Detail view closes and the account row for <existing Account Name> is no longer present in the Chart of Accounts tree",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-007",
+      "wf_ref": "WF-007",
+      "test_case": "Edit an existing account and save changes",
+      "preconditions": [
+        "User logged in as <role>",
+        "Chart of Accounts page is open",
+        "An existing account with GL Code <existing GL Code> and Account Name <existing Account Name> is visible in the tree"
+      ],
+      "steps": [
+        "1. Click the account name for <existing Account Name> to open the Account Detail view",
+        "2. Click the 'Edit' button on the Account Detail view",
+        "3. Enter <new Account Name> in the Account Name field",
+        "4. Click the 'Save' button"
+      ],
+      "expected_result": "Account Detail view shows the updated <new Account Name>, and the Chart of Accounts tree row for the account displays the updated <new Account Name>",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-008",
+      "wf_ref": "WF-008",
+      "test_case": "Open Edit GL Account form and cancel without saving",
+      "preconditions": [
+        "User logged in as <role>",
+        "Chart of Accounts page is open",
+        "An existing account with GL Code <existing GL Code> and Account Name <existing Account Name> is visible in the tree"
+      ],
+      "steps": [
+        "1. Click the account name for <existing Account Name> to open the Account Detail view",
+        "2. Click the 'Edit' button on the Account Detail view",
+        "3. Enter <modified Account Name> in the Account Name field",
+        "4. Click the 'Cancel' button"
+      ],
+      "expected_result": "Edit_GL_Account_Form is closed and the Account Detail view still shows the original <existing Account Name> (no changes were saved)",
+      "priority": "low"
     }
   ],
   "summary": {
-    "total": 6,
-    "high_priority": 4,
-    "medium_priority": 2,
-    "low_priority": 0
+    "total": 8,
+    "high_priority": 3,
+    "medium_priority": 3,
+    "low_priority": 2
   }
 }

@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-22T21:31:44.630967
+DEBUG SESSION STARTED: 2026-05-25T15:41:24.136494
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[21:31:44] Test-Edge - SYSTEM PROMPT
+[15:41:24] Test-Edge - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Edge Case and Boundary Test Generator. You receive (1) a UI-AST JSON for one module and (2) the original functional description. Your job is to produce ONLY boundary and edge case tests — scenarios at the limits of valid/invalid input and unusual-but-plausible user behaviors.
 
@@ -24,6 +24,10 @@ You are NOT producing happy paths (positive prompt) or standard validation failu
 <description>
 {Original functional description text for this module}
 </description>
+
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
 
 ---
 
@@ -176,6 +180,15 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 
 ---
 
+**WORKFLOW-AWARE BOUNDARY SCOPING (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- For each workflow where `conditional_branch` activates a numeric or date field, check if that field has a boundary (a numeric/date threshold in the AST `constraints` or description).
+- If yes, that workflow's branch is a **candidate for a boundary edge test** — add or confirm a boundary TC exists for it.
+- Add `"wf_ref": "WF-NNN"` to each TC that maps to a specific workflow's boundary. Set `"wf_ref": null` for generic input/interaction edge tests.
+
+---
+
 **OUTPUT — JSON only, no prose, no markdown fencing:**
 
 {
@@ -184,6 +197,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": null,
       "subcategory": "boundary | input_edge | interaction_edge | state_edge | data_edge",
       "test_case": "Short descriptive name",
       "preconditions": ["precondition 1"],
@@ -206,7 +220,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 
 
 ------------------------------------------------------------
-[21:31:44] Test-Edge - USER PROMPT
+[15:41:24] Test-Edge - USER PROMPT
 ------------------------------------------------------------
 <module_name>Account Statements</module_name>
 
@@ -216,62 +230,64 @@ If the module has any numeric/date/count threshold in the AST or description, pr
   "components": {
     "Generate_Statement_Form": {
       "type": "form",
-      "constraints": [
-        "If Statement_Period == Custom date range then Start_Date <= End_Date"
-      ],
       "fields": {
         "Statement_Period": {
           "type": "dropdown",
-          "required": false,
+          "required": true,
           "options": [
-            "Month-and-year",
-            "Custom date range"
+            "Month-and-Year",
+            "Custom Date Range"
           ]
         },
-        "Month_Year": {
-          "type": "date",
-          "required": false,
-          "visible_when": "Statement_Period == Month-and-year",
-          "constraints": []
+        "Month_and_Year": {
+          "type": "unspecified",
+          "visible_when": "Statement_Period == Month-and-Year",
+          "required_when": "Statement_Period == Month-and-Year"
         },
         "Start_Date": {
           "type": "date",
-          "required": false,
-          "visible_when": "Statement_Period == Custom date range"
+          "visible_when": "Statement_Period == Custom Date Range",
+          "required_when": "Statement_Period == Custom Date Range"
         },
         "End_Date": {
           "type": "date",
-          "required": false,
-          "visible_when": "Statement_Period == Custom date range"
+          "visible_when": "Statement_Period == Custom Date Range",
+          "required_when": "Statement_Period == Custom Date Range"
         },
         "Account": {
           "type": "dropdown",
-          "required": false
+          "required": true
         }
       },
+      "constraints": [
+        "if Statement_Period == Custom Date Range then Start_Date and End_Date must be present",
+        "Start_Date must be on or before End_Date",
+        "dates must be valid"
+      ],
       "submit_actions": [
         {
           "element_name": "Generate Statement",
           "type": "button",
+          "on_success": "Statement generated successfully.",
+          "on_success_additional": "retrieves relevant transactions",
+          "on_failure": "Unable to generate statement \u2014 please try again later.",
           "constraints": [
-            "validates date fields per form constraints"
-          ],
-          "on_success": "retrieves relevant transactions; displays 'Statement generated successfully.'",
-          "on_failure": "displays 'Unable to generate statement \u2014 please try again later.'"
+            "Account must be selected",
+            "date validation must pass before retrieval"
+          ]
         }
       ]
     },
     "EStatement_Preference_Form": {
       "type": "form",
       "fields": {
-        "Paperless": {
+        "Paperless_OptIn": {
           "type": "checkbox",
           "required": false
         },
         "Email_Address": {
           "type": "email",
-          "required": false,
-          "required_when": "Paperless == true",
+          "required_when": "Paperless_OptIn == true",
           "constraints": [
             "must be a valid email address"
           ]
@@ -281,11 +297,11 @@ If the module has any numeric/date/count threshold in the AST or description, pr
         {
           "element_name": "Save Preference",
           "type": "button",
-          "constraints": [
-            "if Paperless == true then Email_Address must be valid"
-          ],
           "on_success": "e-Statement preference updated.",
-          "on_failure": "highlights Email_Address field with guidance"
+          "on_failure": "highlights Email_Address with guidance",
+          "constraints": [
+            "if Paperless_OptIn == true then Email_Address must be present and valid"
+          ]
         }
       ]
     }
@@ -299,10 +315,17 @@ The Statements page provides two coordinated forms displayed side by side.The ge
 
 </description>
 
+<workflows>
+WF-001 | Generate Statement — Month-and-Year period | actor: <role> | branch: Statement_Period == Month-and-Year | terminal: Generate Statement | on_success: Statement generated successfully.
+WF-002 | Generate Statement — Custom Date Range period | actor: <role> | branch: Statement_Period == Custom Date Range | terminal: Generate Statement | on_success: Statement generated successfully.
+WF-003 | Save e-Statement Preference — Paperless opt-in (email required) | actor: <role> | branch: Paperless_OptIn == true | terminal: Save Preference | on_success: e-Statement preference updated.
+WF-004 | Save e-Statement Preference — Paperless opt-out (no email required) | actor: <role> | branch: Paperless_OptIn == false | terminal: Save Preference | on_success: e-Statement preference updated.
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[21:33:51] Test-Edge - LLM RESPONSE
+[15:43:54] Test-Edge - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Account Statements",
@@ -310,113 +333,152 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": "WF-002",
       "subcategory": "boundary",
-      "test_case": "Custom range where Start_Date equals End_Date (boundary allowed)",
+      "test_case": "Custom Date Range: Start_Date equals End_Date (same-day) succeeds",
       "preconditions": [
-        "User is on the Statements page with Generate Statement form visible"
+        "User is authenticated and on the Statements page",
+        "An Account option is available in the Account dropdown"
       ],
       "steps": [
-        "1. Select 'Custom date range' in Statement_Period dropdown",
-        "2. Enter <date X> into Start_Date",
-        "3. Enter <date X> into End_Date",
-        "4. Click the 'Generate Statement' button"
+        "1. Select Statement_Period = Custom Date Range",
+        "2. Focus Start_Date field",
+        "3. Enter <date X> in Start_Date",
+        "4. Focus End_Date field",
+        "5. Enter <the same date X> in End_Date",
+        "6. Select an Account from the Account dropdown",
+        "7. Click Generate Statement"
       ],
-      "expected_result": "Submission succeeds; 'Statement generated successfully.' is displayed and the relevant transactions for the single-day range are retrieved and shown",
+      "expected_result": "Form submits successfully; the UI displays the success toast/message \"Statement generated successfully.\" and relevant transactions for the single-day range are retrieved — operation succeeds",
       "priority": "medium"
     },
     {
       "tc_id": "E-002",
+      "wf_ref": "WF-002",
       "subcategory": "boundary",
-      "test_case": "Custom range where Start_Date is one day after End_Date (just past the allowed boundary)",
+      "test_case": "Custom Date Range: Start_Date is one day after End_Date is blocked",
       "preconditions": [
-        "User is on the Statements page with Generate Statement form visible"
+        "User is authenticated and on the Statements page",
+        "An Account option is available in the Account dropdown"
       ],
       "steps": [
-        "1. Select 'Custom date range' in Statement_Period dropdown",
-        "2. Enter <date Y> into Start_Date",
-        "3. Enter <one day before Start_Date> into End_Date",
-        "4. Click the 'Generate Statement' button"
+        "1. Select Statement_Period = Custom Date Range",
+        "2. Focus Start_Date field",
+        "3. Enter <date Y> in Start_Date",
+        "4. Focus End_Date field",
+        "5. Enter <date Y minus 1 day> in End_Date",
+        "6. Select an Account from the Account dropdown",
+        "7. Click Generate Statement"
       ],
-      "expected_result": "Submission is blocked; an inline validation error is shown on Start_Date or End_Date indicating Start_Date must be on or before End_Date (if the form-level submit fails, the page shows 'Unable to generate statement — please try again later.'), i.e. the attempt to generate is blocked / error shown",
+      "expected_result": "Generation is blocked; an inline validation error is shown on the date fields indicating Start Date must be on or before End Date (date ordering validation fails) and the statement is not generated — is blocked / error shown",
       "priority": "medium"
     },
     {
       "tc_id": "E-003",
-      "subcategory": "input_edge",
-      "test_case": "Paperless enabled with Email_Address entered including leading and trailing whitespace (trim behavior)",
+      "wf_ref": "WF-002",
+      "subcategory": "data_edge",
+      "test_case": "Custom Date Range: manually-entered invalid date string is rejected",
       "preconditions": [
-        "User is on the Statements page with E-Statement Preference form visible"
+        "User is authenticated and on the Statements page"
       ],
       "steps": [
-        "1. Check the Paperless checkbox",
-        "2. Enter an otherwise valid email address with leading and trailing whitespace into Email_Address (e.g., ' <valid email> ')",
-        "3. Click the 'Save Preference' button"
+        "1. Select Statement_Period = Custom Date Range",
+        "2. Focus Start_Date field",
+        "3. Type an invalid/ill-formed date string into Start_Date (UI allows typing)",
+        "4. Focus End_Date field",
+        "5. Type a syntactically valid date into End_Date",
+        "6. Select an Account from the Account dropdown",
+        "7. Click Generate Statement"
       ],
-      "expected_result": "Save succeeds; 'e-Statement preference updated.' is displayed and the saved Email_Address shown in the preference summary/detail has leading and trailing whitespace removed (whitespace trimmed)",
-      "priority": "low"
+      "expected_result": "Date validation fails and an inline error is shown referencing invalid dates (per constraint \"dates must be valid\"); statement retrieval is blocked and the UI shows the failure message near the date field(s) — is blocked / error shown",
+      "priority": "medium"
     },
     {
       "tc_id": "E-004",
+      "wf_ref": "WF-001",
       "subcategory": "input_edge",
-      "test_case": "Paperless enabled but Email_Address left blank (conditional required_when boundary)",
+      "test_case": "Month-and-Year: leading/trailing whitespace in Month_and_Year is trimmed on submit",
       "preconditions": [
-        "User is on the Statements page with E-Statement Preference form visible"
+        "User is authenticated and on the Statements page",
+        "An Account option is available in the Account dropdown"
       ],
       "steps": [
-        "1. Check the Paperless checkbox",
-        "2. Leave Email_Address empty",
-        "3. Click the 'Save Preference' button"
+        "1. Select Statement_Period = Month-and-Year",
+        "2. Focus Month_and_Year field",
+        "3. Enter a value with leading and trailing whitespace in Month_and_Year",
+        "4. Select an Account from the Account dropdown",
+        "5. Click Generate Statement"
       ],
-      "expected_result": "Save is blocked; Email_Address field is highlighted with guidance (the form prevents save when Paperless == true and Email_Address is not provided)",
-      "priority": "medium"
+      "expected_result": "Form submits successfully; the UI displays \"Statement generated successfully.\" and the displayed statement period in the generated statement/summary shows the Month_and_Year value with leading/trailing whitespace removed (trimmed) — succeeds",
+      "priority": "low"
     },
     {
       "tc_id": "E-005",
-      "subcategory": "interaction_edge",
-      "test_case": "Rapid double-click of 'Generate Statement' to test duplicate submission handling",
+      "wf_ref": "WF-003",
+      "subcategory": "input_edge",
+      "test_case": "Paperless opt-in: Email_Address with leading/trailing whitespace is trimmed and accepted",
       "preconditions": [
-        "User is on the Statements page with Generate Statement form visible and a valid Statement_Period value entered (e.g., Month-and-year selected and Month_Year filled)"
+        "User is authenticated and on the Statements page"
       ],
       "steps": [
-        "1. Ensure Statement_Period is set and Month_Year or date fields are populated as required",
-        "2. Click the 'Generate Statement' button twice in rapid succession (two immediate clicks)"
+        "1. Check Paperless_OptIn = true",
+        "2. Focus Email_Address field",
+        "3. Enter a syntactically valid email with leading and trailing whitespace in Email_Address",
+        "4. Click Save Preference"
       ],
-      "expected_result": "Second submission is blocked; only one 'Statement generated successfully.' message is shown and only a single retrieval of transactions occurs (no duplicate statements are created or displayed)",
-      "priority": "medium"
+      "expected_result": "Save succeeds; the UI displays \"e-Statement preference updated.\" and the saved Email_Address shown in the preference summary/detail is the email trimmed of leading/trailing whitespace — succeeds",
+      "priority": "low"
     },
     {
       "tc_id": "E-006",
-      "subcategory": "interaction_edge",
-      "test_case": "Switching Statement_Period from Month-and-year to Custom then using Start_Date == End_Date (visibility toggle + boundary)",
+      "wf_ref": "WF-003",
+      "subcategory": "input_edge",
+      "test_case": "Paperless opt-in: Email_Address containing emoji/unicode characters is rejected with guidance",
       "preconditions": [
-        "User is on the Statements page with Generate Statement form visible"
+        "User is authenticated and on the Statements page"
       ],
       "steps": [
-        "1. Select 'Month-and-year' in Statement_Period dropdown",
-        "2. Enter a value into Month_Year",
-        "3. Change Statement_Period to 'Custom date range'",
-        "4. Enter <date Z> into Start_Date",
-        "5. Enter <date Z> into End_Date",
-        "6. Click the 'Generate Statement' button"
+        "1. Check Paperless_OptIn = true",
+        "2. Focus Email_Address field",
+        "3. Enter an email containing emoji or non-standard Unicode characters in Email_Address",
+        "4. Click Save Preference"
       ],
-      "expected_result": "Submission succeeds; 'Statement generated successfully.' is displayed and the relevant transactions for the chosen single-day custom range are retrieved and shown (the visibility toggle correctly revealed the date fields and the boundary date pair is accepted)",
+      "expected_result": "Email validation fails; Email_Address is highlighted and the UI displays guidance explaining the email is invalid per constraint \"must be a valid email address\" and the preference is not saved — is blocked / error shown",
+      "priority": "low"
+    },
+    {
+      "tc_id": "E-007",
+      "wf_ref": "WF-004",
+      "subcategory": "interaction_edge",
+      "test_case": "Toggle Paperless_OptIn on then off before saving to confirm email requirement is ignored when opting out",
+      "preconditions": [
+        "User is authenticated and on the Statements page"
+      ],
+      "steps": [
+        "1. Check Paperless_OptIn = true",
+        "2. Focus Email_Address field",
+        "3. Enter a syntactically valid email in Email_Address",
+        "4. Uncheck Paperless_OptIn = false",
+        "5. Click Save Preference"
+      ],
+      "expected_result": "Save succeeds; the UI displays \"e-Statement preference updated.\" and no inline error is shown for Email_Address because when Paperless_OptIn == false the email is not required — succeeds",
       "priority": "low"
     }
   ],
   "summary": {
-    "total": 6,
+    "total": 7,
     "boundary": 2,
-    "input_edge": 2,
-    "interaction_edge": 2,
+    "input_edge": 4,
+    "interaction_edge": 1,
     "state_edge": 0,
-    "data_edge": 0,
-    "medium_priority": 4,
-    "low_priority": 2
+    "data_edge": 1,
+    "medium_priority": 3,
+    "low_priority": 4
   }
 }
 
 ------------------------------------------------------------
-[21:33:51] Test-Edge - PARSED JSON
+[15:43:54] Test-Edge - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Account Statements",
@@ -424,107 +486,146 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": "WF-002",
       "subcategory": "boundary",
-      "test_case": "Custom range where Start_Date equals End_Date (boundary allowed)",
+      "test_case": "Custom Date Range: Start_Date equals End_Date (same-day) succeeds",
       "preconditions": [
-        "User is on the Statements page with Generate Statement form visible"
+        "User is authenticated and on the Statements page",
+        "An Account option is available in the Account dropdown"
       ],
       "steps": [
-        "1. Select 'Custom date range' in Statement_Period dropdown",
-        "2. Enter <date X> into Start_Date",
-        "3. Enter <date X> into End_Date",
-        "4. Click the 'Generate Statement' button"
+        "1. Select Statement_Period = Custom Date Range",
+        "2. Focus Start_Date field",
+        "3. Enter <date X> in Start_Date",
+        "4. Focus End_Date field",
+        "5. Enter <the same date X> in End_Date",
+        "6. Select an Account from the Account dropdown",
+        "7. Click Generate Statement"
       ],
-      "expected_result": "Submission succeeds; 'Statement generated successfully.' is displayed and the relevant transactions for the single-day range are retrieved and shown",
+      "expected_result": "Form submits successfully; the UI displays the success toast/message \"Statement generated successfully.\" and relevant transactions for the single-day range are retrieved \u2014 operation succeeds",
       "priority": "medium"
     },
     {
       "tc_id": "E-002",
+      "wf_ref": "WF-002",
       "subcategory": "boundary",
-      "test_case": "Custom range where Start_Date is one day after End_Date (just past the allowed boundary)",
+      "test_case": "Custom Date Range: Start_Date is one day after End_Date is blocked",
       "preconditions": [
-        "User is on the Statements page with Generate Statement form visible"
+        "User is authenticated and on the Statements page",
+        "An Account option is available in the Account dropdown"
       ],
       "steps": [
-        "1. Select 'Custom date range' in Statement_Period dropdown",
-        "2. Enter <date Y> into Start_Date",
-        "3. Enter <one day before Start_Date> into End_Date",
-        "4. Click the 'Generate Statement' button"
+        "1. Select Statement_Period = Custom Date Range",
+        "2. Focus Start_Date field",
+        "3. Enter <date Y> in Start_Date",
+        "4. Focus End_Date field",
+        "5. Enter <date Y minus 1 day> in End_Date",
+        "6. Select an Account from the Account dropdown",
+        "7. Click Generate Statement"
       ],
-      "expected_result": "Submission is blocked; an inline validation error is shown on Start_Date or End_Date indicating Start_Date must be on or before End_Date (if the form-level submit fails, the page shows 'Unable to generate statement \u2014 please try again later.'), i.e. the attempt to generate is blocked / error shown",
+      "expected_result": "Generation is blocked; an inline validation error is shown on the date fields indicating Start Date must be on or before End Date (date ordering validation fails) and the statement is not generated \u2014 is blocked / error shown",
       "priority": "medium"
     },
     {
       "tc_id": "E-003",
-      "subcategory": "input_edge",
-      "test_case": "Paperless enabled with Email_Address entered including leading and trailing whitespace (trim behavior)",
+      "wf_ref": "WF-002",
+      "subcategory": "data_edge",
+      "test_case": "Custom Date Range: manually-entered invalid date string is rejected",
       "preconditions": [
-        "User is on the Statements page with E-Statement Preference form visible"
+        "User is authenticated and on the Statements page"
       ],
       "steps": [
-        "1. Check the Paperless checkbox",
-        "2. Enter an otherwise valid email address with leading and trailing whitespace into Email_Address (e.g., ' <valid email> ')",
-        "3. Click the 'Save Preference' button"
+        "1. Select Statement_Period = Custom Date Range",
+        "2. Focus Start_Date field",
+        "3. Type an invalid/ill-formed date string into Start_Date (UI allows typing)",
+        "4. Focus End_Date field",
+        "5. Type a syntactically valid date into End_Date",
+        "6. Select an Account from the Account dropdown",
+        "7. Click Generate Statement"
       ],
-      "expected_result": "Save succeeds; 'e-Statement preference updated.' is displayed and the saved Email_Address shown in the preference summary/detail has leading and trailing whitespace removed (whitespace trimmed)",
-      "priority": "low"
+      "expected_result": "Date validation fails and an inline error is shown referencing invalid dates (per constraint \"dates must be valid\"); statement retrieval is blocked and the UI shows the failure message near the date field(s) \u2014 is blocked / error shown",
+      "priority": "medium"
     },
     {
       "tc_id": "E-004",
+      "wf_ref": "WF-001",
       "subcategory": "input_edge",
-      "test_case": "Paperless enabled but Email_Address left blank (conditional required_when boundary)",
+      "test_case": "Month-and-Year: leading/trailing whitespace in Month_and_Year is trimmed on submit",
       "preconditions": [
-        "User is on the Statements page with E-Statement Preference form visible"
+        "User is authenticated and on the Statements page",
+        "An Account option is available in the Account dropdown"
       ],
       "steps": [
-        "1. Check the Paperless checkbox",
-        "2. Leave Email_Address empty",
-        "3. Click the 'Save Preference' button"
+        "1. Select Statement_Period = Month-and-Year",
+        "2. Focus Month_and_Year field",
+        "3. Enter a value with leading and trailing whitespace in Month_and_Year",
+        "4. Select an Account from the Account dropdown",
+        "5. Click Generate Statement"
       ],
-      "expected_result": "Save is blocked; Email_Address field is highlighted with guidance (the form prevents save when Paperless == true and Email_Address is not provided)",
-      "priority": "medium"
+      "expected_result": "Form submits successfully; the UI displays \"Statement generated successfully.\" and the displayed statement period in the generated statement/summary shows the Month_and_Year value with leading/trailing whitespace removed (trimmed) \u2014 succeeds",
+      "priority": "low"
     },
     {
       "tc_id": "E-005",
-      "subcategory": "interaction_edge",
-      "test_case": "Rapid double-click of 'Generate Statement' to test duplicate submission handling",
+      "wf_ref": "WF-003",
+      "subcategory": "input_edge",
+      "test_case": "Paperless opt-in: Email_Address with leading/trailing whitespace is trimmed and accepted",
       "preconditions": [
-        "User is on the Statements page with Generate Statement form visible and a valid Statement_Period value entered (e.g., Month-and-year selected and Month_Year filled)"
+        "User is authenticated and on the Statements page"
       ],
       "steps": [
-        "1. Ensure Statement_Period is set and Month_Year or date fields are populated as required",
-        "2. Click the 'Generate Statement' button twice in rapid succession (two immediate clicks)"
+        "1. Check Paperless_OptIn = true",
+        "2. Focus Email_Address field",
+        "3. Enter a syntactically valid email with leading and trailing whitespace in Email_Address",
+        "4. Click Save Preference"
       ],
-      "expected_result": "Second submission is blocked; only one 'Statement generated successfully.' message is shown and only a single retrieval of transactions occurs (no duplicate statements are created or displayed)",
-      "priority": "medium"
+      "expected_result": "Save succeeds; the UI displays \"e-Statement preference updated.\" and the saved Email_Address shown in the preference summary/detail is the email trimmed of leading/trailing whitespace \u2014 succeeds",
+      "priority": "low"
     },
     {
       "tc_id": "E-006",
-      "subcategory": "interaction_edge",
-      "test_case": "Switching Statement_Period from Month-and-year to Custom then using Start_Date == End_Date (visibility toggle + boundary)",
+      "wf_ref": "WF-003",
+      "subcategory": "input_edge",
+      "test_case": "Paperless opt-in: Email_Address containing emoji/unicode characters is rejected with guidance",
       "preconditions": [
-        "User is on the Statements page with Generate Statement form visible"
+        "User is authenticated and on the Statements page"
       ],
       "steps": [
-        "1. Select 'Month-and-year' in Statement_Period dropdown",
-        "2. Enter a value into Month_Year",
-        "3. Change Statement_Period to 'Custom date range'",
-        "4. Enter <date Z> into Start_Date",
-        "5. Enter <date Z> into End_Date",
-        "6. Click the 'Generate Statement' button"
+        "1. Check Paperless_OptIn = true",
+        "2. Focus Email_Address field",
+        "3. Enter an email containing emoji or non-standard Unicode characters in Email_Address",
+        "4. Click Save Preference"
       ],
-      "expected_result": "Submission succeeds; 'Statement generated successfully.' is displayed and the relevant transactions for the chosen single-day custom range are retrieved and shown (the visibility toggle correctly revealed the date fields and the boundary date pair is accepted)",
+      "expected_result": "Email validation fails; Email_Address is highlighted and the UI displays guidance explaining the email is invalid per constraint \"must be a valid email address\" and the preference is not saved \u2014 is blocked / error shown",
+      "priority": "low"
+    },
+    {
+      "tc_id": "E-007",
+      "wf_ref": "WF-004",
+      "subcategory": "interaction_edge",
+      "test_case": "Toggle Paperless_OptIn on then off before saving to confirm email requirement is ignored when opting out",
+      "preconditions": [
+        "User is authenticated and on the Statements page"
+      ],
+      "steps": [
+        "1. Check Paperless_OptIn = true",
+        "2. Focus Email_Address field",
+        "3. Enter a syntactically valid email in Email_Address",
+        "4. Uncheck Paperless_OptIn = false",
+        "5. Click Save Preference"
+      ],
+      "expected_result": "Save succeeds; the UI displays \"e-Statement preference updated.\" and no inline error is shown for Email_Address because when Paperless_OptIn == false the email is not required \u2014 succeeds",
       "priority": "low"
     }
   ],
   "summary": {
-    "total": 6,
+    "total": 7,
     "boundary": 2,
-    "input_edge": 2,
-    "interaction_edge": 2,
+    "input_edge": 4,
+    "interaction_edge": 1,
     "state_edge": 0,
-    "data_edge": 0,
-    "medium_priority": 4,
-    "low_priority": 2
+    "data_edge": 1,
+    "medium_priority": 3,
+    "low_priority": 4
   }
 }

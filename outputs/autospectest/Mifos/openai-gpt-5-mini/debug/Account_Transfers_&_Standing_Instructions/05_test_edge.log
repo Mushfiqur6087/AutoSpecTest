@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-21T22:29:06.555485
+DEBUG SESSION STARTED: 2026-05-25T14:24:50.744201
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[22:29:06] Test-Edge - SYSTEM PROMPT
+[14:24:50] Test-Edge - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Edge Case and Boundary Test Generator. You receive (1) a UI-AST JSON for one module and (2) the original functional description. Your job is to produce ONLY boundary and edge case tests — scenarios at the limits of valid/invalid input and unusual-but-plausible user behaviors.
 
@@ -25,6 +25,10 @@ You are NOT producing happy paths (positive prompt) or standard validation failu
 {Original functional description text for this module}
 </description>
 
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
+
 ---
 
 **UI-AST REFERENCE — How to Read the AST for Edge Testing:**
@@ -35,7 +39,7 @@ You are NOT producing happy paths (positive prompt) or standard validation failu
 | `repeating_group` with `max` | Test adding exactly `max` entries (should succeed) then one more (should block) |
 | `visible_when` / `required_when` | Edge: trigger condition, fill revealed field with boundary value |
 | `state_bound_action_bar` | State edges: rapid consecutive state transitions, transition from a boundary state |
-| `submit_actions[]` with multiple buttons | Interaction edge: double-click a submit button rapidly |
+
 | `type: "date"` fields | Data edges: today, yesterday, far future, Feb 29 leap year |
 | `type: "file_upload"` | Edge: file exactly at size limit, file at 1 byte over limit |
 
@@ -132,7 +136,6 @@ Pick only the ones that apply to field types present in this module's AST:
 
 Pick only the ones that match component types in this module's AST:
 
-- **Double-click submit** (any form/wizard with a submit button): rapidly double-click the submit button → assert only one record is created; no duplicate row appears in the listing table
 - **Rapid re-submission after redirect** (any form that redirects to a detail page on success): after a successful submit, press the browser back button → assert the creation form is shown blank (not pre-filled) OR the user is redirected to the detail page without a second entity being created
 - **Wizard step skip — enforced navigation** (wizard where steps must be completed sequentially): attempt to click a later step tab directly without completing earlier steps → assert navigation is blocked and the earlier step remains active
 - **Wizard step skip — free navigation** (wizard that allows free tab navigation): navigate to a later step without filling earlier steps → assert the later step displays and returning to the earlier step shows fields blank (no data was lost from the later step)
@@ -173,7 +176,16 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 
 - **High:** None — edge tests are secondary to core functionality
 - **Medium:** Boundary tests at thresholds (financial amounts, date ordering, count limits, file size limits)
-- **Low:** Input edge cases (long text, special chars, whitespace, decimal precision), interaction edge cases (double-click, browser back, wizard skip)
+- **Low:** Input edge cases (long text, special chars, whitespace, decimal precision), interaction edge cases (browser back, wizard skip)
+
+---
+
+**WORKFLOW-AWARE BOUNDARY SCOPING (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- For each workflow where `conditional_branch` activates a numeric or date field, check if that field has a boundary (a numeric/date threshold in the AST `constraints` or description).
+- If yes, that workflow's branch is a **candidate for a boundary edge test** — add or confirm a boundary TC exists for it.
+- Add `"wf_ref": "WF-NNN"` to each TC that maps to a specific workflow's boundary. Set `"wf_ref": null` for generic input/interaction edge tests.
 
 ---
 
@@ -185,6 +197,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": null,
       "subcategory": "boundary | input_edge | interaction_edge | state_edge | data_edge",
       "test_case": "Short descriptive name",
       "preconditions": ["precondition 1"],
@@ -207,7 +220,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 
 
 ------------------------------------------------------------
-[22:29:06] Test-Edge - USER PROMPT
+[14:24:50] Test-Edge - USER PROMPT
 ------------------------------------------------------------
 <module_name>Account Transfers & Standing Instructions</module_name>
 
@@ -262,7 +275,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
           "type": "number",
           "required": true,
           "constraints": [
-            "error shown if amount exceeds available balance"
+            "must be <= available balance (error shown if exceeded)"
           ]
         },
         "Transfer_Date": {
@@ -277,11 +290,11 @@ If the module has any numeric/date/count threshold in the AST or description, pr
       "submit_actions": [
         {
           "element_name": "Submit",
-          "on_success": "processes transfer; debits the source account and credits the destination account"
+          "on_success": "processes transfer; debits source account and credits destination account"
         }
       ]
     },
-    "Standing_Instructions_Page": {
+    "Standing_Instructions_Table": {
       "type": "data_table",
       "columns": [
         "Name",
@@ -294,30 +307,32 @@ If the module has any numeric/date/count threshold in the AST or description, pr
         "Validity Till",
         "Status"
       ],
-      "status_values": [
-        "Active",
-        "Disabled"
+      "top_actions": [
+        {
+          "element_name": "+ Create Standing Instruction",
+          "opens_form": "Create_Standing_Instruction_Form"
+        }
       ],
-      "create_button": {
-        "element_name": "+ Create Standing Instruction",
-        "action": "opens_form",
-        "opens_form": "Create_Standing_Instruction_Form"
-      },
       "row_actions": [
         {
           "action_name": "Enable",
-          "on_success": "sets status to Active"
+          "preconditions": [
+            "status must be Disabled"
+          ],
+          "on_success": "changes status to Active"
         },
         {
           "action_name": "Disable",
-          "on_success": "sets status to Disabled"
+          "preconditions": [
+            "status must be Active"
+          ],
+          "on_success": "changes status to Disabled"
         },
         {
           "action_name": "Delete",
           "on_success": "removes standing instruction from listing"
         }
-      ],
-      "bulk_actions": []
+      ]
     },
     "Create_Standing_Instruction_Form": {
       "type": "form",
@@ -401,10 +416,18 @@ The Standing Instructions page displays a data table with columns for Name, From
 
 </description>
 
+<workflows>
+WF-001 | Process Account Transfer (Submit) | actor: <role> | branch: none | terminal: Submit | on_success: processes transfer; debits source account and credits destination account
+WF-002 | Create Standing Instruction (Create) | actor: <role> | branch: none | terminal: Create | on_success: creates standing instruction
+WF-003 | Enable Standing Instruction (row action) | actor: <role> | branch: none | terminal: Enable | on_success: changes status to Active
+WF-004 | Disable Standing Instruction (row action) | actor: <role> | branch: none | terminal: Disable | on_success: changes status to Disabled
+WF-005 | Delete Standing Instruction (row action) | actor: <role> | branch: none | terminal: Delete | on_success: removes standing instruction from listing
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[22:35:40] Test-Edge - LLM RESPONSE
+[14:32:01] Test-Edge - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Account Transfers & Standing Instructions",
@@ -412,155 +435,174 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": "WF-001",
       "subcategory": "boundary",
-      "test_case": "Transfer amount exactly equals available balance (allowed)",
+      "test_case": "Transfer amount exactly equals available balance — succeeds",
       "preconditions": [
-        "User is on the Account Transfers form",
-        "A source account is selected that has an available balance of <available balance>",
-        "A destination account is selected"
+        "User is on Account Transfers form with a selected source account that has an available balance displayed"
       ],
       "steps": [
-        "1. Enter <available balance> in the Transfer_Amount field",
-        "2. Enter a valid date in the Transfer_Date field",
-        "3. Fill any other required/visible fields",
-        "4. Click the Submit button"
+        "1. Select From Office (if required) or ensure source account is selected",
+        "2. Select From Client (if required)",
+        "3. Select From Account Type and From Account (source) that shows an available balance",
+        "4. Select To Office / To Client / To Account as needed",
+        "5. Enter <available balance> in Transfer_Amount",
+        "6. Enter <today's date> in Transfer_Date",
+        "7. Click Submit"
       ],
-      "expected_result": "Form submits successfully; transfer processing succeeds: the transfer is processed, the source account balance is reduced by the entered amount, no 'exceeds available balance' error is shown, and a visible success confirmation appears.",
+      "expected_result": "Form submits successfully; transfer succeeds; a success confirmation is shown and the source account balance is reduced by <available balance> while the destination account is credited by the same amount",
       "priority": "medium"
     },
     {
       "tc_id": "E-002",
+      "wf_ref": "WF-001",
       "subcategory": "boundary",
-      "test_case": "Transfer amount one unit above available balance (blocked)",
+      "test_case": "Transfer amount one unit above available balance — is blocked / error shown",
       "preconditions": [
-        "User is on the Account Transfers form",
-        "A source account is selected that has an available balance of <available balance>",
-        "A destination account is selected"
+        "User is on Account Transfers form with a selected source account that has an available balance displayed"
       ],
       "steps": [
-        "1. Enter <one unit above available balance> in the Transfer_Amount field",
-        "2. Enter a valid date in the Transfer_Date field",
-        "3. Fill any other required/visible fields",
-        "4. Click the Submit button"
+        "1. Select From Account (source) that shows an available balance",
+        "2. Select To Account (destination)",
+        "3. Enter <one unit above available balance> in Transfer_Amount",
+        "4. Enter <today's date> in Transfer_Date",
+        "5. Click Submit"
       ],
-      "expected_result": "Submission is blocked / error shown: the Transfer_Amount field displays an inline error indicating the amount exceeds the available balance and the transfer is not processed.",
+      "expected_result": "Transfer is blocked; Transfer_Amount field displays an inline error indicating the amount exceeds the available balance and the transfer is not processed",
       "priority": "medium"
     },
     {
       "tc_id": "E-003",
+      "wf_ref": "WF-001",
       "subcategory": "data_edge",
-      "test_case": "Transfer Date = today",
+      "test_case": "Transfer Date = <today> (date edge) — succeeds",
       "preconditions": [
-        "User is on the Account Transfers form",
-        "A source account exists with sufficient available balance for the chosen amount",
-        "A destination account is selected"
+        "User is on Account Transfers form with From and To accounts selected and Transfer_Amount set to a valid amount <= available balance"
       ],
       "steps": [
-        "1. Enter today in the Transfer_Date field",
-        "2. Enter a valid Transfer_Amount less than the available balance",
-        "3. Fill any other required/visible fields",
-        "4. Click the Submit button"
+        "1. Enter <today> in Transfer_Date",
+        "2. Verify Transfer_Amount is valid",
+        "3. Click Submit"
       ],
-      "expected_result": "Form submits successfully; transfer is scheduled/processed for today's date and a visible confirmation or transaction entry shows the chosen Transfer_Date as today.",
-      "priority": "low"
+      "expected_result": "Form submits successfully; transfer succeeds for Transfer_Date = <today> and a confirmation is shown",
+      "priority": "medium"
     },
     {
       "tc_id": "E-004",
+      "wf_ref": "WF-001",
       "subcategory": "data_edge",
-      "test_case": "Transfer Date set far in the future",
+      "test_case": "Transfer Date far in the future — scheduling/success edge",
       "preconditions": [
-        "User is on the Account Transfers form",
-        "A source account exists with sufficient available balance",
-        "A destination account is selected"
+        "User is on Account Transfers form; From and To accounts selected; Transfer_Amount <= available balance"
       ],
       "steps": [
-        "1. Enter a date far in the future (e.g., many years from today) in the Transfer_Date field",
-        "2. Enter a valid Transfer_Amount less than the available balance",
-        "3. Fill any other required/visible fields",
-        "4. Click the Submit button"
+        "1. Enter <a date far in the future> in Transfer_Date (e.g., several years ahead)",
+        "2. Verify Transfer_Amount is valid",
+        "3. Click Submit"
       ],
-      "expected_result": "Form submission succeeds and the transfer is accepted/scheduled for the specified future date; the transfer detail or confirmation displays the entered future Transfer_Date.",
-      "priority": "low"
+      "expected_result": "Form either accepts the future Transfer_Date and displays a confirmation indicating the transfer has been scheduled (succeeds), or it shows an inline error explaining acceptable date range (is blocked / error shown). The UI must show the chosen behavior visibly (confirmation or inline error).",
+      "priority": "medium"
     },
     {
       "tc_id": "E-005",
-      "subcategory": "input_edge",
-      "test_case": "Transfer_Amount with excessive decimal precision",
+      "wf_ref": "WF-003",
+      "subcategory": "state_edge",
+      "test_case": "Attempt to Enable a Standing Instruction that is already Active — is blocked / error shown",
       "preconditions": [
-        "User is on the Account Transfers form",
-        "A source account exists with sufficient available balance",
-        "A destination account is selected"
+        "There is a standing instruction listed with Status = Active"
       ],
       "steps": [
-        "1. Enter a Transfer_Amount value containing many decimal places (more precision than typical currency precision) in the Transfer_Amount field",
-        "2. Enter a valid Transfer_Date",
-        "3. Fill any other required/visible fields",
-        "4. Click the Submit button"
+        "1. Open Standing Instructions table",
+        "2. Locate a row where Status = Active",
+        "3. Click the row action 'Enable'"
       ],
-      "expected_result": "If the system accepts extra precision, the form submits successfully and the saved transfer detail displays the amount rounded/truncated to the system's stored precision; if the system does not accept it, the Transfer_Amount field displays an inline validation error blocking submission.",
-      "priority": "low"
+      "expected_result": "Enable action is blocked; the UI either disables/hides the Enable control for that row or displays an inline message indicating the instruction cannot be enabled because it is already Active (is blocked / error shown)",
+      "priority": "medium"
     },
     {
       "tc_id": "E-006",
-      "subcategory": "input_edge",
-      "test_case": "Very long Name in Create Standing Instruction",
+      "wf_ref": "WF-004",
+      "subcategory": "state_edge",
+      "test_case": "Attempt to Disable a Standing Instruction that is already Disabled — is blocked / error shown",
       "preconditions": [
-        "User is on the Standing Instructions page",
-        "User clicks '+ Create Standing Instruction' to open the Create_Standing_Instruction_Form"
+        "There is a standing instruction listed with Status = Disabled"
       ],
       "steps": [
-        "1. Enter a very long string (>200 characters) in the Name field",
-        "2. Fill the minimal required fields to allow creation (if any) or leave optional fields blank",
-        "3. Click the Create button"
+        "1. Open Standing Instructions table",
+        "2. Locate a row where Status = Disabled",
+        "3. Click the row action 'Disable'"
       ],
-      "expected_result": "If accepted, the standing instruction is created and appears in the listing; the listing may display the Name truncated (ellipsised) while the detail view shows the full Name. If not accepted, the Name field displays a visible validation error indicating the length limit and creation is blocked.",
-      "priority": "low"
+      "expected_result": "Disable action is blocked; the UI either disables/hides the Disable control for that row or displays an inline message indicating the instruction cannot be disabled because it is already Disabled (is blocked / error shown)",
+      "priority": "medium"
     },
     {
       "tc_id": "E-007",
+      "wf_ref": null,
       "subcategory": "interaction_edge",
-      "test_case": "Double-click Submit on Account Transfers (prevent duplicates)",
+      "test_case": "Rapid consecutive state transitions on a standing instruction (Enable then immediate Disable) — second transition blocked to prevent race",
       "preconditions": [
-        "User is on the Account Transfers form with all required fields filled and a source account with sufficient available balance",
-        "No transfer for these exact inputs exists immediately prior to test"
+        "There is a standing instruction listed with Status = Disabled",
+        "User can see row actions for Enable and Disable"
       ],
       "steps": [
-        "1. Perform a rapid double-click (two quick clicks) on the Submit button"
+        "1. Open Standing Instructions table",
+        "2. Locate the row with Status = Disabled",
+        "3. Click 'Enable' on that row",
+        "4. Immediately (without waiting for UI refresh) click 'Disable' on the same row"
       ],
-      "expected_result": "Only one transfer is processed: a single success confirmation is shown and only one transaction/transfer record appears. No duplicate transfer record is created.",
+      "expected_result": "The first action (Enable) succeeds and changes status to Active; the immediate second action (Disable) is blocked or results in a single consistent outcome with a visible message preventing conflicting transitions (is blocked / error shown) so the UI does not produce an inconsistent state",
       "priority": "medium"
     },
     {
       "tc_id": "E-008",
-      "subcategory": "state_edge",
-      "test_case": "Rapid Enable then Disable of a standing instruction row",
+      "wf_ref": "WF-002",
+      "subcategory": "input_edge",
+      "test_case": "Create Standing Instruction with Name longer than typical limits (>200 characters) — acceptance vs explicit error",
       "preconditions": [
-        "User is on the Standing Instructions page",
-        "A standing instruction exists in the listing with Status = Disabled"
+        "User is on Create Standing Instruction form"
       ],
       "steps": [
-        "1. Click the Enable action on the standing instruction row",
-        "2. Immediately click the Disable action on the same row before the first action fully completes",
-        "3. Observe the row Status in the listing"
+        "1. Click '+ Create Standing Instruction' to open the form",
+        "2. Enter a Name string of <more than 200 characters> into Name",
+        "3. Fill other required fields (if any) minimally to allow creation",
+        "4. Click Create"
       ],
-      "expected_result": "Actions succeed without creating inconsistent state: the final Status displays as Disabled, no duplicate rows are created, and no persistent error is shown. The rapid consecutive state transitions complete with a consistent final state.",
-      "priority": "medium"
+      "expected_result": "Either: the form accepts the long Name and the standing instruction is created with the Name displayed exactly as entered (succeeds); OR the Name field shows a visible inline error indicating the Name exceeds the maximum allowed length and creation is blocked (is blocked / error shown). The UI must provide a clear visible outcome (created record or inline error).",
+      "priority": "low"
+    },
+    {
+      "tc_id": "E-009",
+      "wf_ref": "WF-002",
+      "subcategory": "input_edge",
+      "test_case": "Create Standing Instruction with leading/trailing whitespace in Name — whitespace trimming behavior",
+      "preconditions": [
+        "User is on Create Standing Instruction form"
+      ],
+      "steps": [
+        "1. Click '+ Create Standing Instruction' to open the form",
+        "2. Enter Name with leading and trailing spaces (e.g., '   <Name>   ')",
+        "3. Fill other required fields minimally",
+        "4. Click Create",
+        "5. Return to Standing Instructions table/listing"
+      ],
+      "expected_result": "If the system trims whitespace: standing instruction creation succeeds and the Name shown in the listing is trimmed (no leading/trailing spaces) (succeeds). If the system treats whitespace as significant and disallows it: an inline validation error is shown on Name and creation is blocked (is blocked / error shown). The listing must clearly show the final stored Name if created.",
+      "priority": "low"
     }
   ],
   "summary": {
-    "total": 8,
+    "total": 9,
     "boundary": 2,
     "input_edge": 2,
     "interaction_edge": 1,
-    "state_edge": 1,
+    "state_edge": 3,
     "data_edge": 2,
-    "medium_priority": 4,
-    "low_priority": 4
+    "medium_priority": 6,
+    "low_priority": 3
   }
 }
 
 ------------------------------------------------------------
-[22:35:40] Test-Edge - PARSED JSON
+[14:32:01] Test-Edge - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Account Transfers & Standing Instructions",
@@ -568,149 +610,168 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": "WF-001",
       "subcategory": "boundary",
-      "test_case": "Transfer amount exactly equals available balance (allowed)",
+      "test_case": "Transfer amount exactly equals available balance \u2014 succeeds",
       "preconditions": [
-        "User is on the Account Transfers form",
-        "A source account is selected that has an available balance of <available balance>",
-        "A destination account is selected"
+        "User is on Account Transfers form with a selected source account that has an available balance displayed"
       ],
       "steps": [
-        "1. Enter <available balance> in the Transfer_Amount field",
-        "2. Enter a valid date in the Transfer_Date field",
-        "3. Fill any other required/visible fields",
-        "4. Click the Submit button"
+        "1. Select From Office (if required) or ensure source account is selected",
+        "2. Select From Client (if required)",
+        "3. Select From Account Type and From Account (source) that shows an available balance",
+        "4. Select To Office / To Client / To Account as needed",
+        "5. Enter <available balance> in Transfer_Amount",
+        "6. Enter <today's date> in Transfer_Date",
+        "7. Click Submit"
       ],
-      "expected_result": "Form submits successfully; transfer processing succeeds: the transfer is processed, the source account balance is reduced by the entered amount, no 'exceeds available balance' error is shown, and a visible success confirmation appears.",
+      "expected_result": "Form submits successfully; transfer succeeds; a success confirmation is shown and the source account balance is reduced by <available balance> while the destination account is credited by the same amount",
       "priority": "medium"
     },
     {
       "tc_id": "E-002",
+      "wf_ref": "WF-001",
       "subcategory": "boundary",
-      "test_case": "Transfer amount one unit above available balance (blocked)",
+      "test_case": "Transfer amount one unit above available balance \u2014 is blocked / error shown",
       "preconditions": [
-        "User is on the Account Transfers form",
-        "A source account is selected that has an available balance of <available balance>",
-        "A destination account is selected"
+        "User is on Account Transfers form with a selected source account that has an available balance displayed"
       ],
       "steps": [
-        "1. Enter <one unit above available balance> in the Transfer_Amount field",
-        "2. Enter a valid date in the Transfer_Date field",
-        "3. Fill any other required/visible fields",
-        "4. Click the Submit button"
+        "1. Select From Account (source) that shows an available balance",
+        "2. Select To Account (destination)",
+        "3. Enter <one unit above available balance> in Transfer_Amount",
+        "4. Enter <today's date> in Transfer_Date",
+        "5. Click Submit"
       ],
-      "expected_result": "Submission is blocked / error shown: the Transfer_Amount field displays an inline error indicating the amount exceeds the available balance and the transfer is not processed.",
+      "expected_result": "Transfer is blocked; Transfer_Amount field displays an inline error indicating the amount exceeds the available balance and the transfer is not processed",
       "priority": "medium"
     },
     {
       "tc_id": "E-003",
+      "wf_ref": "WF-001",
       "subcategory": "data_edge",
-      "test_case": "Transfer Date = today",
+      "test_case": "Transfer Date = <today> (date edge) \u2014 succeeds",
       "preconditions": [
-        "User is on the Account Transfers form",
-        "A source account exists with sufficient available balance for the chosen amount",
-        "A destination account is selected"
+        "User is on Account Transfers form with From and To accounts selected and Transfer_Amount set to a valid amount <= available balance"
       ],
       "steps": [
-        "1. Enter today in the Transfer_Date field",
-        "2. Enter a valid Transfer_Amount less than the available balance",
-        "3. Fill any other required/visible fields",
-        "4. Click the Submit button"
+        "1. Enter <today> in Transfer_Date",
+        "2. Verify Transfer_Amount is valid",
+        "3. Click Submit"
       ],
-      "expected_result": "Form submits successfully; transfer is scheduled/processed for today's date and a visible confirmation or transaction entry shows the chosen Transfer_Date as today.",
-      "priority": "low"
+      "expected_result": "Form submits successfully; transfer succeeds for Transfer_Date = <today> and a confirmation is shown",
+      "priority": "medium"
     },
     {
       "tc_id": "E-004",
+      "wf_ref": "WF-001",
       "subcategory": "data_edge",
-      "test_case": "Transfer Date set far in the future",
+      "test_case": "Transfer Date far in the future \u2014 scheduling/success edge",
       "preconditions": [
-        "User is on the Account Transfers form",
-        "A source account exists with sufficient available balance",
-        "A destination account is selected"
+        "User is on Account Transfers form; From and To accounts selected; Transfer_Amount <= available balance"
       ],
       "steps": [
-        "1. Enter a date far in the future (e.g., many years from today) in the Transfer_Date field",
-        "2. Enter a valid Transfer_Amount less than the available balance",
-        "3. Fill any other required/visible fields",
-        "4. Click the Submit button"
+        "1. Enter <a date far in the future> in Transfer_Date (e.g., several years ahead)",
+        "2. Verify Transfer_Amount is valid",
+        "3. Click Submit"
       ],
-      "expected_result": "Form submission succeeds and the transfer is accepted/scheduled for the specified future date; the transfer detail or confirmation displays the entered future Transfer_Date.",
-      "priority": "low"
+      "expected_result": "Form either accepts the future Transfer_Date and displays a confirmation indicating the transfer has been scheduled (succeeds), or it shows an inline error explaining acceptable date range (is blocked / error shown). The UI must show the chosen behavior visibly (confirmation or inline error).",
+      "priority": "medium"
     },
     {
       "tc_id": "E-005",
-      "subcategory": "input_edge",
-      "test_case": "Transfer_Amount with excessive decimal precision",
+      "wf_ref": "WF-003",
+      "subcategory": "state_edge",
+      "test_case": "Attempt to Enable a Standing Instruction that is already Active \u2014 is blocked / error shown",
       "preconditions": [
-        "User is on the Account Transfers form",
-        "A source account exists with sufficient available balance",
-        "A destination account is selected"
+        "There is a standing instruction listed with Status = Active"
       ],
       "steps": [
-        "1. Enter a Transfer_Amount value containing many decimal places (more precision than typical currency precision) in the Transfer_Amount field",
-        "2. Enter a valid Transfer_Date",
-        "3. Fill any other required/visible fields",
-        "4. Click the Submit button"
+        "1. Open Standing Instructions table",
+        "2. Locate a row where Status = Active",
+        "3. Click the row action 'Enable'"
       ],
-      "expected_result": "If the system accepts extra precision, the form submits successfully and the saved transfer detail displays the amount rounded/truncated to the system's stored precision; if the system does not accept it, the Transfer_Amount field displays an inline validation error blocking submission.",
-      "priority": "low"
+      "expected_result": "Enable action is blocked; the UI either disables/hides the Enable control for that row or displays an inline message indicating the instruction cannot be enabled because it is already Active (is blocked / error shown)",
+      "priority": "medium"
     },
     {
       "tc_id": "E-006",
-      "subcategory": "input_edge",
-      "test_case": "Very long Name in Create Standing Instruction",
+      "wf_ref": "WF-004",
+      "subcategory": "state_edge",
+      "test_case": "Attempt to Disable a Standing Instruction that is already Disabled \u2014 is blocked / error shown",
       "preconditions": [
-        "User is on the Standing Instructions page",
-        "User clicks '+ Create Standing Instruction' to open the Create_Standing_Instruction_Form"
+        "There is a standing instruction listed with Status = Disabled"
       ],
       "steps": [
-        "1. Enter a very long string (>200 characters) in the Name field",
-        "2. Fill the minimal required fields to allow creation (if any) or leave optional fields blank",
-        "3. Click the Create button"
+        "1. Open Standing Instructions table",
+        "2. Locate a row where Status = Disabled",
+        "3. Click the row action 'Disable'"
       ],
-      "expected_result": "If accepted, the standing instruction is created and appears in the listing; the listing may display the Name truncated (ellipsised) while the detail view shows the full Name. If not accepted, the Name field displays a visible validation error indicating the length limit and creation is blocked.",
-      "priority": "low"
+      "expected_result": "Disable action is blocked; the UI either disables/hides the Disable control for that row or displays an inline message indicating the instruction cannot be disabled because it is already Disabled (is blocked / error shown)",
+      "priority": "medium"
     },
     {
       "tc_id": "E-007",
+      "wf_ref": null,
       "subcategory": "interaction_edge",
-      "test_case": "Double-click Submit on Account Transfers (prevent duplicates)",
+      "test_case": "Rapid consecutive state transitions on a standing instruction (Enable then immediate Disable) \u2014 second transition blocked to prevent race",
       "preconditions": [
-        "User is on the Account Transfers form with all required fields filled and a source account with sufficient available balance",
-        "No transfer for these exact inputs exists immediately prior to test"
+        "There is a standing instruction listed with Status = Disabled",
+        "User can see row actions for Enable and Disable"
       ],
       "steps": [
-        "1. Perform a rapid double-click (two quick clicks) on the Submit button"
+        "1. Open Standing Instructions table",
+        "2. Locate the row with Status = Disabled",
+        "3. Click 'Enable' on that row",
+        "4. Immediately (without waiting for UI refresh) click 'Disable' on the same row"
       ],
-      "expected_result": "Only one transfer is processed: a single success confirmation is shown and only one transaction/transfer record appears. No duplicate transfer record is created.",
+      "expected_result": "The first action (Enable) succeeds and changes status to Active; the immediate second action (Disable) is blocked or results in a single consistent outcome with a visible message preventing conflicting transitions (is blocked / error shown) so the UI does not produce an inconsistent state",
       "priority": "medium"
     },
     {
       "tc_id": "E-008",
-      "subcategory": "state_edge",
-      "test_case": "Rapid Enable then Disable of a standing instruction row",
+      "wf_ref": "WF-002",
+      "subcategory": "input_edge",
+      "test_case": "Create Standing Instruction with Name longer than typical limits (>200 characters) \u2014 acceptance vs explicit error",
       "preconditions": [
-        "User is on the Standing Instructions page",
-        "A standing instruction exists in the listing with Status = Disabled"
+        "User is on Create Standing Instruction form"
       ],
       "steps": [
-        "1. Click the Enable action on the standing instruction row",
-        "2. Immediately click the Disable action on the same row before the first action fully completes",
-        "3. Observe the row Status in the listing"
+        "1. Click '+ Create Standing Instruction' to open the form",
+        "2. Enter a Name string of <more than 200 characters> into Name",
+        "3. Fill other required fields (if any) minimally to allow creation",
+        "4. Click Create"
       ],
-      "expected_result": "Actions succeed without creating inconsistent state: the final Status displays as Disabled, no duplicate rows are created, and no persistent error is shown. The rapid consecutive state transitions complete with a consistent final state.",
-      "priority": "medium"
+      "expected_result": "Either: the form accepts the long Name and the standing instruction is created with the Name displayed exactly as entered (succeeds); OR the Name field shows a visible inline error indicating the Name exceeds the maximum allowed length and creation is blocked (is blocked / error shown). The UI must provide a clear visible outcome (created record or inline error).",
+      "priority": "low"
+    },
+    {
+      "tc_id": "E-009",
+      "wf_ref": "WF-002",
+      "subcategory": "input_edge",
+      "test_case": "Create Standing Instruction with leading/trailing whitespace in Name \u2014 whitespace trimming behavior",
+      "preconditions": [
+        "User is on Create Standing Instruction form"
+      ],
+      "steps": [
+        "1. Click '+ Create Standing Instruction' to open the form",
+        "2. Enter Name with leading and trailing spaces (e.g., '   <Name>   ')",
+        "3. Fill other required fields minimally",
+        "4. Click Create",
+        "5. Return to Standing Instructions table/listing"
+      ],
+      "expected_result": "If the system trims whitespace: standing instruction creation succeeds and the Name shown in the listing is trimmed (no leading/trailing spaces) (succeeds). If the system treats whitespace as significant and disallows it: an inline validation error is shown on Name and creation is blocked (is blocked / error shown). The listing must clearly show the final stored Name if created.",
+      "priority": "low"
     }
   ],
   "summary": {
-    "total": 8,
+    "total": 9,
     "boundary": 2,
     "input_edge": 2,
     "interaction_edge": 1,
-    "state_edge": 1,
+    "state_edge": 3,
     "data_edge": 2,
-    "medium_priority": 4,
-    "low_priority": 4
+    "medium_priority": 6,
+    "low_priority": 3
   }
 }

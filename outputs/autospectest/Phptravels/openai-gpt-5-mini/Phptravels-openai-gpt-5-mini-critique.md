@@ -1,13 +1,13 @@
 # Semantic Critique — Phptravels
 
-Generated: 2026-05-21T22:59:34.652888Z
+Generated: 2026-05-25T14:55:02.768300Z
 
 ## Home Page & Search
 
 **Verdict:** yes  
 **Forced ship:** no  
 
-AST accurately captures the four-tab search widget, all specified fields per tab, the Search action with validation, inline errors, and redirect behavior; no significant elements are missing or invented.
+AST accurately captures the tabbed search widget, each tab's interactive fields, the Search button validation behavior, and success redirects; no extraneous elements or required structural items are missing.
 
 **Missing:** none
 
@@ -20,13 +20,13 @@ AST accurately captures the four-tab search widget, all specified fields per tab
 **Verdict:** yes  
 **Forced ship:** no  
 
-The AST accurately includes all described form fields, validations, inline error behavior, and success outcomes; only a minor phantom is the submit button being named 'Register' which the description did not explicitly specify.
+AST includes all required interactive fields, validations, and submit behavior; only a minor inferred button label is present.
 
 **Missing:** none
 
 **Phantoms (hallucinations):**
 
-- Registration_Form.submit_actions[0] (Register button not in description)
+- Registration_Form.submit_actions[0] (Register button label was not specified in the description and was inferred)
 
 ---
 
@@ -35,7 +35,7 @@ The AST accurately includes all described form fields, validations, inline error
 **Verdict:** yes  
 **Forced ship:** no  
 
-AST accurately includes all interactive elements, conditionals (social login visibility and CAPTCHA), and submission behaviors described.
+AST accurately captures all interactive elements (Email, Password, Remember Me, Forgot Password link, Login button, conditional CAPTCHA, and conditional social login buttons) and their behaviors described in the spec.
 
 **Missing:** none
 
@@ -48,11 +48,16 @@ AST accurately includes all interactive elements, conditionals (social login vis
 **Verdict:** yes  
 **Forced ship:** no  
 
-The AST correctly captures the email field and Reset Password button, the success/failure behaviors, the reset link (with expiry), and the password reset page with new/confirm password fields and submit action.
+AST correctly models the forgot-password flow (email field + reset action, reset-link expiry, reset page with new/confirm password and success/failure outcomes); missing only an explicit reset-link element and contains two minor inferred items.
 
-**Missing:** none
+**Missing:**
 
-**Phantoms:** none
+- components.Reset_Link (explicit link element or navigation action representing the emailed reset link that the user clicks to reach Password_Reset_Page)
+
+**Phantoms (hallucinations):**
+
+- components.Password_Reset_Page.fields.Confirm_Password.constraints[0] ("must match New_Password" is inferred but not explicitly stated)
+- components.Password_Reset_Page.submit_actions[0].element_name ("Change Password" button label is not explicitly named in the description)
 
 ---
 
@@ -61,7 +66,7 @@ The AST correctly captures the email field and Reset Password button, the succes
 **Verdict:** yes  
 **Forced ship:** no  
 
-AST includes the search form fields, submit action, listing page with sort control, collapsible filters, active-filters summary with remove/reset controls, and Book Now on each card — matching the described interactive elements.
+AST accurately captures the search form fields and submit redirect, listing page with collapsible filters that update results dynamically, active-filters summary with remove/reset, sort control, and Book Now actions for each card — matching the description.
 
 **Missing:** none
 
@@ -71,49 +76,27 @@ AST includes the search form fields, submit action, listing page with sort contr
 
 ## Hotel Details & Booking
 
-**Verdict:** retry (forced ship)  
-**Forced ship:** yes  
+**Verdict:** yes  
+**Forced ship:** no  
 
-The AST mostly matches the description but includes inferred 'currency' constraints on multiple price fields (phantoms); remove these inferred constraints or anchor them in the requirements before accepting.
+The AST correctly includes the interactive room selection, booking form fields (including price breakdown and guest/contact inputs), and the Book Now action with the login precondition; no missing interactive elements or extraneous phantoms were found.
 
 **Missing:** none
 
-**Phantoms (hallucinations):**
-
-- Booking_Form.fields.Room_Rate.constraints[0] (currency constraint not specified in description)
-- Booking_Form.fields.Taxes.constraints[0] (currency constraint not specified in description)
-- Booking_Form.fields.Fees.constraints[0] (currency constraint not specified in description)
-- Booking_Form.fields.Total.constraints[0] (currency constraint not specified in description)
-
-**Fixes applied:**
-
-- Remove the inferred currency constraint(s) from the Booking_Form price fields or explicitly state them in the description; change Booking_Form.fields.Room_Rate.constraints to [] or remove the constraints property.
-- Remove the inferred currency constraint(s) from the Booking_Form price fields or explicitly state them in the description; change Booking_Form.fields.Taxes.constraints to [] or remove the constraints property.
-- Remove the inferred currency constraint(s) from the Booking_Form price fields or explicitly state them in the description; change Booking_Form.fields.Fees.constraints to [] or remove the constraints property.
-- Remove the inferred currency constraint(s) from the Booking_Form price fields or explicitly state them in the description; change Booking_Form.fields.Total.constraints to [] or remove the constraints property.
+**Phantoms:** none
 
 ---
 
 ## Flights Search & Listing
 
-**Verdict:** retry (forced ship)  
-**Forced ship:** yes  
+**Verdict:** yes  
+**Forced ship:** no  
 
-AST adds multiple inferred/unsupported interactive items (conditional return date and sidebar Apply/Clear actions) that are not explicitly stated in the description; regenerate after removing or grounding these phantoms.
+AST accurately includes the search form fields, submit redirect, results list with selectable rows and expandable details, sidebar filters, and sorting options as described.
 
 **Missing:** none
 
-**Phantoms (hallucinations):**
-
-- Flights_Search_Form.fields.Return_Date.visible_when (conditional not specified in description)
-- Sidebar_Filters.actions[0] (Apply Filters button not mentioned in description)
-- Sidebar_Filters.actions[1] (Clear Filters button not mentioned in description)
-
-**Fixes applied:**
-
-- Remove the conditional visible_when from Flights_Search_Form.fields.Return_Date; the description does not explicitly state a conditional trigger for a return date, so do not infer visibility rules. JSON path: Flights_Search_Form.fields.Return_Date -> remove property 'visible_when'.
-- Remove Sidebar_Filters.actions array (Apply Filters and Clear Filters) because the description lists available filter controls but does not specify explicit Apply/Clear buttons. JSON path: Sidebar_Filters -> remove property 'actions' or leave it empty.
-- If filter application behavior is required, represent it only if the description explicitly states an Apply/Clear control or that filters apply only after an action; otherwise keep only the filter fields (Airlines, Number_of_Stops, Departure_Time_Range, Arrival_Time_Range, Price_Range) without action buttons. JSON path: Sidebar_Filters -> ensure only 'fields' are present and no implicit action controls are added.
+**Phantoms:** none
 
 ---
 
@@ -122,7 +105,7 @@ AST adds multiple inferred/unsupported interactive items (conditional return dat
 **Verdict:** yes  
 **Forced ship:** no  
 
-AST includes the repeating traveler fields, lead contact fields, validation constraints, and Continue action as specified; no critical elements missing or extraneous.
+The AST correctly captures the repeating traveler fields (including Title options), optional meal and seat fields, lead passenger contact, validation behavior with inline errors, and the Continue submit action that navigates to payment.
 
 **Missing:** none
 
@@ -135,11 +118,13 @@ AST includes the repeating traveler fields, lead contact fields, validation cons
 **Verdict:** yes  
 **Forced ship:** no  
 
-AST correctly captures the search form fields, submit redirect, listing page sidebar filters, and sorting controls with no extraneous interactive elements.
+AST matches the described interactive elements (search form fields, submit redirect, sidebar filters, sorting, and listing cards); only a minor invented control name for the submit button was added.
 
 **Missing:** none
 
-**Phantoms:** none
+**Phantoms (hallucinations):**
+
+- Tours_Search_Form.submit_actions[0].element_name (Search button name not specified in description)
 
 ---
 
@@ -148,48 +133,29 @@ AST correctly captures the search form fields, submit redirect, listing page sid
 **Verdict:** yes  
 **Forced ship:** no  
 
-AST is acceptable with minor omissions (pricing and total cost display) and a couple small inferred fields/constraints.
+AST matches the described interactive elements (departure date, traveler counts, Book Now, booking form with traveler names, contact details, special requirements, and login redirect) with only one minor inferred constraint present.
 
-**Missing:**
-
-- Tour_Details_Page.fields.Pricing_Per_Person (adult/child per-person price display expected)
-- Booking_Form.fields.Total_Cost_Breakdown (calculated/read-only cost breakdown expected)
+**Missing:** none
 
 **Phantoms (hallucinations):**
 
-- Booking_Form.constraints[0] (number of Traveler entries must equal Adults + Children selected on Tour Details page) - inferred constraint not explicitly stated
-- Booking_Form.fields.Travelers.item_fields.First_Name (First_Name field inferred; description only specifies 'traveler names')
-- Booking_Form.fields.Travelers.item_fields.Last_Name (Last_Name field inferred; description only specifies 'traveler names')
+- components.Booking_Form.fields.Travelers.constraints[0] ("count must equal Adults + Children" is not stated explicitly in the description)
 
 ---
 
 ## Cars Search & Listing
 
-**Verdict:** retry (forced ship)  
-**Forced ship:** yes  
+**Verdict:** yes  
+**Forced ship:** no  
 
-AST contains several inferred/phantom properties (constraints, computed formula, button action) and a few unspecified field types that should be explicit (time, price range).
+The AST includes all required interactive elements (search form fields, submit redirect, sidebar filters with dynamic update, grouped listings, and per-listing Book Now action); only minor inferred items are present.
 
-**Missing:**
-
-- Car_Search_Form.fields.Pick_Up_Time.type (expected 'time' but is 'unspecified')
-- Car_Search_Form.fields.Drop_Off_Time.type (expected 'time' but is 'unspecified')
-- Listing_Page.components.Sidebar_Filters.fields.Price_Range.type (expected 'range' or 'slider' but is 'unspecified')
+**Missing:** none
 
 **Phantoms (hallucinations):**
 
-- Car_Search_Form.constraints[0] (Drop_Off_Date >= Pick_Up_Date constraint is not stated in description)
-- Listing_Page.components.Vehicles_List.item_fields.Total_Rental_Cost.computed (explicit computation 'Price_Per_Day * rental_days' is an inference)
-- Listing_Page.components.Vehicles_List.item_fields.Book_Now.on_success (the 'initiates booking flow' action is not specified in the description)
-
-**Fixes applied:**
-
-- Change Car_Search_Form.fields.Pick_Up_Time.type from 'unspecified' to 'time' at path: components.Car_Search_Form.fields.Pick_Up_Time.type
-- Change Car_Search_Form.fields.Drop_Off_Time.type from 'unspecified' to 'time' at path: components.Car_Search_Form.fields.Drop_Off_Time.type
-- Change Listing_Page.components.Sidebar_Filters.fields.Price_Range.type from 'unspecified' to 'range' (or 'slider') at path: components.Listing_Page.components.Sidebar_Filters.fields.Price_Range.type
-- Remove inferred constraint at path: components.Car_Search_Form.constraints[0] (Drop_Off_Date >= Pick_Up_Date) unless the requirement explicitly specifies date validation
-- Remove or make explicit the computed expression at path: components.Listing_Page.components.Vehicles_List.item_fields.Total_Rental_Cost.computed — either omit the computed implementation or replace with a neutral note 'shows total rental cost for selected period' to match the description
-- Remove inferred on_success action at path: components.Listing_Page.components.Vehicles_List.item_fields.Book_Now.on_success unless the description specifies what the button should do
+- components.Sidebar_Filters.fields.Car_Type.options (options inferred from grouping/categories rather than explicitly listed in description)
+- components.Vehicle_Listings.notes (developer/comment note not present in description)
 
 ---
 
@@ -198,7 +164,7 @@ AST contains several inferred/phantom properties (constraints, computed formula,
 **Verdict:** yes  
 **Forced ship:** no  
 
-The AST captures all interactive elements described (driver fields, optional add-ons, insurance selection, terms acceptance, and the Confirm Booking action with validation behavior) and contains no extraneous interactive items.
+AST includes all interactive elements (form fields, add-ons, insurance selection, terms review/acceptance, Confirm Booking action) and required constraints (inline errors blocking progression and Accept_Terms precondition), matching the description.
 
 **Missing:** none
 
@@ -211,13 +177,13 @@ The AST captures all interactive elements described (driver fields, optional add
 **Verdict:** yes  
 **Forced ship:** no  
 
-AST matches the described interactive elements; only one minor phantom field (Supporting_Documents.item_fields.Description) was added that is not present in the description.
+AST matches the described interactive elements (search, application form with all fields, document uploads, and bookings tracking); only a small inferred detail about initial status was added.
 
 **Missing:** none
 
 **Phantoms (hallucinations):**
 
-- components.Visa_Application_Form.fields.Supporting_Documents.item_fields.Description
+- components.Visa_Application_Form.submit_actions[0] (on_success: 'creates visa application in Pending status and lists the application in Bookings dashboard') — the explicit 'Pending status' was not specified in the description
 
 ---
 
@@ -226,23 +192,27 @@ AST matches the described interactive elements; only one minor phantom field (Su
 **Verdict:** retry (forced ship)  
 **Forced ship:** yes  
 
-The AST broadly covers the described components and actions but includes multiple inferred constraints/conditions not present in the description and one incorrect precondition for Modify, so it should be regenerated with those phantoms removed or corrected.
+AST includes several inferred actions/fields and extra constraints not explicitly present in the description (multiple phantom items); regenerate after removing or justifying these inferred elements.
 
 **Missing:** none
 
 **Phantoms (hallucinations):**
 
-- components.My_Bookings.row_actions[2].preconditions[1] ("modification policy permits" — not stated in description; description referenced booking type and cancellation policy)
-- components.Reviews.fields.Rating.constraints[0] ("min 1" — rating bounds were inferred, not specified)
-- components.Reviews.fields.Rating.constraints[1] ("max 5" — rating bounds were inferred, not specified)
-- components.Settings.fields.Change_Password.fields.Confirm_Password.constraints[0] ("must match New_Password" — validation constraint inferred, not explicitly stated)
+- components.My_Profile.submit_actions[0] (Save button not mentioned in description)
+- components.My_Profile.submit_actions[1] (Cancel button not mentioned in description)
+- components.Review_Form.submit_actions[1] (Cancel button not mentioned in description)
+- components.Settings.fields.Change_Password_Current (description only states 'change password' — current/new fields inferred)
+- components.Settings.fields.Change_Password_New (description only states 'change password' — current/new fields inferred)
+- components.My_Bookings.row_state_actions.states.Pending.available_actions[*].preconditions (contains 'status != Cancelled' which is an inferred constraint)
+- components.My_Bookings.row_state_actions.states.Confirmed.available_actions[*].preconditions (contains 'status != Cancelled' which is an inferred constraint)
 
 **Fixes applied:**
 
-- components.My_Bookings.row_actions[2].preconditions — replace or remove the second precondition: change "modification policy permits" to the explicitly described constraint "cancellation policy permits" if Modify is intended to be governed by the same cancellation rule, or remove the inferred precondition entirely.
-- components.Reviews.fields.Rating — remove the constraints array (delete components.Reviews.fields.Rating.constraints) since rating bounds were not specified in the description.
-- components.Reviews.fields.Rating.visible_when — keep the visibility condition (booking must be Completed) as it is described; no change.
-- components.Settings.fields.Change_Password.fields.Confirm_Password.constraints[0] — remove the "must match New_Password" constraint since the description only states change-password controls, without specifying this validation.
+- Remove components.My_Profile.submit_actions array or move those actions to a nested 'edit' mode object — the description only mentions an Edit button, not Save/Cancel at the top level. Change: set components.My_Profile.submit_actions = [] or nest under components.My_Profile.edit_mode.
+- Remove components.Review_Form.submit_actions[1] (Cancel). Keep only the explicit Submit action unless the description is updated to mention a Cancel button. Change: remove the Cancel entry from components.Review_Form.submit_actions.
+- Replace components.Settings.fields.Change_Password_Current and components.Settings.fields.Change_Password_New with a single field anchored to the description (e.g., components.Settings.fields.Change_Password) or make the password fields unspecified if more detail is provided. Change: delete the two specific password fields and add components.Settings.fields.Change_Password with type 'password' (or leave as unspecified if preferred).
+- Remove the inferred 'status != Cancelled' precondition from all relevant actions under components.My_Bookings.row_state_actions.states.Pending.available_actions and components.My_Bookings.row_state_actions.states.Confirmed.available_actions unless the description explicitly requires it. Change: delete any 'status != Cancelled' entries from the preconditions arrays under those states.
+- Ensure downloads (Confirmation, Invoice, Voucher) reflect only what the description explicitly states. The description says users can download confirmations, invoices, or vouchers (no per-state restriction); either add Download Confirmation to components.My_Bookings.row_state_actions.states.Cancelled.available_actions or document that downloads are available globally. Change option A: add Download Confirmation action to components.My_Bookings.row_state_actions.states.Cancelled.available_actions; Change option B: move download actions to a global per-row download menu instead of state-bound actions.
 
 ---
 
@@ -251,43 +221,24 @@ The AST broadly covers the described components and actions but includes multipl
 **Verdict:** yes  
 **Forced ship:** no  
 
-AST correctly captures the Modify and Cancel actions, their preconditions, fields, and on_success consequences; only minor inferred control choices for confirmation and a displayed refund amount are present.
+AST correctly captures the interactive elements (Modify and Cancel actions with their preconditions, fields, confirmation flow, and email side-effects) and contains no missing or extraneous interactive items.
 
 **Missing:** none
 
-**Phantoms (hallucinations):**
-
-- components.Booking_Detail_Action_Bar.available_actions[1].confirmation_flow.fields.Refund_Amount (refund amount is a passive display in the description, not an interactive field)
-- components.Booking_Detail_Action_Bar.available_actions[1].confirmation_flow.fields.Confirm_Cancellation (the description requires explicit confirmation but does not specify a checkbox control; the checkbox type is an inferred control)
+**Phantoms:** none
 
 ---
 
 ## Payment Processing
 
-**Verdict:** retry (forced ship)  
-**Forced ship:** yes  
+**Verdict:** yes  
+**Forced ship:** no  
 
-AST contains multiple invented items (button labels, extra error message, conditional visibility flags, and a separate retry component) that are not explicitly present in the description; regenerate after removing or aligning these phantoms and clarifying conditional behavior.
+AST accurately captures the interactive elements (payment method selection, card fields, save-card option, submit behavior with success/failure handling, and booking confirmation actions) with no significant missing or extraneous items.
 
 **Missing:** none
 
-**Phantoms (hallucinations):**
-
-- components.Payment_Form.submit_actions[0] (Pay Now button label not specified in description)
-- components.Payment_Form.submit_actions[0].error_messages[2] ("Payment gateway error" not in description)
-- components.Payment_Form.fields.Cardholder_Name.visible_when (conditional not explicitly stated in description)
-- components.Payment_Form.fields.Card_Number.visible_when (conditional not explicitly stated in description)
-- components.Payment_Form.fields.Expiration_Date.visible_when (conditional not explicitly stated in description)
-- components.Payment_Form.fields.CVV.visible_when (conditional not explicitly stated in description)
-- components.Payment_Form.fields.Save_Card_For_Future_Use.visible_when (conditional not explicitly stated in description)
-- components.Payment_Error_Recovery (separate form_helper component and Retry button naming/structure are not explicitly described)
-
-**Fixes applied:**
-
-- components.Payment_Form.submit_actions[0]: Remove or leave unspecified the element_name property (do not invent a 'Pay Now' label). If a specific button label is required, ensure it is present in the source description before adding.
-- components.Payment_Form.submit_actions[0].error_messages: Remove the entry 'Payment gateway error' so only the error examples explicitly provided in the description remain ("Card declined", "Insufficient funds").
-- components.Payment_Form.fields.*.visible_when: Remove all visible_when properties from Cardholder_Name, Card_Number, Expiration_Date, CVV, and Save_Card_For_Future_Use unless the source description explicitly states a trigger (e.g., 'when Credit/Debit Card is selected'). If conditional display is intended, update the description to include explicit trigger language and then re-add visible_when conditions referencing that exact trigger.
-- components.Payment_Error_Recovery: Remove this separate form_helper component and instead represent retry behavior as part of the Payment_Form submit_actions.on_failure flow (or, if a separate retry control is required, ensure the description names it and describes its placement and label). Specifically remove components.Payment_Error_Recovery or rename/restructure it to match explicit description text (do not invent a 'Retry' element_name).
+**Phantoms:** none
 
 ---
 
@@ -296,13 +247,13 @@ AST contains multiple invented items (button labels, extra error message, condit
 **Verdict:** yes  
 **Forced ship:** no  
 
-AST accurately captures the currency and language selectors, their real-time application, language options, and persistence for authenticated/unauthenticated users; only a minor inferred RTL effect was added.
+The AST accurately represents the currency and language selectors, their real-time behavior, language options, and persistence rules; only one minor inferred action (layout direction change) is not explicitly stated in the description.
 
 **Missing:** none
 
 **Phantoms (hallucinations):**
 
-- components.Global_Preferences.fields.Language_Selector.on_change_actions[0].effects[0] (if Language == Arabic then set text direction to RTL)
+- components.Language_Selector.on_change_actions[1] (Apply_Layout_Direction_If_Needed action not explicitly in description)
 
 ---
 
@@ -311,11 +262,13 @@ AST accurately captures the currency and language selectors, their real-time app
 **Verdict:** yes  
 **Forced ship:** no  
 
-The AST accurately captures the collapsible filter sidebar, common and listing-specific filters, sorting controls, active-filters summary with remove/reset actions, and the dynamic update behavior—no critical items missing.
+AST correctly covers the described interactive elements (sidebar filters, collapsible sections, listing-specific filters with visibility conditions, dynamic updates, active-filters summary with remove buttons and reset control, sorting controls, and result count behavior); only a minor extra reset control was added in the sidebar.
 
 **Missing:** none
 
-**Phantoms:** none
+**Phantoms (hallucinations):**
+
+- Filter_Sidebar.controls.Reset_All_Filters (Reset all filters button in sidebar not specified in description)
 
 ---
 
@@ -324,40 +277,63 @@ The AST accurately captures the collapsible filter sidebar, common and listing-s
 **Verdict:** retry (forced ship)  
 **Forced ship:** yes  
 
-The AST mostly covers filters and the submit flow but includes multiple invented element labels and a date-range inference while missing the required authentication precondition on the post-stay email prompt — regenerate after addressing these issues.
+AST contains several inferred/phantom elements (photo upload, date-range, conditional visibility, extra email precondition) and missing explicit rating field types (should be star ratings); regenerate with those fixes.
 
 **Missing:**
 
-- components.Post_Stay_Email_Prompt.preconditions (missing "user must be authenticated")
+- components.Review_Submission_Form.fields.Overall_Rating.type (should be 'star_rating' per description 'star ratings for overall experience')
+- components.Review_Submission_Form.fields.Cleanliness_Rating.type (should be 'star_rating' per description 'star ratings for individual categories')
+- components.Review_Submission_Form.fields.Service_Rating.type (should be 'star_rating' per description 'star ratings for individual categories')
+- components.Review_Submission_Form.fields.Location_Rating.type (should be 'star_rating' per description 'star ratings for individual categories')
 
 **Phantoms (hallucinations):**
 
-- components.Dashboard_Submit_Review_Button.element_name ("Write a Review" label not specified in description)
-- components.Submit_Review_Form.submit_actions[0].element_name ("Submit Review" label not specified in description)
-- components.Post_Stay_Email_Prompt.element_name ("Leave a Review" label not specified in description)
-- components.Review_Page_Reviews_Section.Reviews_Filters.fields.Date_From (date range inferred; description only says "date")
-- components.Review_Page_Reviews_Section.Reviews_Filters.fields.Date_To (date range inferred; description only says "date")
+- components.Review_Submission_Form.fields.Photos (file_upload not specified in description as part of submission UI)
+- components.Reviews_Filters_Form.fields.Date_Range (description only says 'filter by date' — creating a date range group is an unsupported inference)
+- components.Reviews_Filters_Form.fields.Date_Range.Start_Date (inferred by Date_Range creation)
+- components.Reviews_Filters_Form.fields.Date_Range.End_Date (inferred by Date_Range creation)
+- components.Review_Submission_Form.fields.Cleanliness_Rating.visible_when (no conditional visibility described)
+- components.Review_Submission_Form.fields.Service_Rating.visible_when (no conditional visibility described)
+- components.Review_Submission_Form.fields.Location_Rating.visible_when (no conditional visibility described)
+- components.Email_Post_Stay_Prompt_Action.preconditions[1] ("recipient must be authenticated or be prompted to authenticate" is an inferred constraint not stated in the description)
 
 **Fixes applied:**
 
-- components.Post_Stay_Email_Prompt.preconditions — add the explicit authentication precondition: include "user must be authenticated" alongside existing booking-completed precondition.
-- components.Dashboard_Submit_Review_Button — remove the hard-coded element_name property (do not invent CTA labels not present in the description); if a label is required, leave it blank or mark as unspecified.
-- components.Submit_Review_Form.submit_actions[0] — remove the hard-coded element_name property (do not invent button labels); keep the submit action but omit the invented label.
-- components.Post_Stay_Email_Prompt — remove the hard-coded element_name property (do not invent CTA labels for the email prompt).
-- components.Detail_Page_Reviews_Section.Reviews_Filters — replace Date_From and Date_To with a single Date filter field (e.g., "Date" of type "date") unless the spec explicitly requires a date range; if the spec intends a range, update the description to say "filter by date range".
+- components.Review_Submission_Form.fields.Overall_Rating.type: set to 'star_rating' (replace 'unspecified')
+- components.Review_Submission_Form.fields.Cleanliness_Rating.type: set to 'star_rating' (replace 'unspecified')
+- components.Review_Submission_Form.fields.Service_Rating.type: set to 'star_rating' (replace 'unspecified')
+- components.Review_Submission_Form.fields.Location_Rating.type: set to 'star_rating' (replace 'unspecified')
+- components.Review_Submission_Form.fields.Photos: remove this field unless the description explicitly states users can upload photos when submitting reviews (description only mentions guest-uploaded photos as displayable items)
+- components.Reviews_Filters_Form.fields.Date_Range: remove the Date_Range group and instead include a single 'Date' filter field (components.Reviews_Filters_Form.fields.Date) with type 'date', unless the source text explicitly requires a start/end range
+- components.Review_Submission_Form.fields.Cleanliness_Rating.visible_when: remove this property (do not add conditional visibility unless the description explicitly specifies a trigger)
+- components.Review_Submission_Form.fields.Service_Rating.visible_when: remove this property (do not add conditional visibility unless the description explicitly specifies a trigger)
+- components.Review_Submission_Form.fields.Location_Rating.visible_when: remove this property (do not add conditional visibility unless the description explicitly specifies a trigger)
+- components.Email_Post_Stay_Prompt_Action.preconditions: remove the inferred clause 'recipient must be authenticated or be prompted to authenticate' (keep only preconditions explicitly stated: e.g., recipient has completed booking)
 
 ---
 
 ## Offers & Deals
 
-**Verdict:** yes  
-**Forced ship:** no  
+**Verdict:** retry (forced ship)  
+**Forced ship:** yes  
 
-AST accurately captures the interactive elements described (filters, deal/banner actions, and newsletter subscription) with no missing critical items or extraneous phantoms.
+The AST includes all required interactive elements (filters, Book Now actions, T&C link, newsletter), but it adds several UI elements/constraints not present in the description (filter Apply/Clear buttons, an email validation constraint, and an implementation 'min' property).
 
 **Missing:** none
 
-**Phantoms:** none
+**Phantoms (hallucinations):**
+
+- Offers_Page.Offers_Filters.submit_actions[0] (Apply Filters button not specified in description)
+- Offers_Page.Offers_Filters.submit_actions[1] (Clear Filters button not specified in description)
+- Offers_Page.Newsletter_Subscription.fields.Email.constraints[0] ('must be a valid email address' constraint inferred but not described)
+- Offers_Page.Promotions_List.min (implementation detail not present in description)
+
+**Fixes applied:**
+
+- Remove Offers_Page.Offers_Filters.submit_actions entirely unless the description explicitly specifies an 'Apply' or 'Clear' button; model filters as immediate/apply-on-change or include only actions explicitly named in the description.
+- Remove Offers_Page.Newsletter_Subscription.fields.Email.constraints array (delete the 'must be a valid email address' constraint) unless the spec explicitly calls out validation rules; if validation is required, include a note in the description so the AST can add it.
+- Remove the Offers_Page.Promotions_List.min property (do not include implementation-only cardinality unless specified).
+- Optional improvement: For Offers_Page.Promotions_List.item_fields.Book_Now, clarify behavior to represent that each promotion either applies a promo code OR redirects (not both simultaneously). Replace the current dual-actions array with a single action that has a 'behavior' selector or a conditional mapping (e.g., Book_Now.action.behavior = 'apply_promo' | 'redirect') only if the description specifies this conditional behavior.
 
 ---
 
@@ -366,7 +342,7 @@ AST accurately captures the interactive elements described (filters, deal/banner
 **Verdict:** yes  
 **Forced ship:** no  
 
-AST accurately represents the single interactive element (Logout button) and its described effects and precondition.
+AST accurately captures the single interactive element (Logout button), its precondition, state-bound availability, and the described post-logout behaviors.
 
 **Missing:** none
 

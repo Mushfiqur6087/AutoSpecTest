@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-22T21:47:19.027603
+DEBUG SESSION STARTED: 2026-05-25T15:28:45.989211
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[21:47:19] Test-Edge - SYSTEM PROMPT
+[15:28:45] Test-Edge - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Edge Case and Boundary Test Generator. You receive (1) a UI-AST JSON for one module and (2) the original functional description. Your job is to produce ONLY boundary and edge case tests — scenarios at the limits of valid/invalid input and unusual-but-plausible user behaviors.
 
@@ -24,6 +24,10 @@ You are NOT producing happy paths (positive prompt) or standard validation failu
 <description>
 {Original functional description text for this module}
 </description>
+
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
 
 ---
 
@@ -176,6 +180,15 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 
 ---
 
+**WORKFLOW-AWARE BOUNDARY SCOPING (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- For each workflow where `conditional_branch` activates a numeric or date field, check if that field has a boundary (a numeric/date threshold in the AST `constraints` or description).
+- If yes, that workflow's branch is a **candidate for a boundary edge test** — add or confirm a boundary TC exists for it.
+- Add `"wf_ref": "WF-NNN"` to each TC that maps to a specific workflow's boundary. Set `"wf_ref": null` for generic input/interaction edge tests.
+
+---
+
 **OUTPUT — JSON only, no prose, no markdown fencing:**
 
 {
@@ -184,6 +197,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": null,
       "subcategory": "boundary | input_edge | interaction_edge | state_edge | data_edge",
       "test_case": "Short descriptive name",
       "preconditions": ["precondition 1"],
@@ -206,7 +220,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 
 
 ------------------------------------------------------------
-[21:47:19] Test-Edge - USER PROMPT
+[15:28:45] Test-Edge - USER PROMPT
 ------------------------------------------------------------
 <module_name>Login</module_name>
 
@@ -219,23 +233,22 @@ If the module has any numeric/date/count threshold in the AST or description, pr
       "fields": {
         "Username": {
           "type": "unspecified",
-          "constraints": [
-            "required"
-          ]
+          "required": true
         },
         "Password": {
           "type": "password",
-          "constraints": [
-            "required"
-          ]
+          "required": true
         }
       },
+      "constraints": [
+        "Username and Password are required"
+      ],
       "submit_actions": [
         {
           "element_name": "Log in",
           "type": "button",
           "constraints": [
-            "requires valid credentials"
+            "credentials must be valid"
           ],
           "on_success": "redirects teacher to Dashboard",
           "on_failure": "shows inline error message; clears Password field; retains Username field"
@@ -245,19 +258,20 @@ If the module has any numeric/date/count threshold in the AST or description, pr
     "Lost_Password_Link": {
       "type": "link",
       "element_name": "Lost password?",
+      "enabled": false,
       "preconditions": [
-        "disabled on this test site"
+        "feature disabled on this test site"
       ]
     },
-    "Access_As_Guest_Button": {
+    "Access_As_Guest": {
       "type": "button",
       "element_name": "Access as a guest",
       "on_success": "grants unauthenticated browsing"
     },
-    "Cookies_Notice_Button": {
+    "Cookies_Notice": {
       "type": "button",
       "element_name": "Cookies notice",
-      "on_success": "shows cookie usage information"
+      "on_click": "shows cookie usage information"
     }
   }
 }
@@ -272,10 +286,18 @@ The login page displays a form with two required fields — Username and Passwor
 
 </description>
 
+<workflows>
+WF-001 | Successful login redirects teacher to Dashboard | actor: teacher | branch: Username != empty AND Password != empty AND credentials valid | terminal: Log in | on_success: redirects teacher to Dashboard
+WF-002 | Login attempt with validly entered but incorrect credentials (authentication failure) | actor: <role> | branch: Username != empty AND Password != empty AND credentials invalid | terminal: Log in | on_success: shows inline error message; clears Password field; retains Username field
+WF-003 | Login attempt with missing required fields (empty Username or Password) | actor: <role> | branch: Username == empty OR Password == empty | terminal: Log in | on_success: shows inline error message; clears Password field; retains Username field
+WF-004 | Access the site as a guest | actor: <role> | branch: none | terminal: Access as a guest | on_success: grants unauthenticated browsing
+WF-005 | Open cookies usage information | actor: <role> | branch: none | terminal: Cookies notice | on_success: shows cookie usage information
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[21:47:50] Test-Edge - LLM RESPONSE
+[15:29:30] Test-Edge - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Login",
@@ -283,73 +305,76 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "E-001",
-      "subcategory": "input_edge",
-      "test_case": "Very long Username is retained after failed login",
+      "wf_ref": null,
+      "subcategory": "interaction_edge",
+      "test_case": "Attempt to activate disabled 'Lost password?' link",
       "preconditions": [
-        "Login page is displayed"
+        "Login page is loaded",
+        "'Lost password?' link is disabled on this test site"
       ],
       "steps": [
-        "1. Enter <very long string (200+ characters)> into the Username field",
-        "2. Enter an incorrect value into the Password field",
-        "3. Click the 'Log in' button"
+        "1. Locate the 'Lost password?' link on the Login page",
+        "2. Click the 'Lost password?' link"
       ],
-      "expected_result": "Login attempt is blocked; an inline error message is shown (is blocked / error shown); the Password field is cleared (visible empty). The Username field remains populated with the full <very long string> as displayed in the UI (retention of the entered Username succeeds).",
+      "expected_result": "Click is blocked; no navigation or password-recovery UI appears and the link remains visually disabled (no modal or page load occurs).",
       "priority": "medium"
     },
     {
       "tc_id": "E-002",
-      "subcategory": "input_edge",
-      "test_case": "Username and Password containing emoji/special Unicode are handled on failed login",
+      "wf_ref": "WF-002",
+      "subcategory": "state_edge",
+      "test_case": "Rapid double-click 'Log in' with validly entered but incorrect credentials",
       "preconditions": [
-        "Login page is displayed"
+        "Login page is loaded"
       ],
       "steps": [
-        "1. Enter a Username containing emoji and non-ASCII characters into the Username field",
-        "2. Enter a Password containing emoji and non-ASCII characters into the Password field",
-        "3. Click the 'Log in' button"
+        "1. Enter a non-empty Username that does not match any account in the Username field",
+        "2. Enter a non-empty Password in the Password field",
+        "3. Click the 'Log in' button",
+        "4. Immediately click the 'Log in' button again"
       ],
-      "expected_result": "Login attempt is blocked; an inline error message is shown (is blocked / error shown); the Password field is cleared (visible empty). The Username field retains and displays the exact entered characters (including emoji/unicode) as shown in the UI (retention succeeds).",
+      "expected_result": "Second submission attempt is blocked; an inline error message is shown indicating authentication failure; the Password field is cleared; the Username field retains the entered value; only one inline error message instance is visible.",
       "priority": "medium"
     },
     {
       "tc_id": "E-003",
-      "subcategory": "input_edge",
-      "test_case": "Leading and trailing whitespace in Username is preserved/retained after failed login",
+      "wf_ref": "WF-004",
+      "subcategory": "interaction_edge",
+      "test_case": "Enter credentials then choose 'Access as a guest'",
       "preconditions": [
-        "Login page is displayed"
+        "Login page is loaded"
       ],
       "steps": [
-        "1. Enter a Username into the Username field that includes leading and trailing whitespace (e.g., starts and ends with space characters)",
-        "2. Enter an incorrect value into the Password field",
-        "3. Click the 'Log in' button"
+        "1. Enter any value in the Username field",
+        "2. Enter any value in the Password field",
+        "3. Click the 'Access as a guest' button"
       ],
-      "expected_result": "Login attempt is blocked; an inline error message is shown (is blocked / error shown); the Password field is cleared (visible empty). The Username field continues to display the entered value as shown in the UI (including the leading/trailing whitespace) — the retention of the entered Username succeeds (visible exact value retained).",
-      "priority": "low"
+      "expected_result": "'Access as a guest' succeeds; unauthenticated browsing is granted and the user is not redirected to the Dashboard (no authentication attempt completes using the entered credentials).",
+      "priority": "medium"
     },
     {
       "tc_id": "E-004",
+      "wf_ref": "WF-005",
       "subcategory": "interaction_edge",
-      "test_case": "Rapid consecutive failed submissions: password cleared and username retained across attempts",
+      "test_case": "Rapid repeated clicks on 'Cookies notice' toggle",
       "preconditions": [
-        "Login page is displayed"
+        "Login page is loaded"
       ],
       "steps": [
-        "1. Enter a Username into the Username field",
-        "2. Enter an incorrect Password into the Password field",
-        "3. Click the 'Log in' button",
-        "4. Immediately (without changing the Username) enter a different incorrect Password into the Password field",
-        "5. Click the 'Log in' button again"
+        "1. Click the 'Cookies notice' button",
+        "2. Immediately click the 'Cookies notice' button again",
+        "3. Click the 'Cookies notice' button a third time"
       ],
-      "expected_result": "Each login attempt is blocked; an inline error message is shown after each attempt (is blocked / error shown). After every failed attempt the Password field is cleared (visible empty) and the Username field remains populated with the original entered Username (retention succeeds across rapid consecutive failures).",
-      "priority": "medium"
+      "expected_result": "Opening the cookie information succeeds on first click; repeated clicks do not create duplicate overlays or multiple stacked panels — only one cookie usage panel/modal is visible and the UI remains responsive.",
+      "priority": "low"
     }
   ],
   "summary": {
     "total": 4,
     "boundary": 0,
-    "input_edge": 3,
-    "interaction_edge": 1,
-    "state_edge": 0,
+    "input_edge": 0,
+    "interaction_edge": 3,
+    "state_edge": 1,
     "data_edge": 0,
     "medium_priority": 3,
     "low_priority": 1
@@ -357,7 +382,7 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
 }
 
 ------------------------------------------------------------
-[21:47:50] Test-Edge - PARSED JSON
+[15:29:30] Test-Edge - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Login",
@@ -365,73 +390,76 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "E-001",
-      "subcategory": "input_edge",
-      "test_case": "Very long Username is retained after failed login",
+      "wf_ref": null,
+      "subcategory": "interaction_edge",
+      "test_case": "Attempt to activate disabled 'Lost password?' link",
       "preconditions": [
-        "Login page is displayed"
+        "Login page is loaded",
+        "'Lost password?' link is disabled on this test site"
       ],
       "steps": [
-        "1. Enter <very long string (200+ characters)> into the Username field",
-        "2. Enter an incorrect value into the Password field",
-        "3. Click the 'Log in' button"
+        "1. Locate the 'Lost password?' link on the Login page",
+        "2. Click the 'Lost password?' link"
       ],
-      "expected_result": "Login attempt is blocked; an inline error message is shown (is blocked / error shown); the Password field is cleared (visible empty). The Username field remains populated with the full <very long string> as displayed in the UI (retention of the entered Username succeeds).",
+      "expected_result": "Click is blocked; no navigation or password-recovery UI appears and the link remains visually disabled (no modal or page load occurs).",
       "priority": "medium"
     },
     {
       "tc_id": "E-002",
-      "subcategory": "input_edge",
-      "test_case": "Username and Password containing emoji/special Unicode are handled on failed login",
+      "wf_ref": "WF-002",
+      "subcategory": "state_edge",
+      "test_case": "Rapid double-click 'Log in' with validly entered but incorrect credentials",
       "preconditions": [
-        "Login page is displayed"
+        "Login page is loaded"
       ],
       "steps": [
-        "1. Enter a Username containing emoji and non-ASCII characters into the Username field",
-        "2. Enter a Password containing emoji and non-ASCII characters into the Password field",
-        "3. Click the 'Log in' button"
+        "1. Enter a non-empty Username that does not match any account in the Username field",
+        "2. Enter a non-empty Password in the Password field",
+        "3. Click the 'Log in' button",
+        "4. Immediately click the 'Log in' button again"
       ],
-      "expected_result": "Login attempt is blocked; an inline error message is shown (is blocked / error shown); the Password field is cleared (visible empty). The Username field retains and displays the exact entered characters (including emoji/unicode) as shown in the UI (retention succeeds).",
+      "expected_result": "Second submission attempt is blocked; an inline error message is shown indicating authentication failure; the Password field is cleared; the Username field retains the entered value; only one inline error message instance is visible.",
       "priority": "medium"
     },
     {
       "tc_id": "E-003",
-      "subcategory": "input_edge",
-      "test_case": "Leading and trailing whitespace in Username is preserved/retained after failed login",
+      "wf_ref": "WF-004",
+      "subcategory": "interaction_edge",
+      "test_case": "Enter credentials then choose 'Access as a guest'",
       "preconditions": [
-        "Login page is displayed"
+        "Login page is loaded"
       ],
       "steps": [
-        "1. Enter a Username into the Username field that includes leading and trailing whitespace (e.g., starts and ends with space characters)",
-        "2. Enter an incorrect value into the Password field",
-        "3. Click the 'Log in' button"
+        "1. Enter any value in the Username field",
+        "2. Enter any value in the Password field",
+        "3. Click the 'Access as a guest' button"
       ],
-      "expected_result": "Login attempt is blocked; an inline error message is shown (is blocked / error shown); the Password field is cleared (visible empty). The Username field continues to display the entered value as shown in the UI (including the leading/trailing whitespace) \u2014 the retention of the entered Username succeeds (visible exact value retained).",
-      "priority": "low"
+      "expected_result": "'Access as a guest' succeeds; unauthenticated browsing is granted and the user is not redirected to the Dashboard (no authentication attempt completes using the entered credentials).",
+      "priority": "medium"
     },
     {
       "tc_id": "E-004",
+      "wf_ref": "WF-005",
       "subcategory": "interaction_edge",
-      "test_case": "Rapid consecutive failed submissions: password cleared and username retained across attempts",
+      "test_case": "Rapid repeated clicks on 'Cookies notice' toggle",
       "preconditions": [
-        "Login page is displayed"
+        "Login page is loaded"
       ],
       "steps": [
-        "1. Enter a Username into the Username field",
-        "2. Enter an incorrect Password into the Password field",
-        "3. Click the 'Log in' button",
-        "4. Immediately (without changing the Username) enter a different incorrect Password into the Password field",
-        "5. Click the 'Log in' button again"
+        "1. Click the 'Cookies notice' button",
+        "2. Immediately click the 'Cookies notice' button again",
+        "3. Click the 'Cookies notice' button a third time"
       ],
-      "expected_result": "Each login attempt is blocked; an inline error message is shown after each attempt (is blocked / error shown). After every failed attempt the Password field is cleared (visible empty) and the Username field remains populated with the original entered Username (retention succeeds across rapid consecutive failures).",
-      "priority": "medium"
+      "expected_result": "Opening the cookie information succeeds on first click; repeated clicks do not create duplicate overlays or multiple stacked panels \u2014 only one cookie usage panel/modal is visible and the UI remains responsive.",
+      "priority": "low"
     }
   ],
   "summary": {
     "total": 4,
     "boundary": 0,
-    "input_edge": 3,
-    "interaction_edge": 1,
-    "state_edge": 0,
+    "input_edge": 0,
+    "interaction_edge": 3,
+    "state_edge": 1,
     "data_edge": 0,
     "medium_priority": 3,
     "low_priority": 1

@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-22T21:47:19.053781
+DEBUG SESSION STARTED: 2026-05-25T15:28:46.013523
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[21:47:19] Test-Positive - SYSTEM PROMPT
+[15:28:46] Test-Positive - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Expert UI Test Case Generator. You receive (1) a UI-AST JSON for one specific module and (2) the original functional description for that module.
 
@@ -24,6 +24,10 @@ Your job is to produce ONLY positive/functional UI test cases — tests where va
 <description>
 {Original functional description text for this module}
 </description>
+
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
 
 ---
 
@@ -146,6 +150,13 @@ Because you are testing a module in isolation, establish the required entry stat
 **1. Forms & Wizards (`form`, `wizard`):**
 - Generate ONE happy path per distinct success outcome.
 - *Conditional UI Check:* If a toggle/dropdown reveals new mandatory fields (`visible_when`), generate a separate test for that conditional branch.
+- **Wizard step coverage (CRITICAL):** If a wizard has multiple steps and any step beyond Step 1 contains its own named field group (e.g., "Address Details", "Family Members", "Identifiers"), generate ONE dedicated positive TC per such step. The TC must:
+  - Navigate to that specific step (include the preceding steps as preconditions or brief navigation steps)
+  - Fill the fields described for that step (not just pass through)
+  - Assert the step's content is visible/saved on the detail page after final submission
+  - **Do NOT collapse all wizard steps into one happy-path TC** — if Steps 2, 3, and 4 each have their own named section in the spec, they each need their own TC.
+- **Wizard in-step identifiers/duplicates:** If a wizard step allows adding identifiers, documents, or similar entries that have a uniqueness constraint, include a TC for that wizard step that also verifies the constraint (e.g., attempting to add a duplicate Document Type+Key pair inside the wizard). This is a different code path from adding the same post-creation on the detail page.
+- **Action dialogs:** If a `state_bound_action_bar` action opens a dialog with its own `fields{}` (e.g., Activate requires Activation Date, Reject requires Reason), generate ONE positive TC per such action-dialog — distinct from the state-transition TC. The TC fills the dialog field and completes the action.
 
 **2. State Machines (`state_bound_action_bar`):**
 - For each unique action available in a specific state, generate ONE test performing that action.
@@ -200,6 +211,19 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 
 ---
 
+**WORKFLOW COVERAGE OBLIGATION (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- Your test cases must **collectively cover every workflow** listed.
+- For each `wf_id`, at least one TC must:
+  - Activate the `conditional_branch` (if not null) — i.e. the test must set up the condition described.
+  - Assert the `on_success` as its `expected_result` (verbatim or as the primary basis for the expected result).
+- Add `"wf_ref": "WF-NNN"` to each TC to identify which workflow it covers.
+- If one TC naturally covers multiple workflows (e.g., the base path overlaps), pick the most specific `wf_ref`.
+- If a TC does not map to any workflow (e.g., a navigation-only test), set `"wf_ref": null`.
+
+---
+
 **OUTPUT — JSON only, no prose, no markdown fencing:**
 
 {
@@ -208,6 +232,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
   "test_cases": [
     {
       "tc_id": "P-001",
+      "wf_ref": "WF-001",
       "test_case": "Short descriptive name",
       "preconditions": ["User logged in as <Role>", "<Prerequisite state>"],
       "steps": ["1. Step one", "2. Step two"],
@@ -224,7 +249,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 }
 
 ------------------------------------------------------------
-[21:47:19] Test-Positive - USER PROMPT
+[15:28:46] Test-Positive - USER PROMPT
 ------------------------------------------------------------
 <module_name>Assignment Creation</module_name>
 
@@ -232,10 +257,10 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 {
   "module_name": "Assignment Creation",
   "components": {
-    "Assignment_Form": {
+    "Assignment_Creation_Form": {
       "type": "form",
       "constraints": [
-        "required fields validated inline before saving"
+        "validate required fields inline before saving"
       ],
       "panels": [
         {
@@ -245,21 +270,16 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
             "Assignment_Name": {
               "type": "text",
               "required": true,
-              "constraints": [
-                "required",
-                "must be non-empty"
-              ]
+              "constraints": []
             },
             "Description": {
               "type": "rich_text",
               "required": false
             },
-            "Additional_Files_Upload": {
+            "Additional_Files": {
               "type": "file_upload",
               "required": false,
-              "constraints": [
-                "optional"
-              ]
+              "constraints": []
             }
           }
         },
@@ -268,31 +288,40 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
           "collapsible": true,
           "fields": {
             "Allow_Submissions_From_Enable": {
-              "type": "toggle",
+              "type": "checkbox",
               "required": false
             },
-            "Allow_Submissions_From_Date": {
+            "Allow_Submissions_From": {
               "type": "datetime",
               "required": false,
-              "enabled_when": "Allow_Submissions_From_Enable == true"
+              "enabled_when": "Allow_Submissions_From_Enable == true",
+              "constraints": [
+                "ignored when Allow_Submissions_From_Enable == false"
+              ]
             },
             "Due_Date_Enable": {
-              "type": "toggle",
+              "type": "checkbox",
               "required": false
             },
             "Due_Date": {
               "type": "datetime",
               "required": false,
-              "enabled_when": "Due_Date_Enable == true"
+              "enabled_when": "Due_Date_Enable == true",
+              "constraints": [
+                "ignored when Due_Date_Enable == false"
+              ]
             },
             "Cutoff_Date_Enable": {
-              "type": "toggle",
+              "type": "checkbox",
               "required": false
             },
             "Cutoff_Date": {
               "type": "datetime",
               "required": false,
-              "enabled_when": "Cutoff_Date_Enable == true"
+              "enabled_when": "Cutoff_Date_Enable == true",
+              "constraints": [
+                "ignored when Cutoff_Date_Enable == false"
+              ]
             }
           }
         },
@@ -300,41 +329,40 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
           "panel_name": "Submission types",
           "collapsible": true,
           "fields": {
-            "Online_Text_Submissions": {
+            "Online_text": {
               "type": "checkbox",
               "required": false
             },
-            "File_Submissions": {
+            "File_submissions": {
               "type": "checkbox",
               "required": false
             },
-            "Max_Number_Uploaded_Files": {
+            "Max_number_of_uploaded_files": {
               "type": "number",
               "required": false,
-              "visible_when": "File_Submissions == true",
+              "visible_when": "File_submissions == true",
               "constraints": [
                 "must be integer",
-                "min 1"
+                "min 1",
+                "visible only when File_submissions == true"
               ]
             },
-            "Max_Submission_Size": {
-              "type": "size",
+            "Maximum_submission_size_MB": {
+              "type": "number",
               "required": false,
-              "visible_when": "File_Submissions == true",
-              "units": [
-                "MB",
-                "GB"
-              ],
+              "visible_when": "File_submissions == true",
               "constraints": [
-                "must be a positive number"
+                "value in MB",
+                "min 1",
+                "visible only when File_submissions == true"
               ]
             },
-            "Accepted_File_Types": {
-              "type": "file_type_list",
+            "Accepted_file_types": {
+              "type": "text",
               "required": false,
-              "visible_when": "File_Submissions == true",
+              "visible_when": "File_submissions == true",
               "constraints": [
-                "comma-separated list or file type tokens"
+                "visible only when File_submissions == true"
               ]
             }
           }
@@ -343,15 +371,15 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
           "panel_name": "Feedback types",
           "collapsible": true,
           "fields": {
-            "Feedback_Comments": {
+            "Feedback_comments": {
               "type": "checkbox",
               "required": false
             },
-            "Feedback_Files": {
+            "Feedback_files": {
               "type": "checkbox",
               "required": false
             },
-            "Offline_Grading_Worksheet": {
+            "Offline_grading_worksheet": {
               "type": "checkbox",
               "required": false
             }
@@ -361,30 +389,21 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
           "panel_name": "Submission settings",
           "collapsible": true,
           "fields": {
-            "Require_Submit_Button": {
-              "type": "toggle",
+            "Require_submit_button": {
+              "type": "checkbox",
               "required": false
             },
-            "Require_Submission_Statement": {
-              "type": "toggle",
+            "Require_submission_statement": {
+              "type": "checkbox",
               "required": false
             },
-            "Attempts_Reopened": {
+            "Attempts_reopened_settings": {
               "type": "dropdown",
-              "required": false,
-              "options": [
-                "Never",
-                "Manually",
-                "Automatically until pass"
-              ]
+              "required": false
             },
-            "Maximum_Attempts": {
+            "Maximum_attempts": {
               "type": "number",
-              "required": false,
-              "constraints": [
-                "must be integer",
-                "min 1"
-              ]
+              "required": false
             }
           }
         },
@@ -392,19 +411,19 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
           "panel_name": "Group submission settings",
           "collapsible": true,
           "fields": {
-            "Group_Submissions": {
-              "type": "toggle",
+            "Group_submissions": {
+              "type": "checkbox",
               "required": false
             },
-            "Require_All_Group_Members_To_Submit": {
-              "type": "toggle",
+            "Require_all_group_members_to_submit": {
+              "type": "checkbox",
               "required": false,
-              "visible_when": "Group_Submissions == true"
+              "visible_when": "Group_submissions == true"
             },
-            "Grouping_Selection": {
-              "type": "group_selector",
+            "Grouping_selection": {
+              "type": "dropdown",
               "required": false,
-              "visible_when": "Group_Submissions == true"
+              "visible_when": "Group_submissions == true"
             }
           }
         },
@@ -412,12 +431,12 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
           "panel_name": "Notifications",
           "collapsible": true,
           "fields": {
-            "Notify_Graders_New_Submissions": {
-              "type": "toggle",
+            "Notify_graders_of_new_submissions": {
+              "type": "checkbox",
               "required": false
             },
-            "Notify_Graders_Late_Submissions": {
-              "type": "toggle",
+            "Notify_graders_of_late_submissions": {
+              "type": "checkbox",
               "required": false
             }
           }
@@ -426,33 +445,25 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
           "panel_name": "Grade",
           "collapsible": true,
           "fields": {
-            "Grade_Type": {
+            "Grade_type": {
               "type": "dropdown",
               "required": false
             },
-            "Maximum_Points": {
+            "Maximum_points": {
               "type": "number",
-              "required": false,
-              "constraints": [
-                "must be numeric",
-                "min 0"
-              ]
+              "required": false
             },
-            "Grading_Method": {
+            "Grading_method": {
               "type": "dropdown",
               "required": false
             },
-            "Grade_Category": {
-              "type": "category_selector",
+            "Grade_category": {
+              "type": "dropdown",
               "required": false
             },
-            "Grade_To_Pass": {
+            "Grade_to_pass": {
               "type": "number",
-              "required": false,
-              "constraints": [
-                "must be numeric",
-                "min 0"
-              ]
+              "required": false
             }
           }
         },
@@ -460,28 +471,14 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
           "panel_name": "Access restrictions",
           "collapsible": true,
           "fields": {
-            "Restrictions_List": {
-              "type": "repeating_group",
-              "min": 0,
-              "item_fields": {
-                "Restriction_Type": {
-                  "type": "dropdown",
-                  "required": true,
-                  "constraints": [
-                    "required"
-                  ]
-                },
-                "Restriction_Parameters": {
-                  "type": "unspecified",
-                  "required": false
-                }
-              }
-            },
-            "Add_Restriction_Button": {
+            "Add_restriction": {
               "type": "button",
-              "element_name": "Add restriction",
-              "action": "opens_dialog",
-              "opens": "Restriction_Type_Picker"
+              "element_name": "+ Add restriction",
+              "triggers": "opens Restriction_Type_Picker"
+            },
+            "Restrictions": {
+              "type": "repeating_group",
+              "item_fields": {}
             }
           }
         },
@@ -489,23 +486,13 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
           "panel_name": "Activity completion",
           "collapsible": true,
           "fields": {
-            "Completion_Tracking": {
+            "Completion_tracking": {
               "type": "dropdown",
               "required": false
             },
-            "Required_Conditions": {
+            "Required_conditions": {
               "type": "repeating_group",
-              "min": 0,
-              "item_fields": {
-                "Condition_Type": {
-                  "type": "dropdown",
-                  "required": true
-                },
-                "Condition_Parameters": {
-                  "type": "unspecified",
-                  "required": false
-                }
-              }
+              "item_fields": {}
             }
           }
         },
@@ -514,8 +501,11 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
           "collapsible": true,
           "fields": {
             "Tags": {
-              "type": "tag_entry",
-              "required": false
+              "type": "text",
+              "required": false,
+              "constraints": [
+                "tag entry field"
+              ]
             }
           }
         },
@@ -523,12 +513,14 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
           "panel_name": "Competencies",
           "collapsible": true,
           "fields": {
-            "Competency_Link": {
-              "type": "competency_selector",
-              "required": false,
-              "constraints": [
-                "links course competencies to this activity"
-              ]
+            "Add_competency": {
+              "type": "button",
+              "element_name": "Link competency",
+              "triggers": "opens Competency_Linker"
+            },
+            "Linked_competencies": {
+              "type": "repeating_group",
+              "item_fields": {}
             }
           }
         }
@@ -536,17 +528,11 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
       "submit_actions": [
         {
           "element_name": "Save and return to course",
-          "on_success": "creates assignment and redirects to course page",
-          "constraints": [
-            "form-level inline validation must pass before save"
-          ]
+          "on_success": "creates assignment and redirects to course page"
         },
         {
           "element_name": "Save and display",
-          "on_success": "creates assignment and opens the new assignment's page",
-          "constraints": [
-            "form-level inline validation must pass before save"
-          ]
+          "on_success": "creates assignment and opens the new assignment page"
         },
         {
           "element_name": "Cancel",
@@ -555,30 +541,22 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
       ]
     },
     "Restriction_Type_Picker": {
-      "type": "dialog",
+      "type": "modal",
       "fields": {
         "Restriction_Type": {
           "type": "dropdown",
-          "required": true,
-          "constraints": [
-            "required"
-          ]
+          "required": true
         }
-      },
-      "submit_actions": [
-        {
-          "element_name": "Add restriction",
-          "on_success": "adds restriction to Restrictions_List and closes dialog",
-          "preconditions": [],
-          "constraints": [
-            "Restriction_Type required"
-          ]
-        },
-        {
-          "element_name": "Cancel",
-          "on_success": "closes dialog without adding restriction"
+      }
+    },
+    "Competency_Linker": {
+      "type": "modal",
+      "fields": {
+        "Competency_Type": {
+          "type": "dropdown",
+          "required": false
         }
-      ]
+      }
     }
   }
 }
@@ -593,10 +571,25 @@ The assignment creation form opens after selecting Assignment from the Activity 
 
 </description>
 
+<workflows>
+WF-001 | Save and return to course — File submissions ON, Group submissions ON | actor: <role> | branch: File_submissions == true AND Group_submissions == true | terminal: Save and return to course | on_success: creates assignment and redirects to course page
+WF-002 | Save and display — File submissions ON, Group submissions ON | actor: <role> | branch: File_submissions == true AND Group_submissions == true | terminal: Save and display | on_success: creates assignment and opens the new assignment page
+WF-003 | Cancel — File submissions ON, Group submissions ON | actor: <role> | branch: File_submissions == true AND Group_submissions == true | terminal: Cancel | on_success: discards all changes
+WF-004 | Save and return to course — File submissions ON, Group submissions OFF | actor: <role> | branch: File_submissions == true AND Group_submissions == false | terminal: Save and return to course | on_success: creates assignment and redirects to course page
+WF-005 | Save and display — File submissions ON, Group submissions OFF | actor: <role> | branch: File_submissions == true AND Group_submissions == false | terminal: Save and display | on_success: creates assignment and opens the new assignment page
+WF-006 | Cancel — File submissions ON, Group submissions OFF | actor: <role> | branch: File_submissions == true AND Group_submissions == false | terminal: Cancel | on_success: discards all changes
+WF-007 | Save and return to course — File submissions OFF, Group submissions ON | actor: <role> | branch: File_submissions == false AND Group_submissions == true | terminal: Save and return to course | on_success: creates assignment and redirects to course page
+WF-008 | Save and display — File submissions OFF, Group submissions ON | actor: <role> | branch: File_submissions == false AND Group_submissions == true | terminal: Save and display | on_success: creates assignment and opens the new assignment page
+WF-009 | Cancel — File submissions OFF, Group submissions ON | actor: <role> | branch: File_submissions == false AND Group_submissions == true | terminal: Cancel | on_success: discards all changes
+WF-010 | Save and return to course — File submissions OFF, Group submissions OFF | actor: <role> | branch: File_submissions == false AND Group_submissions == false | terminal: Save and return to course | on_success: creates assignment and redirects to course page
+WF-011 | Save and display — File submissions OFF, Group submissions OFF | actor: <role> | branch: File_submissions == false AND Group_submissions == false | terminal: Save and display | on_success: creates assignment and opens the new assignment page
+WF-012 | Cancel — File submissions OFF, Group submissions OFF | actor: <role> | branch: File_submissions == false AND Group_submissions == false | terminal: Cancel | on_success: discards all changes
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[21:48:33] Test-Positive - LLM RESPONSE
+[15:30:27] Test-Positive - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Assignment Creation",
@@ -604,148 +597,230 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Save and return to course with required fields",
+      "wf_ref": "WF-001",
+      "test_case": "Save and return to course with File submissions ON and Group submissions ON (includes adding restriction and linking competency)",
       "preconditions": [
-        "User logged in as <Teacher>"
+        "User logged in as <role>",
+        "Assignment Creation form is open"
       ],
       "steps": [
-        "1. Open the Activity Chooser and select 'Assignment' to open the Assignment Creation form",
-        "2. Enter <assignment name> in the Assignment Name field",
-        "3. Click 'Save and return to course'"
+        "1. Enter <assignment name> in the Assignment Name field",
+        "2. Expand the Submission types panel; check File_submissions",
+        "3. Enter <integer> in Max_number_of_uploaded_files",
+        "4. Enter <number> in Maximum_submission_size_MB",
+        "5. Enter <accepted file types> in Accepted_file_types",
+        "6. Expand Group submission settings panel; check Group_submissions",
+        "7. Check Require_all_group_members_to_submit and select <grouping> from Grouping_selection",
+        "8. Click '+ Add restriction' to open the Restriction_Type_Picker modal",
+        "9. Select <restriction type> from the Restriction_Type dropdown and click Confirm on the modal",
+        "10. Click 'Link competency' to open the Competency_Linker modal",
+        "11. Select <competency type> and click Link/Confirm on the modal",
+        "12. Click 'Save and return to course'"
       ],
-      "expected_result": "Browser redirects to the Course page",
+      "expected_result": "Browser is redirected to the course page.",
       "priority": "high"
     },
     {
       "tc_id": "P-002",
-      "test_case": "Save and display opens the newly created assignment's page",
+      "wf_ref": "WF-002",
+      "test_case": "Save and display with File submissions ON and Group submissions ON",
       "preconditions": [
-        "User logged in as <Teacher>"
+        "User logged in as <role>",
+        "Assignment Creation form is open"
       ],
       "steps": [
-        "1. Open the Activity Chooser and select 'Assignment' to open the Assignment Creation form",
-        "2. Enter <assignment name> in the Assignment Name field",
-        "3. Click 'Save and display'"
+        "1. Enter <assignment name> in the Assignment Name field",
+        "2. Expand Submission types panel; check File_submissions",
+        "3. Enter <integer> in Max_number_of_uploaded_files",
+        "4. Enter <number> in Maximum_submission_size_MB",
+        "5. Enter <accepted file types> in Accepted_file_types",
+        "6. Expand Group submission settings panel; check Group_submissions and select <grouping>",
+        "7. Click 'Save and display'"
       ],
-      "expected_result": "Browser navigates to the newly created assignment's page",
+      "expected_result": "Browser navigates to the new assignment page.",
       "priority": "high"
     },
     {
       "tc_id": "P-003",
-      "test_case": "Cancel discards changes and closes the form",
+      "wf_ref": "WF-003",
+      "test_case": "Cancel with File submissions ON and Group submissions ON discards changes",
       "preconditions": [
-        "User logged in as <Teacher>"
+        "User logged in as <role>",
+        "Assignment Creation form is open"
       ],
       "steps": [
-        "1. Open the Activity Chooser and select 'Assignment' to open the Assignment Creation form",
-        "2. Enter <assignment name> in the Assignment Name field",
-        "3. Click 'Cancel'"
+        "1. Enter <assignment name> in the Assignment Name field",
+        "2. Expand Submission types panel; check File_submissions and fill its revealed fields (Max_number_of_uploaded_files, Maximum_submission_size_MB, Accepted_file_types)",
+        "3. Expand Group submission settings panel; check Group_submissions and select <grouping>",
+        "4. Click 'Cancel' on the form"
       ],
-      "expected_result": "Assignment Creation form is closed and the user is returned to the Course page",
+      "expected_result": "Assignment Creation form is closed and no changes are saved (form dismissed).",
       "priority": "medium"
     },
     {
       "tc_id": "P-004",
-      "test_case": "Enabling File submissions reveals file-specific controls",
+      "wf_ref": "WF-004",
+      "test_case": "Save and return to course with File submissions ON and Group submissions OFF",
       "preconditions": [
-        "User logged in as <Teacher>"
+        "User logged in as <role>",
+        "Assignment Creation form is open"
       ],
       "steps": [
-        "1. Open the Activity Chooser and select 'Assignment' to open the Assignment Creation form",
-        "2. Enter <assignment name> in the Assignment Name field",
-        "3. Expand the 'Submission types' panel",
-        "4. Check the 'File submissions' checkbox"
+        "1. Enter <assignment name> in the Assignment Name field",
+        "2. Expand Submission types panel; check File_submissions",
+        "3. Enter <integer> in Max_number_of_uploaded_files and <number> in Maximum_submission_size_MB and <accepted file types> in Accepted_file_types",
+        "4. Ensure Group_submissions is unchecked in Group submission settings panel",
+        "5. Click 'Save and return to course'"
       ],
-      "expected_result": "Fields 'Max number of uploaded files', 'Maximum submission size', and 'Accepted file types' become visible under Submission types",
-      "priority": "medium"
+      "expected_result": "Browser is redirected to the course page.",
+      "priority": "high"
     },
     {
       "tc_id": "P-005",
-      "test_case": "Enabling 'Allow submissions from' shows and enables its date/time picker",
+      "wf_ref": "WF-005",
+      "test_case": "Save and display with File submissions ON and Group submissions OFF",
       "preconditions": [
-        "User logged in as <Teacher>"
+        "User logged in as <role>",
+        "Assignment Creation form is open"
       ],
       "steps": [
-        "1. Open the Activity Chooser and select 'Assignment' to open the Assignment Creation form",
-        "2. Expand the 'Availability' panel",
-        "3. Toggle on 'Allow submissions from'",
-        "4. Verify the 'Allow submissions from' date/time picker is visible and enabled"
+        "1. Enter <assignment name> in the Assignment Name field",
+        "2. Expand Submission types panel; check File_submissions and fill Max_number_of_uploaded_files, Maximum_submission_size_MB, and Accepted_file_types",
+        "3. Ensure Group_submissions is unchecked",
+        "4. Click 'Save and display'"
       ],
-      "expected_result": "The 'Allow submissions from' date/time picker is visible and enabled in the Availability panel",
-      "priority": "medium"
+      "expected_result": "Browser navigates to the new assignment page.",
+      "priority": "high"
     },
     {
       "tc_id": "P-006",
-      "test_case": "Enabling 'Due date' shows and enables its date/time picker",
+      "wf_ref": "WF-006",
+      "test_case": "Cancel with File submissions ON and Group submissions OFF discards changes",
       "preconditions": [
-        "User logged in as <Teacher>"
+        "User logged in as <role>",
+        "Assignment Creation form is open"
       ],
       "steps": [
-        "1. Open the Activity Chooser and select 'Assignment' to open the Assignment Creation form",
-        "2. Expand the 'Availability' panel",
-        "3. Toggle on 'Due date'",
-        "4. Verify the 'Due date' date/time picker is visible and enabled"
+        "1. Enter <assignment name> in the Assignment Name field",
+        "2. Expand Submission types panel; check File_submissions and fill its revealed fields",
+        "3. Ensure Group_submissions is unchecked",
+        "4. Click 'Cancel'"
       ],
-      "expected_result": "The 'Due date' date/time picker is visible and enabled in the Availability panel",
+      "expected_result": "Assignment Creation form is closed and no changes are saved (form dismissed).",
       "priority": "medium"
     },
     {
       "tc_id": "P-007",
-      "test_case": "Enabling 'Cut-off date' shows and enables its date/time picker",
+      "wf_ref": "WF-007",
+      "test_case": "Save and return to course with File submissions OFF and Group submissions ON",
       "preconditions": [
-        "User logged in as <Teacher>"
+        "User logged in as <role>",
+        "Assignment Creation form is open"
       ],
       "steps": [
-        "1. Open the Activity Chooser and select 'Assignment' to open the Assignment Creation form",
-        "2. Expand the 'Availability' panel",
-        "3. Toggle on 'Cut-off date'",
-        "4. Verify the 'Cut-off date' date/time picker is visible and enabled"
+        "1. Enter <assignment name> in the Assignment Name field",
+        "2. Ensure File_submissions is unchecked in Submission types panel",
+        "3. Expand Group submission settings panel; check Group_submissions and select <grouping>",
+        "4. Click 'Save and return to course'"
       ],
-      "expected_result": "The 'Cut-off date' date/time picker is visible and enabled in the Availability panel",
-      "priority": "medium"
+      "expected_result": "Browser is redirected to the course page.",
+      "priority": "high"
     },
     {
       "tc_id": "P-008",
-      "test_case": "Add a restriction using the Restriction Type picker",
+      "wf_ref": "WF-008",
+      "test_case": "Save and display with File submissions OFF and Group submissions ON",
       "preconditions": [
-        "User logged in as <Teacher>"
+        "User logged in as <role>",
+        "Assignment Creation form is open"
       ],
       "steps": [
-        "1. Open the Activity Chooser and select 'Assignment' to open the Assignment Creation form",
-        "2. Expand the 'Access restrictions' panel",
-        "3. Click '+ Add restriction' to open the Restriction Type picker dialog",
-        "4. Select <restriction type> from the Restriction Type dropdown in the dialog",
-        "5. Click 'Add restriction' in the dialog"
+        "1. Enter <assignment name> in the Assignment Name field",
+        "2. Ensure File_submissions is unchecked",
+        "3. Expand Group submission settings panel; check Group_submissions and select <grouping>",
+        "4. Click 'Save and display'"
       ],
-      "expected_result": "A new restriction row appears in the Restrictions list showing the selected Restriction Type and the Restriction Type dialog is closed",
-      "priority": "medium"
+      "expected_result": "Browser navigates to the new assignment page.",
+      "priority": "high"
     },
     {
       "tc_id": "P-009",
-      "test_case": "Enabling Group submissions reveals group-specific controls",
+      "wf_ref": "WF-009",
+      "test_case": "Cancel with File submissions OFF and Group submissions ON discards changes",
       "preconditions": [
-        "User logged in as <Teacher>"
+        "User logged in as <role>",
+        "Assignment Creation form is open"
       ],
       "steps": [
-        "1. Open the Activity Chooser and select 'Assignment' to open the Assignment Creation form",
-        "2. Expand the 'Group submission settings' panel",
-        "3. Toggle on 'Group submissions'",
-        "4. Verify the 'Require all group members to submit' toggle and the Grouping selection control become visible"
+        "1. Enter <assignment name> in the Assignment Name field",
+        "2. Ensure File_submissions is unchecked",
+        "3. Expand Group submission settings panel; check Group_submissions and select <grouping>",
+        "4. Click 'Cancel'"
       ],
-      "expected_result": "The 'Require all group members to submit' toggle and the Grouping selection control are visible in the Group submission settings panel",
+      "expected_result": "Assignment Creation form is closed and no changes are saved (form dismissed).",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-010",
+      "wf_ref": "WF-010",
+      "test_case": "Save and return to course with File submissions OFF and Group submissions OFF",
+      "preconditions": [
+        "User logged in as <role>",
+        "Assignment Creation form is open"
+      ],
+      "steps": [
+        "1. Enter <assignment name> in the Assignment Name field",
+        "2. Ensure File_submissions is unchecked",
+        "3. Ensure Group_submissions is unchecked",
+        "4. Click 'Save and return to course'"
+      ],
+      "expected_result": "Browser is redirected to the course page.",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-011",
+      "wf_ref": "WF-011",
+      "test_case": "Save and display with File submissions OFF and Group submissions OFF",
+      "preconditions": [
+        "User logged in as <role>",
+        "Assignment Creation form is open"
+      ],
+      "steps": [
+        "1. Enter <assignment name> in the Assignment Name field",
+        "2. Ensure File_submissions is unchecked",
+        "3. Ensure Group_submissions is unchecked",
+        "4. Click 'Save and display'"
+      ],
+      "expected_result": "Browser navigates to the new assignment page.",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-012",
+      "wf_ref": "WF-012",
+      "test_case": "Cancel with File submissions OFF and Group submissions OFF discards changes",
+      "preconditions": [
+        "User logged in as <role>",
+        "Assignment Creation form is open"
+      ],
+      "steps": [
+        "1. Enter <assignment name> in the Assignment Name field",
+        "2. Ensure File_submissions is unchecked and Group_submissions is unchecked",
+        "3. Click 'Cancel'"
+      ],
+      "expected_result": "Assignment Creation form is closed and no changes are saved (form dismissed).",
       "priority": "medium"
     }
   ],
   "summary": {
-    "total": 9,
-    "high_priority": 2,
-    "medium_priority": 7,
+    "total": 12,
+    "high_priority": 8,
+    "medium_priority": 4,
     "low_priority": 0
   }
 }
 
 ------------------------------------------------------------
-[21:48:33] Test-Positive - PARSED JSON
+[15:30:27] Test-Positive - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Assignment Creation",
@@ -753,142 +828,224 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Save and return to course with required fields",
+      "wf_ref": "WF-001",
+      "test_case": "Save and return to course with File submissions ON and Group submissions ON (includes adding restriction and linking competency)",
       "preconditions": [
-        "User logged in as <Teacher>"
+        "User logged in as <role>",
+        "Assignment Creation form is open"
       ],
       "steps": [
-        "1. Open the Activity Chooser and select 'Assignment' to open the Assignment Creation form",
-        "2. Enter <assignment name> in the Assignment Name field",
-        "3. Click 'Save and return to course'"
+        "1. Enter <assignment name> in the Assignment Name field",
+        "2. Expand the Submission types panel; check File_submissions",
+        "3. Enter <integer> in Max_number_of_uploaded_files",
+        "4. Enter <number> in Maximum_submission_size_MB",
+        "5. Enter <accepted file types> in Accepted_file_types",
+        "6. Expand Group submission settings panel; check Group_submissions",
+        "7. Check Require_all_group_members_to_submit and select <grouping> from Grouping_selection",
+        "8. Click '+ Add restriction' to open the Restriction_Type_Picker modal",
+        "9. Select <restriction type> from the Restriction_Type dropdown and click Confirm on the modal",
+        "10. Click 'Link competency' to open the Competency_Linker modal",
+        "11. Select <competency type> and click Link/Confirm on the modal",
+        "12. Click 'Save and return to course'"
       ],
-      "expected_result": "Browser redirects to the Course page",
+      "expected_result": "Browser is redirected to the course page.",
       "priority": "high"
     },
     {
       "tc_id": "P-002",
-      "test_case": "Save and display opens the newly created assignment's page",
+      "wf_ref": "WF-002",
+      "test_case": "Save and display with File submissions ON and Group submissions ON",
       "preconditions": [
-        "User logged in as <Teacher>"
+        "User logged in as <role>",
+        "Assignment Creation form is open"
       ],
       "steps": [
-        "1. Open the Activity Chooser and select 'Assignment' to open the Assignment Creation form",
-        "2. Enter <assignment name> in the Assignment Name field",
-        "3. Click 'Save and display'"
+        "1. Enter <assignment name> in the Assignment Name field",
+        "2. Expand Submission types panel; check File_submissions",
+        "3. Enter <integer> in Max_number_of_uploaded_files",
+        "4. Enter <number> in Maximum_submission_size_MB",
+        "5. Enter <accepted file types> in Accepted_file_types",
+        "6. Expand Group submission settings panel; check Group_submissions and select <grouping>",
+        "7. Click 'Save and display'"
       ],
-      "expected_result": "Browser navigates to the newly created assignment's page",
+      "expected_result": "Browser navigates to the new assignment page.",
       "priority": "high"
     },
     {
       "tc_id": "P-003",
-      "test_case": "Cancel discards changes and closes the form",
+      "wf_ref": "WF-003",
+      "test_case": "Cancel with File submissions ON and Group submissions ON discards changes",
       "preconditions": [
-        "User logged in as <Teacher>"
+        "User logged in as <role>",
+        "Assignment Creation form is open"
       ],
       "steps": [
-        "1. Open the Activity Chooser and select 'Assignment' to open the Assignment Creation form",
-        "2. Enter <assignment name> in the Assignment Name field",
-        "3. Click 'Cancel'"
+        "1. Enter <assignment name> in the Assignment Name field",
+        "2. Expand Submission types panel; check File_submissions and fill its revealed fields (Max_number_of_uploaded_files, Maximum_submission_size_MB, Accepted_file_types)",
+        "3. Expand Group submission settings panel; check Group_submissions and select <grouping>",
+        "4. Click 'Cancel' on the form"
       ],
-      "expected_result": "Assignment Creation form is closed and the user is returned to the Course page",
+      "expected_result": "Assignment Creation form is closed and no changes are saved (form dismissed).",
       "priority": "medium"
     },
     {
       "tc_id": "P-004",
-      "test_case": "Enabling File submissions reveals file-specific controls",
+      "wf_ref": "WF-004",
+      "test_case": "Save and return to course with File submissions ON and Group submissions OFF",
       "preconditions": [
-        "User logged in as <Teacher>"
+        "User logged in as <role>",
+        "Assignment Creation form is open"
       ],
       "steps": [
-        "1. Open the Activity Chooser and select 'Assignment' to open the Assignment Creation form",
-        "2. Enter <assignment name> in the Assignment Name field",
-        "3. Expand the 'Submission types' panel",
-        "4. Check the 'File submissions' checkbox"
+        "1. Enter <assignment name> in the Assignment Name field",
+        "2. Expand Submission types panel; check File_submissions",
+        "3. Enter <integer> in Max_number_of_uploaded_files and <number> in Maximum_submission_size_MB and <accepted file types> in Accepted_file_types",
+        "4. Ensure Group_submissions is unchecked in Group submission settings panel",
+        "5. Click 'Save and return to course'"
       ],
-      "expected_result": "Fields 'Max number of uploaded files', 'Maximum submission size', and 'Accepted file types' become visible under Submission types",
-      "priority": "medium"
+      "expected_result": "Browser is redirected to the course page.",
+      "priority": "high"
     },
     {
       "tc_id": "P-005",
-      "test_case": "Enabling 'Allow submissions from' shows and enables its date/time picker",
+      "wf_ref": "WF-005",
+      "test_case": "Save and display with File submissions ON and Group submissions OFF",
       "preconditions": [
-        "User logged in as <Teacher>"
+        "User logged in as <role>",
+        "Assignment Creation form is open"
       ],
       "steps": [
-        "1. Open the Activity Chooser and select 'Assignment' to open the Assignment Creation form",
-        "2. Expand the 'Availability' panel",
-        "3. Toggle on 'Allow submissions from'",
-        "4. Verify the 'Allow submissions from' date/time picker is visible and enabled"
+        "1. Enter <assignment name> in the Assignment Name field",
+        "2. Expand Submission types panel; check File_submissions and fill Max_number_of_uploaded_files, Maximum_submission_size_MB, and Accepted_file_types",
+        "3. Ensure Group_submissions is unchecked",
+        "4. Click 'Save and display'"
       ],
-      "expected_result": "The 'Allow submissions from' date/time picker is visible and enabled in the Availability panel",
-      "priority": "medium"
+      "expected_result": "Browser navigates to the new assignment page.",
+      "priority": "high"
     },
     {
       "tc_id": "P-006",
-      "test_case": "Enabling 'Due date' shows and enables its date/time picker",
+      "wf_ref": "WF-006",
+      "test_case": "Cancel with File submissions ON and Group submissions OFF discards changes",
       "preconditions": [
-        "User logged in as <Teacher>"
+        "User logged in as <role>",
+        "Assignment Creation form is open"
       ],
       "steps": [
-        "1. Open the Activity Chooser and select 'Assignment' to open the Assignment Creation form",
-        "2. Expand the 'Availability' panel",
-        "3. Toggle on 'Due date'",
-        "4. Verify the 'Due date' date/time picker is visible and enabled"
+        "1. Enter <assignment name> in the Assignment Name field",
+        "2. Expand Submission types panel; check File_submissions and fill its revealed fields",
+        "3. Ensure Group_submissions is unchecked",
+        "4. Click 'Cancel'"
       ],
-      "expected_result": "The 'Due date' date/time picker is visible and enabled in the Availability panel",
+      "expected_result": "Assignment Creation form is closed and no changes are saved (form dismissed).",
       "priority": "medium"
     },
     {
       "tc_id": "P-007",
-      "test_case": "Enabling 'Cut-off date' shows and enables its date/time picker",
+      "wf_ref": "WF-007",
+      "test_case": "Save and return to course with File submissions OFF and Group submissions ON",
       "preconditions": [
-        "User logged in as <Teacher>"
+        "User logged in as <role>",
+        "Assignment Creation form is open"
       ],
       "steps": [
-        "1. Open the Activity Chooser and select 'Assignment' to open the Assignment Creation form",
-        "2. Expand the 'Availability' panel",
-        "3. Toggle on 'Cut-off date'",
-        "4. Verify the 'Cut-off date' date/time picker is visible and enabled"
+        "1. Enter <assignment name> in the Assignment Name field",
+        "2. Ensure File_submissions is unchecked in Submission types panel",
+        "3. Expand Group submission settings panel; check Group_submissions and select <grouping>",
+        "4. Click 'Save and return to course'"
       ],
-      "expected_result": "The 'Cut-off date' date/time picker is visible and enabled in the Availability panel",
-      "priority": "medium"
+      "expected_result": "Browser is redirected to the course page.",
+      "priority": "high"
     },
     {
       "tc_id": "P-008",
-      "test_case": "Add a restriction using the Restriction Type picker",
+      "wf_ref": "WF-008",
+      "test_case": "Save and display with File submissions OFF and Group submissions ON",
       "preconditions": [
-        "User logged in as <Teacher>"
+        "User logged in as <role>",
+        "Assignment Creation form is open"
       ],
       "steps": [
-        "1. Open the Activity Chooser and select 'Assignment' to open the Assignment Creation form",
-        "2. Expand the 'Access restrictions' panel",
-        "3. Click '+ Add restriction' to open the Restriction Type picker dialog",
-        "4. Select <restriction type> from the Restriction Type dropdown in the dialog",
-        "5. Click 'Add restriction' in the dialog"
+        "1. Enter <assignment name> in the Assignment Name field",
+        "2. Ensure File_submissions is unchecked",
+        "3. Expand Group submission settings panel; check Group_submissions and select <grouping>",
+        "4. Click 'Save and display'"
       ],
-      "expected_result": "A new restriction row appears in the Restrictions list showing the selected Restriction Type and the Restriction Type dialog is closed",
-      "priority": "medium"
+      "expected_result": "Browser navigates to the new assignment page.",
+      "priority": "high"
     },
     {
       "tc_id": "P-009",
-      "test_case": "Enabling Group submissions reveals group-specific controls",
+      "wf_ref": "WF-009",
+      "test_case": "Cancel with File submissions OFF and Group submissions ON discards changes",
       "preconditions": [
-        "User logged in as <Teacher>"
+        "User logged in as <role>",
+        "Assignment Creation form is open"
       ],
       "steps": [
-        "1. Open the Activity Chooser and select 'Assignment' to open the Assignment Creation form",
-        "2. Expand the 'Group submission settings' panel",
-        "3. Toggle on 'Group submissions'",
-        "4. Verify the 'Require all group members to submit' toggle and the Grouping selection control become visible"
+        "1. Enter <assignment name> in the Assignment Name field",
+        "2. Ensure File_submissions is unchecked",
+        "3. Expand Group submission settings panel; check Group_submissions and select <grouping>",
+        "4. Click 'Cancel'"
       ],
-      "expected_result": "The 'Require all group members to submit' toggle and the Grouping selection control are visible in the Group submission settings panel",
+      "expected_result": "Assignment Creation form is closed and no changes are saved (form dismissed).",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-010",
+      "wf_ref": "WF-010",
+      "test_case": "Save and return to course with File submissions OFF and Group submissions OFF",
+      "preconditions": [
+        "User logged in as <role>",
+        "Assignment Creation form is open"
+      ],
+      "steps": [
+        "1. Enter <assignment name> in the Assignment Name field",
+        "2. Ensure File_submissions is unchecked",
+        "3. Ensure Group_submissions is unchecked",
+        "4. Click 'Save and return to course'"
+      ],
+      "expected_result": "Browser is redirected to the course page.",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-011",
+      "wf_ref": "WF-011",
+      "test_case": "Save and display with File submissions OFF and Group submissions OFF",
+      "preconditions": [
+        "User logged in as <role>",
+        "Assignment Creation form is open"
+      ],
+      "steps": [
+        "1. Enter <assignment name> in the Assignment Name field",
+        "2. Ensure File_submissions is unchecked",
+        "3. Ensure Group_submissions is unchecked",
+        "4. Click 'Save and display'"
+      ],
+      "expected_result": "Browser navigates to the new assignment page.",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-012",
+      "wf_ref": "WF-012",
+      "test_case": "Cancel with File submissions OFF and Group submissions OFF discards changes",
+      "preconditions": [
+        "User logged in as <role>",
+        "Assignment Creation form is open"
+      ],
+      "steps": [
+        "1. Enter <assignment name> in the Assignment Name field",
+        "2. Ensure File_submissions is unchecked and Group_submissions is unchecked",
+        "3. Click 'Cancel'"
+      ],
+      "expected_result": "Assignment Creation form is closed and no changes are saved (form dismissed).",
       "priority": "medium"
     }
   ],
   "summary": {
-    "total": 9,
-    "high_priority": 2,
-    "medium_priority": 7,
+    "total": 12,
+    "high_priority": 8,
+    "medium_priority": 4,
     "low_priority": 0
   }
 }

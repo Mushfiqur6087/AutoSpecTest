@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-21T22:54:00.270458
+DEBUG SESSION STARTED: 2026-05-25T14:51:20.257457
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[22:54:00] Test-Positive - SYSTEM PROMPT
+[14:51:20] Test-Positive - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Expert UI Test Case Generator. You receive (1) a UI-AST JSON for one specific module and (2) the original functional description for that module.
 
@@ -24,6 +24,10 @@ Your job is to produce ONLY positive/functional UI test cases — tests where va
 <description>
 {Original functional description text for this module}
 </description>
+
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
 
 ---
 
@@ -146,6 +150,13 @@ Because you are testing a module in isolation, establish the required entry stat
 **1. Forms & Wizards (`form`, `wizard`):**
 - Generate ONE happy path per distinct success outcome.
 - *Conditional UI Check:* If a toggle/dropdown reveals new mandatory fields (`visible_when`), generate a separate test for that conditional branch.
+- **Wizard step coverage (CRITICAL):** If a wizard has multiple steps and any step beyond Step 1 contains its own named field group (e.g., "Address Details", "Family Members", "Identifiers"), generate ONE dedicated positive TC per such step. The TC must:
+  - Navigate to that specific step (include the preceding steps as preconditions or brief navigation steps)
+  - Fill the fields described for that step (not just pass through)
+  - Assert the step's content is visible/saved on the detail page after final submission
+  - **Do NOT collapse all wizard steps into one happy-path TC** — if Steps 2, 3, and 4 each have their own named section in the spec, they each need their own TC.
+- **Wizard in-step identifiers/duplicates:** If a wizard step allows adding identifiers, documents, or similar entries that have a uniqueness constraint, include a TC for that wizard step that also verifies the constraint (e.g., attempting to add a duplicate Document Type+Key pair inside the wizard). This is a different code path from adding the same post-creation on the detail page.
+- **Action dialogs:** If a `state_bound_action_bar` action opens a dialog with its own `fields{}` (e.g., Activate requires Activation Date, Reject requires Reason), generate ONE positive TC per such action-dialog — distinct from the state-transition TC. The TC fills the dialog field and completes the action.
 
 **2. State Machines (`state_bound_action_bar`):**
 - For each unique action available in a specific state, generate ONE test performing that action.
@@ -200,6 +211,19 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 
 ---
 
+**WORKFLOW COVERAGE OBLIGATION (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- Your test cases must **collectively cover every workflow** listed.
+- For each `wf_id`, at least one TC must:
+  - Activate the `conditional_branch` (if not null) — i.e. the test must set up the condition described.
+  - Assert the `on_success` as its `expected_result` (verbatim or as the primary basis for the expected result).
+- Add `"wf_ref": "WF-NNN"` to each TC to identify which workflow it covers.
+- If one TC naturally covers multiple workflows (e.g., the base path overlaps), pick the most specific `wf_ref`.
+- If a TC does not map to any workflow (e.g., a navigation-only test), set `"wf_ref": null`.
+
+---
+
 **OUTPUT — JSON only, no prose, no markdown fencing:**
 
 {
@@ -208,6 +232,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
   "test_cases": [
     {
       "tc_id": "P-001",
+      "wf_ref": "WF-001",
       "test_case": "Short descriptive name",
       "preconditions": ["User logged in as <Role>", "<Prerequisite state>"],
       "steps": ["1. Step one", "2. Step two"],
@@ -224,7 +249,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 }
 
 ------------------------------------------------------------
-[22:54:00] Test-Positive - USER PROMPT
+[14:51:20] Test-Positive - USER PROMPT
 ------------------------------------------------------------
 <module_name>Car Booking</module_name>
 
@@ -239,7 +264,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
           "type": "unspecified",
           "required": true
         },
-        "Age": {
+        "Driver_Age": {
           "type": "number",
           "required": true
         },
@@ -253,7 +278,10 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
         },
         "Email": {
           "type": "email",
-          "required": true
+          "required": true,
+          "constraints": [
+            "must be a valid email address"
+          ]
         },
         "Phone_Number": {
           "type": "unspecified",
@@ -275,6 +303,11 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
           "type": "dropdown",
           "required": true
         },
+        "Review_Terms": {
+          "type": "link",
+          "required": false,
+          "on_click": "displays terms covering fuel policy, mileage limits, damage liability, and cancellation"
+        },
         "Accept_Terms": {
           "type": "checkbox",
           "required": true,
@@ -283,18 +316,20 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
           ]
         }
       },
+      "constraints": [
+        "invalid fields show inline errors and block progression"
+      ],
       "submit_actions": [
         {
           "element_name": "Confirm Booking",
           "type": "button",
           "preconditions": [
-            "Accept_Terms must be accepted"
+            "Accept_Terms == true"
           ],
           "constraints": [
-            "all fields must be valid"
+            "invalid fields show inline errors and block progression"
           ],
-          "on_success": "proceeds to payment",
-          "on_failure": "displays inline errors and blocks progression"
+          "on_success": "proceeds to payment"
         }
       ]
     }
@@ -311,10 +346,14 @@ The car booking page displays selected vehicle details, rental period, pick-up a
 
 </description>
 
+<workflows>
+WF-001 | Confirm booking after accepting terms with valid fields | actor: <role> | branch: Accept_Terms == true | terminal: Confirm Booking | on_success: proceeds to payment
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[22:56:24] Test-Positive - LLM RESPONSE
+[14:53:05] Test-Positive - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Car Booking",
@@ -322,93 +361,77 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Submit booking with all required fields and proceed to payment",
+      "wf_ref": "WF-001",
+      "test_case": "Complete booking form, accept terms, and confirm booking proceeds to payment",
       "preconditions": [
         "User logged in as <Customer>",
-        "Car Booking page is open with selected vehicle, rental period, pick-up and drop-off locations visible"
+        "A vehicle and rental period have been selected"
       ],
       "steps": [
-        "1. Enter <Driver full name> in the Driver Full Name field",
-        "2. Enter <valid age> in the Age field",
-        "3. Enter <license number> in the License Number field",
-        "4. Select <license issue country> from the License Issue Country dropdown",
-        "5. Enter <valid email> in the Email field",
-        "6. Enter <valid phone number> in the Phone Number field",
-        "7. Select <insurance plan> from the Insurance Plan dropdown",
-        "8. Check the Accept Terms checkbox",
-        "9. Click Confirm Booking"
+        "1. Open the Car Booking page for the selected vehicle and rental period",
+        "2. Enter <driver full name> in the Driver Full Name field",
+        "3. Enter <driver age> in the Driver Age field",
+        "4. Enter <license number> in the License Number field",
+        "5. Select <license issue country> from the License Issue Country dropdown",
+        "6. Enter <valid email> in the Email field",
+        "7. Enter <phone number> in the Phone Number field",
+        "8. Select <insurance plan> from the Insurance Plan dropdown",
+        "9. Check the Accept Terms checkbox",
+        "10. Click the Confirm Booking button"
       ],
-      "expected_result": "User is redirected to the Payment page (proceeds to payment); the Payment page is displayed",
+      "expected_result": "User is redirected to the Payment page (proceeds to payment)",
       "priority": "high"
     },
     {
       "tc_id": "P-002",
-      "test_case": "Select optional add-ons and insurance; pricing breakdown updates and proceed to payment",
+      "wf_ref": null,
+      "test_case": "Review Terms link opens terms covering fuel policy, mileage limits, damage liability, and cancellation",
       "preconditions": [
         "User logged in as <Customer>",
-        "Car Booking page is open with selected vehicle and base pricing visible"
+        "A vehicle and rental period have been selected"
       ],
       "steps": [
-        "1. Enter <Driver full name> in the Driver Full Name field",
-        "2. Enter <valid age> in the Age field",
-        "3. Enter <license number> in the License Number field",
-        "4. Select <license issue country> from the License Issue Country dropdown",
-        "5. Enter <valid email> in the Email field",
-        "6. Enter <valid phone number> in the Phone Number field",
-        "7. Check the GPS checkbox",
-        "8. Check the Child Seat checkbox",
-        "9. Check the Additional Driver checkbox",
-        "10. Select <insurance plan> from the Insurance Plan dropdown",
-        "11. Observe the Pricing Breakdown area",
-        "12. Check the Accept Terms checkbox",
-        "13. Click Confirm Booking"
+        "1. Open the Car Booking page for the selected vehicle and rental period",
+        "2. Click the Review Terms link"
       ],
-      "expected_result": "Pricing breakdown shows line items for the selected GPS, Child Seat, Additional Driver and the chosen insurance plan and the Total updates to include those fees; user is redirected to the Payment page (proceeds to payment)",
-      "priority": "high"
-    },
-    {
-      "tc_id": "P-003",
-      "test_case": "Confirm Booking remains disabled until terms are accepted, then becomes enabled and proceeds to payment",
-      "preconditions": [
-        "User logged in as <Customer>",
-        "Car Booking page is open with selected vehicle visible"
-      ],
-      "steps": [
-        "1. Enter <Driver full name> in the Driver Full Name field",
-        "2. Enter <valid age> in the Age field",
-        "3. Enter <license number> in the License Number field",
-        "4. Select <license issue country> from the License Issue Country dropdown",
-        "5. Enter <valid email> in the Email field",
-        "6. Enter <valid phone number> in the Phone Number field",
-        "7. Select <insurance plan> from the Insurance Plan dropdown",
-        "8. Verify the Confirm Booking button is visible and disabled",
-        "9. Check the Accept Terms checkbox",
-        "10. Verify the Confirm Booking button is enabled",
-        "11. Click Confirm Booking"
-      ],
-      "expected_result": "Confirm Booking is initially disabled, becomes enabled after Accept Terms is checked; user is redirected to the Payment page (proceeds to payment)",
+      "expected_result": "A terms view/dialog is displayed showing the fuel policy, mileage limits, damage liability, and cancellation information",
       "priority": "medium"
     },
     {
-      "tc_id": "P-004",
-      "test_case": "Valid required inputs produce no inline validation errors and base pricing shows before proceeding",
+      "tc_id": "P-003",
+      "wf_ref": null,
+      "test_case": "Selecting insurance plan and optional add-ons updates pricing breakdown and total",
       "preconditions": [
         "User logged in as <Customer>",
-        "Car Booking page is open showing base daily rate, rental days, taxes and fees"
+        "A vehicle and rental period have been selected"
       ],
       "steps": [
-        "1. Enter <Driver full name> in the Driver Full Name field",
-        "2. Enter <valid age> in the Age field",
-        "3. Enter <license number> in the License Number field",
-        "4. Select <license issue country> from the License Issue Country dropdown",
-        "5. Enter <valid email> in the Email field",
-        "6. Enter <valid phone number> in the Phone Number field",
-        "7. Select <insurance plan> from the Insurance Plan dropdown",
-        "8. Observe the Pricing Breakdown area",
-        "9. Check the Accept Terms checkbox",
-        "10. Click Confirm Booking"
+        "1. Open the Car Booking page for the selected vehicle and rental period",
+        "2. Select <insurance plan> from the Insurance Plan dropdown",
+        "3. Check the GPS checkbox",
+        "4. Check the Child Seat checkbox",
+        "5. Check the Additional Driver checkbox",
+        "6. Observe the Pricing breakdown section"
       ],
-      "expected_result": "No inline validation errors are visible on the booking form; Pricing Breakdown displays base daily rate, number of rental days, taxes and the selected insurance line item with an updated Total; user is redirected to the Payment page (proceeds to payment)",
+      "expected_result": "Pricing breakdown updates to show a line item for the selected insurance plan and separate line items for GPS, Child Seat, and Additional Driver; the Total in the pricing breakdown visibly updates to reflect the selected insurance and add-ons",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-004",
+      "wf_ref": null,
+      "test_case": "Confirm Booking button remains disabled until Accept Terms is checked then becomes enabled",
+      "preconditions": [
+        "User logged in as <Customer>",
+        "A vehicle and rental period have been selected"
+      ],
+      "steps": [
+        "1. Open the Car Booking page for the selected vehicle and rental period",
+        "2. Enter required fields: Driver Full Name, Driver Age, License Number, License Issue Country, Email, and Phone Number using <valid> placeholders",
+        "3. Verify the Confirm Booking button is visible and disabled",
+        "4. Check the Accept Terms checkbox",
+        "5. Verify the Confirm Booking button becomes enabled"
+      ],
+      "expected_result": "Confirm Booking button is initially disabled and then becomes enabled after the Accept Terms checkbox is checked",
       "priority": "medium"
     }
   ],
@@ -421,7 +444,7 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
 }
 
 ------------------------------------------------------------
-[22:56:24] Test-Positive - PARSED JSON
+[14:53:05] Test-Positive - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Car Booking",
@@ -429,93 +452,77 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Submit booking with all required fields and proceed to payment",
+      "wf_ref": "WF-001",
+      "test_case": "Complete booking form, accept terms, and confirm booking proceeds to payment",
       "preconditions": [
         "User logged in as <Customer>",
-        "Car Booking page is open with selected vehicle, rental period, pick-up and drop-off locations visible"
+        "A vehicle and rental period have been selected"
       ],
       "steps": [
-        "1. Enter <Driver full name> in the Driver Full Name field",
-        "2. Enter <valid age> in the Age field",
-        "3. Enter <license number> in the License Number field",
-        "4. Select <license issue country> from the License Issue Country dropdown",
-        "5. Enter <valid email> in the Email field",
-        "6. Enter <valid phone number> in the Phone Number field",
-        "7. Select <insurance plan> from the Insurance Plan dropdown",
-        "8. Check the Accept Terms checkbox",
-        "9. Click Confirm Booking"
+        "1. Open the Car Booking page for the selected vehicle and rental period",
+        "2. Enter <driver full name> in the Driver Full Name field",
+        "3. Enter <driver age> in the Driver Age field",
+        "4. Enter <license number> in the License Number field",
+        "5. Select <license issue country> from the License Issue Country dropdown",
+        "6. Enter <valid email> in the Email field",
+        "7. Enter <phone number> in the Phone Number field",
+        "8. Select <insurance plan> from the Insurance Plan dropdown",
+        "9. Check the Accept Terms checkbox",
+        "10. Click the Confirm Booking button"
       ],
-      "expected_result": "User is redirected to the Payment page (proceeds to payment); the Payment page is displayed",
+      "expected_result": "User is redirected to the Payment page (proceeds to payment)",
       "priority": "high"
     },
     {
       "tc_id": "P-002",
-      "test_case": "Select optional add-ons and insurance; pricing breakdown updates and proceed to payment",
+      "wf_ref": null,
+      "test_case": "Review Terms link opens terms covering fuel policy, mileage limits, damage liability, and cancellation",
       "preconditions": [
         "User logged in as <Customer>",
-        "Car Booking page is open with selected vehicle and base pricing visible"
+        "A vehicle and rental period have been selected"
       ],
       "steps": [
-        "1. Enter <Driver full name> in the Driver Full Name field",
-        "2. Enter <valid age> in the Age field",
-        "3. Enter <license number> in the License Number field",
-        "4. Select <license issue country> from the License Issue Country dropdown",
-        "5. Enter <valid email> in the Email field",
-        "6. Enter <valid phone number> in the Phone Number field",
-        "7. Check the GPS checkbox",
-        "8. Check the Child Seat checkbox",
-        "9. Check the Additional Driver checkbox",
-        "10. Select <insurance plan> from the Insurance Plan dropdown",
-        "11. Observe the Pricing Breakdown area",
-        "12. Check the Accept Terms checkbox",
-        "13. Click Confirm Booking"
+        "1. Open the Car Booking page for the selected vehicle and rental period",
+        "2. Click the Review Terms link"
       ],
-      "expected_result": "Pricing breakdown shows line items for the selected GPS, Child Seat, Additional Driver and the chosen insurance plan and the Total updates to include those fees; user is redirected to the Payment page (proceeds to payment)",
-      "priority": "high"
-    },
-    {
-      "tc_id": "P-003",
-      "test_case": "Confirm Booking remains disabled until terms are accepted, then becomes enabled and proceeds to payment",
-      "preconditions": [
-        "User logged in as <Customer>",
-        "Car Booking page is open with selected vehicle visible"
-      ],
-      "steps": [
-        "1. Enter <Driver full name> in the Driver Full Name field",
-        "2. Enter <valid age> in the Age field",
-        "3. Enter <license number> in the License Number field",
-        "4. Select <license issue country> from the License Issue Country dropdown",
-        "5. Enter <valid email> in the Email field",
-        "6. Enter <valid phone number> in the Phone Number field",
-        "7. Select <insurance plan> from the Insurance Plan dropdown",
-        "8. Verify the Confirm Booking button is visible and disabled",
-        "9. Check the Accept Terms checkbox",
-        "10. Verify the Confirm Booking button is enabled",
-        "11. Click Confirm Booking"
-      ],
-      "expected_result": "Confirm Booking is initially disabled, becomes enabled after Accept Terms is checked; user is redirected to the Payment page (proceeds to payment)",
+      "expected_result": "A terms view/dialog is displayed showing the fuel policy, mileage limits, damage liability, and cancellation information",
       "priority": "medium"
     },
     {
-      "tc_id": "P-004",
-      "test_case": "Valid required inputs produce no inline validation errors and base pricing shows before proceeding",
+      "tc_id": "P-003",
+      "wf_ref": null,
+      "test_case": "Selecting insurance plan and optional add-ons updates pricing breakdown and total",
       "preconditions": [
         "User logged in as <Customer>",
-        "Car Booking page is open showing base daily rate, rental days, taxes and fees"
+        "A vehicle and rental period have been selected"
       ],
       "steps": [
-        "1. Enter <Driver full name> in the Driver Full Name field",
-        "2. Enter <valid age> in the Age field",
-        "3. Enter <license number> in the License Number field",
-        "4. Select <license issue country> from the License Issue Country dropdown",
-        "5. Enter <valid email> in the Email field",
-        "6. Enter <valid phone number> in the Phone Number field",
-        "7. Select <insurance plan> from the Insurance Plan dropdown",
-        "8. Observe the Pricing Breakdown area",
-        "9. Check the Accept Terms checkbox",
-        "10. Click Confirm Booking"
+        "1. Open the Car Booking page for the selected vehicle and rental period",
+        "2. Select <insurance plan> from the Insurance Plan dropdown",
+        "3. Check the GPS checkbox",
+        "4. Check the Child Seat checkbox",
+        "5. Check the Additional Driver checkbox",
+        "6. Observe the Pricing breakdown section"
       ],
-      "expected_result": "No inline validation errors are visible on the booking form; Pricing Breakdown displays base daily rate, number of rental days, taxes and the selected insurance line item with an updated Total; user is redirected to the Payment page (proceeds to payment)",
+      "expected_result": "Pricing breakdown updates to show a line item for the selected insurance plan and separate line items for GPS, Child Seat, and Additional Driver; the Total in the pricing breakdown visibly updates to reflect the selected insurance and add-ons",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-004",
+      "wf_ref": null,
+      "test_case": "Confirm Booking button remains disabled until Accept Terms is checked then becomes enabled",
+      "preconditions": [
+        "User logged in as <Customer>",
+        "A vehicle and rental period have been selected"
+      ],
+      "steps": [
+        "1. Open the Car Booking page for the selected vehicle and rental period",
+        "2. Enter required fields: Driver Full Name, Driver Age, License Number, License Issue Country, Email, and Phone Number using <valid> placeholders",
+        "3. Verify the Confirm Booking button is visible and disabled",
+        "4. Check the Accept Terms checkbox",
+        "5. Verify the Confirm Booking button becomes enabled"
+      ],
+      "expected_result": "Confirm Booking button is initially disabled and then becomes enabled after the Accept Terms checkbox is checked",
       "priority": "medium"
     }
   ],

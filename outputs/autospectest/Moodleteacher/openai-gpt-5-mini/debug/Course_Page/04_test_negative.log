@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-22T21:47:19.045000
+DEBUG SESSION STARTED: 2026-05-25T15:28:46.011166
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[21:47:19] Test-Negative - SYSTEM PROMPT
+[15:28:46] Test-Negative - SYSTEM PROMPT
 ------------------------------------------------------------
 You are a Negative Test Case Generator. You receive (1) a UI-AST JSON for one module and (2) the original functional description. Your job is to produce ONLY negative test cases — tests where invalid input is provided or business rules are violated, and the system correctly rejects or blocks the action.
 
@@ -22,6 +22,10 @@ You are a Negative Test Case Generator. You receive (1) a UI-AST JSON for one mo
 <description>
 {Original functional description text for this module}
 </description>
+
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
 
 ---
 
@@ -111,6 +115,9 @@ Group required fields by type: `text/unspecified`, `email`, `password`, `number`
 
 Do NOT generate a separate blank-field test for every required field. If 5 text fields are all required, one representative covers them all.
 
+**Action dialog required fields — NOT subject to cross-form deduplication:**
+If a `state_bound_action_bar` action opens a dialog with its own required `fields{}` (e.g., Activate requires Activation Date, Reject requires a Reason, Withdraw requires a Reason, Close requires a Closure Reason), each such dialog is its own testing scope. Generate ONE "leave the required dialog field blank and submit" test per distinct action dialog. These are HIGH priority — they block state transitions and are common defect sites. Do not suppress them because the main wizard already has a blank-field test.
+
 **2. Format violations:**
 
 For fields with type-specific format rules (from AST type or description):
@@ -143,6 +150,10 @@ For each unique `constraints[]` entry in the AST, and for cross-field rules desc
 
 One test per unique constraint. Do not duplicate the same mechanism.
 
+**Constraint timing tests:** If the spec states an action is blocked by a pre-existing system state (e.g., "cannot close with active accounts", "cannot transfer to the same office"), generate TWO tests:
+1. The standard constraint violation test (user opens the dialog, fills required fields, submits → blocked).
+2. A constraint-timing test: user opens the dialog WITHOUT filling required fields → assert whether the block is shown immediately on dialog open (before the user fills anything) OR only on submit. This distinguishes whether the UI enforces the constraint eagerly or lazily. Steps: open the dialog, observe the state → assert what is visible before any interaction. If the spec is silent on timing, generate only the first test.
+
 **5. Precondition violations (auth, role, and state):**
 
 For each `preconditions[]` entry on any action — and for auth/role rules described in the spec:
@@ -154,18 +165,18 @@ For each `preconditions[]` entry on any action — and for auth/role rules descr
 **6. State-machine violations:**
 
 From `state_bound_action_bar` nodes:
-- For each state where an action is NOT listed in `available_actions`, generate one test attempting that action from that state. Example: attempting "Approve" on an entity already in "Active" state.
+- **Every defined state must have at least one wrong-state test.** For each state, identify at least one action that is NOT in its `available_actions` list and generate a test attempting that action from that state.
 - If a state has an empty `available_actions` array, generate one test verifying no action buttons are visible in that state.
-
-One test per unique wrong-state scenario — do not enumerate every action × every invalid state.
+- **Do not stop after 1–2 representative examples** when the module defines 4+ distinct states. The states Active, Pending, Closed, Rejected, and Withdrawn each have different action sets — each must be independently verified.
+- One test per state is sufficient — pick the most distinct unavailable action for that state. Do not enumerate every action × every state (that would be exponential).
 
 ---
 
 **DEDUPLICATION GATE (run before outputting):**
 
-1. **Required field dedup:** Multiple required text fields → ONE representative test, not one per field.
+1. **Required field dedup:** Multiple required text fields in the **same form or dialog** → ONE representative test, not one per field.
 2. **Sub-rule dedup:** A field with multiple validation sub-rules (e.g., password: length + uppercase + lowercase + number + special char) → ONE representative violation test, not one per sub-rule.
-3. **Cross-form dedup:** If two forms in the same module share the same validation mechanism (e.g., both have a required text field) → test it on the primary form only.
+3. **Cross-form dedup:** If two **main forms** in the same module share the same validation mechanism → test it on the primary form only. **Exception: action dialogs are never suppressed by cross-form dedup** — each action dialog with a required field gets its own blank-field test regardless.
 4. **Uniqueness check:** Before outputting, ask for each TC: "Does this test catch a bug that NO other test in this module would catch?" If no → remove it.
 
 ---
@@ -174,9 +185,11 @@ One test per unique wrong-state scenario — do not enumerate every action × ev
 
 - Simple module (login, single form, display page): **2–4 tests**
 - Medium module (standard CRUD form, form with constraints): **4–8 tests**
-- Complex module (state machine, multi-form, wizard with many constraints): **8–12 tests**
+- Complex module (state machine, multi-form, wizard with many constraints): **10–16 tests**
 
-If you exceed these ranges, you are generating redundant tests. Apply the deduplication gate again before outputting.
+For modules with a `state_bound_action_bar` defining 4+ states, the state-machine violation tests alone will produce 4–5 tests. This is expected and correct — do not suppress them to hit a lower target.
+
+If you exceed the upper range, apply the deduplication gate again before outputting.
 
 ---
 
@@ -184,6 +197,17 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
 
 - **High:** State precondition violations, constraint violations that could corrupt data, unauthenticated access, required field representatives
 - **Medium:** Format violations, cross-field validation, numeric bounds, wrong-role access, wrong-state action attempts
+
+---
+
+**WORKFLOW-AWARE FAILURE INJECTION (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- For each workflow that contains a form interaction (terminal action is a submit/save/create/approve button):
+  - Identify the most **critical blocking failure** for that workflow's `conditional_branch`.
+  - If that failure mode is NOT already covered by another workflow's negative test, generate one negative TC for it.
+- **Do NOT generate one negative TC per workflow mechanically.** Apply the existing deduplication gate first — only add a TC if it catches a bug that no other test would catch.
+- Add `"wf_ref": "WF-NNN"` to each TC that maps to a workflow. Set `"wf_ref": null` for generic validation tests.
 
 ---
 
@@ -195,6 +219,7 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
   "test_cases": [
     {
       "tc_id": "N-001",
+      "wf_ref": null,
       "test_case": "Short descriptive name",
       "preconditions": ["precondition 1"],
       "steps": ["1. Step one", "2. Step two"],
@@ -212,7 +237,7 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
 
 
 ------------------------------------------------------------
-[21:47:19] Test-Negative - USER PROMPT
+[15:28:46] Test-Negative - USER PROMPT
 ------------------------------------------------------------
 <module_name>Course Page</module_name>
 
@@ -224,30 +249,35 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
       "type": "tab_container",
       "tabs": []
     },
-    "Collapse_All_Link": {
-      "type": "link",
-      "element_name": "Collapse all",
-      "on_success": "collapses all sections"
-    },
     "Sections_List": {
       "type": "repeating_group",
       "item_fields": {
-        "Toggle_Section_Collapse": {
+        "Section_Header": {
           "type": "button",
-          "element_name": "Toggle Section Collapse",
+          "element_name": "Toggle Section Collapse/Expand",
           "on_success": "toggles this section collapsed state"
         },
-        "Activities": {
+        "Section_Collapse_State": {
+          "type": "unspecified",
+          "constraints": [],
+          "description": "represents whether the section is collapsed or expanded"
+        },
+        "Activities_and_Resources": {
           "type": "repeating_group",
           "item_fields": {
             "Activity_Name": {
               "type": "link",
-              "element_name": "Open activity/resource",
-              "on_success": "opens activity or resource"
+              "required": true,
+              "on_success": "navigates to activity or resource"
             }
           }
         }
       }
+    },
+    "Collapse_All_Link": {
+      "type": "link",
+      "element_name": "Collapse all",
+      "on_success": "collapses all sections at once"
     }
   }
 }
@@ -262,10 +292,16 @@ The Course page displays the full course content organized into collapsible sect
 
 </description>
 
+<workflows>
+WF-001 | Toggle section collapse/expand | actor: <role> | branch: none | terminal: Toggle Section Collapse/Expand | on_success: toggles this section collapsed state
+WF-002 | Collapse all sections | actor: <role> | branch: none | terminal: Collapse all | on_success: collapses all sections at once
+WF-003 | Open activity or resource | actor: <role> | branch: none | terminal: Activity_Name | on_success: navigates to activity or resource
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[21:48:21] Test-Negative - LLM RESPONSE
+[15:29:52] Test-Negative - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Course Page",
@@ -273,29 +309,32 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "N-001",
-      "test_case": "Unauthenticated user cannot access Course page",
+      "wf_ref": "WF-003",
+      "test_case": "Click activity item whose Activity_Name is blank (required field violation)",
       "preconditions": [
-        "User is not authenticated (no active session)"
+        "A course exists with at least one section and one activity record whose Activity_Name is blank/missing"
       ],
       "steps": [
-        "1. In an unauthenticated browser session, navigate to the <Course page URL>"
+        "1. Open the Course Page for <course>",
+        "2. Locate the activity list item that has no visible name (the Activity_Name is blank)",
+        "3. Click the area where the activity name / link would normally appear"
       ],
-      "expected_result": "Navigation is blocked: the user is redirected to the Login page (visible login form or login prompt); the Course page heading and sections are not visible; Course content is not accessible.",
+      "expected_result": "The Activity_Name link does not navigate; the Activity_Name field for that item displays an inline validation indicator showing it is required (e.g. an inline error on the activity item that the Activity_Name is required); no navigation occurs and the Course Page remains displayed (the activity is not opened).",
       "priority": "high"
     },
     {
       "tc_id": "N-002",
-      "test_case": "'Collapse all' fails to collapse expanded sections",
+      "wf_ref": "WF-002",
+      "test_case": "Use 'Collapse all' when there are no sections",
       "preconditions": [
-        "User is authenticated and has access to the course",
-        "Course contains at least two sections"
+        "A course exists with zero sections (no sections listed on the Course Page)"
       ],
       "steps": [
-        "1. On the Course page, click the chevron for <Section 1> to expand it",
-        "2. Click the chevron for <Section 2> to expand it",
-        "3. Click the \"Collapse all\" link at the top right"
+        "1. Open the Course Page for <course with no sections>",
+        "2. Observe the top-right area where the 'Collapse all' link is expected",
+        "3. Attempt to click the 'Collapse all' link"
       ],
-      "expected_result": "The collapse action is blocked: a visible error indicator appears near the top of the page (error banner or toast) stating the collapse failed; all previously expanded sections remain expanded (no section enters the collapsed state); the Course page state is unchanged.",
+      "expected_result": "The 'Collapse all' control is not actionable: either the 'Collapse all' link is not rendered or it is displayed in a disabled state; clicking it does not change the page (no collapse action occurs) and no section collapse animation or state change is performed.",
       "priority": "medium"
     }
   ],
@@ -308,7 +347,7 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
 }
 
 ------------------------------------------------------------
-[21:48:21] Test-Negative - PARSED JSON
+[15:29:52] Test-Negative - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Course Page",
@@ -316,29 +355,32 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "N-001",
-      "test_case": "Unauthenticated user cannot access Course page",
+      "wf_ref": "WF-003",
+      "test_case": "Click activity item whose Activity_Name is blank (required field violation)",
       "preconditions": [
-        "User is not authenticated (no active session)"
+        "A course exists with at least one section and one activity record whose Activity_Name is blank/missing"
       ],
       "steps": [
-        "1. In an unauthenticated browser session, navigate to the <Course page URL>"
+        "1. Open the Course Page for <course>",
+        "2. Locate the activity list item that has no visible name (the Activity_Name is blank)",
+        "3. Click the area where the activity name / link would normally appear"
       ],
-      "expected_result": "Navigation is blocked: the user is redirected to the Login page (visible login form or login prompt); the Course page heading and sections are not visible; Course content is not accessible.",
+      "expected_result": "The Activity_Name link does not navigate; the Activity_Name field for that item displays an inline validation indicator showing it is required (e.g. an inline error on the activity item that the Activity_Name is required); no navigation occurs and the Course Page remains displayed (the activity is not opened).",
       "priority": "high"
     },
     {
       "tc_id": "N-002",
-      "test_case": "'Collapse all' fails to collapse expanded sections",
+      "wf_ref": "WF-002",
+      "test_case": "Use 'Collapse all' when there are no sections",
       "preconditions": [
-        "User is authenticated and has access to the course",
-        "Course contains at least two sections"
+        "A course exists with zero sections (no sections listed on the Course Page)"
       ],
       "steps": [
-        "1. On the Course page, click the chevron for <Section 1> to expand it",
-        "2. Click the chevron for <Section 2> to expand it",
-        "3. Click the \"Collapse all\" link at the top right"
+        "1. Open the Course Page for <course with no sections>",
+        "2. Observe the top-right area where the 'Collapse all' link is expected",
+        "3. Attempt to click the 'Collapse all' link"
       ],
-      "expected_result": "The collapse action is blocked: a visible error indicator appears near the top of the page (error banner or toast) stating the collapse failed; all previously expanded sections remain expanded (no section enters the collapsed state); the Course page state is unchanged.",
+      "expected_result": "The 'Collapse all' control is not actionable: either the 'Collapse all' link is not rendered or it is displayed in a disabled state; clicking it does not change the page (no collapse action occurs) and no section collapse animation or state change is performed.",
       "priority": "medium"
     }
   ],

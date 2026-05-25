@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-22T21:29:56.929729
+DEBUG SESSION STARTED: 2026-05-25T15:37:16.699682
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[21:30:13] Semantic Critic - SYSTEM PROMPT
+[15:37:38] Semantic Critic - SYSTEM PROMPT
 ------------------------------------------------------------
 You are a UI-AST Semantic Critic. You receive (1) a raw functional description and (2) a generated UI-AST JSON.
 
@@ -106,7 +106,7 @@ Output ONLY the JSON object. No explanation, no markdown fencing, no preamble.
 
 
 ------------------------------------------------------------
-[21:30:13] Semantic Critic - USER PROMPT
+[15:37:38] Semantic Critic - USER PROMPT
 ------------------------------------------------------------
 <description>
 The Investments page is a multi-section workspace.The portfolio snapshot is a read-only panel that shows current fund holdings, market value, and unrealised gain or loss.The trade funds form includes Action (Buy or Sell), Fund Symbol (autocomplete), Quantity, Funding or Destination Account (dropdown), and an “Execute Trade” button. The system checks that the symbol exists, quantity is greater than zero, and that the customer has sufficient buying power or share balance. A successful submission executes a same-day trade, updates holdings, and displays “Trade executed successfully.” with an order ID; validation failures appear inline.The recurring investment plan form includes Fund Symbol, Contribution Amount, Frequency (Weekly or Monthly), Start Date, Funding Account, and a “Create Plan” button. The system validates that the start date is in the future, the contribution meets the minimum, and that the funding account has adequate balance. Success stores the schedule and shows “Plan created successfully.”; errors highlight the problematic fields (for example, “Start date must be in the future”).
@@ -133,7 +133,7 @@ The Investments page is a multi-section workspace.The portfolio snapshot is a re
           "type": "search",
           "required": true,
           "constraints": [
-            "symbol must exist (validated against symbol directory)"
+            "symbol must exist (validated by system); validation failures returned inline"
           ]
         },
         "Quantity": {
@@ -145,18 +145,22 @@ The Investments page is a multi-section workspace.The portfolio snapshot is a re
         },
         "Funding_or_Destination_Account": {
           "type": "dropdown",
-          "required": true
+          "required": true,
+          "constraints": [
+            "account must be a valid funding or destination account for the customer"
+          ]
         }
       },
       "submit_actions": [
         {
           "element_name": "Execute Trade",
+          "type": "button",
           "constraints": [
-            "if Action == Buy then funding account must have sufficient buying power",
-            "if Action == Sell then customer must have sufficient share balance"
+            "For Action == Buy: Funding_or_Destination_Account must have sufficient buying power",
+            "For Action == Sell: customer must have sufficient share balance of Fund_Symbol"
           ],
-          "on_success": "executes same-day trade, updates holdings, displays 'Trade executed successfully.' with order ID",
-          "on_error": "validation failures appear inline"
+          "on_success": "executes same-day trade, updates holdings, displays \"Trade executed successfully.\" with order ID",
+          "on_failure": "validation failures returned inline on the affected fields"
         }
       ]
     },
@@ -167,14 +171,14 @@ The Investments page is a multi-section workspace.The portfolio snapshot is a re
           "type": "search",
           "required": true,
           "constraints": [
-            "symbol must exist (validated against symbol directory)"
+            "symbol must exist (validated by system); validation failures returned inline"
           ]
         },
         "Contribution_Amount": {
           "type": "number",
           "required": true,
           "constraints": [
-            "must meet the minimum contribution"
+            "contribution must meet the minimum contribution requirement"
           ]
         },
         "Frequency": {
@@ -194,17 +198,23 @@ The Investments page is a multi-section workspace.The portfolio snapshot is a re
         },
         "Funding_Account": {
           "type": "dropdown",
-          "required": true
+          "required": true,
+          "constraints": [
+            "funding account must have adequate balance for initial contribution and ongoing debits"
+          ]
         }
       },
       "submit_actions": [
         {
           "element_name": "Create Plan",
+          "type": "button",
           "constraints": [
-            "funding account must have adequate balance for initial contribution and scheduled debits"
+            "Start_Date must be in the future",
+            "Contribution_Amount must meet minimum contribution requirement",
+            "Funding_Account must have adequate balance"
           ],
-          "on_success": "stores schedule and shows 'Plan created successfully.'",
-          "on_error": "validation failures highlight the problematic fields (e.g., 'Start date must be in the future')"
+          "on_success": "stores the schedule and displays \"Plan created successfully.\"",
+          "on_failure": "errors highlight the problematic fields (e.g., \"Start date must be in the future\")"
         }
       ]
     }
@@ -215,22 +225,178 @@ The Investments page is a multi-section workspace.The portfolio snapshot is a re
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[21:30:22] Semantic Critic - LLM RESPONSE
+[15:38:05] Semantic Critic - LLM RESPONSE
+------------------------------------------------------------
+{
+  "verdict": "retry",
+  "summary": "The AST matches the described forms and validations but includes multiple inferred 'required' flags that are not stated in the description (several phantoms); remove or justify these in regeneration.",
+  "missing": [],
+  "phantoms": [
+    "components.Trade_Funds_Form.fields.Action.required (required inferred but not stated in the description)",
+    "components.Trade_Funds_Form.fields.Fund_Symbol.required (required inferred but not stated in the description)",
+    "components.Trade_Funds_Form.fields.Quantity.required (required inferred but not stated in the description)",
+    "components.Trade_Funds_Form.fields.Funding_or_Destination_Account.required (required inferred but not stated in the description)",
+    "components.Recurring_Investment_Plan_Form.fields.Fund_Symbol.required (required inferred but not stated in the description)",
+    "components.Recurring_Investment_Plan_Form.fields.Contribution_Amount.required (required inferred but not stated in the description)",
+    "components.Recurring_Investment_Plan_Form.fields.Frequency.required (required inferred but not stated in the description)",
+    "components.Recurring_Investment_Plan_Form.fields.Start_Date.required (required inferred but not stated in the description)",
+    "components.Recurring_Investment_Plan_Form.fields.Funding_Account.required (required inferred but not stated in the description)"
+  ],
+  "fixes": [
+    "Remove the inferred 'required' boolean properties from all form fields unless the description explicitly states a field is required. Update these paths: components.Trade_Funds_Form.fields.Action, components.Trade_Funds_Form.fields.Fund_Symbol, components.Trade_Funds_Form.fields.Quantity, components.Trade_Funds_Form.fields.Funding_or_Destination_Account, components.Recurring_Investment_Plan_Form.fields.Fund_Symbol, components.Recurring_Investment_Plan_Form.fields.Contribution_Amount, components.Recurring_Investment_Plan_Form.fields.Frequency, components.Recurring_Investment_Plan_Form.fields.Start_Date, components.Recurring_Investment_Plan_Form.fields.Funding_Account to remove the 'required' property (or set it to false) in the regenerated AST.",
+    "If any fields are intended to be required, add an explicit sentence in the description stating which fields are required (e.g., 'All fields on the Trade Funds form are required') so the regenerated AST can include 'required': true only where anchored by the description."
+  ]
+}
+
+------------------------------------------------------------
+[15:38:05] Semantic Critic - PARSED JSON
+------------------------------------------------------------
+{
+  "verdict": "retry",
+  "summary": "The AST matches the described forms and validations but includes multiple inferred 'required' flags that are not stated in the description (several phantoms); remove or justify these in regeneration.",
+  "missing": [],
+  "phantoms": [
+    "components.Trade_Funds_Form.fields.Action.required (required inferred but not stated in the description)",
+    "components.Trade_Funds_Form.fields.Fund_Symbol.required (required inferred but not stated in the description)",
+    "components.Trade_Funds_Form.fields.Quantity.required (required inferred but not stated in the description)",
+    "components.Trade_Funds_Form.fields.Funding_or_Destination_Account.required (required inferred but not stated in the description)",
+    "components.Recurring_Investment_Plan_Form.fields.Fund_Symbol.required (required inferred but not stated in the description)",
+    "components.Recurring_Investment_Plan_Form.fields.Contribution_Amount.required (required inferred but not stated in the description)",
+    "components.Recurring_Investment_Plan_Form.fields.Frequency.required (required inferred but not stated in the description)",
+    "components.Recurring_Investment_Plan_Form.fields.Start_Date.required (required inferred but not stated in the description)",
+    "components.Recurring_Investment_Plan_Form.fields.Funding_Account.required (required inferred but not stated in the description)"
+  ],
+  "fixes": [
+    "Remove the inferred 'required' boolean properties from all form fields unless the description explicitly states a field is required. Update these paths: components.Trade_Funds_Form.fields.Action, components.Trade_Funds_Form.fields.Fund_Symbol, components.Trade_Funds_Form.fields.Quantity, components.Trade_Funds_Form.fields.Funding_or_Destination_Account, components.Recurring_Investment_Plan_Form.fields.Fund_Symbol, components.Recurring_Investment_Plan_Form.fields.Contribution_Amount, components.Recurring_Investment_Plan_Form.fields.Frequency, components.Recurring_Investment_Plan_Form.fields.Start_Date, components.Recurring_Investment_Plan_Form.fields.Funding_Account to remove the 'required' property (or set it to false) in the regenerated AST.",
+    "If any fields are intended to be required, add an explicit sentence in the description stating which fields are required (e.g., 'All fields on the Trade Funds form are required') so the regenerated AST can include 'required': true only where anchored by the description."
+  ]
+}
+
+------------------------------------------------------------
+[15:38:28] Semantic Critic - USER PROMPT
+------------------------------------------------------------
+<description>
+The Investments page is a multi-section workspace.The portfolio snapshot is a read-only panel that shows current fund holdings, market value, and unrealised gain or loss.The trade funds form includes Action (Buy or Sell), Fund Symbol (autocomplete), Quantity, Funding or Destination Account (dropdown), and an “Execute Trade” button. The system checks that the symbol exists, quantity is greater than zero, and that the customer has sufficient buying power or share balance. A successful submission executes a same-day trade, updates holdings, and displays “Trade executed successfully.” with an order ID; validation failures appear inline.The recurring investment plan form includes Fund Symbol, Contribution Amount, Frequency (Weekly or Monthly), Start Date, Funding Account, and a “Create Plan” button. The system validates that the start date is in the future, the contribution meets the minimum, and that the funding account has adequate balance. Success stores the schedule and shows “Plan created successfully.”; errors highlight the problematic fields (for example, “Start date must be in the future”).
+
+
+</description>
+
+<ast>
+{
+  "module_name": "Investments",
+  "components": {
+    "Trade_Funds_Form": {
+      "type": "form",
+      "fields": {
+        "Action": {
+          "type": "dropdown",
+          "options": [
+            "Buy",
+            "Sell"
+          ]
+        },
+        "Fund_Symbol": {
+          "type": "search",
+          "constraints": [
+            "symbol must exist (validated on input or submission)"
+          ]
+        },
+        "Quantity": {
+          "type": "number",
+          "constraints": [
+            "must be greater than 0"
+          ]
+        },
+        "Funding_or_Destination_Account": {
+          "type": "dropdown"
+        }
+      },
+      "submit_actions": [
+        {
+          "element_name": "Execute Trade",
+          "constraints": [
+            "Fund_Symbol must exist",
+            "Quantity must be greater than 0",
+            "If Action == Buy then Funding_or_Destination_Account must have sufficient buying power",
+            "If Action == Sell then customer must have sufficient share balance of the specified Fund_Symbol"
+          ],
+          "on_success": "executes same-day trade, updates holdings, displays \"Trade executed successfully.\" with order ID",
+          "on_failure": "validation failures appear inline"
+        }
+      ]
+    },
+    "Recurring_Investment_Plan_Form": {
+      "type": "form",
+      "fields": {
+        "Fund_Symbol": {
+          "type": "search",
+          "constraints": [
+            "symbol must exist (validated on input or submission)"
+          ]
+        },
+        "Contribution_Amount": {
+          "type": "number",
+          "constraints": [
+            "must meet the minimum contribution amount"
+          ]
+        },
+        "Frequency": {
+          "type": "dropdown",
+          "options": [
+            "Weekly",
+            "Monthly"
+          ]
+        },
+        "Start_Date": {
+          "type": "date",
+          "constraints": [
+            "must be in the future",
+            "error_message: \"Start date must be in the future\""
+          ]
+        },
+        "Funding_Account": {
+          "type": "dropdown",
+          "constraints": [
+            "funding account must have adequate balance for the initial and subsequent contributions"
+          ]
+        }
+      },
+      "submit_actions": [
+        {
+          "element_name": "Create Plan",
+          "constraints": [
+            "Start_Date must be in the future",
+            "Contribution_Amount must meet minimum contribution rules",
+            "Funding_Account must have adequate balance"
+          ],
+          "on_success": "stores schedule and shows \"Plan created successfully.\"",
+          "on_failure": "errors highlight the problematic fields (e.g., \"Start date must be in the future\")"
+        }
+      ]
+    }
+  }
+}
+</ast>
+
+IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
+
+------------------------------------------------------------
+[15:38:43] Semantic Critic - LLM RESPONSE
 ------------------------------------------------------------
 {
   "verdict": "yes",
-  "summary": "AST accurately captures the interactive forms, fields, validations, conditional checks, and submit behaviors described; no critical elements are missing.",
+  "summary": "AST includes both forms, all specified fields, validation rules, submit actions, and success/failure behaviors matching the description.",
   "missing": [],
   "phantoms": [],
   "fixes": []
 }
 
 ------------------------------------------------------------
-[21:30:22] Semantic Critic - PARSED JSON
+[15:38:43] Semantic Critic - PARSED JSON
 ------------------------------------------------------------
 {
   "verdict": "yes",
-  "summary": "AST accurately captures the interactive forms, fields, validations, conditional checks, and submit behaviors described; no critical elements are missing.",
+  "summary": "AST includes both forms, all specified fields, validation rules, submit actions, and success/failure behaviors matching the description.",
   "missing": [],
   "phantoms": [],
   "fixes": []

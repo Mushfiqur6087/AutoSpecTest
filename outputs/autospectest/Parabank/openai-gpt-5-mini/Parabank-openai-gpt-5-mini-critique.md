@@ -1,19 +1,19 @@
 # Semantic Critique — Parabank
 
-Generated: 2026-05-22T21:34:18.810093Z
+Generated: 2026-05-25T15:44:48.806981Z
 
 ## Login
 
 **Verdict:** yes  
 **Forced ship:** no  
 
-AST correctly captures the form fields, validations, submit behavior, success/failure outcomes, and the Forgot Password link; only a minor inference was made about the link's navigation target.
+AST matches the described interactive elements and behaviors; only a minor inferred navigation target on the 'Forgot Password?' link was added.
 
 **Missing:** none
 
 **Phantoms (hallucinations):**
 
-- Forgot_Password_Link.on_click (navigates to Password Reset page — destination not explicitly stated in description)
+- Login_Form.links[0].on_click (navigates to Forgot Password page) - the description names the link but does not specify its navigation target
 
 ---
 
@@ -22,7 +22,7 @@ AST correctly captures the form fields, validations, submit behavior, success/fa
 **Verdict:** yes  
 **Forced ship:** no  
 
-The AST accurately includes all interactive elements (all required fields, state dropdown with options, validation constraints including patterns and auto-formatting, submit action with success message and redirect, and failure behavior), with no significant missing items or extraneous phantoms.
+AST accurately captures all interactive fields, the State dropdown options, validation constraints (including patterns and automatic formatting), the Register submit action, success message and redirect, and error handling.
 
 **Missing:** none
 
@@ -35,7 +35,7 @@ The AST accurately includes all interactive elements (all required fields, state
 **Verdict:** yes  
 **Forced ship:** no  
 
-The AST accurately captures the interactive elements: welcome message, masked clickable account number link, table columns including open date, footer total balance, and ordering; no critical items missing or extraneous.
+AST correctly captures the interactive elements (clickable masked Account Number with row action and masking constraint, table columns, and default sort by Open_Date) and contains no missing or phantom critical items.
 
 **Missing:** none
 
@@ -48,7 +48,7 @@ The AST accurately captures the interactive elements: welcome message, masked cl
 **Verdict:** yes  
 **Forced ship:** no  
 
-AST correctly captures all interactive elements (account-type selection, deposit amount input, funding account dropdown, Open Account button), validations (minimums per account type, numeric check, funding sufficiency), real-time errors, and success redirect.
+The AST accurately captures the interactive elements (account-type selection, initial deposit field with conditional minimums, funding account dropdown, realtime validation, and the Open Account action with success message and redirect) and contains no extraneous items.
 
 **Missing:** none
 
@@ -61,11 +61,13 @@ AST correctly captures all interactive elements (account-type selection, deposit
 **Verdict:** yes  
 **Forced ship:** no  
 
-The AST correctly represents the described interactive elements, validations, and conditional destination logic with no missing or extraneous elements.
+AST accurately captures the described interactive elements and validations; only a minor inferred label for the submit action was added.
 
 **Missing:** none
 
-**Phantoms:** none
+**Phantoms (hallucinations):**
+
+- Transfer_Form.submit_actions[0].element_name (Submit Transfer button label was not explicitly named in the description)
 
 ---
 
@@ -74,7 +76,7 @@ The AST correctly represents the described interactive elements, validations, an
 **Verdict:** yes  
 **Forced ship:** no  
 
-The AST includes the form, all listed fields (including dropdown and numeric amount), the Pay button, account-match and funds checks, success and inline-failure behaviors—matching the description.
+AST includes the payment form with all described interactive fields, account-number match and funds checks, submit action, success/failure behaviors, and inline error handling; no extraneous elements found.
 
 **Missing:** none
 
@@ -87,11 +89,14 @@ The AST includes the form, all listed fields (including dropdown and numeric amo
 **Verdict:** yes  
 **Forced ship:** no  
 
-The AST accurately represents the interactive elements (loan type selection, loan amount with type-specific ranges, down payment, collateral account dropdown, validations, and credit engine behavior) and matches the described success/failure outcomes.
+AST accurately captures the interactive elements, validations, and simulated credit behavior; only minor inferred items are present.
 
 **Missing:** none
 
-**Phantoms:** none
+**Phantoms (hallucinations):**
+
+- components.Loan_Request_Form.submit_actions[0] (Submit Application button label not explicitly named in the description)
+- components.Loan_Request_Form.fields.*.required (fields marked required were not explicitly stated in the description)
 
 ---
 
@@ -100,7 +105,7 @@ The AST accurately represents the interactive elements (loan type selection, loa
 **Verdict:** yes  
 **Forced ship:** no  
 
-The AST correctly includes the editable pre-filled form fields, the Update Profile submit action, per-field validation, success message with data refresh, and failure behavior with field highlights and an inline error banner.
+AST accurately captures the editable pre-filled form, all seven fields, submit button, validation behavior, and success/failure outcomes with no extra elements.
 
 **Missing:** none
 
@@ -113,13 +118,11 @@ The AST correctly includes the editable pre-filled form fields, the Update Profi
 **Verdict:** yes  
 **Forced ship:** no  
 
-The AST captures the two forms, their fields, constraints, and submit behaviors as described; only a minor inference was made about Travel_Notice being a repeating group with Start_Date/End_Date fields.
+AST correctly captures both forms, all interactive fields (including travel notice details), submit actions, and the specified validations/results; no significant missing items or extraneous elements found.
 
 **Missing:** none
 
-**Phantoms (hallucinations):**
-
-- Card_Controls_Form.fields.Travel_Notice (modeled as a repeating_group with Start_Date/End_Date and Destination — the description only mentioned optional dates and destinations but did not specify multiplicity or explicit start/end field names)
+**Phantoms:** none
 
 ---
 
@@ -128,7 +131,7 @@ The AST captures the two forms, their fields, constraints, and submit behaviors 
 **Verdict:** yes  
 **Forced ship:** no  
 
-AST accurately captures the interactive forms, fields, validations, conditional checks, and submit behaviors described; no critical elements are missing.
+AST includes both forms, all specified fields, validation rules, submit actions, and success/failure behaviors matching the description.
 
 **Missing:** none
 
@@ -141,14 +144,11 @@ AST accurately captures the interactive forms, fields, validations, conditional 
 **Verdict:** yes  
 **Forced ship:** no  
 
-AST correctly captures both forms, their fields, buttons, validations, and success/failure behaviors; only minor inferred conditionals are present.
+AST includes both forms, all interactive fields, validation rules, and success/failure behaviors described, with no significant missing elements or unsupported phantoms.
 
 **Missing:** none
 
-**Phantoms (hallucinations):**
-
-- Generate_Statement_Form.fields.Month_Year.visible_when (conditional visibility inferred though description did not explicitly state visibility rules)
-- EStatement_Preference_Form.fields.Email_Address.required_when (required-when inference — description did not explicitly state the email is required only when Paperless is checked)
+**Phantoms:** none
 
 ---
 
@@ -157,7 +157,7 @@ AST correctly captures both forms, their fields, buttons, validations, and succe
 **Verdict:** yes  
 **Forced ship:** no  
 
-AST matches the description: collapsible panel containing the change-password form with the three password fields, Change Password button, verification/constraints, success message, and validation behavior.
+The AST accurately captures the collapsible panel, the change-password form with all three password fields, the Change Password button, validation constraints (current-password verification, strong-password policy, match check), and success/error behaviors; no missing or extraneous interactive elements found.
 
 **Missing:** none
 
@@ -170,10 +170,14 @@ AST matches the description: collapsible panel containing the change-password fo
 **Verdict:** yes  
 **Forced ship:** no  
 
-The AST accurately captures both forms, their fields, validation constraints, submit actions, and success/failure behaviors as described.
+AST accurately models both forms and their validations; only minor issues (non-critical) around Reason_for_Call being marked required and Phone_Number type labeled 'unspecified'.
 
-**Missing:** none
+**Missing:**
 
-**Phantoms:** none
+- Schedule_Callback_Form.fields.Phone_Number.type (expected a phone/tel input type rather than 'unspecified')
+
+**Phantoms (hallucinations):**
+
+- Schedule_Callback_Form.fields.Reason_for_Call.required (the description did not state this field was required)
 
 ---

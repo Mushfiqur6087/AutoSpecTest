@@ -323,8 +323,12 @@ def _merge_module_tests(
             "total": len(all_cases),
             "positive": len(pos_cases),
             "negative": len(neg_cases),
+            "edge": len(edge_cases),          # actual edge TC count, not from agent summary
             "boundary": edge_summary.get("boundary", 0),
-            "edge": edge_summary.get("edge", 0),
+            "input_edge": edge_summary.get("input_edge", 0),
+            "interaction_edge": edge_summary.get("interaction_edge", 0),
+            "state_edge": edge_summary.get("state_edge", 0),
+            "data_edge": edge_summary.get("data_edge", 0),
             "high_priority": _count(all_cases, "high"),
             "medium_priority": _count(all_cases, "medium"),
             "low_priority": _count(all_cases, "low"),
@@ -596,13 +600,12 @@ def _render_test_cases_md(data: dict) -> str:
         lines.append("")
         lines.append("| Modules | Total | Positive | Negative | Edge | High | Medium | Low |")
         lines.append("|---------|-------|----------|----------|------|------|--------|-----|")
-        edge_total = total.get("boundary", 0) + total.get("edge", 0)
         lines.append(
             f"| {total.get('total_modules', 0)}"
             f" | {total.get('total_tests', 0)}"
             f" | {total.get('positive', 0)}"
             f" | {total.get('negative', 0)}"
-            f" | {edge_total}"
+            f" | {total.get('edge', 0)}"
             f" | {total.get('high_priority', 0)}"
             f" | {total.get('medium_priority', 0)}"
             f" | {total.get('low_priority', 0)} |"
@@ -624,12 +627,11 @@ def _render_test_cases_md(data: dict) -> str:
 
         summary = module.get("summary", {})
         if summary:
-            edge_total = summary.get("boundary", 0) + summary.get("edge", 0)
             lines.append(
                 f"Total: **{summary.get('total', 0)}** "
                 f"(positive: {summary.get('positive', 0)}, "
                 f"negative: {summary.get('negative', 0)}, "
-                f"edge: {edge_total})"
+                f"edge: {summary.get('edge', 0)})"
             )
             lines.append("")
 

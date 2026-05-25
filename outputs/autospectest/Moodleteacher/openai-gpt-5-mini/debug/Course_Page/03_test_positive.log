@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-22T21:47:19.044672
+DEBUG SESSION STARTED: 2026-05-25T15:28:46.010866
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[21:47:19] Test-Positive - SYSTEM PROMPT
+[15:28:46] Test-Positive - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Expert UI Test Case Generator. You receive (1) a UI-AST JSON for one specific module and (2) the original functional description for that module.
 
@@ -24,6 +24,10 @@ Your job is to produce ONLY positive/functional UI test cases — tests where va
 <description>
 {Original functional description text for this module}
 </description>
+
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
 
 ---
 
@@ -146,6 +150,13 @@ Because you are testing a module in isolation, establish the required entry stat
 **1. Forms & Wizards (`form`, `wizard`):**
 - Generate ONE happy path per distinct success outcome.
 - *Conditional UI Check:* If a toggle/dropdown reveals new mandatory fields (`visible_when`), generate a separate test for that conditional branch.
+- **Wizard step coverage (CRITICAL):** If a wizard has multiple steps and any step beyond Step 1 contains its own named field group (e.g., "Address Details", "Family Members", "Identifiers"), generate ONE dedicated positive TC per such step. The TC must:
+  - Navigate to that specific step (include the preceding steps as preconditions or brief navigation steps)
+  - Fill the fields described for that step (not just pass through)
+  - Assert the step's content is visible/saved on the detail page after final submission
+  - **Do NOT collapse all wizard steps into one happy-path TC** — if Steps 2, 3, and 4 each have their own named section in the spec, they each need their own TC.
+- **Wizard in-step identifiers/duplicates:** If a wizard step allows adding identifiers, documents, or similar entries that have a uniqueness constraint, include a TC for that wizard step that also verifies the constraint (e.g., attempting to add a duplicate Document Type+Key pair inside the wizard). This is a different code path from adding the same post-creation on the detail page.
+- **Action dialogs:** If a `state_bound_action_bar` action opens a dialog with its own `fields{}` (e.g., Activate requires Activation Date, Reject requires Reason), generate ONE positive TC per such action-dialog — distinct from the state-transition TC. The TC fills the dialog field and completes the action.
 
 **2. State Machines (`state_bound_action_bar`):**
 - For each unique action available in a specific state, generate ONE test performing that action.
@@ -200,6 +211,19 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 
 ---
 
+**WORKFLOW COVERAGE OBLIGATION (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- Your test cases must **collectively cover every workflow** listed.
+- For each `wf_id`, at least one TC must:
+  - Activate the `conditional_branch` (if not null) — i.e. the test must set up the condition described.
+  - Assert the `on_success` as its `expected_result` (verbatim or as the primary basis for the expected result).
+- Add `"wf_ref": "WF-NNN"` to each TC to identify which workflow it covers.
+- If one TC naturally covers multiple workflows (e.g., the base path overlaps), pick the most specific `wf_ref`.
+- If a TC does not map to any workflow (e.g., a navigation-only test), set `"wf_ref": null`.
+
+---
+
 **OUTPUT — JSON only, no prose, no markdown fencing:**
 
 {
@@ -208,6 +232,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
   "test_cases": [
     {
       "tc_id": "P-001",
+      "wf_ref": "WF-001",
       "test_case": "Short descriptive name",
       "preconditions": ["User logged in as <Role>", "<Prerequisite state>"],
       "steps": ["1. Step one", "2. Step two"],
@@ -224,7 +249,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 }
 
 ------------------------------------------------------------
-[21:47:19] Test-Positive - USER PROMPT
+[15:28:46] Test-Positive - USER PROMPT
 ------------------------------------------------------------
 <module_name>Course Page</module_name>
 
@@ -236,30 +261,35 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
       "type": "tab_container",
       "tabs": []
     },
-    "Collapse_All_Link": {
-      "type": "link",
-      "element_name": "Collapse all",
-      "on_success": "collapses all sections"
-    },
     "Sections_List": {
       "type": "repeating_group",
       "item_fields": {
-        "Toggle_Section_Collapse": {
+        "Section_Header": {
           "type": "button",
-          "element_name": "Toggle Section Collapse",
+          "element_name": "Toggle Section Collapse/Expand",
           "on_success": "toggles this section collapsed state"
         },
-        "Activities": {
+        "Section_Collapse_State": {
+          "type": "unspecified",
+          "constraints": [],
+          "description": "represents whether the section is collapsed or expanded"
+        },
+        "Activities_and_Resources": {
           "type": "repeating_group",
           "item_fields": {
             "Activity_Name": {
               "type": "link",
-              "element_name": "Open activity/resource",
-              "on_success": "opens activity or resource"
+              "required": true,
+              "on_success": "navigates to activity or resource"
             }
           }
         }
       }
+    },
+    "Collapse_All_Link": {
+      "type": "link",
+      "element_name": "Collapse all",
+      "on_success": "collapses all sections at once"
     }
   }
 }
@@ -274,10 +304,16 @@ The Course page displays the full course content organized into collapsible sect
 
 </description>
 
+<workflows>
+WF-001 | Toggle section collapse/expand | actor: <role> | branch: none | terminal: Toggle Section Collapse/Expand | on_success: toggles this section collapsed state
+WF-002 | Collapse all sections | actor: <role> | branch: none | terminal: Collapse all | on_success: collapses all sections at once
+WF-003 | Open activity or resource | actor: <role> | branch: none | terminal: Activity_Name | on_success: navigates to activity or resource
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[21:48:11] Test-Positive - LLM RESPONSE
+[15:29:47] Test-Positive - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Course Page",
@@ -285,68 +321,57 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Toggle a single section collapsed state",
+      "wf_ref": "WF-001",
+      "test_case": "Toggle a section's collapse/expand state",
       "preconditions": [
-        "User logged in as <Student>",
-        "Course Page is open and displays at least one expanded section <section>"
+        "User logged in as <role>",
+        "Course page is open with a section titled <section name> that is currently expanded and displaying its activities"
       ],
       "steps": [
-        "1. Click the 'Toggle Section Collapse' button (chevron) for <section>"
+        "1. Click the Toggle Section Collapse/Expand button on the <section name> section header"
       ],
-      "expected_result": "toggles this section collapsed state",
-      "priority": "high"
+      "expected_result": "The <section name> section is collapsed and its activities list is no longer visible.",
+      "priority": "medium"
     },
     {
       "tc_id": "P-002",
-      "test_case": "Collapse all sections using the top‑right link",
+      "wf_ref": "WF-002",
+      "test_case": "Collapse all sections using the 'Collapse all' link",
       "preconditions": [
-        "User logged in as <Student>",
-        "Course Page is open with multiple expanded sections"
+        "User logged in as <role>",
+        "Course page is open with multiple expanded sections each showing activities"
       ],
       "steps": [
-        "1. Click the 'Collapse all' link in the top-right of the sections list"
+        "1. Click the 'Collapse all' link at the top-right of the Course page"
       ],
-      "expected_result": "collapses all sections",
-      "priority": "high"
+      "expected_result": "All sections are collapsed and none of the sections' activities are visible.",
+      "priority": "medium"
     },
     {
       "tc_id": "P-003",
-      "test_case": "Open an activity or resource from a section",
+      "wf_ref": "WF-003",
+      "test_case": "Open an activity or resource by clicking its name",
       "preconditions": [
-        "User logged in as <Student>",
-        "Course Page is open with at least one expanded section containing an activity <activity>"
+        "User logged in as <role>",
+        "Course page is open with a section containing an activity named <activity name>"
       ],
       "steps": [
-        "1. Click the activity name link 'Open activity/resource' for <activity> inside the section"
+        "1. Click the activity name link <activity name> within its section"
       ],
-      "expected_result": "opens activity or resource",
+      "expected_result": "The interface navigates to the activity or resource page for <activity name>; the activity title <activity name> is visible on the opened page.",
       "priority": "high"
-    },
-    {
-      "tc_id": "P-004",
-      "test_case": "Navigate to a tab via the navigation tab bar",
-      "preconditions": [
-        "User logged in as <Student>",
-        "Course Page is open showing the navigation tab bar"
-      ],
-      "steps": [
-        "1. Click the <tab name> tab in the navigation tab bar",
-        "2. Observe the main content area for the selected tab's panel"
-      ],
-      "expected_result": "The <tab name> tab is selected and its panel content is visible in the main content area",
-      "priority": "medium"
     }
   ],
   "summary": {
-    "total": 4,
-    "high_priority": 3,
-    "medium_priority": 1,
+    "total": 3,
+    "high_priority": 1,
+    "medium_priority": 2,
     "low_priority": 0
   }
 }
 
 ------------------------------------------------------------
-[21:48:11] Test-Positive - PARSED JSON
+[15:29:47] Test-Positive - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Course Page",
@@ -354,62 +379,51 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Toggle a single section collapsed state",
+      "wf_ref": "WF-001",
+      "test_case": "Toggle a section's collapse/expand state",
       "preconditions": [
-        "User logged in as <Student>",
-        "Course Page is open and displays at least one expanded section <section>"
+        "User logged in as <role>",
+        "Course page is open with a section titled <section name> that is currently expanded and displaying its activities"
       ],
       "steps": [
-        "1. Click the 'Toggle Section Collapse' button (chevron) for <section>"
+        "1. Click the Toggle Section Collapse/Expand button on the <section name> section header"
       ],
-      "expected_result": "toggles this section collapsed state",
-      "priority": "high"
+      "expected_result": "The <section name> section is collapsed and its activities list is no longer visible.",
+      "priority": "medium"
     },
     {
       "tc_id": "P-002",
-      "test_case": "Collapse all sections using the top\u2011right link",
+      "wf_ref": "WF-002",
+      "test_case": "Collapse all sections using the 'Collapse all' link",
       "preconditions": [
-        "User logged in as <Student>",
-        "Course Page is open with multiple expanded sections"
+        "User logged in as <role>",
+        "Course page is open with multiple expanded sections each showing activities"
       ],
       "steps": [
-        "1. Click the 'Collapse all' link in the top-right of the sections list"
+        "1. Click the 'Collapse all' link at the top-right of the Course page"
       ],
-      "expected_result": "collapses all sections",
-      "priority": "high"
+      "expected_result": "All sections are collapsed and none of the sections' activities are visible.",
+      "priority": "medium"
     },
     {
       "tc_id": "P-003",
-      "test_case": "Open an activity or resource from a section",
+      "wf_ref": "WF-003",
+      "test_case": "Open an activity or resource by clicking its name",
       "preconditions": [
-        "User logged in as <Student>",
-        "Course Page is open with at least one expanded section containing an activity <activity>"
+        "User logged in as <role>",
+        "Course page is open with a section containing an activity named <activity name>"
       ],
       "steps": [
-        "1. Click the activity name link 'Open activity/resource' for <activity> inside the section"
+        "1. Click the activity name link <activity name> within its section"
       ],
-      "expected_result": "opens activity or resource",
+      "expected_result": "The interface navigates to the activity or resource page for <activity name>; the activity title <activity name> is visible on the opened page.",
       "priority": "high"
-    },
-    {
-      "tc_id": "P-004",
-      "test_case": "Navigate to a tab via the navigation tab bar",
-      "preconditions": [
-        "User logged in as <Student>",
-        "Course Page is open showing the navigation tab bar"
-      ],
-      "steps": [
-        "1. Click the <tab name> tab in the navigation tab bar",
-        "2. Observe the main content area for the selected tab's panel"
-      ],
-      "expected_result": "The <tab name> tab is selected and its panel content is visible in the main content area",
-      "priority": "medium"
     }
   ],
   "summary": {
-    "total": 4,
-    "high_priority": 3,
-    "medium_priority": 1,
+    "total": 3,
+    "high_priority": 1,
+    "medium_priority": 2,
     "low_priority": 0
   }
 }

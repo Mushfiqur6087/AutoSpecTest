@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-21T22:54:00.258776
+DEBUG SESSION STARTED: 2026-05-25T14:51:20.248393
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[22:54:00] Test-Positive - SYSTEM PROMPT
+[14:51:20] Test-Positive - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Expert UI Test Case Generator. You receive (1) a UI-AST JSON for one specific module and (2) the original functional description for that module.
 
@@ -24,6 +24,10 @@ Your job is to produce ONLY positive/functional UI test cases — tests where va
 <description>
 {Original functional description text for this module}
 </description>
+
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
 
 ---
 
@@ -146,6 +150,13 @@ Because you are testing a module in isolation, establish the required entry stat
 **1. Forms & Wizards (`form`, `wizard`):**
 - Generate ONE happy path per distinct success outcome.
 - *Conditional UI Check:* If a toggle/dropdown reveals new mandatory fields (`visible_when`), generate a separate test for that conditional branch.
+- **Wizard step coverage (CRITICAL):** If a wizard has multiple steps and any step beyond Step 1 contains its own named field group (e.g., "Address Details", "Family Members", "Identifiers"), generate ONE dedicated positive TC per such step. The TC must:
+  - Navigate to that specific step (include the preceding steps as preconditions or brief navigation steps)
+  - Fill the fields described for that step (not just pass through)
+  - Assert the step's content is visible/saved on the detail page after final submission
+  - **Do NOT collapse all wizard steps into one happy-path TC** — if Steps 2, 3, and 4 each have their own named section in the spec, they each need their own TC.
+- **Wizard in-step identifiers/duplicates:** If a wizard step allows adding identifiers, documents, or similar entries that have a uniqueness constraint, include a TC for that wizard step that also verifies the constraint (e.g., attempting to add a duplicate Document Type+Key pair inside the wizard). This is a different code path from adding the same post-creation on the detail page.
+- **Action dialogs:** If a `state_bound_action_bar` action opens a dialog with its own `fields{}` (e.g., Activate requires Activation Date, Reject requires Reason), generate ONE positive TC per such action-dialog — distinct from the state-transition TC. The TC fills the dialog field and completes the action.
 
 **2. State Machines (`state_bound_action_bar`):**
 - For each unique action available in a specific state, generate ONE test performing that action.
@@ -200,6 +211,19 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 
 ---
 
+**WORKFLOW COVERAGE OBLIGATION (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- Your test cases must **collectively cover every workflow** listed.
+- For each `wf_id`, at least one TC must:
+  - Activate the `conditional_branch` (if not null) — i.e. the test must set up the condition described.
+  - Assert the `on_success` as its `expected_result` (verbatim or as the primary basis for the expected result).
+- Add `"wf_ref": "WF-NNN"` to each TC to identify which workflow it covers.
+- If one TC naturally covers multiple workflows (e.g., the base path overlaps), pick the most specific `wf_ref`.
+- If a TC does not map to any workflow (e.g., a navigation-only test), set `"wf_ref": null`.
+
+---
+
 **OUTPUT — JSON only, no prose, no markdown fencing:**
 
 {
@@ -208,6 +232,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
   "test_cases": [
     {
       "tc_id": "P-001",
+      "wf_ref": "WF-001",
       "test_case": "Short descriptive name",
       "preconditions": ["User logged in as <Role>", "<Prerequisite state>"],
       "steps": ["1. Step one", "2. Step two"],
@@ -224,7 +249,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 }
 
 ------------------------------------------------------------
-[22:54:00] Test-Positive - USER PROMPT
+[14:51:20] Test-Positive - USER PROMPT
 ------------------------------------------------------------
 <module_name>Hotels Search & Listing</module_name>
 
@@ -234,112 +259,133 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
   "components": {
     "Hotels_Search_Form": {
       "type": "form",
-      "fields": {
-        "Destination": {
-          "type": "search",
-          "required": false
-        },
-        "Check_In": {
-          "type": "date",
-          "required": false
-        },
-        "Check_Out": {
-          "type": "date",
-          "required": false
-        },
-        "Rooms": {
-          "type": "number",
-          "required": false
-        },
-        "Adults": {
-          "type": "number",
-          "required": false
-        },
-        "Children": {
-          "type": "number",
-          "required": false
-        }
-      },
       "submit_actions": [
         {
           "element_name": "Search",
-          "on_success": "redirects to Listing page"
+          "on_success": "redirects to Hotels_Listing page"
         }
-      ]
+      ],
+      "fields": {
+        "Destination": {
+          "type": "search"
+        },
+        "Check_In": {
+          "type": "date"
+        },
+        "Check_Out": {
+          "type": "date"
+        },
+        "Number_of_Rooms": {
+          "type": "number"
+        },
+        "Adults": {
+          "type": "number"
+        },
+        "Children": {
+          "type": "number"
+        }
+      }
     },
     "Hotels_Listing_Page": {
       "type": "page",
       "components": {
+        "Filters_Sidebar": {
+          "type": "filter_sidebar",
+          "collapsible": true,
+          "updates_results_dynamically": true,
+          "filters": [
+            {
+              "filter_name": "Price Range",
+              "collapsible": true,
+              "fields": {
+                "Min_Price": {
+                  "type": "number"
+                },
+                "Max_Price": {
+                  "type": "number"
+                }
+              }
+            },
+            {
+              "filter_name": "Star Rating",
+              "collapsible": true,
+              "fields": {
+                "Star_Rating": {
+                  "type": "checkbox"
+                }
+              }
+            },
+            {
+              "filter_name": "Facilities / Amenities",
+              "collapsible": true,
+              "fields": {
+                "Facilities": {
+                  "type": "checkbox"
+                }
+              }
+            },
+            {
+              "filter_name": "Hotel Type",
+              "collapsible": true,
+              "fields": {
+                "Hotel_Type": {
+                  "type": "checkbox"
+                }
+              }
+            },
+            {
+              "filter_name": "Board Basis",
+              "collapsible": true,
+              "fields": {
+                "Board_Basis": {
+                  "type": "checkbox"
+                }
+              }
+            }
+          ]
+        },
+        "Active_Filters_Summary": {
+          "type": "repeating_group",
+          "description": "Shows currently active filters with individual remove actions",
+          "item_fields": {
+            "Filter_Label": {
+              "type": "unspecified"
+            }
+          },
+          "item_actions": [
+            {
+              "action_name": "Remove Filter",
+              "on_success": "removes this filter and updates results"
+            }
+          ],
+          "controls": [
+            {
+              "element_name": "Reset all",
+              "type": "button",
+              "on_success": "clears all filters and updates results"
+            }
+          ]
+        },
         "Sort_Control": {
           "type": "dropdown",
-          "required": false,
+          "element_name": "Sort by",
           "options": [
             "Price: Low to High",
             "Price: High to Low",
             "Star Rating",
             "Guest Rating"
-          ],
-          "on_change": "updates results dynamically"
+          ]
         },
-        "Active_Filters_Summary": {
-          "type": "repeating_group",
-          "item_fields": {
-            "Active_Filter_Tag": {
-              "type": "unspecified"
-            },
-            "Remove_Filter": {
+        "Hotels_Card_List": {
+          "type": "card_list",
+          "note": "Each card displays hotel details (non-interactive display fields omitted from AST)",
+          "item_actions": [
+            {
+              "action_name": "Book Now",
               "type": "button",
-              "element_name": "Remove",
-              "on_success": "removes filter and updates results dynamically"
+              "on_success": "initiates booking flow for selected hotel"
             }
-          },
-          "controls": {
-            "Reset_All": {
-              "type": "button",
-              "element_name": "Reset all",
-              "on_success": "clears all filters and updates results dynamically"
-            }
-          }
-        },
-        "Filters_Sidebar": {
-          "type": "filter_panel",
-          "fields": {
-            "Price_Range": {
-              "type": "unspecified",
-              "collapsible": true,
-              "on_change": "updates results dynamically"
-            },
-            "Star_Rating": {
-              "type": "unspecified",
-              "collapsible": true,
-              "on_change": "updates results dynamically"
-            },
-            "Facilities_Amenities": {
-              "type": "unspecified",
-              "collapsible": true,
-              "on_change": "updates results dynamically"
-            },
-            "Hotel_Type": {
-              "type": "unspecified",
-              "collapsible": true,
-              "on_change": "updates results dynamically"
-            },
-            "Board_Basis": {
-              "type": "unspecified",
-              "collapsible": true,
-              "on_change": "updates results dynamically"
-            }
-          }
-        },
-        "Hotel_Results": {
-          "type": "repeating_group",
-          "item_label": "Hotel_Card",
-          "item_fields": {
-            "Book_Now": {
-              "type": "button",
-              "element_name": "Book Now"
-            }
-          }
+          ]
         }
       }
     }
@@ -356,10 +402,21 @@ The hotels search form collects destination, check-in/check-out dates, number of
 
 </description>
 
+<workflows>
+WF-001 | Search hotels using search form | actor: <role> | branch: none | terminal: Search | on_success: redirects to Hotels_Listing page
+WF-002 | Sort results by Price: Low to High | actor: <role> | branch: Sort_Control.selected == Price: Low to High | terminal: Sort by | on_success: results updated and sorted by Price: Low to High
+WF-003 | Sort results by Price: High to Low | actor: <role> | branch: Sort_Control.selected == Price: High to Low | terminal: Sort by | on_success: results updated and sorted by Price: High to Low
+WF-004 | Sort results by Star Rating | actor: <role> | branch: Sort_Control.selected == Star Rating | terminal: Sort by | on_success: results updated and sorted by Star Rating
+WF-005 | Sort results by Guest Rating | actor: <role> | branch: Sort_Control.selected == Guest Rating | terminal: Sort by | on_success: results updated and sorted by Guest Rating
+WF-006 | Remove an active filter from summary | actor: <role> | branch: Active_Filters_Summary.item_count > 0 | terminal: Remove Filter | on_success: removes this filter and updates results
+WF-007 | Reset all active filters | actor: <role> | branch: Active_Filters_Summary.item_count > 0 | terminal: Reset all | on_success: clears all filters and updates results
+WF-008 | Initiate booking from a hotel card | actor: <role> | branch: none | terminal: Book Now | on_success: initiates booking flow for selected hotel
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[22:55:06] Test-Positive - LLM RESPONSE
+[14:51:59] Test-Positive - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Hotels Search & Listing",
@@ -367,93 +424,140 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Search form happy path redirects to listing page",
-      "preconditions": ["User logged in as <Traveler>"],
-      "steps": [
-        "1. Navigate to the Hotels Search page",
-        "2. Enter <destination> in the Destination field",
-        "3. Enter <check-in date> in the Check In field and <check-out date> in the Check Out field",
-        "4. Enter <number of rooms> in the Rooms field, <number of adults> in the Adults field, and <number of children> in the Children field",
-        "5. Click the Search button"
+      "wf_ref": "WF-001",
+      "test_case": "Perform a hotel search from the Search form and navigate to listing",
+      "preconditions": [
+        "User logged in as <role>"
       ],
-      "expected_result": "redirects to Listing page",
+      "steps": [
+        "1. Open the Hotels Search page",
+        "2. Enter <destination> in the Destination field",
+        "3. Enter <check-in date> in the Check In field",
+        "4. Enter <check-out date> in the Check Out field",
+        "5. Enter <number of rooms> in the Number of Rooms field",
+        "6. Enter <number of adults> in the Adults field and <number of children> in the Children field",
+        "7. Click the Search button"
+      ],
+      "expected_result": "redirects to Hotels_Listing page",
       "priority": "high"
     },
     {
       "tc_id": "P-002",
-      "test_case": "Sort results by Price: Low to High updates hotel order",
-      "preconditions": ["User logged in as <Traveler>"],
-      "steps": [
-        "1. Navigate to the Hotels Search page",
-        "2. Enter <destination> and valid <check-in date> and <check-out date>, then click Search to open the Hotels Listing page",
-        "3. On the Listing page, open the Sort dropdown",
-        "4. Select 'Price: Low to High' from the Sort dropdown"
+      "wf_ref": "WF-002",
+      "test_case": "Sort listing by Price: Low to High",
+      "preconditions": [
+        "User logged in as <role>"
       ],
-      "expected_result": "Hotel Results list is reordered showing hotels sorted by 'Price: Low to High' (lowest starting price first)",
-      "priority": "high"
+      "steps": [
+        "1. Open the Hotels Search page and perform a search to reach the Hotels_Listing page (enter <destination>, <check-in date>, <check-out date>, click Search)",
+        "2. Open the Sort by dropdown",
+        "3. Select 'Price: Low to High' from the Sort by options"
+      ],
+      "expected_result": "results updated and sorted by Price: Low to High",
+      "priority": "medium"
     },
     {
       "tc_id": "P-003",
-      "test_case": "Apply Star Rating filter shows active filter tag and filters results",
-      "preconditions": ["User logged in as <Traveler>"],
-      "steps": [
-        "1. Navigate to the Hotels Search page",
-        "2. Enter <destination> and valid <check-in date> and <check-out date>, then click Search to open the Hotels Listing page",
-        "3. In the Filters sidebar, expand the Star Rating panel",
-        "4. Select <selected star rating> in the Star Rating filter"
+      "wf_ref": "WF-003",
+      "test_case": "Sort listing by Price: High to Low",
+      "preconditions": [
+        "User logged in as <role>"
       ],
-      "expected_result": "Active Filters Summary shows a filter tag for <selected star rating>; Hotel Results displays only hotels matching <selected star rating>; unrelated hotels are no longer visible",
-      "priority": "high"
+      "steps": [
+        "1. Open the Hotels Search page and perform a search to reach the Hotels_Listing page (enter <destination>, <check-in date>, <check-out date>, click Search)",
+        "2. Open the Sort by dropdown",
+        "3. Select 'Price: High to Low' from the Sort by options"
+      ],
+      "expected_result": "results updated and sorted by Price: High to Low",
+      "priority": "medium"
     },
     {
       "tc_id": "P-004",
-      "test_case": "Remove a single active filter updates results to include broadened set",
-      "preconditions": ["User logged in as <Traveler>"],
-      "steps": [
-        "1. Navigate to the Hotels Search page",
-        "2. Enter <destination> and valid <check-in date> and <check-out date>, then click Search to open the Hotels Listing page",
-        "3. In the Filters sidebar, apply <selected star rating> so an active filter tag appears in Active Filters Summary",
-        "4. Click the Remove button on the <selected star rating> active filter tag"
+      "wf_ref": "WF-004",
+      "test_case": "Sort listing by Star Rating",
+      "preconditions": [
+        "User logged in as <role>"
       ],
-      "expected_result": "The active filter tag for <selected star rating> is no longer visible in the Active Filters Summary; Hotel Results now include hotels that do not match <selected star rating> (results updated dynamically)",
+      "steps": [
+        "1. Open the Hotels Search page and perform a search to reach the Hotels_Listing page (enter <destination>, <check-in date>, <check-out date>, click Search)",
+        "2. Open the Sort by dropdown",
+        "3. Select 'Star Rating' from the Sort by options"
+      ],
+      "expected_result": "results updated and sorted by Star Rating",
       "priority": "medium"
     },
     {
       "tc_id": "P-005",
-      "test_case": "Reset all clears filters and restores full unfiltered results",
-      "preconditions": ["User logged in as <Traveler>"],
-      "steps": [
-        "1. Navigate to the Hotels Search page",
-        "2. Enter <destination> and valid <check-in date> and <check-out date>, then click Search to open the Hotels Listing page",
-        "3. In the Filters sidebar, apply multiple filters (e.g., <price range> and <selected star rating>) so multiple active filter tags appear in Active Filters Summary",
-        "4. Click the 'Reset all' button in the Active Filters Summary"
+      "wf_ref": "WF-005",
+      "test_case": "Sort listing by Guest Rating",
+      "preconditions": [
+        "User logged in as <role>"
       ],
-      "expected_result": "All filter tags are removed from the Active Filters Summary; Hotel Results display the full unfiltered list of hotels (previously hidden hotels are visible again)",
+      "steps": [
+        "1. Open the Hotels Search page and perform a search to reach the Hotels_Listing page (enter <destination>, <check-in date>, <check-out date>, click Search)",
+        "2. Open the Sort by dropdown",
+        "3. Select 'Guest Rating' from the Sort by options"
+      ],
+      "expected_result": "results updated and sorted by Guest Rating",
       "priority": "medium"
     },
     {
       "tc_id": "P-006",
-      "test_case": "Click Book Now on a hotel card initiates booking flow",
-      "preconditions": ["User logged in as <Traveler>"],
-      "steps": [
-        "1. Navigate to the Hotels Search page",
-        "2. Enter <destination> and valid <check-in date> and <check-out date>, then click Search to open the Hotels Listing page",
-        "3. On a Hotel Card in the results, click the 'Book Now' button"
+      "wf_ref": "WF-006",
+      "test_case": "Remove an active filter from the Active Filters Summary and observe results update",
+      "preconditions": [
+        "User logged in as <role>"
       ],
-      "expected_result": "redirects to Booking page",
+      "steps": [
+        "1. Open the Hotels Search page and perform a search to reach the Hotels_Listing page (enter <destination>, <check-in date>, <check-out date>, click Search)",
+        "2. Expand the Price Range filter in the sidebar",
+        "3. Enter <min price> in Min Price and <max price> in Max Price; observe an active filter appears in the Active Filters Summary",
+        "4. Click the Remove Filter action on the displayed filter chip in the Active Filters Summary"
+      ],
+      "expected_result": "removes this filter and updates results",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-007",
+      "wf_ref": "WF-007",
+      "test_case": "Reset all active filters using the Reset all control",
+      "preconditions": [
+        "User logged in as <role>"
+      ],
+      "steps": [
+        "1. Open the Hotels Search page and perform a search to reach the Hotels_Listing page (enter <destination>, <check-in date>, <check-out date>, click Search)",
+        "2. Apply at least two filters (e.g., expand Star Rating and check <star rating>; expand Facilities and check <facility>) and observe active filters appear in the Active Filters Summary",
+        "3. Click the 'Reset all' button in the Active Filters Summary controls"
+      ],
+      "expected_result": "clears all filters and updates results",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-008",
+      "wf_ref": "WF-008",
+      "test_case": "Initiate booking from a hotel card by clicking Book Now",
+      "preconditions": [
+        "User logged in as <role>"
+      ],
+      "steps": [
+        "1. Open the Hotels Search page and perform a search to reach the Hotels_Listing page (enter <destination>, <check-in date>, <check-out date>, click Search)",
+        "2. Locate any hotel card in the Hotels Card List",
+        "3. Click the Book Now button on the selected hotel card"
+      ],
+      "expected_result": "initiates booking flow for selected hotel",
       "priority": "high"
     }
   ],
   "summary": {
-    "total": 6,
+    "total": 8,
     "high_priority": 4,
-    "medium_priority": 2,
+    "medium_priority": 4,
     "low_priority": 0
   }
 }
 
 ------------------------------------------------------------
-[22:55:06] Test-Positive - PARSED JSON
+[14:51:59] Test-Positive - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Hotels Search & Listing",
@@ -461,99 +565,134 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Search form happy path redirects to listing page",
+      "wf_ref": "WF-001",
+      "test_case": "Perform a hotel search from the Search form and navigate to listing",
       "preconditions": [
-        "User logged in as <Traveler>"
+        "User logged in as <role>"
       ],
       "steps": [
-        "1. Navigate to the Hotels Search page",
+        "1. Open the Hotels Search page",
         "2. Enter <destination> in the Destination field",
-        "3. Enter <check-in date> in the Check In field and <check-out date> in the Check Out field",
-        "4. Enter <number of rooms> in the Rooms field, <number of adults> in the Adults field, and <number of children> in the Children field",
-        "5. Click the Search button"
+        "3. Enter <check-in date> in the Check In field",
+        "4. Enter <check-out date> in the Check Out field",
+        "5. Enter <number of rooms> in the Number of Rooms field",
+        "6. Enter <number of adults> in the Adults field and <number of children> in the Children field",
+        "7. Click the Search button"
       ],
-      "expected_result": "redirects to Listing page",
+      "expected_result": "redirects to Hotels_Listing page",
       "priority": "high"
     },
     {
       "tc_id": "P-002",
-      "test_case": "Sort results by Price: Low to High updates hotel order",
+      "wf_ref": "WF-002",
+      "test_case": "Sort listing by Price: Low to High",
       "preconditions": [
-        "User logged in as <Traveler>"
+        "User logged in as <role>"
       ],
       "steps": [
-        "1. Navigate to the Hotels Search page",
-        "2. Enter <destination> and valid <check-in date> and <check-out date>, then click Search to open the Hotels Listing page",
-        "3. On the Listing page, open the Sort dropdown",
-        "4. Select 'Price: Low to High' from the Sort dropdown"
+        "1. Open the Hotels Search page and perform a search to reach the Hotels_Listing page (enter <destination>, <check-in date>, <check-out date>, click Search)",
+        "2. Open the Sort by dropdown",
+        "3. Select 'Price: Low to High' from the Sort by options"
       ],
-      "expected_result": "Hotel Results list is reordered showing hotels sorted by 'Price: Low to High' (lowest starting price first)",
-      "priority": "high"
+      "expected_result": "results updated and sorted by Price: Low to High",
+      "priority": "medium"
     },
     {
       "tc_id": "P-003",
-      "test_case": "Apply Star Rating filter shows active filter tag and filters results",
+      "wf_ref": "WF-003",
+      "test_case": "Sort listing by Price: High to Low",
       "preconditions": [
-        "User logged in as <Traveler>"
+        "User logged in as <role>"
       ],
       "steps": [
-        "1. Navigate to the Hotels Search page",
-        "2. Enter <destination> and valid <check-in date> and <check-out date>, then click Search to open the Hotels Listing page",
-        "3. In the Filters sidebar, expand the Star Rating panel",
-        "4. Select <selected star rating> in the Star Rating filter"
+        "1. Open the Hotels Search page and perform a search to reach the Hotels_Listing page (enter <destination>, <check-in date>, <check-out date>, click Search)",
+        "2. Open the Sort by dropdown",
+        "3. Select 'Price: High to Low' from the Sort by options"
       ],
-      "expected_result": "Active Filters Summary shows a filter tag for <selected star rating>; Hotel Results displays only hotels matching <selected star rating>; unrelated hotels are no longer visible",
-      "priority": "high"
+      "expected_result": "results updated and sorted by Price: High to Low",
+      "priority": "medium"
     },
     {
       "tc_id": "P-004",
-      "test_case": "Remove a single active filter updates results to include broadened set",
+      "wf_ref": "WF-004",
+      "test_case": "Sort listing by Star Rating",
       "preconditions": [
-        "User logged in as <Traveler>"
+        "User logged in as <role>"
       ],
       "steps": [
-        "1. Navigate to the Hotels Search page",
-        "2. Enter <destination> and valid <check-in date> and <check-out date>, then click Search to open the Hotels Listing page",
-        "3. In the Filters sidebar, apply <selected star rating> so an active filter tag appears in Active Filters Summary",
-        "4. Click the Remove button on the <selected star rating> active filter tag"
+        "1. Open the Hotels Search page and perform a search to reach the Hotels_Listing page (enter <destination>, <check-in date>, <check-out date>, click Search)",
+        "2. Open the Sort by dropdown",
+        "3. Select 'Star Rating' from the Sort by options"
       ],
-      "expected_result": "The active filter tag for <selected star rating> is no longer visible in the Active Filters Summary; Hotel Results now include hotels that do not match <selected star rating> (results updated dynamically)",
+      "expected_result": "results updated and sorted by Star Rating",
       "priority": "medium"
     },
     {
       "tc_id": "P-005",
-      "test_case": "Reset all clears filters and restores full unfiltered results",
+      "wf_ref": "WF-005",
+      "test_case": "Sort listing by Guest Rating",
       "preconditions": [
-        "User logged in as <Traveler>"
+        "User logged in as <role>"
       ],
       "steps": [
-        "1. Navigate to the Hotels Search page",
-        "2. Enter <destination> and valid <check-in date> and <check-out date>, then click Search to open the Hotels Listing page",
-        "3. In the Filters sidebar, apply multiple filters (e.g., <price range> and <selected star rating>) so multiple active filter tags appear in Active Filters Summary",
-        "4. Click the 'Reset all' button in the Active Filters Summary"
+        "1. Open the Hotels Search page and perform a search to reach the Hotels_Listing page (enter <destination>, <check-in date>, <check-out date>, click Search)",
+        "2. Open the Sort by dropdown",
+        "3. Select 'Guest Rating' from the Sort by options"
       ],
-      "expected_result": "All filter tags are removed from the Active Filters Summary; Hotel Results display the full unfiltered list of hotels (previously hidden hotels are visible again)",
+      "expected_result": "results updated and sorted by Guest Rating",
       "priority": "medium"
     },
     {
       "tc_id": "P-006",
-      "test_case": "Click Book Now on a hotel card initiates booking flow",
+      "wf_ref": "WF-006",
+      "test_case": "Remove an active filter from the Active Filters Summary and observe results update",
       "preconditions": [
-        "User logged in as <Traveler>"
+        "User logged in as <role>"
       ],
       "steps": [
-        "1. Navigate to the Hotels Search page",
-        "2. Enter <destination> and valid <check-in date> and <check-out date>, then click Search to open the Hotels Listing page",
-        "3. On a Hotel Card in the results, click the 'Book Now' button"
+        "1. Open the Hotels Search page and perform a search to reach the Hotels_Listing page (enter <destination>, <check-in date>, <check-out date>, click Search)",
+        "2. Expand the Price Range filter in the sidebar",
+        "3. Enter <min price> in Min Price and <max price> in Max Price; observe an active filter appears in the Active Filters Summary",
+        "4. Click the Remove Filter action on the displayed filter chip in the Active Filters Summary"
       ],
-      "expected_result": "redirects to Booking page",
+      "expected_result": "removes this filter and updates results",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-007",
+      "wf_ref": "WF-007",
+      "test_case": "Reset all active filters using the Reset all control",
+      "preconditions": [
+        "User logged in as <role>"
+      ],
+      "steps": [
+        "1. Open the Hotels Search page and perform a search to reach the Hotels_Listing page (enter <destination>, <check-in date>, <check-out date>, click Search)",
+        "2. Apply at least two filters (e.g., expand Star Rating and check <star rating>; expand Facilities and check <facility>) and observe active filters appear in the Active Filters Summary",
+        "3. Click the 'Reset all' button in the Active Filters Summary controls"
+      ],
+      "expected_result": "clears all filters and updates results",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-008",
+      "wf_ref": "WF-008",
+      "test_case": "Initiate booking from a hotel card by clicking Book Now",
+      "preconditions": [
+        "User logged in as <role>"
+      ],
+      "steps": [
+        "1. Open the Hotels Search page and perform a search to reach the Hotels_Listing page (enter <destination>, <check-in date>, <check-out date>, click Search)",
+        "2. Locate any hotel card in the Hotels Card List",
+        "3. Click the Book Now button on the selected hotel card"
+      ],
+      "expected_result": "initiates booking flow for selected hotel",
       "priority": "high"
     }
   ],
   "summary": {
-    "total": 6,
+    "total": 8,
     "high_priority": 4,
-    "medium_priority": 2,
+    "medium_priority": 4,
     "low_priority": 0
   }
 }

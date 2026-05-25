@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-22T21:29:56.924019
+DEBUG SESSION STARTED: 2026-05-25T15:37:16.692417
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[21:30:13] Semantic Critic - SYSTEM PROMPT
+[15:37:39] Semantic Critic - SYSTEM PROMPT
 ------------------------------------------------------------
 You are a UI-AST Semantic Critic. You receive (1) a raw functional description and (2) a generated UI-AST JSON.
 
@@ -106,7 +106,7 @@ Output ONLY the JSON object. No explanation, no markdown fencing, no preamble.
 
 
 ------------------------------------------------------------
-[21:30:13] Semantic Critic - USER PROMPT
+[15:37:39] Semantic Critic - USER PROMPT
 ------------------------------------------------------------
 <description>
 The bill-payment page houses a payment form with fields for Payee Name, Street Address, City, State, ZIP Code, Phone Number, Payee Account Number plus Confirm Account Number, Payment Amount, and Source Account (dropdown), finished by a “Pay” button. On submission, the system validates all entries, enforces account-number match, checks available funds, executes the payment, returns “Payment submitted successfully.” with a reference code, and updates balances. Errors (e.g., “Account numbers do not match,” “Insufficient funds”) are displayed inline and the form remains editable.
@@ -151,7 +151,11 @@ The bill-payment page houses a payment form with fields for Payee Name, Street A
         },
         "Confirm_Account_Number": {
           "type": "unspecified",
-          "required": true
+          "required": true,
+          "constraints": [
+            "must match Payee Account Number",
+            "on_violation: display inline error 'Account numbers do not match'"
+          ]
         },
         "Payment_Amount": {
           "type": "number",
@@ -165,19 +169,19 @@ The bill-payment page houses a payment form with fields for Payee Name, Street A
           "required": true
         }
       },
-      "constraints": [
-        "All fields must pass validation before submission",
-        "Payee_Account_Number must match Confirm_Account_Number (error: \"Account numbers do not match\")"
-      ],
       "submit_actions": [
         {
           "element_name": "Pay",
           "type": "button",
           "constraints": [
-            "available funds in Source_Account must be >= Payment_Amount (error: \"Insufficient funds\")"
+            "system validates all fields on submission",
+            "available funds in selected Source Account must be >= Payment_Amount"
           ],
-          "on_success": "Payment submitted successfully with reference code and updates balances",
-          "on_failure": "Displays inline validation errors; form remains editable"
+          "on_success": "executes payment; returns 'Payment submitted successfully.' with a reference code; updates balances",
+          "on_error": [
+            "displays inline validation errors (e.g., 'Account numbers do not match', 'Insufficient funds')",
+            "form remains editable"
+          ]
         }
       ]
     }
@@ -188,22 +192,163 @@ The bill-payment page houses a payment form with fields for Payee Name, Street A
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[21:30:21] Semantic Critic - LLM RESPONSE
+[15:38:10] Semantic Critic - LLM RESPONSE
+------------------------------------------------------------
+{
+  "verdict": "retry",
+  "summary": "The AST accurately captures fields and submit behavior, but it introduces multiple inferred 'required' flags and an extra numeric constraint that are not explicitly stated in the description (too many phantoms) — please regenerate without those inferences.",
+  "missing": [],
+  "phantoms": [
+    "components.Bill_Payment_Form.fields.Payee_Name.required (required flag not specified in description)",
+    "components.Bill_Payment_Form.fields.Street_Address.required (required flag not specified in description)",
+    "components.Bill_Payment_Form.fields.City.required (required flag not specified in description)",
+    "components.Bill_Payment_Form.fields.State.required (required flag not specified in description)",
+    "components.Bill_Payment_Form.fields.ZIP_Code.required (required flag not specified in description)",
+    "components.Bill_Payment_Form.fields.Phone_Number.required (required flag not specified in description)",
+    "components.Bill_Payment_Form.fields.Payee_Account_Number.required (required flag not specified in description)",
+    "components.Bill_Payment_Form.fields.Confirm_Account_Number.required (required flag not specified in description)",
+    "components.Bill_Payment_Form.fields.Payment_Amount.required (required flag not specified in description)",
+    "components.Bill_Payment_Form.fields.Source_Account.required (required flag not specified in description)",
+    "components.Bill_Payment_Form.fields.Payment_Amount.constraints[0] ('must be greater than 0' constraint not stated in description)"
+  ],
+  "fixes": [
+    "Remove implicit required flags unless the description explicitly states a field is required: delete components.Bill_Payment_Form.fields.Payee_Name.required",
+    "Remove implicit required flags unless the description explicitly states a field is required: delete components.Bill_Payment_Form.fields.Street_Address.required",
+    "Remove implicit required flags unless the description explicitly states a field is required: delete components.Bill_Payment_Form.fields.City.required",
+    "Remove implicit required flags unless the description explicitly states a field is required: delete components.Bill_Payment_Form.fields.State.required",
+    "Remove implicit required flags unless the description explicitly states a field is required: delete components.Bill_Payment_Form.fields.ZIP_Code.required",
+    "Remove implicit required flags unless the description explicitly states a field is required: delete components.Bill_Payment_Form.fields.Phone_Number.required",
+    "Remove implicit required flags unless the description explicitly states a field is required: delete components.Bill_Payment_Form.fields.Payee_Account_Number.required",
+    "Remove implicit required flags unless the description explicitly states a field is required: delete components.Bill_Payment_Form.fields.Confirm_Account_Number.required",
+    "Remove implicit required flags unless the description explicitly states a field is required: delete components.Bill_Payment_Form.fields.Payment_Amount.required",
+    "Remove implicit required flags unless the description explicitly states a field is required: delete components.Bill_Payment_Form.fields.Source_Account.required",
+    "Remove the inferred numeric constraint not in the description: delete components.Bill_Payment_Form.fields.Payment_Amount.constraints[0] ('must be greater than 0')"
+  ]
+}
+
+------------------------------------------------------------
+[15:38:10] Semantic Critic - PARSED JSON
+------------------------------------------------------------
+{
+  "verdict": "retry",
+  "summary": "The AST accurately captures fields and submit behavior, but it introduces multiple inferred 'required' flags and an extra numeric constraint that are not explicitly stated in the description (too many phantoms) \u2014 please regenerate without those inferences.",
+  "missing": [],
+  "phantoms": [
+    "components.Bill_Payment_Form.fields.Payee_Name.required (required flag not specified in description)",
+    "components.Bill_Payment_Form.fields.Street_Address.required (required flag not specified in description)",
+    "components.Bill_Payment_Form.fields.City.required (required flag not specified in description)",
+    "components.Bill_Payment_Form.fields.State.required (required flag not specified in description)",
+    "components.Bill_Payment_Form.fields.ZIP_Code.required (required flag not specified in description)",
+    "components.Bill_Payment_Form.fields.Phone_Number.required (required flag not specified in description)",
+    "components.Bill_Payment_Form.fields.Payee_Account_Number.required (required flag not specified in description)",
+    "components.Bill_Payment_Form.fields.Confirm_Account_Number.required (required flag not specified in description)",
+    "components.Bill_Payment_Form.fields.Payment_Amount.required (required flag not specified in description)",
+    "components.Bill_Payment_Form.fields.Source_Account.required (required flag not specified in description)",
+    "components.Bill_Payment_Form.fields.Payment_Amount.constraints[0] ('must be greater than 0' constraint not stated in description)"
+  ],
+  "fixes": [
+    "Remove implicit required flags unless the description explicitly states a field is required: delete components.Bill_Payment_Form.fields.Payee_Name.required",
+    "Remove implicit required flags unless the description explicitly states a field is required: delete components.Bill_Payment_Form.fields.Street_Address.required",
+    "Remove implicit required flags unless the description explicitly states a field is required: delete components.Bill_Payment_Form.fields.City.required",
+    "Remove implicit required flags unless the description explicitly states a field is required: delete components.Bill_Payment_Form.fields.State.required",
+    "Remove implicit required flags unless the description explicitly states a field is required: delete components.Bill_Payment_Form.fields.ZIP_Code.required",
+    "Remove implicit required flags unless the description explicitly states a field is required: delete components.Bill_Payment_Form.fields.Phone_Number.required",
+    "Remove implicit required flags unless the description explicitly states a field is required: delete components.Bill_Payment_Form.fields.Payee_Account_Number.required",
+    "Remove implicit required flags unless the description explicitly states a field is required: delete components.Bill_Payment_Form.fields.Confirm_Account_Number.required",
+    "Remove implicit required flags unless the description explicitly states a field is required: delete components.Bill_Payment_Form.fields.Payment_Amount.required",
+    "Remove implicit required flags unless the description explicitly states a field is required: delete components.Bill_Payment_Form.fields.Source_Account.required",
+    "Remove the inferred numeric constraint not in the description: delete components.Bill_Payment_Form.fields.Payment_Amount.constraints[0] ('must be greater than 0')"
+  ]
+}
+
+------------------------------------------------------------
+[15:38:28] Semantic Critic - USER PROMPT
+------------------------------------------------------------
+<description>
+The bill-payment page houses a payment form with fields for Payee Name, Street Address, City, State, ZIP Code, Phone Number, Payee Account Number plus Confirm Account Number, Payment Amount, and Source Account (dropdown), finished by a “Pay” button. On submission, the system validates all entries, enforces account-number match, checks available funds, executes the payment, returns “Payment submitted successfully.” with a reference code, and updates balances. Errors (e.g., “Account numbers do not match,” “Insufficient funds”) are displayed inline and the form remains editable.
+
+
+</description>
+
+<ast>
+{
+  "module_name": "Payments",
+  "components": {
+    "Bill_Payment_Form": {
+      "type": "form",
+      "fields": {
+        "Payee_Name": {
+          "type": "unspecified"
+        },
+        "Street_Address": {
+          "type": "unspecified"
+        },
+        "City": {
+          "type": "unspecified"
+        },
+        "State": {
+          "type": "unspecified"
+        },
+        "ZIP_Code": {
+          "type": "unspecified"
+        },
+        "Phone_Number": {
+          "type": "unspecified"
+        },
+        "Payee_Account_Number": {
+          "type": "unspecified"
+        },
+        "Confirm_Account_Number": {
+          "type": "unspecified"
+        },
+        "Payment_Amount": {
+          "type": "number"
+        },
+        "Source_Account": {
+          "type": "dropdown"
+        }
+      },
+      "constraints": [
+        "all fields must pass field-level validation",
+        "Payee_Account_Number must equal Confirm_Account_Number (error message: 'Account numbers do not match')"
+      ],
+      "submit_actions": [
+        {
+          "element_name": "Pay",
+          "preconditions": [
+            "sufficient funds must exist in selected Source_Account"
+          ],
+          "constraints": [
+            "form-level validations (including account number match) must pass"
+          ],
+          "on_success": "Payment submitted successfully. Returns a reference code and updates account balances.",
+          "on_failure": "Displays inline errors (e.g., 'Account numbers do not match', 'Insufficient funds') and keeps the form editable"
+        }
+      ]
+    }
+  }
+}
+</ast>
+
+IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
+
+------------------------------------------------------------
+[15:38:41] Semantic Critic - LLM RESPONSE
 ------------------------------------------------------------
 {
   "verdict": "yes",
-  "summary": "The AST includes the form, all listed fields (including dropdown and numeric amount), the Pay button, account-match and funds checks, success and inline-failure behaviors—matching the description.",
+  "summary": "AST includes the payment form with all described interactive fields, account-number match and funds checks, submit action, success/failure behaviors, and inline error handling; no extraneous elements found.",
   "missing": [],
   "phantoms": [],
   "fixes": []
 }
 
 ------------------------------------------------------------
-[21:30:21] Semantic Critic - PARSED JSON
+[15:38:41] Semantic Critic - PARSED JSON
 ------------------------------------------------------------
 {
   "verdict": "yes",
-  "summary": "The AST includes the form, all listed fields (including dropdown and numeric amount), the Pay button, account-match and funds checks, success and inline-failure behaviors\u2014matching the description.",
+  "summary": "AST includes the payment form with all described interactive fields, account-number match and funds checks, submit action, success/failure behaviors, and inline error handling; no extraneous elements found.",
   "missing": [],
   "phantoms": [],
   "fixes": []

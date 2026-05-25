@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-21T22:54:00.274151
+DEBUG SESSION STARTED: 2026-05-25T14:51:20.260840
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[22:54:00] Test-Edge - SYSTEM PROMPT
+[14:51:20] Test-Edge - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Edge Case and Boundary Test Generator. You receive (1) a UI-AST JSON for one module and (2) the original functional description. Your job is to produce ONLY boundary and edge case tests — scenarios at the limits of valid/invalid input and unusual-but-plausible user behaviors.
 
@@ -25,6 +25,10 @@ You are NOT producing happy paths (positive prompt) or standard validation failu
 {Original functional description text for this module}
 </description>
 
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
+
 ---
 
 **UI-AST REFERENCE — How to Read the AST for Edge Testing:**
@@ -35,7 +39,7 @@ You are NOT producing happy paths (positive prompt) or standard validation failu
 | `repeating_group` with `max` | Test adding exactly `max` entries (should succeed) then one more (should block) |
 | `visible_when` / `required_when` | Edge: trigger condition, fill revealed field with boundary value |
 | `state_bound_action_bar` | State edges: rapid consecutive state transitions, transition from a boundary state |
-| `submit_actions[]` with multiple buttons | Interaction edge: double-click a submit button rapidly |
+
 | `type: "date"` fields | Data edges: today, yesterday, far future, Feb 29 leap year |
 | `type: "file_upload"` | Edge: file exactly at size limit, file at 1 byte over limit |
 
@@ -132,7 +136,6 @@ Pick only the ones that apply to field types present in this module's AST:
 
 Pick only the ones that match component types in this module's AST:
 
-- **Double-click submit** (any form/wizard with a submit button): rapidly double-click the submit button → assert only one record is created; no duplicate row appears in the listing table
 - **Rapid re-submission after redirect** (any form that redirects to a detail page on success): after a successful submit, press the browser back button → assert the creation form is shown blank (not pre-filled) OR the user is redirected to the detail page without a second entity being created
 - **Wizard step skip — enforced navigation** (wizard where steps must be completed sequentially): attempt to click a later step tab directly without completing earlier steps → assert navigation is blocked and the earlier step remains active
 - **Wizard step skip — free navigation** (wizard that allows free tab navigation): navigate to a later step without filling earlier steps → assert the later step displays and returning to the earlier step shows fields blank (no data was lost from the later step)
@@ -173,7 +176,16 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 
 - **High:** None — edge tests are secondary to core functionality
 - **Medium:** Boundary tests at thresholds (financial amounts, date ordering, count limits, file size limits)
-- **Low:** Input edge cases (long text, special chars, whitespace, decimal precision), interaction edge cases (double-click, browser back, wizard skip)
+- **Low:** Input edge cases (long text, special chars, whitespace, decimal precision), interaction edge cases (browser back, wizard skip)
+
+---
+
+**WORKFLOW-AWARE BOUNDARY SCOPING (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- For each workflow where `conditional_branch` activates a numeric or date field, check if that field has a boundary (a numeric/date threshold in the AST `constraints` or description).
+- If yes, that workflow's branch is a **candidate for a boundary edge test** — add or confirm a boundary TC exists for it.
+- Add `"wf_ref": "WF-NNN"` to each TC that maps to a specific workflow's boundary. Set `"wf_ref": null` for generic input/interaction edge tests.
 
 ---
 
@@ -185,6 +197,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": null,
       "subcategory": "boundary | input_edge | interaction_edge | state_edge | data_edge",
       "test_case": "Short descriptive name",
       "preconditions": ["precondition 1"],
@@ -207,7 +220,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 
 
 ------------------------------------------------------------
-[22:54:00] Test-Edge - USER PROMPT
+[14:51:20] Test-Edge - USER PROMPT
 ------------------------------------------------------------
 <module_name>Booking Management</module_name>
 
@@ -215,70 +228,67 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 {
   "module_name": "Booking Management",
   "components": {
-    "Booking_Detail_Action_Bar": {
-      "type": "action_bar",
-      "available_actions": [
-        {
-          "action_name": "Modify",
-          "preconditions": [
-            "booking type permits modification",
-            "cancellation policy permits modification"
-          ],
-          "fields": {
-            "Travel_Date_Changes": {
-              "type": "repeating_group",
-              "item_fields": {
-                "New_Date": {
+    "Booking_Detail_Actions": {
+      "type": "state_bound_action_bar",
+      "states": {
+        "default": {
+          "available_actions": [
+            {
+              "action_name": "Modify",
+              "preconditions": [
+                "booking type permits modification",
+                "cancellation policy permits modification"
+              ],
+              "fields": {
+                "Travel_Dates": {
                   "type": "date",
-                  "required": true
+                  "required": false
+                },
+                "Special_Requests": {
+                  "type": "textarea",
+                  "required": false
+                },
+                "Traveler_Updates": {
+                  "type": "repeating_group",
+                  "item_fields": {}
                 }
               },
               "constraints": [
-                "subject to availability",
+                "changes subject to availability",
                 "applicable fees may apply"
+              ],
+              "submit_actions": [
+                {
+                  "required": true,
+                  "on_success": "applies requested modifications, charges applicable fees as needed, updates booking, and sends modification email notification"
+                }
               ]
             },
-            "Special_Requests": {
-              "type": "unspecified",
-              "required": false
-            },
-            "Traveler_Updates": {
-              "type": "repeating_group",
-              "item_fields": {}
-            }
-          },
-          "submit_actions": [
             {
-              "on_success": "applies changes, charges applicable fees, updates booking and sends modification email"
+              "action_name": "Cancel",
+              "preconditions": [
+                "cancellation policy permits cancellation"
+              ],
+              "confirmation_flow": {
+                "display_fields": {
+                  "Refund_Amount": {
+                    "type": "number",
+                    "display_only": true,
+                    "note": "value is calculated based on cancellation policy and applicable fees"
+                  }
+                }
+              },
+              "submit_actions": [
+                {
+                  "element_name": "Confirm Cancellation",
+                  "required": true,
+                  "on_success": "processes cancellation, initiates refund to the original payment method, changes booking status to Cancelled, and sends cancellation email notification"
+                }
+              ]
             }
           ]
-        },
-        {
-          "action_name": "Cancel",
-          "preconditions": [
-            "cancellation policy permits cancellation"
-          ],
-          "constraints": [
-            "user must explicitly confirm cancellation"
-          ],
-          "confirmation_flow": {
-            "fields": {
-              "Refund_Amount": {
-                "type": "number"
-              },
-              "Confirm_Cancellation": {
-                "type": "checkbox",
-                "required": true
-              }
-            },
-            "submit_actions": [
-              {
-                "on_success": "cancels booking, initiates refund to original payment method, sends cancellation email"
-              }
-            ]
-          }
         }
-      ]
+      }
     }
   }
 }
@@ -293,10 +303,15 @@ Each booking's detail view shows confirmation number, full service information, 
 
 </description>
 
+<workflows>
+WF-001 | Modify booking | actor: <role> | branch: entity_state == default | terminal: Modify | on_success: applies requested modifications, charges applicable fees as needed, updates booking, and sends modification email notification
+WF-002 | Cancel booking | actor: <role> | branch: entity_state == default | terminal: Cancel | on_success: processes cancellation, initiates refund to the original payment method, changes booking status to Cancelled, and sends cancellation email notification
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[22:57:44] Test-Edge - LLM RESPONSE
+[14:53:58] Test-Edge - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Booking Management",
@@ -304,131 +319,158 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": "WF-001",
       "subcategory": "boundary",
-      "test_case": "Cancel flow blocks submission when Confirm_Cancellation is not checked",
+      "test_case": "Modify: set Travel_Dates to <today> (same-day boundary)",
       "preconditions": [
-        "Open booking detail for a booking where cancellation policy permits cancellation",
-        "User has clicked Cancel to open the cancellation confirmation flow"
+        "Booking is in 'default' state",
+        "Booking type permits modification",
+        "Cancellation policy permits modification"
       ],
       "steps": [
-        "1. Observe Refund_Amount displayed in the cancellation confirmation flow",
-        "2. Ensure Confirm_Cancellation checkbox is left unchecked",
-        "3. Click the Cancel confirmation submit button"
+        "1. Open the booking detail page for the target booking",
+        "2. Click the 'Modify' action in the action bar",
+        "3. In the Travel_Dates field select <today>",
+        "4. Click the Submit / Save button for the modification"
       ],
-      "expected_result": "Submission is blocked / error shown: Confirm_Cancellation checkbox displays an inline validation error indicating explicit confirmation is required; booking remains in its previous status and no refund is initiated",
+      "expected_result": "Modification succeeds; booking detail displays Travel_Dates as <today>, modification email notification is sent, and a visible non-blocking notice referencing 'changes subject to availability' may be present",
       "priority": "medium"
     },
     {
       "tc_id": "E-002",
-      "subcategory": "input_edge",
-      "test_case": "Special_Requests accepts very long text and preserves content in booking detail",
+      "wf_ref": "WF-001",
+      "subcategory": "boundary",
+      "test_case": "Modify: set Travel_Dates to a far-future date (availability boundary)",
       "preconditions": [
-        "Open booking detail where Modify action is permitted",
-        "Click Modify to open modification form with Special_Requests available"
+        "Booking is in 'default' state",
+        "Booking type permits modification",
+        "Cancellation policy permits modification"
       ],
       "steps": [
-        "1. Enter a very long string (200+ characters, including emoji and special characters) into Special_Requests",
-        "2. Fill any other required Modify fields (e.g., add one Travel_Date_Changes item with a valid New_Date)",
-        "3. Click Submit to apply modifications"
+        "1. Open the booking detail page for the target booking",
+        "2. Click the 'Modify' action in the action bar",
+        "3. In the Travel_Dates field select a date far in the future (e.g., several months/year ahead)",
+        "4. Click the Submit / Save button for the modification"
       ],
-      "expected_result": "Form submission succeeds: modification applies, modification success UI is shown, and the booking detail page displays the full Special_Requests text (no silent truncation); a modification email is sent",
-      "priority": "low"
+      "expected_result": "Modification succeeds (changes applied and modification email sent); the UI displays Travel_Dates as the selected far-future date and shows a visible, non-blocking inline warning or banner indicating 'changes subject to availability' or similar; no blocking error is shown",
+      "priority": "medium"
     },
     {
       "tc_id": "E-003",
-      "subcategory": "boundary",
-      "test_case": "Modify travel date with New_Date equal to today (boundary passes)",
+      "wf_ref": "WF-001",
+      "subcategory": "input_edge",
+      "test_case": "Modify: Special_Requests field accepts very long text (200+ characters)",
       "preconditions": [
-        "Open booking detail where Modify is permitted and travel date changes are allowed",
-        "Availability check not blocking changes for the requested date"
+        "Booking is in 'default' state",
+        "Booking type permits modification",
+        "Cancellation policy permits modification"
       ],
       "steps": [
-        "1. Click Modify to open the travel date change repeating group",
-        "2. Add one Travel_Date_Changes item",
-        "3. Enter New_Date = <today> in the New_Date field",
-        "4. Click Submit to apply the date change"
+        "1. Open the booking detail page for the target booking",
+        "2. Click the 'Modify' action in the action bar",
+        "3. In the Special_Requests textarea enter a very long string (>200 characters)",
+        "4. Click the Submit / Save button for the modification",
+        "5. Open the booking detail view to inspect the saved Special_Requests"
       ],
-      "expected_result": "Form submission succeeds: modification is applied and the booking detail page shows New_Date = <today>; applicable fees are charged and a modification email is sent",
-      "priority": "medium"
+      "expected_result": "Form submission succeeds; booking detail shows the Special_Requests value. If the UI enforces truncation it displays the truncated text with a visible indicator (e.g., '…'); if the UI accepts full text the full entered string is visible. No silent loss of data without a visible indicator is allowed",
+      "priority": "low"
     },
     {
       "tc_id": "E-004",
-      "subcategory": "boundary",
-      "test_case": "Modify travel date with New_Date set to one day before today (past date is blocked)",
+      "wf_ref": "WF-001",
+      "subcategory": "input_edge",
+      "test_case": "Modify: Special_Requests preserves special characters and emoji",
       "preconditions": [
-        "Open booking detail where Modify is permitted"
+        "Booking is in 'default' state",
+        "Booking type permits modification",
+        "Cancellation policy permits modification"
       ],
       "steps": [
-        "1. Click Modify to open the travel date change repeating group",
-        "2. Add one Travel_Date_Changes item",
-        "3. Enter New_Date = <one day before today> in the New_Date field",
-        "4. Click Submit to attempt to apply the date change"
+        "1. Open the booking detail page for the target booking",
+        "2. Click the 'Modify' action in the action bar",
+        "3. In the Special_Requests textarea enter text containing special characters and emoji (unicode)",
+        "4. Click the Submit / Save button for the modification",
+        "5. Open the booking detail view to inspect the saved Special_Requests"
       ],
-      "expected_result": "Submission is blocked / error shown: New_Date displays an inline error indicating the date is in the past and cannot be selected; booking is not modified and no fees or emails are triggered",
-      "priority": "medium"
+      "expected_result": "Submission succeeds; booking detail displays the Special_Requests text with special characters and emoji preserved exactly as entered, or shows a clear inline validation error if such characters are disallowed. The visible outcome must explicitly show acceptance or a specific error",
+      "priority": "low"
     },
     {
       "tc_id": "E-005",
+      "wf_ref": "WF-001",
       "subcategory": "interaction_edge",
-      "test_case": "Rapid double-click on Modify submit only processes a single modification",
+      "test_case": "Modify: add then remove all entries in Traveler_Updates repeating group and submit",
       "preconditions": [
-        "Open booking detail where Modify is permitted and a valid date change is ready to submit"
+        "Booking is in 'default' state",
+        "Booking type permits modification",
+        "Cancellation policy permits modification"
       ],
       "steps": [
-        "1. Click Modify and add a Travel_Date_Changes item with a valid New_Date",
-        "2. Rapidly double-click the Modify form submit button (two clicks within a short interval)",
-        "3. Observe response in the UI and booking detail page"
+        "1. Open the booking detail page for the target booking",
+        "2. Click the 'Modify' action in the action bar",
+        "3. In the Traveler_Updates repeating group click Add to create one entry",
+        "4. Immediately remove the entry you just added using the group's remove control",
+        "5. Click the Submit / Save button for the modification",
+        "6. Open the booking detail view to inspect traveler information and any Traveler_Updates"
       ],
-      "expected_result": "Action succeeds once: only a single modification is processed (no duplicate charges or duplicate modification records); UI shows a single success notification and only one modification email is sent",
-      "priority": "medium"
+      "expected_result": "Submission succeeds; no Traveler_Updates entries are saved (the repeating group is empty) and existing traveler information remains unchanged. No blocking error is shown because there is no minimum entry constraint",
+      "priority": "low"
     },
     {
       "tc_id": "E-006",
-      "subcategory": "state_edge",
-      "test_case": "Attempt Modify then immediately Cancel (rapid consecutive state transitions) — second action blocked",
+      "wf_ref": "WF-002",
+      "subcategory": "boundary",
+      "test_case": "Cancel: Refund_Amount displays <zero> (edge case of no refundable amount) and confirm cancellation",
       "preconditions": [
-        "Open booking detail where both Modify and Cancel actions are available (preconditions permitting)",
-        "Prepare a valid Modify payload (e.g., one New_Date)"
+        "Booking is in 'default' state",
+        "Cancellation policy permits cancellation",
+        "Cancellation eligibility and fees are such that the calculated Refund_Amount is <zero>"
       ],
       "steps": [
-        "1. Click Modify, enter a valid New_Date and click Submit to start modification",
-        "2. Immediately (before modification confirmation completes) click Cancel on the booking detail and confirm the confirmation flow (check Confirm_Cancellation) to attempt cancellation",
-        "3. Observe which state change is applied and messages shown"
+        "1. Open the booking detail page for the target booking",
+        "2. Click the 'Cancel' action in the action bar",
+        "3. Observe the Refund_Amount displayed in the cancellation confirmation flow (expect <zero>)",
+        "4. Click the 'Confirm Cancellation' button"
       ],
-      "expected_result": "Second action is blocked / error shown: only one state transition is applied (the first completed action); the second action does not create a conflicting state change, and the UI displays a message or indicator that a concurrent change prevented the second action; only one email (for the single applied state change) is sent",
+      "expected_result": "Cancellation succeeds; booking status changes to Cancelled, cancellation email notification is sent, and the UI shows Refund_Amount as <zero> in the confirmation flow and on any cancellation summary. The system indicates that no refund payment will be initiated (visible message) while still processing the cancellation",
       "priority": "medium"
     },
     {
       "tc_id": "E-007",
-      "subcategory": "interaction_edge",
-      "test_case": "Add then remove all entries in Traveler_Updates repeating_group and submit",
+      "wf_ref": "WF-002",
+      "subcategory": "state_edge",
+      "test_case": "Rapid consecutive state transitions: submit Modify then immediately attempt Cancel before Modify completes",
       "preconditions": [
-        "Open booking detail and click Modify to access Traveler_Updates repeating_group",
-        "Traveler_Updates is optional per the AST (no minimum required)"
+        "Booking is in 'default' state",
+        "Booking type permits modification",
+        "Cancellation policy permits cancellation"
       ],
       "steps": [
-        "1. In the Traveler_Updates repeating_group, add one empty entry (use the UI control to add)",
-        "2. Remove the added Traveler_Updates entry using the UI remove control so the repeating group is empty",
-        "3. Fill any other required fields for modification (e.g., a valid Travel_Date_Changes New_Date) and click Submit"
+        "1. Open the booking detail page for the target booking",
+        "2. Click the 'Modify' action in the action bar",
+        "3. Make a small change (e.g., change Special_Requests) but do not wait for server response",
+        "4. Click Submit / Save for the modification",
+        "5. Immediately (while modification request is still processing) click the 'Cancel' action in the action bar",
+        "6. Attempt to click 'Confirm Cancellation' while modification is pending"
       ],
-      "expected_result": "Form submission succeeds: modification is applied; booking detail shows no Traveler_Updates entries saved (empty repeating group), and no validation error is shown for having zero traveler update items",
-      "priority": "low"
+      "expected_result": "The second action is blocked / error shown: the UI disables the Cancel/Confirm controls while the modification is processing and displays an inline processing indicator or message. Only the first (modification) completes and is applied; no concurrent cancellation is processed during the pending modification. If the system instead queues the cancellation, the UI shows an explicit queued-state indicator; silent race outcomes are not allowed",
+      "priority": "medium"
     }
   ],
   "summary": {
     "total": 7,
     "boundary": 3,
-    "input_edge": 1,
-    "interaction_edge": 2,
+    "input_edge": 2,
+    "interaction_edge": 1,
     "state_edge": 1,
     "data_edge": 0,
-    "medium_priority": 5,
-    "low_priority": 2
+    "medium_priority": 4,
+    "low_priority": 3
   }
 }
 
 ------------------------------------------------------------
-[22:57:44] Test-Edge - PARSED JSON
+[14:53:58] Test-Edge - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Booking Management",
@@ -436,125 +478,152 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": "WF-001",
       "subcategory": "boundary",
-      "test_case": "Cancel flow blocks submission when Confirm_Cancellation is not checked",
+      "test_case": "Modify: set Travel_Dates to <today> (same-day boundary)",
       "preconditions": [
-        "Open booking detail for a booking where cancellation policy permits cancellation",
-        "User has clicked Cancel to open the cancellation confirmation flow"
+        "Booking is in 'default' state",
+        "Booking type permits modification",
+        "Cancellation policy permits modification"
       ],
       "steps": [
-        "1. Observe Refund_Amount displayed in the cancellation confirmation flow",
-        "2. Ensure Confirm_Cancellation checkbox is left unchecked",
-        "3. Click the Cancel confirmation submit button"
+        "1. Open the booking detail page for the target booking",
+        "2. Click the 'Modify' action in the action bar",
+        "3. In the Travel_Dates field select <today>",
+        "4. Click the Submit / Save button for the modification"
       ],
-      "expected_result": "Submission is blocked / error shown: Confirm_Cancellation checkbox displays an inline validation error indicating explicit confirmation is required; booking remains in its previous status and no refund is initiated",
+      "expected_result": "Modification succeeds; booking detail displays Travel_Dates as <today>, modification email notification is sent, and a visible non-blocking notice referencing 'changes subject to availability' may be present",
       "priority": "medium"
     },
     {
       "tc_id": "E-002",
-      "subcategory": "input_edge",
-      "test_case": "Special_Requests accepts very long text and preserves content in booking detail",
+      "wf_ref": "WF-001",
+      "subcategory": "boundary",
+      "test_case": "Modify: set Travel_Dates to a far-future date (availability boundary)",
       "preconditions": [
-        "Open booking detail where Modify action is permitted",
-        "Click Modify to open modification form with Special_Requests available"
+        "Booking is in 'default' state",
+        "Booking type permits modification",
+        "Cancellation policy permits modification"
       ],
       "steps": [
-        "1. Enter a very long string (200+ characters, including emoji and special characters) into Special_Requests",
-        "2. Fill any other required Modify fields (e.g., add one Travel_Date_Changes item with a valid New_Date)",
-        "3. Click Submit to apply modifications"
+        "1. Open the booking detail page for the target booking",
+        "2. Click the 'Modify' action in the action bar",
+        "3. In the Travel_Dates field select a date far in the future (e.g., several months/year ahead)",
+        "4. Click the Submit / Save button for the modification"
       ],
-      "expected_result": "Form submission succeeds: modification applies, modification success UI is shown, and the booking detail page displays the full Special_Requests text (no silent truncation); a modification email is sent",
-      "priority": "low"
+      "expected_result": "Modification succeeds (changes applied and modification email sent); the UI displays Travel_Dates as the selected far-future date and shows a visible, non-blocking inline warning or banner indicating 'changes subject to availability' or similar; no blocking error is shown",
+      "priority": "medium"
     },
     {
       "tc_id": "E-003",
-      "subcategory": "boundary",
-      "test_case": "Modify travel date with New_Date equal to today (boundary passes)",
+      "wf_ref": "WF-001",
+      "subcategory": "input_edge",
+      "test_case": "Modify: Special_Requests field accepts very long text (200+ characters)",
       "preconditions": [
-        "Open booking detail where Modify is permitted and travel date changes are allowed",
-        "Availability check not blocking changes for the requested date"
+        "Booking is in 'default' state",
+        "Booking type permits modification",
+        "Cancellation policy permits modification"
       ],
       "steps": [
-        "1. Click Modify to open the travel date change repeating group",
-        "2. Add one Travel_Date_Changes item",
-        "3. Enter New_Date = <today> in the New_Date field",
-        "4. Click Submit to apply the date change"
+        "1. Open the booking detail page for the target booking",
+        "2. Click the 'Modify' action in the action bar",
+        "3. In the Special_Requests textarea enter a very long string (>200 characters)",
+        "4. Click the Submit / Save button for the modification",
+        "5. Open the booking detail view to inspect the saved Special_Requests"
       ],
-      "expected_result": "Form submission succeeds: modification is applied and the booking detail page shows New_Date = <today>; applicable fees are charged and a modification email is sent",
-      "priority": "medium"
+      "expected_result": "Form submission succeeds; booking detail shows the Special_Requests value. If the UI enforces truncation it displays the truncated text with a visible indicator (e.g., '\u2026'); if the UI accepts full text the full entered string is visible. No silent loss of data without a visible indicator is allowed",
+      "priority": "low"
     },
     {
       "tc_id": "E-004",
-      "subcategory": "boundary",
-      "test_case": "Modify travel date with New_Date set to one day before today (past date is blocked)",
+      "wf_ref": "WF-001",
+      "subcategory": "input_edge",
+      "test_case": "Modify: Special_Requests preserves special characters and emoji",
       "preconditions": [
-        "Open booking detail where Modify is permitted"
+        "Booking is in 'default' state",
+        "Booking type permits modification",
+        "Cancellation policy permits modification"
       ],
       "steps": [
-        "1. Click Modify to open the travel date change repeating group",
-        "2. Add one Travel_Date_Changes item",
-        "3. Enter New_Date = <one day before today> in the New_Date field",
-        "4. Click Submit to attempt to apply the date change"
+        "1. Open the booking detail page for the target booking",
+        "2. Click the 'Modify' action in the action bar",
+        "3. In the Special_Requests textarea enter text containing special characters and emoji (unicode)",
+        "4. Click the Submit / Save button for the modification",
+        "5. Open the booking detail view to inspect the saved Special_Requests"
       ],
-      "expected_result": "Submission is blocked / error shown: New_Date displays an inline error indicating the date is in the past and cannot be selected; booking is not modified and no fees or emails are triggered",
-      "priority": "medium"
+      "expected_result": "Submission succeeds; booking detail displays the Special_Requests text with special characters and emoji preserved exactly as entered, or shows a clear inline validation error if such characters are disallowed. The visible outcome must explicitly show acceptance or a specific error",
+      "priority": "low"
     },
     {
       "tc_id": "E-005",
+      "wf_ref": "WF-001",
       "subcategory": "interaction_edge",
-      "test_case": "Rapid double-click on Modify submit only processes a single modification",
+      "test_case": "Modify: add then remove all entries in Traveler_Updates repeating group and submit",
       "preconditions": [
-        "Open booking detail where Modify is permitted and a valid date change is ready to submit"
+        "Booking is in 'default' state",
+        "Booking type permits modification",
+        "Cancellation policy permits modification"
       ],
       "steps": [
-        "1. Click Modify and add a Travel_Date_Changes item with a valid New_Date",
-        "2. Rapidly double-click the Modify form submit button (two clicks within a short interval)",
-        "3. Observe response in the UI and booking detail page"
+        "1. Open the booking detail page for the target booking",
+        "2. Click the 'Modify' action in the action bar",
+        "3. In the Traveler_Updates repeating group click Add to create one entry",
+        "4. Immediately remove the entry you just added using the group's remove control",
+        "5. Click the Submit / Save button for the modification",
+        "6. Open the booking detail view to inspect traveler information and any Traveler_Updates"
       ],
-      "expected_result": "Action succeeds once: only a single modification is processed (no duplicate charges or duplicate modification records); UI shows a single success notification and only one modification email is sent",
-      "priority": "medium"
+      "expected_result": "Submission succeeds; no Traveler_Updates entries are saved (the repeating group is empty) and existing traveler information remains unchanged. No blocking error is shown because there is no minimum entry constraint",
+      "priority": "low"
     },
     {
       "tc_id": "E-006",
-      "subcategory": "state_edge",
-      "test_case": "Attempt Modify then immediately Cancel (rapid consecutive state transitions) \u2014 second action blocked",
+      "wf_ref": "WF-002",
+      "subcategory": "boundary",
+      "test_case": "Cancel: Refund_Amount displays <zero> (edge case of no refundable amount) and confirm cancellation",
       "preconditions": [
-        "Open booking detail where both Modify and Cancel actions are available (preconditions permitting)",
-        "Prepare a valid Modify payload (e.g., one New_Date)"
+        "Booking is in 'default' state",
+        "Cancellation policy permits cancellation",
+        "Cancellation eligibility and fees are such that the calculated Refund_Amount is <zero>"
       ],
       "steps": [
-        "1. Click Modify, enter a valid New_Date and click Submit to start modification",
-        "2. Immediately (before modification confirmation completes) click Cancel on the booking detail and confirm the confirmation flow (check Confirm_Cancellation) to attempt cancellation",
-        "3. Observe which state change is applied and messages shown"
+        "1. Open the booking detail page for the target booking",
+        "2. Click the 'Cancel' action in the action bar",
+        "3. Observe the Refund_Amount displayed in the cancellation confirmation flow (expect <zero>)",
+        "4. Click the 'Confirm Cancellation' button"
       ],
-      "expected_result": "Second action is blocked / error shown: only one state transition is applied (the first completed action); the second action does not create a conflicting state change, and the UI displays a message or indicator that a concurrent change prevented the second action; only one email (for the single applied state change) is sent",
+      "expected_result": "Cancellation succeeds; booking status changes to Cancelled, cancellation email notification is sent, and the UI shows Refund_Amount as <zero> in the confirmation flow and on any cancellation summary. The system indicates that no refund payment will be initiated (visible message) while still processing the cancellation",
       "priority": "medium"
     },
     {
       "tc_id": "E-007",
-      "subcategory": "interaction_edge",
-      "test_case": "Add then remove all entries in Traveler_Updates repeating_group and submit",
+      "wf_ref": "WF-002",
+      "subcategory": "state_edge",
+      "test_case": "Rapid consecutive state transitions: submit Modify then immediately attempt Cancel before Modify completes",
       "preconditions": [
-        "Open booking detail and click Modify to access Traveler_Updates repeating_group",
-        "Traveler_Updates is optional per the AST (no minimum required)"
+        "Booking is in 'default' state",
+        "Booking type permits modification",
+        "Cancellation policy permits cancellation"
       ],
       "steps": [
-        "1. In the Traveler_Updates repeating_group, add one empty entry (use the UI control to add)",
-        "2. Remove the added Traveler_Updates entry using the UI remove control so the repeating group is empty",
-        "3. Fill any other required fields for modification (e.g., a valid Travel_Date_Changes New_Date) and click Submit"
+        "1. Open the booking detail page for the target booking",
+        "2. Click the 'Modify' action in the action bar",
+        "3. Make a small change (e.g., change Special_Requests) but do not wait for server response",
+        "4. Click Submit / Save for the modification",
+        "5. Immediately (while modification request is still processing) click the 'Cancel' action in the action bar",
+        "6. Attempt to click 'Confirm Cancellation' while modification is pending"
       ],
-      "expected_result": "Form submission succeeds: modification is applied; booking detail shows no Traveler_Updates entries saved (empty repeating group), and no validation error is shown for having zero traveler update items",
-      "priority": "low"
+      "expected_result": "The second action is blocked / error shown: the UI disables the Cancel/Confirm controls while the modification is processing and displays an inline processing indicator or message. Only the first (modification) completes and is applied; no concurrent cancellation is processed during the pending modification. If the system instead queues the cancellation, the UI shows an explicit queued-state indicator; silent race outcomes are not allowed",
+      "priority": "medium"
     }
   ],
   "summary": {
     "total": 7,
     "boundary": 3,
-    "input_edge": 1,
-    "interaction_edge": 2,
+    "input_edge": 2,
+    "interaction_edge": 1,
     "state_edge": 1,
     "data_edge": 0,
-    "medium_priority": 5,
-    "low_priority": 2
+    "medium_priority": 4,
+    "low_priority": 3
   }
 }

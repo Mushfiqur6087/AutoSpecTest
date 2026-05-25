@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-21T22:29:06.558985
+DEBUG SESSION STARTED: 2026-05-25T14:24:50.746711
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[22:29:06] Test-Positive - SYSTEM PROMPT
+[14:24:50] Test-Positive - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Expert UI Test Case Generator. You receive (1) a UI-AST JSON for one specific module and (2) the original functional description for that module.
 
@@ -24,6 +24,10 @@ Your job is to produce ONLY positive/functional UI test cases — tests where va
 <description>
 {Original functional description text for this module}
 </description>
+
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
 
 ---
 
@@ -146,6 +150,13 @@ Because you are testing a module in isolation, establish the required entry stat
 **1. Forms & Wizards (`form`, `wizard`):**
 - Generate ONE happy path per distinct success outcome.
 - *Conditional UI Check:* If a toggle/dropdown reveals new mandatory fields (`visible_when`), generate a separate test for that conditional branch.
+- **Wizard step coverage (CRITICAL):** If a wizard has multiple steps and any step beyond Step 1 contains its own named field group (e.g., "Address Details", "Family Members", "Identifiers"), generate ONE dedicated positive TC per such step. The TC must:
+  - Navigate to that specific step (include the preceding steps as preconditions or brief navigation steps)
+  - Fill the fields described for that step (not just pass through)
+  - Assert the step's content is visible/saved on the detail page after final submission
+  - **Do NOT collapse all wizard steps into one happy-path TC** — if Steps 2, 3, and 4 each have their own named section in the spec, they each need their own TC.
+- **Wizard in-step identifiers/duplicates:** If a wizard step allows adding identifiers, documents, or similar entries that have a uniqueness constraint, include a TC for that wizard step that also verifies the constraint (e.g., attempting to add a duplicate Document Type+Key pair inside the wizard). This is a different code path from adding the same post-creation on the detail page.
+- **Action dialogs:** If a `state_bound_action_bar` action opens a dialog with its own `fields{}` (e.g., Activate requires Activation Date, Reject requires Reason), generate ONE positive TC per such action-dialog — distinct from the state-transition TC. The TC fills the dialog field and completes the action.
 
 **2. State Machines (`state_bound_action_bar`):**
 - For each unique action available in a specific state, generate ONE test performing that action.
@@ -200,6 +211,19 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 
 ---
 
+**WORKFLOW COVERAGE OBLIGATION (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- Your test cases must **collectively cover every workflow** listed.
+- For each `wf_id`, at least one TC must:
+  - Activate the `conditional_branch` (if not null) — i.e. the test must set up the condition described.
+  - Assert the `on_success` as its `expected_result` (verbatim or as the primary basis for the expected result).
+- Add `"wf_ref": "WF-NNN"` to each TC to identify which workflow it covers.
+- If one TC naturally covers multiple workflows (e.g., the base path overlaps), pick the most specific `wf_ref`.
+- If a TC does not map to any workflow (e.g., a navigation-only test), set `"wf_ref": null`.
+
+---
+
 **OUTPUT — JSON only, no prose, no markdown fencing:**
 
 {
@@ -208,6 +232,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
   "test_cases": [
     {
       "tc_id": "P-001",
+      "wf_ref": "WF-001",
       "test_case": "Short descriptive name",
       "preconditions": ["User logged in as <Role>", "<Prerequisite state>"],
       "steps": ["1. Step one", "2. Step two"],
@@ -224,7 +249,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 }
 
 ------------------------------------------------------------
-[22:29:06] Test-Positive - USER PROMPT
+[14:24:50] Test-Positive - USER PROMPT
 ------------------------------------------------------------
 <module_name>System Administration</module_name>
 
@@ -232,134 +257,198 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 {
   "module_name": "System Administration",
   "components": {
+    "Scheduler_Global_Control": {
+      "type": "form",
+      "fields": {
+        "Scheduler_Enabled": {
+          "type": "checkbox",
+          "required": false,
+          "on_success": "toggles scheduler start/stop for all scheduled jobs"
+        }
+      }
+    },
     "Manage_Scheduler_Jobs_Table": {
       "type": "data_table",
-      "description": "Table of all batch jobs. Per-row interactive elements: Is Active toggle and editable CRON expression. Global control to start/stop scheduler.",
-      "preset_rows": [
-        {
-          "Job_Name": "Apply Annual Fee"
-        },
-        {
-          "Job_Name": "Add Accrual Transactions"
-        },
-        {
-          "Job_Name": "Apply Penalty to Overdue Loans"
-        },
-        {
-          "Job_Name": "Update Loan Summary"
-        },
-        {
-          "Job_Name": "Post Interest for Savings"
-        },
-        {
-          "Job_Name": "Transfer Fees"
-        },
-        {
-          "Job_Name": "Generate Loan Loss Provisioning"
-        }
-      ],
-      "columns": {
+      "row_fields": {
         "Job_Name": {
-          "type": "unspecified"
+          "type": "unspecified",
+          "required": false
         },
         "Is_Active": {
           "type": "checkbox",
-          "description": "toggle job active/inactive (per-row)"
+          "required": false,
+          "on_success": "toggles job active state"
         },
         "CRON_Expression": {
           "type": "unspecified",
-          "editable": true,
-          "description": "editable CRON expression for the job"
-        },
-        "Previous_Run_Status": {
-          "type": "unspecified"
-        },
-        "Next_Run_Time": {
-          "type": "date"
-        },
-        "Currently_Running": {
-          "type": "unspecified"
-        },
-        "Action_Buttons": {
-          "type": "unspecified",
-          "description": "per-row action buttons (generic actions menu)"
+          "required": false,
+          "constraints": [
+            "must be a valid CRON expression"
+          ],
+          "on_success": "updates job CRON expression"
         }
       },
+      "sortable_columns": [
+        "Job_Name",
+        "Next_Run_Time"
+      ],
       "row_actions": [
         {
-          "action_name": "Action_Buttons",
-          "description": "Opens job-specific actions menu (names of actions not specified in source)"
+          "action_name": "Edit_CRON",
+          "fields": {
+            "CRON_Expression": {
+              "type": "unspecified",
+              "required": true,
+              "constraints": [
+                "must be a valid CRON expression"
+              ]
+            }
+          },
+          "on_success": "updates job CRON expression"
         }
       ],
-      "global_controls": {
-        "Start_Stop_Scheduler": {
-          "type": "checkbox",
-          "element_name": "Start/Stop Scheduler",
-          "on_change": "controls whether scheduled jobs execute globally"
-        }
-      }
+      "preconditions": [],
+      "notes": "Jobs include: Apply Annual Fee, Add Accrual Transactions, Apply Penalty to Overdue Loans, Update Loan Summary, Post Interest for Savings, Transfer Fees, Generate Loan Loss Provisioning"
     },
     "Global_Configuration_Table": {
       "type": "data_table",
-      "description": "System-wide feature flags and configuration values.",
-      "preset_rows": [
-        {
-          "Configuration_Name": "maker-checker"
-        },
-        {
-          "Configuration_Name": "reschedule-future-repayments"
-        },
-        {
-          "Configuration_Name": "allow-transactions-on-non-workingday"
-        },
-        {
-          "Configuration_Name": "reschedule-repayments-on-holidays"
-        },
-        {
-          "Configuration_Name": "savings-interest-posting-current-period-end"
-        },
-        {
-          "Configuration_Name": "financial-year-beginning-month"
-        },
-        {
-          "Configuration_Name": "meetings-mandatory-for-jlg-loans"
-        }
-      ],
-      "columns": {
+      "row_fields": {
         "Configuration_Name": {
-          "type": "unspecified"
+          "type": "unspecified",
+          "required": false
         },
         "Enabled": {
           "type": "checkbox",
-          "description": "toggle to enable/disable the configuration"
+          "required": false,
+          "on_success": "toggles configuration enabled state"
         },
         "Value": {
           "type": "unspecified",
-          "description": "editable value field (type varies by configuration)"
-        },
-        "Description": {
-          "type": "unspecified"
+          "required": false,
+          "on_success": "updates configuration value"
         }
-      }
+      },
+      "rows": [
+        {
+          "config_key": "maker-checker",
+          "fields": {
+            "Configuration_Name": {
+              "type": "unspecified"
+            },
+            "Enabled": {
+              "type": "checkbox"
+            },
+            "Value": {
+              "type": "unspecified"
+            }
+          }
+        },
+        {
+          "config_key": "reschedule-future-repayments",
+          "fields": {
+            "Configuration_Name": {
+              "type": "unspecified"
+            },
+            "Enabled": {
+              "type": "checkbox"
+            },
+            "Value": {
+              "type": "unspecified"
+            }
+          }
+        },
+        {
+          "config_key": "allow-transactions-on-non-workingday",
+          "fields": {
+            "Configuration_Name": {
+              "type": "unspecified"
+            },
+            "Enabled": {
+              "type": "checkbox"
+            },
+            "Value": {
+              "type": "unspecified"
+            }
+          }
+        },
+        {
+          "config_key": "reschedule-repayments-on-holidays",
+          "fields": {
+            "Configuration_Name": {
+              "type": "unspecified"
+            },
+            "Enabled": {
+              "type": "checkbox"
+            },
+            "Value": {
+              "type": "unspecified"
+            }
+          }
+        },
+        {
+          "config_key": "savings-interest-posting-current-period-end",
+          "fields": {
+            "Configuration_Name": {
+              "type": "unspecified"
+            },
+            "Enabled": {
+              "type": "checkbox"
+            },
+            "Value": {
+              "type": "unspecified"
+            }
+          }
+        },
+        {
+          "config_key": "financial-year-beginning-month",
+          "fields": {
+            "Configuration_Name": {
+              "type": "unspecified"
+            },
+            "Enabled": {
+              "type": "checkbox"
+            },
+            "Value": {
+              "type": "unspecified",
+              "required": false
+            }
+          }
+        },
+        {
+          "config_key": "meetings-mandatory-for-jlg-loans",
+          "fields": {
+            "Configuration_Name": {
+              "type": "unspecified"
+            },
+            "Enabled": {
+              "type": "checkbox"
+            },
+            "Value": {
+              "type": "unspecified"
+            }
+          }
+        }
+      ],
+      "row_actions": [
+        {
+          "action_name": "Edit_Configuration",
+          "fields": {
+            "Enabled": {
+              "type": "checkbox",
+              "required": false
+            },
+            "Value": {
+              "type": "unspecified",
+              "required": false
+            }
+          },
+          "on_success": "updates configuration"
+        }
+      ]
     },
     "Manage_Codes_Table": {
       "type": "data_table",
-      "description": "Lists all code lists. Clicking a row opens the code values detail view where entries can be added, edited, reordered, or deactivated.",
-      "preset_rows": [
-        {
-          "Name": "Client Type"
-        },
-        {
-          "Name": "Gender"
-        },
-        {
-          "Name": "Address Type"
-        },
-        {
-          "Name": "Loan Purpose"
-        }
-      ],
-      "columns": {
+      "row_fields": {
         "Name": {
           "type": "unspecified"
         },
@@ -369,39 +458,76 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
       },
       "row_actions": [
         {
-          "action_name": "Open",
-          "on_success": "navigates to Code_List_Detail for the selected code list"
+          "action_name": "Open_Code_Values",
+          "on_success": "opens Code Values editor for the selected code"
         }
-      ]
+      ],
+      "notes": "Code lists include: Client Type, Gender, Address Type, Loan Purpose, etc."
     },
-    "Code_List_Detail": {
-      "type": "form",
-      "description": "Detail view for a code list. Supports adding, editing, reordering, and deactivating entries that populate dropdowns system-wide.",
-      "fields": {
-        "Entries": {
-          "type": "repeating_group",
-          "item_fields": {}
+    "Code_Values_Editor": {
+      "type": "data_table",
+      "description": "Editor opened when a code is clicked; allows adding, editing, reordering, deactivating entries that populate dropdowns",
+      "row_fields": {
+        "Value": {
+          "type": "unspecified",
+          "required": true
+        },
+        "Is_Active": {
+          "type": "checkbox",
+          "required": false
         }
       },
-      "entry_actions": [
+      "row_actions": [
         {
-          "action_name": "Add_Entry"
+          "action_name": "Edit_Value",
+          "fields": {
+            "Value": {
+              "type": "unspecified",
+              "required": true
+            },
+            "Is_Active": {
+              "type": "checkbox",
+              "required": false
+            }
+          },
+          "on_success": "updates code value entry"
         },
         {
-          "action_name": "Edit_Entry"
+          "action_name": "Deactivate_Value",
+          "fields": {},
+          "on_success": "marks code value as inactive"
         },
         {
-          "action_name": "Reorder_Entries"
+          "action_name": "Move_Up",
+          "fields": {},
+          "on_success": "moves entry up in ordering"
         },
         {
-          "action_name": "Deactivate_Entry"
+          "action_name": "Move_Down",
+          "fields": {},
+          "on_success": "moves entry down in ordering"
+        }
+      ],
+      "actions": [
+        {
+          "action_name": "Add_Value",
+          "fields": {
+            "Entry_Value": {
+              "type": "unspecified",
+              "required": true
+            },
+            "Is_Active": {
+              "type": "checkbox",
+              "required": false
+            }
+          },
+          "on_success": "adds new code value entry"
         }
       ]
     },
-    "Manage_Data_Tables_Table": {
+    "Manage_Data_Tables": {
       "type": "data_table",
-      "description": "Lists custom data tables that extend core entities (rows represent custom tables).",
-      "columns": {
+      "row_fields": {
         "Data_Table_Name": {
           "type": "unspecified"
         },
@@ -414,28 +540,35 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
       },
       "row_actions": [
         {
-          "action_name": "Edit"
+          "action_name": "Edit_Data_Table",
+          "on_success": "opens data table definition editor"
         },
         {
-          "action_name": "Delete"
+          "action_name": "Delete_Data_Table",
+          "preconditions": [
+            "user must confirm deletion"
+          ],
+          "on_success": "deletes custom data table"
         }
       ],
-      "page_actions": [
+      "actions": [
         {
-          "action_name": "Create",
-          "on_success": "opens Create_Data_Table_Form"
+          "action_name": "Create_Data_Table",
+          "on_success": "creates custom data table",
+          "opens": "Create_Data_Table_Form"
         }
       ]
     },
     "Create_Data_Table_Form": {
       "type": "form",
-      "description": "Form to create a new custom data table with column definitions.",
       "fields": {
         "Data_Table_Name": {
-          "type": "unspecified"
+          "type": "unspecified",
+          "required": true
         },
         "Application_Table_Name": {
           "type": "dropdown",
+          "required": true,
           "options": [
             "m_client",
             "m_group",
@@ -447,16 +580,20 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
           ]
         },
         "Multi_Row": {
-          "type": "checkbox"
+          "type": "checkbox",
+          "required": false
         },
-        "Columns": {
+        "Column_Definitions": {
           "type": "repeating_group",
+          "min": 0,
           "item_fields": {
             "Name": {
-              "type": "unspecified"
+              "type": "unspecified",
+              "required": true
             },
             "Type": {
               "type": "dropdown",
+              "required": true,
               "options": [
                 "string",
                 "number",
@@ -469,32 +606,34 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
               ]
             },
             "Length": {
-              "type": "number"
+              "type": "number",
+              "required": false
             },
             "Is_Mandatory": {
-              "type": "checkbox"
+              "type": "checkbox",
+              "required": false
             },
             "Is_Unique": {
-              "type": "checkbox"
+              "type": "checkbox",
+              "required": false
             }
           }
         }
       },
       "submit_actions": [
         {
-          "element_name": "Save",
-          "on_success": "creates custom data table"
+          "element_name": "Create",
+          "on_success": "creates data table definition"
         },
         {
           "element_name": "Cancel",
-          "on_success": "closes form without saving"
+          "on_success": "closes form without creating"
         }
       ]
     },
-    "Audit_Trails_Table": {
+    "Audit_Trails": {
       "type": "data_table",
-      "description": "Displays system actions with filters. When maker-checker is enabled, pending commands expose Approve/Reject actions.",
-      "columns": {
+      "row_fields": {
         "Action_Name": {
           "type": "unspecified"
         },
@@ -517,55 +656,61 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
           "type": "date"
         },
         "Processing_Result": {
-          "type": "unspecified",
-          "description": "Pending, Approved, Rejected"
-        },
-        "Office_Name": {
           "type": "unspecified"
         },
-        "Client_Loan_Savings_Details": {
+        "Office_Name": {
           "type": "unspecified"
         }
       },
       "filters": {
         "Action_Name": {
-          "type": "unspecified"
+          "type": "search"
         },
         "Entity_Name": {
-          "type": "unspecified"
+          "type": "search"
         },
         "Resource_ID": {
-          "type": "unspecified"
+          "type": "search"
         },
         "Maker_ID": {
-          "type": "unspecified"
+          "type": "search"
         },
         "Checker_ID": {
-          "type": "unspecified"
+          "type": "search"
         },
         "Office": {
-          "type": "unspecified"
+          "type": "search"
         },
-        "Date_Range": {
-          "type": "date_range"
+        "Date_From": {
+          "type": "date"
+        },
+        "Date_To": {
+          "type": "date"
         }
       },
       "row_actions": [
         {
           "action_name": "Approve",
           "preconditions": [
-            "maker-checker must be enabled",
-            "Processing_Result == Pending"
+            "maker-checker enabled",
+            "Processing Result == Pending"
           ],
-          "on_success": "approves the pending command"
+          "fields": {},
+          "on_success": "sets Processing Result to Approved"
         },
         {
           "action_name": "Reject",
           "preconditions": [
-            "maker-checker must be enabled",
-            "Processing_Result == Pending"
+            "maker-checker enabled",
+            "Processing Result == Pending"
           ],
-          "on_success": "rejects the pending command"
+          "fields": {
+            "Rejection_Reason": {
+              "type": "unspecified",
+              "required": false
+            }
+          },
+          "on_success": "sets Processing Result to Rejected"
         }
       ]
     }
@@ -590,10 +735,33 @@ The Audit Trails page displays all system actions with columns for Action Name, 
 
 </description>
 
+<workflows>
+WF-001 | Toggle global scheduler Start/Stop | actor: <role> | branch: none | terminal: Scheduler_Enabled | on_success: toggles scheduler start/stop for all scheduled jobs
+WF-002 | Toggle a scheduler job active/inactive | actor: <role> | branch: none | terminal: Is_Active | on_success: toggles job active state
+WF-003 | Edit job CRON expression (inline field) | actor: <role> | branch: none | terminal: CRON_Expression | on_success: updates job CRON expression
+WF-004 | Edit job CRON expression (Edit_CRON row action) | actor: <role> | branch: none | terminal: Edit_CRON | on_success: updates job CRON expression
+WF-005 | Toggle configuration Enabled (inline) | actor: <role> | branch: none | terminal: Enabled | on_success: toggles configuration enabled state
+WF-006 | Update configuration Value (inline) | actor: <role> | branch: none | terminal: Value | on_success: updates configuration value
+WF-007 | Edit configuration (row action) | actor: <role> | branch: none | terminal: Edit_Configuration | on_success: updates configuration
+WF-008 | Open a code list's values | actor: <role> | branch: none | terminal: Open_Code_Values | on_success: opens Code Values editor for the selected code
+WF-009 | Add a new code value | actor: <role> | branch: none | terminal: Add_Value | on_success: adds new code value entry
+WF-010 | Edit a code value entry | actor: <role> | branch: none | terminal: Edit_Value | on_success: updates code value entry
+WF-011 | Deactivate a code value entry | actor: <role> | branch: none | terminal: Deactivate_Value | on_success: marks code value as inactive
+WF-012 | Move a code value up in ordering | actor: <role> | branch: none | terminal: Move_Up | on_success: moves entry up in ordering
+WF-013 | Move a code value down in ordering | actor: <role> | branch: none | terminal: Move_Down | on_success: moves entry down in ordering
+WF-014 | Create Data Table action (opens form) | actor: <role> | branch: none | terminal: Create_Data_Table | on_success: creates custom data table
+WF-015 | Edit a custom data table (row action) | actor: <role> | branch: none | terminal: Edit_Data_Table | on_success: opens data table definition editor
+WF-016 | Delete a custom data table (requires confirmation) | actor: <role> | branch: user must confirm deletion | terminal: Delete_Data_Table | on_success: deletes custom data table
+WF-017 | Submit Create Data Table form (Create) | actor: <role> | branch: none | terminal: Create | on_success: creates data table definition
+WF-018 | Cancel Create Data Table form | actor: <role> | branch: none | terminal: Cancel | on_success: closes form without creating
+WF-019 | Approve an Audit Trail entry | actor: <role> | branch: maker-checker enabled AND Processing Result == Pending | terminal: Approve | on_success: sets Processing Result to Approved
+WF-020 | Reject an Audit Trail entry | actor: <role> | branch: maker-checker enabled AND Processing Result == Pending | terminal: Reject | on_success: sets Processing Result to Rejected
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[22:36:25] Test-Positive - LLM RESPONSE
+[14:32:51] Test-Positive - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "System Administration",
@@ -601,170 +769,338 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Toggle a scheduler job Active state on",
-      "preconditions": ["User logged in as <Administrator>"],
-      "steps": [
-        "1. Navigate to System Administration > Manage Scheduler Jobs",
-        "2. Locate the row for the 'Apply Annual Fee' job",
-        "3. Click the Is Active checkbox in the 'Apply Annual Fee' row to check it"
+      "wf_ref": "WF-001",
+      "test_case": "Toggle global scheduler Start/Stop via Scheduler Global Control",
+      "preconditions": [
+        "User logged in as <Administrator>",
+        "System Administration page is accessible"
       ],
-      "expected_result": "Is Active checkbox in the 'Apply Annual Fee' row is checked and visually indicates the job is active",
+      "steps": [
+        "1. Navigate to System Administration > Global Scheduler Control",
+        "2. Click the 'Scheduler Enabled' checkbox to change its state"
+      ],
+      "expected_result": "toggles scheduler start/stop for all scheduled jobs and the Scheduler Enabled checkbox reflects the new state on the Global Scheduler Control",
       "priority": "high"
     },
     {
       "tc_id": "P-002",
-      "test_case": "Edit a job's CRON expression inline",
-      "preconditions": ["User logged in as <Administrator>"],
+      "wf_ref": "WF-002",
+      "test_case": "Toggle a scheduler job active/inactive from Manage Scheduler Jobs table",
+      "preconditions": [
+        "User logged in as <Administrator>",
+        "Manage Scheduler Jobs page is open",
+        "A job row for <Job Name> exists in the table"
+      ],
       "steps": [
         "1. Navigate to System Administration > Manage Scheduler Jobs",
-        "2. Locate the row for the 'Post Interest for Savings' job",
-        "3. Click the CRON Expression cell for the 'Post Interest for Savings' row to edit it",
-        "4. Enter <valid CRON expression> into the CRON input and save (press Enter or click Save)"
+        "2. In the row for <Job Name>, click the Is Active toggle to change its state"
       ],
-      "expected_result": "CRON Expression cell for 'Post Interest for Savings' displays the entered <valid CRON expression>",
+      "expected_result": "toggles job active state and the Manage Scheduler Jobs table shows the <Job Name> row with the Is Active toggle updated to the new state",
       "priority": "high"
     },
     {
       "tc_id": "P-003",
-      "test_case": "Open the per-job actions menu",
-      "preconditions": ["User logged in as <Administrator>"],
+      "wf_ref": "WF-003",
+      "test_case": "Edit job CRON expression inline in the table",
+      "preconditions": [
+        "User logged in as <Administrator>",
+        "Manage Scheduler Jobs page is open",
+        "A job row for <Job Name> exists"
+      ],
       "steps": [
         "1. Navigate to System Administration > Manage Scheduler Jobs",
-        "2. Locate the row for the 'Transfer Fees' job",
-        "3. Click the Action_Buttons control for the 'Transfer Fees' row"
+        "2. In the CRON Expression cell for <Job Name>, enter <valid CRON expression> (must be a valid CRON expression) and confirm the inline edit"
       ],
-      "expected_result": "Actions menu for the 'Transfer Fees' job is displayed on screen",
-      "priority": "medium"
+      "expected_result": "updates job CRON expression and the CRON Expression column for the <Job Name> row displays <valid CRON expression>",
+      "priority": "high"
     },
     {
       "tc_id": "P-004",
-      "test_case": "Enable the global Start/Stop Scheduler control",
-      "preconditions": ["User logged in as <Administrator>"],
+      "wf_ref": "WF-004",
+      "test_case": "Edit job CRON expression via Edit_CRON row action",
+      "preconditions": [
+        "User logged in as <Administrator>",
+        "Manage Scheduler Jobs page is open",
+        "A job row for <Job Name> exists"
+      ],
       "steps": [
         "1. Navigate to System Administration > Manage Scheduler Jobs",
-        "2. Click the Start/Stop Scheduler checkbox to enable scheduling"
+        "2. Click the Edit action for the <Job Name> row to open the Edit CRON dialog",
+        "3. Enter <valid CRON expression> into the CRON_Expression field and click Save"
       ],
-      "expected_result": "Start/Stop Scheduler checkbox shows checked (enabled) on the Manage Scheduler Jobs page",
+      "expected_result": "updates job CRON expression and the Manage Scheduler Jobs table shows the <Job Name> row with CRON Expression set to <valid CRON expression>",
       "priority": "high"
     },
     {
       "tc_id": "P-005",
-      "test_case": "Enable the 'maker-checker' global configuration flag",
-      "preconditions": ["User logged in as <Administrator>"],
+      "wf_ref": "WF-005",
+      "test_case": "Toggle a Global Configuration Enabled checkbox inline",
+      "preconditions": [
+        "User logged in as <Administrator>",
+        "Global Configuration page is open",
+        "Configuration row for <Configuration_Name> is present"
+      ],
       "steps": [
         "1. Navigate to System Administration > Global Configuration",
-        "2. Locate the row for configuration 'maker-checker'",
-        "3. Click the Enabled checkbox for the 'maker-checker' row to check it"
+        "2. In the row for <Configuration_Name>, click the Enabled checkbox to change its state"
       ],
-      "expected_result": "Enabled checkbox for 'maker-checker' is checked in the Global Configuration table",
-      "priority": "medium"
+      "expected_result": "toggles configuration enabled state and the Enabled column for the <Configuration_Name> row reflects the new checkbox state",
+      "priority": "high"
     },
     {
       "tc_id": "P-006",
-      "test_case": "Approve a pending audit trail command when maker-checker is enabled",
+      "wf_ref": "WF-006",
+      "test_case": "Update a Global Configuration Value inline",
       "preconditions": [
         "User logged in as <Administrator>",
-        "maker-checker is enabled in Global Configuration",
-        "There is at least one Audit Trails row with Processing_Result == Pending"
+        "Global Configuration page is open",
+        "Configuration row for <Configuration_Name> is present"
       ],
       "steps": [
-        "1. Navigate to System Administration > Audit Trails",
-        "2. Locate an audit trail row with Processing_Result == Pending",
-        "3. Click the Approve action for that pending row"
+        "1. Navigate to System Administration > Global Configuration",
+        "2. In the Value cell for <Configuration_Name>, enter <valid configuration value> and confirm the inline edit"
       ],
-      "expected_result": "The Processing Result cell for the selected Audit Trails row updates to 'Approved'",
+      "expected_result": "updates configuration value and the Value column for the <Configuration_Name> row displays <valid configuration value>",
       "priority": "high"
     },
     {
       "tc_id": "P-007",
-      "test_case": "Reject a pending audit trail command when maker-checker is enabled",
+      "wf_ref": "WF-007",
+      "test_case": "Edit a configuration via Edit_Configuration row action",
       "preconditions": [
         "User logged in as <Administrator>",
-        "maker-checker is enabled in Global Configuration",
-        "There is at least one Audit Trails row with Processing_Result == Pending"
+        "Global Configuration page is open",
+        "Configuration row for <Configuration_Name> is present"
       ],
       "steps": [
-        "1. Navigate to System Administration > Audit Trails",
-        "2. Locate an audit trail row with Processing_Result == Pending",
-        "3. Click the Reject action for that pending row"
+        "1. Navigate to System Administration > Global Configuration",
+        "2. Click the Edit action for the <Configuration_Name> row to open the configuration editor",
+        "3. Change the Enabled state and Value to <enabled state> and <valid configuration value>, then click Save"
       ],
-      "expected_result": "The Processing Result cell for the selected Audit Trails row updates to 'Rejected'",
+      "expected_result": "updates configuration and the <Configuration_Name> row reflects the updated Enabled state and Value",
       "priority": "high"
     },
     {
       "tc_id": "P-008",
-      "test_case": "Open a code list's detail view from Manage Codes",
-      "preconditions": ["User logged in as <Administrator>"],
+      "wf_ref": "WF-008",
+      "test_case": "Open a code list's values from Manage Codes table",
+      "preconditions": [
+        "User logged in as <Administrator>",
+        "Manage Codes page is open",
+        "A code list row for <Code List Name> exists"
+      ],
       "steps": [
         "1. Navigate to System Administration > Manage Codes",
-        "2. Click the row for the 'Client Type' code list"
+        "2. Click the row for <Code List Name> (Open Code Values action)"
       ],
-      "expected_result": "Code List Detail page for 'Client Type' is displayed and the Entries repeating group is visible",
+      "expected_result": "opens Code Values editor for the selected code and the Code Values Editor for <Code List Name> is displayed",
       "priority": "medium"
     },
     {
       "tc_id": "P-009",
-      "test_case": "Add a new entry to a code list",
-      "preconditions": ["User logged in as <Administrator>", "Code List Detail for <selected code list> is open"],
-      "steps": [
-        "1. On the Code List Detail page, click Add Entry",
-        "2. In the new entry row, enter <new code value> into the value field",
-        "3. Click Save (or the save control for the new entry)"
+      "wf_ref": "WF-009",
+      "test_case": "Add a new code value in Code Values Editor",
+      "preconditions": [
+        "User logged in as <Administrator>",
+        "Code Values Editor is open for <Code List Name>"
       ],
-      "expected_result": "New entry appears in the Entries list for the code list with the entered <new code value>",
-      "priority": "medium"
+      "steps": [
+        "1. In the Code Values Editor for <Code List Name>, click Add Value",
+        "2. Enter <new entry value> in Entry_Value, set Is Active as appropriate, and click Save"
+      ],
+      "expected_result": "adds new code value entry and a new row appears in the Code Values Editor with Value = <new entry value> and Is Active reflecting the chosen state",
+      "priority": "high"
     },
     {
       "tc_id": "P-010",
-      "test_case": "Create a new custom data table with one column",
-      "preconditions": ["User logged in as <Administrator>"],
-      "steps": [
-        "1. Navigate to System Administration > Manage Data Tables",
-        "2. Click the Create action to open the Create Data Table form",
-        "3. Enter <Data Table Name> into the Data Table Name field",
-        "4. Select <application table> from the Application Table Name dropdown",
-        "5. (Optional) Check or leave Multi Row as needed",
-        "6. Click Add Row in the Columns section to add a column",
-        "7. In the new column row, enter <Column Name> in Name, select <Type> from Type, enter <Length> in Length, and set Is Mandatory / Is Unique as needed",
-        "8. Click Save on the Create Data Table form"
+      "wf_ref": "WF-010",
+      "test_case": "Edit an existing code value entry",
+      "preconditions": [
+        "User logged in as <Administrator>",
+        "Code Values Editor is open for <Code List Name>",
+        "A code value row with Value = <existing value> is present"
       ],
-      "expected_result": "A new row appears in the Manage Data Tables list with Data Table Name = <Data Table Name> and Application Table Name = <application table>",
+      "steps": [
+        "1. In the Code Values Editor for <Code List Name>, click Edit for the row with Value = <existing value>",
+        "2. Change the Value to <updated value> and/or toggle Is Active, then click Save"
+      ],
+      "expected_result": "updates code value entry and the row now shows Value = <updated value> (and Is Active updated if changed)",
       "priority": "high"
     },
     {
       "tc_id": "P-011",
-      "test_case": "Cancel creating a new custom data table closes the form",
-      "preconditions": ["User logged in as <Administrator>"],
-      "steps": [
-        "1. Navigate to System Administration > Manage Data Tables",
-        "2. Click the Create action to open the Create Data Table form",
-        "3. Click Cancel on the Create Data Table form"
+      "wf_ref": "WF-011",
+      "test_case": "Deactivate a code value entry",
+      "preconditions": [
+        "User logged in as <Administrator>",
+        "Code Values Editor is open for <Code List Name>",
+        "A code value row with Value = <existing value> is present and currently active"
       ],
-      "expected_result": "Create Data Table form is closed and the Manage Data Tables page is visible",
-      "priority": "low"
+      "steps": [
+        "1. In the Code Values Editor for <Code List Name>, click Deactivate for the row with Value = <existing value>",
+        "2. Confirm deactivation if a confirmation appears"
+      ],
+      "expected_result": "marks code value as inactive and the row for <existing value> shows Is Active = unchecked or an inactive indicator",
+      "priority": "medium"
     },
     {
       "tc_id": "P-012",
-      "test_case": "Filter Audit Trails by Action Name",
-      "preconditions": ["User logged in as <Administrator>", "Audit Trails page is accessible"],
+      "wf_ref": "WF-012",
+      "test_case": "Move a code value up in ordering",
+      "preconditions": [
+        "User logged in as <Administrator>",
+        "Code Values Editor is open for <Code List Name>",
+        "Code values are ordered and an entry <entry A> appears below <entry B>"
+      ],
+      "steps": [
+        "1. In the Code Values Editor for <Code List Name>, click Move Up on the row for <entry A>"
+      ],
+      "expected_result": "moves entry up in ordering and <entry A> is now displayed above the previous item in the list ordering",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-013",
+      "wf_ref": "WF-013",
+      "test_case": "Move a code value down in ordering",
+      "preconditions": [
+        "User logged in as <Administrator>",
+        "Code Values Editor is open for <Code List Name>",
+        "Code values are ordered and an entry <entry B> appears above <entry C>"
+      ],
+      "steps": [
+        "1. In the Code Values Editor for <Code List Name>, click Move Down on the row for <entry B>"
+      ],
+      "expected_result": "moves entry down in ordering and <entry B> is now displayed below the previous item in the list ordering",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-014",
+      "wf_ref": "WF-014",
+      "test_case": "Open Create Data Table form from Manage Data Tables",
+      "preconditions": [
+        "User logged in as <Administrator>",
+        "Manage Data Tables page is open"
+      ],
+      "steps": [
+        "1. Navigate to System Administration > Manage Data Tables",
+        "2. Click Create Data Table (Create_Data_Table action)"
+      ],
+      "expected_result": "Create_Data_Table form opens and the Create Data Table form is displayed with fields Data Table Name, Application Table Name, Multi Row, and Column Definitions",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-015",
+      "wf_ref": "WF-015",
+      "test_case": "Open data table definition editor via Edit_Data_Table row action",
+      "preconditions": [
+        "User logged in as <Administrator>",
+        "Manage Data Tables page is open",
+        "A custom data table row for <Data_Table_Name> exists"
+      ],
+      "steps": [
+        "1. Navigate to System Administration > Manage Data Tables",
+        "2. Click Edit for the <Data_Table_Name> row"
+      ],
+      "expected_result": "opens data table definition editor and the data table definition editor for <Data_Table_Name> is displayed",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-016",
+      "wf_ref": "WF-016",
+      "test_case": "Delete a custom data table with confirmation",
+      "preconditions": [
+        "User logged in as <Administrator>",
+        "Manage Data Tables page is open",
+        "A custom data table row for <Data_Table_Name> exists"
+      ],
+      "steps": [
+        "1. Navigate to System Administration > Manage Data Tables",
+        "2. Click Delete for the <Data_Table_Name> row",
+        "3. Click Confirm on the deletion confirmation dialog"
+      ],
+      "expected_result": "deletes custom data table and the row for <Data_Table_Name> is no longer visible in the Manage Data Tables list",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-017",
+      "wf_ref": "WF-017",
+      "test_case": "Submit Create Data Table form with columns (Create)",
+      "preconditions": [
+        "User logged in as <Administrator>",
+        "Create Data Table form is open"
+      ],
+      "steps": [
+        "1. In Create Data Table form, enter Data Table Name = <data table name>",
+        "2. Select Application Table Name = <application table> from the dropdown",
+        "3. Optionally check Multi Row",
+        "4. Click Add Row in Column Definitions, then for the new column enter Name = <column name>, Type = <column type>, set Length/Is Mandatory/Is Unique as needed",
+        "5. Click Create"
+      ],
+      "expected_result": "New row appears in Manage Data Tables with the entered Data Table Name and Application Table Name and the Create Data Table form closes",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-018",
+      "wf_ref": "WF-018",
+      "test_case": "Cancel Create Data Table form (Cancel)",
+      "preconditions": [
+        "User logged in as <Administrator>",
+        "Create Data Table form is open"
+      ],
+      "steps": [
+        "1. In Create Data Table form, click Cancel"
+      ],
+      "expected_result": "closes form without creating and the Create Data Table form is closed with no new row added to Manage Data Tables",
+      "priority": "low"
+    },
+    {
+      "tc_id": "P-019",
+      "wf_ref": "WF-019",
+      "test_case": "Approve an Audit Trail entry when maker-checker is enabled and Processing Result is Pending",
+      "preconditions": [
+        "User logged in as <Administrator>",
+        "Audit Trails page is open",
+        "maker-checker is enabled",
+        "An audit row for <Action_Name> with Processing Result = Pending is present"
+      ],
       "steps": [
         "1. Navigate to System Administration > Audit Trails",
-        "2. Enter <Action Name> into the Action Name filter and apply the filter"
+        "2. Locate the audit row for <Action_Name> with Processing Result = Pending",
+        "3. Click Approve for that audit row"
       ],
-      "expected_result": "Audit Trails table displays only rows matching <Action Name>; unrelated rows are no longer visible",
-      "priority": "medium"
+      "expected_result": "sets Processing Result to Approved and the Processing Result column for the selected audit row displays 'Approved'",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-020",
+      "wf_ref": "WF-020",
+      "test_case": "Reject an Audit Trail entry with an optional rejection reason",
+      "preconditions": [
+        "User logged in as <Administrator>",
+        "Audit Trails page is open",
+        "maker-checker is enabled",
+        "An audit row for <Action_Name> with Processing Result = Pending is present"
+      ],
+      "steps": [
+        "1. Navigate to System Administration > Audit Trails",
+        "2. Locate the audit row for <Action_Name> with Processing Result = Pending",
+        "3. Click Reject for that audit row",
+        "4. Enter <rejection reason> in the Rejection_Reason field (optional) and click Confirm"
+      ],
+      "expected_result": "sets Processing Result to Rejected and the Processing Result column for the selected audit row displays 'Rejected'",
+      "priority": "high"
     }
   ],
   "summary": {
-    "total": 12,
-    "high_priority": 6,
-    "medium_priority": 5,
-    "low_priority": 1
+    "total": 20,
+    "high_priority": 12,
+    "medium_priority": 6,
+    "low_priority": 2
   }
 }
 
 ------------------------------------------------------------
-[22:36:25] Test-Positive - PARSED JSON
+[14:32:51] Test-Positive - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "System Administration",
@@ -772,186 +1108,332 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Toggle a scheduler job Active state on",
+      "wf_ref": "WF-001",
+      "test_case": "Toggle global scheduler Start/Stop via Scheduler Global Control",
       "preconditions": [
-        "User logged in as <Administrator>"
+        "User logged in as <Administrator>",
+        "System Administration page is accessible"
       ],
       "steps": [
-        "1. Navigate to System Administration > Manage Scheduler Jobs",
-        "2. Locate the row for the 'Apply Annual Fee' job",
-        "3. Click the Is Active checkbox in the 'Apply Annual Fee' row to check it"
+        "1. Navigate to System Administration > Global Scheduler Control",
+        "2. Click the 'Scheduler Enabled' checkbox to change its state"
       ],
-      "expected_result": "Is Active checkbox in the 'Apply Annual Fee' row is checked and visually indicates the job is active",
+      "expected_result": "toggles scheduler start/stop for all scheduled jobs and the Scheduler Enabled checkbox reflects the new state on the Global Scheduler Control",
       "priority": "high"
     },
     {
       "tc_id": "P-002",
-      "test_case": "Edit a job's CRON expression inline",
+      "wf_ref": "WF-002",
+      "test_case": "Toggle a scheduler job active/inactive from Manage Scheduler Jobs table",
       "preconditions": [
-        "User logged in as <Administrator>"
+        "User logged in as <Administrator>",
+        "Manage Scheduler Jobs page is open",
+        "A job row for <Job Name> exists in the table"
       ],
       "steps": [
         "1. Navigate to System Administration > Manage Scheduler Jobs",
-        "2. Locate the row for the 'Post Interest for Savings' job",
-        "3. Click the CRON Expression cell for the 'Post Interest for Savings' row to edit it",
-        "4. Enter <valid CRON expression> into the CRON input and save (press Enter or click Save)"
+        "2. In the row for <Job Name>, click the Is Active toggle to change its state"
       ],
-      "expected_result": "CRON Expression cell for 'Post Interest for Savings' displays the entered <valid CRON expression>",
+      "expected_result": "toggles job active state and the Manage Scheduler Jobs table shows the <Job Name> row with the Is Active toggle updated to the new state",
       "priority": "high"
     },
     {
       "tc_id": "P-003",
-      "test_case": "Open the per-job actions menu",
+      "wf_ref": "WF-003",
+      "test_case": "Edit job CRON expression inline in the table",
       "preconditions": [
-        "User logged in as <Administrator>"
+        "User logged in as <Administrator>",
+        "Manage Scheduler Jobs page is open",
+        "A job row for <Job Name> exists"
       ],
       "steps": [
         "1. Navigate to System Administration > Manage Scheduler Jobs",
-        "2. Locate the row for the 'Transfer Fees' job",
-        "3. Click the Action_Buttons control for the 'Transfer Fees' row"
+        "2. In the CRON Expression cell for <Job Name>, enter <valid CRON expression> (must be a valid CRON expression) and confirm the inline edit"
       ],
-      "expected_result": "Actions menu for the 'Transfer Fees' job is displayed on screen",
-      "priority": "medium"
+      "expected_result": "updates job CRON expression and the CRON Expression column for the <Job Name> row displays <valid CRON expression>",
+      "priority": "high"
     },
     {
       "tc_id": "P-004",
-      "test_case": "Enable the global Start/Stop Scheduler control",
+      "wf_ref": "WF-004",
+      "test_case": "Edit job CRON expression via Edit_CRON row action",
       "preconditions": [
-        "User logged in as <Administrator>"
+        "User logged in as <Administrator>",
+        "Manage Scheduler Jobs page is open",
+        "A job row for <Job Name> exists"
       ],
       "steps": [
         "1. Navigate to System Administration > Manage Scheduler Jobs",
-        "2. Click the Start/Stop Scheduler checkbox to enable scheduling"
+        "2. Click the Edit action for the <Job Name> row to open the Edit CRON dialog",
+        "3. Enter <valid CRON expression> into the CRON_Expression field and click Save"
       ],
-      "expected_result": "Start/Stop Scheduler checkbox shows checked (enabled) on the Manage Scheduler Jobs page",
+      "expected_result": "updates job CRON expression and the Manage Scheduler Jobs table shows the <Job Name> row with CRON Expression set to <valid CRON expression>",
       "priority": "high"
     },
     {
       "tc_id": "P-005",
-      "test_case": "Enable the 'maker-checker' global configuration flag",
+      "wf_ref": "WF-005",
+      "test_case": "Toggle a Global Configuration Enabled checkbox inline",
       "preconditions": [
-        "User logged in as <Administrator>"
+        "User logged in as <Administrator>",
+        "Global Configuration page is open",
+        "Configuration row for <Configuration_Name> is present"
       ],
       "steps": [
         "1. Navigate to System Administration > Global Configuration",
-        "2. Locate the row for configuration 'maker-checker'",
-        "3. Click the Enabled checkbox for the 'maker-checker' row to check it"
+        "2. In the row for <Configuration_Name>, click the Enabled checkbox to change its state"
       ],
-      "expected_result": "Enabled checkbox for 'maker-checker' is checked in the Global Configuration table",
-      "priority": "medium"
+      "expected_result": "toggles configuration enabled state and the Enabled column for the <Configuration_Name> row reflects the new checkbox state",
+      "priority": "high"
     },
     {
       "tc_id": "P-006",
-      "test_case": "Approve a pending audit trail command when maker-checker is enabled",
+      "wf_ref": "WF-006",
+      "test_case": "Update a Global Configuration Value inline",
       "preconditions": [
         "User logged in as <Administrator>",
-        "maker-checker is enabled in Global Configuration",
-        "There is at least one Audit Trails row with Processing_Result == Pending"
+        "Global Configuration page is open",
+        "Configuration row for <Configuration_Name> is present"
       ],
       "steps": [
-        "1. Navigate to System Administration > Audit Trails",
-        "2. Locate an audit trail row with Processing_Result == Pending",
-        "3. Click the Approve action for that pending row"
+        "1. Navigate to System Administration > Global Configuration",
+        "2. In the Value cell for <Configuration_Name>, enter <valid configuration value> and confirm the inline edit"
       ],
-      "expected_result": "The Processing Result cell for the selected Audit Trails row updates to 'Approved'",
+      "expected_result": "updates configuration value and the Value column for the <Configuration_Name> row displays <valid configuration value>",
       "priority": "high"
     },
     {
       "tc_id": "P-007",
-      "test_case": "Reject a pending audit trail command when maker-checker is enabled",
+      "wf_ref": "WF-007",
+      "test_case": "Edit a configuration via Edit_Configuration row action",
       "preconditions": [
         "User logged in as <Administrator>",
-        "maker-checker is enabled in Global Configuration",
-        "There is at least one Audit Trails row with Processing_Result == Pending"
+        "Global Configuration page is open",
+        "Configuration row for <Configuration_Name> is present"
       ],
       "steps": [
-        "1. Navigate to System Administration > Audit Trails",
-        "2. Locate an audit trail row with Processing_Result == Pending",
-        "3. Click the Reject action for that pending row"
+        "1. Navigate to System Administration > Global Configuration",
+        "2. Click the Edit action for the <Configuration_Name> row to open the configuration editor",
+        "3. Change the Enabled state and Value to <enabled state> and <valid configuration value>, then click Save"
       ],
-      "expected_result": "The Processing Result cell for the selected Audit Trails row updates to 'Rejected'",
+      "expected_result": "updates configuration and the <Configuration_Name> row reflects the updated Enabled state and Value",
       "priority": "high"
     },
     {
       "tc_id": "P-008",
-      "test_case": "Open a code list's detail view from Manage Codes",
+      "wf_ref": "WF-008",
+      "test_case": "Open a code list's values from Manage Codes table",
       "preconditions": [
-        "User logged in as <Administrator>"
+        "User logged in as <Administrator>",
+        "Manage Codes page is open",
+        "A code list row for <Code List Name> exists"
       ],
       "steps": [
         "1. Navigate to System Administration > Manage Codes",
-        "2. Click the row for the 'Client Type' code list"
+        "2. Click the row for <Code List Name> (Open Code Values action)"
       ],
-      "expected_result": "Code List Detail page for 'Client Type' is displayed and the Entries repeating group is visible",
+      "expected_result": "opens Code Values editor for the selected code and the Code Values Editor for <Code List Name> is displayed",
       "priority": "medium"
     },
     {
       "tc_id": "P-009",
-      "test_case": "Add a new entry to a code list",
+      "wf_ref": "WF-009",
+      "test_case": "Add a new code value in Code Values Editor",
       "preconditions": [
         "User logged in as <Administrator>",
-        "Code List Detail for <selected code list> is open"
+        "Code Values Editor is open for <Code List Name>"
       ],
       "steps": [
-        "1. On the Code List Detail page, click Add Entry",
-        "2. In the new entry row, enter <new code value> into the value field",
-        "3. Click Save (or the save control for the new entry)"
+        "1. In the Code Values Editor for <Code List Name>, click Add Value",
+        "2. Enter <new entry value> in Entry_Value, set Is Active as appropriate, and click Save"
       ],
-      "expected_result": "New entry appears in the Entries list for the code list with the entered <new code value>",
-      "priority": "medium"
+      "expected_result": "adds new code value entry and a new row appears in the Code Values Editor with Value = <new entry value> and Is Active reflecting the chosen state",
+      "priority": "high"
     },
     {
       "tc_id": "P-010",
-      "test_case": "Create a new custom data table with one column",
+      "wf_ref": "WF-010",
+      "test_case": "Edit an existing code value entry",
       "preconditions": [
-        "User logged in as <Administrator>"
+        "User logged in as <Administrator>",
+        "Code Values Editor is open for <Code List Name>",
+        "A code value row with Value = <existing value> is present"
       ],
       "steps": [
-        "1. Navigate to System Administration > Manage Data Tables",
-        "2. Click the Create action to open the Create Data Table form",
-        "3. Enter <Data Table Name> into the Data Table Name field",
-        "4. Select <application table> from the Application Table Name dropdown",
-        "5. (Optional) Check or leave Multi Row as needed",
-        "6. Click Add Row in the Columns section to add a column",
-        "7. In the new column row, enter <Column Name> in Name, select <Type> from Type, enter <Length> in Length, and set Is Mandatory / Is Unique as needed",
-        "8. Click Save on the Create Data Table form"
+        "1. In the Code Values Editor for <Code List Name>, click Edit for the row with Value = <existing value>",
+        "2. Change the Value to <updated value> and/or toggle Is Active, then click Save"
       ],
-      "expected_result": "A new row appears in the Manage Data Tables list with Data Table Name = <Data Table Name> and Application Table Name = <application table>",
+      "expected_result": "updates code value entry and the row now shows Value = <updated value> (and Is Active updated if changed)",
       "priority": "high"
     },
     {
       "tc_id": "P-011",
-      "test_case": "Cancel creating a new custom data table closes the form",
+      "wf_ref": "WF-011",
+      "test_case": "Deactivate a code value entry",
       "preconditions": [
-        "User logged in as <Administrator>"
+        "User logged in as <Administrator>",
+        "Code Values Editor is open for <Code List Name>",
+        "A code value row with Value = <existing value> is present and currently active"
       ],
       "steps": [
-        "1. Navigate to System Administration > Manage Data Tables",
-        "2. Click the Create action to open the Create Data Table form",
-        "3. Click Cancel on the Create Data Table form"
+        "1. In the Code Values Editor for <Code List Name>, click Deactivate for the row with Value = <existing value>",
+        "2. Confirm deactivation if a confirmation appears"
       ],
-      "expected_result": "Create Data Table form is closed and the Manage Data Tables page is visible",
-      "priority": "low"
+      "expected_result": "marks code value as inactive and the row for <existing value> shows Is Active = unchecked or an inactive indicator",
+      "priority": "medium"
     },
     {
       "tc_id": "P-012",
-      "test_case": "Filter Audit Trails by Action Name",
+      "wf_ref": "WF-012",
+      "test_case": "Move a code value up in ordering",
       "preconditions": [
         "User logged in as <Administrator>",
-        "Audit Trails page is accessible"
+        "Code Values Editor is open for <Code List Name>",
+        "Code values are ordered and an entry <entry A> appears below <entry B>"
+      ],
+      "steps": [
+        "1. In the Code Values Editor for <Code List Name>, click Move Up on the row for <entry A>"
+      ],
+      "expected_result": "moves entry up in ordering and <entry A> is now displayed above the previous item in the list ordering",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-013",
+      "wf_ref": "WF-013",
+      "test_case": "Move a code value down in ordering",
+      "preconditions": [
+        "User logged in as <Administrator>",
+        "Code Values Editor is open for <Code List Name>",
+        "Code values are ordered and an entry <entry B> appears above <entry C>"
+      ],
+      "steps": [
+        "1. In the Code Values Editor for <Code List Name>, click Move Down on the row for <entry B>"
+      ],
+      "expected_result": "moves entry down in ordering and <entry B> is now displayed below the previous item in the list ordering",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-014",
+      "wf_ref": "WF-014",
+      "test_case": "Open Create Data Table form from Manage Data Tables",
+      "preconditions": [
+        "User logged in as <Administrator>",
+        "Manage Data Tables page is open"
+      ],
+      "steps": [
+        "1. Navigate to System Administration > Manage Data Tables",
+        "2. Click Create Data Table (Create_Data_Table action)"
+      ],
+      "expected_result": "Create_Data_Table form opens and the Create Data Table form is displayed with fields Data Table Name, Application Table Name, Multi Row, and Column Definitions",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-015",
+      "wf_ref": "WF-015",
+      "test_case": "Open data table definition editor via Edit_Data_Table row action",
+      "preconditions": [
+        "User logged in as <Administrator>",
+        "Manage Data Tables page is open",
+        "A custom data table row for <Data_Table_Name> exists"
+      ],
+      "steps": [
+        "1. Navigate to System Administration > Manage Data Tables",
+        "2. Click Edit for the <Data_Table_Name> row"
+      ],
+      "expected_result": "opens data table definition editor and the data table definition editor for <Data_Table_Name> is displayed",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-016",
+      "wf_ref": "WF-016",
+      "test_case": "Delete a custom data table with confirmation",
+      "preconditions": [
+        "User logged in as <Administrator>",
+        "Manage Data Tables page is open",
+        "A custom data table row for <Data_Table_Name> exists"
+      ],
+      "steps": [
+        "1. Navigate to System Administration > Manage Data Tables",
+        "2. Click Delete for the <Data_Table_Name> row",
+        "3. Click Confirm on the deletion confirmation dialog"
+      ],
+      "expected_result": "deletes custom data table and the row for <Data_Table_Name> is no longer visible in the Manage Data Tables list",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-017",
+      "wf_ref": "WF-017",
+      "test_case": "Submit Create Data Table form with columns (Create)",
+      "preconditions": [
+        "User logged in as <Administrator>",
+        "Create Data Table form is open"
+      ],
+      "steps": [
+        "1. In Create Data Table form, enter Data Table Name = <data table name>",
+        "2. Select Application Table Name = <application table> from the dropdown",
+        "3. Optionally check Multi Row",
+        "4. Click Add Row in Column Definitions, then for the new column enter Name = <column name>, Type = <column type>, set Length/Is Mandatory/Is Unique as needed",
+        "5. Click Create"
+      ],
+      "expected_result": "New row appears in Manage Data Tables with the entered Data Table Name and Application Table Name and the Create Data Table form closes",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-018",
+      "wf_ref": "WF-018",
+      "test_case": "Cancel Create Data Table form (Cancel)",
+      "preconditions": [
+        "User logged in as <Administrator>",
+        "Create Data Table form is open"
+      ],
+      "steps": [
+        "1. In Create Data Table form, click Cancel"
+      ],
+      "expected_result": "closes form without creating and the Create Data Table form is closed with no new row added to Manage Data Tables",
+      "priority": "low"
+    },
+    {
+      "tc_id": "P-019",
+      "wf_ref": "WF-019",
+      "test_case": "Approve an Audit Trail entry when maker-checker is enabled and Processing Result is Pending",
+      "preconditions": [
+        "User logged in as <Administrator>",
+        "Audit Trails page is open",
+        "maker-checker is enabled",
+        "An audit row for <Action_Name> with Processing Result = Pending is present"
       ],
       "steps": [
         "1. Navigate to System Administration > Audit Trails",
-        "2. Enter <Action Name> into the Action Name filter and apply the filter"
+        "2. Locate the audit row for <Action_Name> with Processing Result = Pending",
+        "3. Click Approve for that audit row"
       ],
-      "expected_result": "Audit Trails table displays only rows matching <Action Name>; unrelated rows are no longer visible",
-      "priority": "medium"
+      "expected_result": "sets Processing Result to Approved and the Processing Result column for the selected audit row displays 'Approved'",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-020",
+      "wf_ref": "WF-020",
+      "test_case": "Reject an Audit Trail entry with an optional rejection reason",
+      "preconditions": [
+        "User logged in as <Administrator>",
+        "Audit Trails page is open",
+        "maker-checker is enabled",
+        "An audit row for <Action_Name> with Processing Result = Pending is present"
+      ],
+      "steps": [
+        "1. Navigate to System Administration > Audit Trails",
+        "2. Locate the audit row for <Action_Name> with Processing Result = Pending",
+        "3. Click Reject for that audit row",
+        "4. Enter <rejection reason> in the Rejection_Reason field (optional) and click Confirm"
+      ],
+      "expected_result": "sets Processing Result to Rejected and the Processing Result column for the selected audit row displays 'Rejected'",
+      "priority": "high"
     }
   ],
   "summary": {
-    "total": 12,
-    "high_priority": 6,
-    "medium_priority": 5,
-    "low_priority": 1
+    "total": 20,
+    "high_priority": 12,
+    "medium_priority": 6,
+    "low_priority": 2
   }
 }

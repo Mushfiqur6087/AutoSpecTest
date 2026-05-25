@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-21T22:29:06.542579
+DEBUG SESSION STARTED: 2026-05-25T14:24:50.735053
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[22:29:06] Test-Edge - SYSTEM PROMPT
+[14:24:50] Test-Edge - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Edge Case and Boundary Test Generator. You receive (1) a UI-AST JSON for one module and (2) the original functional description. Your job is to produce ONLY boundary and edge case tests — scenarios at the limits of valid/invalid input and unusual-but-plausible user behaviors.
 
@@ -25,6 +25,10 @@ You are NOT producing happy paths (positive prompt) or standard validation failu
 {Original functional description text for this module}
 </description>
 
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
+
 ---
 
 **UI-AST REFERENCE — How to Read the AST for Edge Testing:**
@@ -35,7 +39,7 @@ You are NOT producing happy paths (positive prompt) or standard validation failu
 | `repeating_group` with `max` | Test adding exactly `max` entries (should succeed) then one more (should block) |
 | `visible_when` / `required_when` | Edge: trigger condition, fill revealed field with boundary value |
 | `state_bound_action_bar` | State edges: rapid consecutive state transitions, transition from a boundary state |
-| `submit_actions[]` with multiple buttons | Interaction edge: double-click a submit button rapidly |
+
 | `type: "date"` fields | Data edges: today, yesterday, far future, Feb 29 leap year |
 | `type: "file_upload"` | Edge: file exactly at size limit, file at 1 byte over limit |
 
@@ -132,7 +136,6 @@ Pick only the ones that apply to field types present in this module's AST:
 
 Pick only the ones that match component types in this module's AST:
 
-- **Double-click submit** (any form/wizard with a submit button): rapidly double-click the submit button → assert only one record is created; no duplicate row appears in the listing table
 - **Rapid re-submission after redirect** (any form that redirects to a detail page on success): after a successful submit, press the browser back button → assert the creation form is shown blank (not pre-filled) OR the user is redirected to the detail page without a second entity being created
 - **Wizard step skip — enforced navigation** (wizard where steps must be completed sequentially): attempt to click a later step tab directly without completing earlier steps → assert navigation is blocked and the earlier step remains active
 - **Wizard step skip — free navigation** (wizard that allows free tab navigation): navigate to a later step without filling earlier steps → assert the later step displays and returning to the earlier step shows fields blank (no data was lost from the later step)
@@ -173,7 +176,16 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 
 - **High:** None — edge tests are secondary to core functionality
 - **Medium:** Boundary tests at thresholds (financial amounts, date ordering, count limits, file size limits)
-- **Low:** Input edge cases (long text, special chars, whitespace, decimal precision), interaction edge cases (double-click, browser back, wizard skip)
+- **Low:** Input edge cases (long text, special chars, whitespace, decimal precision), interaction edge cases (browser back, wizard skip)
+
+---
+
+**WORKFLOW-AWARE BOUNDARY SCOPING (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- For each workflow where `conditional_branch` activates a numeric or date field, check if that field has a boundary (a numeric/date threshold in the AST `constraints` or description).
+- If yes, that workflow's branch is a **candidate for a boundary edge test** — add or confirm a boundary TC exists for it.
+- Add `"wf_ref": "WF-NNN"` to each TC that maps to a specific workflow's boundary. Set `"wf_ref": null` for generic input/interaction edge tests.
 
 ---
 
@@ -185,6 +197,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": null,
       "subcategory": "boundary | input_edge | interaction_edge | state_edge | data_edge",
       "test_case": "Short descriptive name",
       "preconditions": ["precondition 1"],
@@ -207,7 +220,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 
 
 ------------------------------------------------------------
-[22:29:06] Test-Edge - USER PROMPT
+[14:24:50] Test-Edge - USER PROMPT
 ------------------------------------------------------------
 <module_name>Fixed & Recurring Deposit Accounts</module_name>
 
@@ -215,34 +228,33 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 {
   "module_name": "Fixed & Recurring Deposit Accounts",
   "components": {
-    "Client_Detail_Actions": {
+    "Client_Detail_Page_Actions": {
       "type": "action_bar",
       "available_actions": [
         {
           "action_name": "Create Fixed Deposit Account",
-          "on_success": "opens Fixed Deposit Account creation form"
+          "element_type": "button",
+          "on_success": "opens Fixed_Deposit_Account_Creation_Form"
         },
         {
           "action_name": "Create Recurring Deposit Account",
-          "on_success": "opens Recurring Deposit Account creation form"
+          "element_type": "button",
+          "on_success": "opens Recurring_Deposit_Account_Creation_Form"
         }
       ]
     },
-    "FD_Account_Creation_Form": {
+    "Fixed_Deposit_Account_Creation_Form": {
       "type": "form",
       "fields": {
         "Fixed_Deposit_Product": {
           "type": "dropdown",
-          "required": true,
-          "constraints": [
-            "interest rate determined by selected product's Interest Rate Chart (tiered by deposit amount and term length)"
-          ]
+          "required": true
         },
         "Deposit_Amount": {
           "type": "number",
           "required": true
         },
-        "Deposit_Period_Value": {
+        "Deposit_Period_Number": {
           "type": "number",
           "required": true
         },
@@ -263,16 +275,24 @@ If the module has any numeric/date/count threshold in the AST or description, pr
             "Re-Invest",
             "Re-Invest Principal and Transfer Interest"
           ]
+        },
+        "Interest_Rate": {
+          "type": "number",
+          "required": false,
+          "constraints": [
+            "determined by Interest Rate Chart configured on selected Fixed Deposit Product",
+            "tiered rates based on Deposit_Amount and Deposit_Period_Number/Deposit_Period_Unit"
+          ]
         }
       },
       "submit_actions": [
         {
-          "element_name": "create_action",
+          "element_name": "Submit",
           "on_success": "creates Fixed Deposit account"
         }
       ]
     },
-    "FD_Account_Detail_Tabs": {
+    "Fixed_Deposit_Account_Detail_Tabs": {
       "type": "tab_container",
       "tabs": [
         {
@@ -289,7 +309,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
         }
       ]
     },
-    "FD_Account_Detail_Actions": {
+    "Fixed_Deposit_Account_Detail_Actions": {
       "type": "action_bar",
       "available_actions": [
         {
@@ -306,21 +326,18 @@ If the module has any numeric/date/count threshold in the AST or description, pr
         }
       ]
     },
-    "RD_Account_Creation_Form": {
+    "Recurring_Deposit_Account_Creation_Form": {
       "type": "form",
       "fields": {
         "Recurring_Deposit_Product": {
           "type": "dropdown",
-          "required": true,
-          "constraints": [
-            "interest rate determined by selected product's Interest Rate Chart (tiered by deposit amount and term length)"
-          ]
+          "required": true
         },
-        "Mandatory_Deposit_Amount": {
+        "Mandatory_Deposit_Amount_per_Installment": {
           "type": "number",
           "required": true
         },
-        "Deposit_Period_Value": {
+        "Deposit_Period_Number": {
           "type": "number",
           "required": true
         },
@@ -347,16 +364,24 @@ If the module has any numeric/date/count threshold in the AST or description, pr
         "Expected_First_Deposit_On": {
           "type": "date",
           "required": true
+        },
+        "Interest_Rate": {
+          "type": "number",
+          "required": false,
+          "constraints": [
+            "determined by Interest Rate Chart configured on selected Recurring Deposit Product",
+            "tiered rates based on Mandatory_Deposit_Amount_per_Installment and Deposit_Period_Number/Deposit_Period_Unit"
+          ]
         }
       },
       "submit_actions": [
         {
-          "element_name": "create_action",
+          "element_name": "Submit",
           "on_success": "creates Recurring Deposit account"
         }
       ]
     },
-    "RD_Account_Detail_Tabs": {
+    "Recurring_Deposit_Account_Detail_Tabs": {
       "type": "tab_container",
       "tabs": [
         {
@@ -373,7 +398,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
         }
       ]
     },
-    "RD_Account_Detail_Actions": {
+    "Recurring_Deposit_Account_Detail_Actions": {
       "type": "action_bar",
       "available_actions": [
         {
@@ -406,10 +431,26 @@ Fixed Deposit and Recurring Deposit accounts are created from the Client Detail 
 
 </description>
 
+<workflows>
+WF-001 | Open Fixed Deposit Account Creation Form | actor: <role> | branch: none | terminal: Create Fixed Deposit Account | on_success: opens Fixed_Deposit_Account_Creation_Form
+WF-002 | Open Recurring Deposit Account Creation Form | actor: <role> | branch: none | terminal: Create Recurring Deposit Account | on_success: opens Recurring_Deposit_Account_Creation_Form
+WF-003 | Submit Fixed Deposit Account Creation | actor: <role> | branch: none | terminal: Submit | on_success: creates Fixed Deposit account
+WF-004 | Approve Fixed Deposit Account | actor: <role> | branch: none | terminal: Approve | on_success: approves the Fixed Deposit account
+WF-005 | Activate Fixed Deposit Account | actor: <role> | branch: none | terminal: Activate | on_success: activates the Fixed Deposit account
+WF-006 | Premature Close Fixed Deposit Account | actor: <role> | branch: none | terminal: Premature Close | on_success: prematurely closes the Fixed Deposit account
+WF-007 | Close on Maturity Fixed Deposit Account | actor: <role> | branch: none | terminal: Close on Maturity | on_success: closes the Fixed Deposit account on maturity
+WF-008 | Submit Recurring Deposit Account Creation | actor: <role> | branch: none | terminal: Submit | on_success: creates Recurring Deposit account
+WF-009 | Approve Recurring Deposit Account | actor: <role> | branch: none | terminal: Approve | on_success: approves the Recurring Deposit account
+WF-010 | Activate Recurring Deposit Account | actor: <role> | branch: none | terminal: Activate | on_success: activates the Recurring Deposit account
+WF-011 | Deposit to Recurring Deposit Account | actor: <role> | branch: none | terminal: Deposit | on_success: records a deposit to the Recurring Deposit account
+WF-012 | Premature Close Recurring Deposit Account | actor: <role> | branch: none | terminal: Premature Close | on_success: prematurely closes the Recurring Deposit account
+WF-013 | Close on Maturity Recurring Deposit Account | actor: <role> | branch: none | terminal: Close on Maturity | on_success: closes the Recurring Deposit account on maturity
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[22:33:38] Test-Edge - LLM RESPONSE
+[14:29:50] Test-Edge - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Fixed & Recurring Deposit Accounts",
@@ -417,157 +458,162 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "E-001",
-      "subcategory": "boundary",
-      "test_case": "FD: Deposit Amount exactly at product interest-rate tier lower bound picks tier rate",
+      "wf_ref": "WF-008",
+      "subcategory": "data_edge",
+      "test_case": "Recurring Deposit - Expected First Deposit On set to yesterday (past date)",
       "preconditions": [
-        "A Fixed Deposit product exists with an Interest Rate Chart that has a tier breakpoint at <tier lower bound>",
-        "User is on the Client Detail page"
+        "A client exists and Client Detail page is open",
+        "A Recurring Deposit Product is available in the Recurring_Deposit_Product dropdown"
       ],
       "steps": [
-        "1. Click 'Create Fixed Deposit Account' in the Client Detail Actions",
-        "2. Select the Fixed Deposit product that has a tier with lower bound <tier lower bound> in Fixed_Deposit_Product dropdown",
-        "3. Enter <tier lower bound> in the Deposit_Amount field",
-        "4. Enter a valid value in Deposit_Period_Value that corresponds to a term covered by the product chart",
-        "5. Select the appropriate Deposit_Period_Unit",
-        "6. Select a Maturity_Instructions option",
-        "7. Click the create_action button"
+        "1. Click 'Create Recurring Deposit Account' on the Client Detail page",
+        "2. Select a Recurring_Deposit_Product",
+        "3. Enter a valid Mandatory_Deposit_Amount_per_Installment",
+        "4. Enter a valid Deposit_Period_Number",
+        "5. Select a Deposit_Period_Unit",
+        "6. Select a Deposit_Frequency",
+        "7. Set Expected_First_Deposit_On to yesterday (one day before today)",
+        "8. Click Submit"
       ],
-      "expected_result": "Form submits successfully; creation of the Fixed Deposit account succeeds; FD Account Detail page displays an interest rate equal to the rate defined for the tier that begins at <tier lower bound> and the maturity amount displayed is calculated using that tier rate",
+      "expected_result": "Submission is blocked / error shown; Expected_First_Deposit_On displays a visible validation error next to the field indicating a past date is not allowed",
       "priority": "medium"
     },
     {
       "tc_id": "E-002",
-      "subcategory": "boundary",
-      "test_case": "FD: Deposit Amount one unit below a tier lower bound maps to the lower tier rate",
+      "wf_ref": "WF-008",
+      "subcategory": "data_edge",
+      "test_case": "Recurring Deposit - Expected First Deposit On set to today (same-day boundary)",
       "preconditions": [
-        "A Fixed Deposit product exists with an Interest Rate Chart that has a tier breakpoint at <tier lower bound>",
-        "User is on the Client Detail page"
+        "A client exists and Client Detail page is open",
+        "A Recurring Deposit Product is available"
       ],
       "steps": [
-        "1. Click 'Create Fixed Deposit Account' in the Client Detail Actions",
-        "2. Select the Fixed Deposit product that has a tier with lower bound <tier lower bound> in Fixed_Deposit_Product dropdown",
-        "3. Enter <one unit below tier lower bound> in the Deposit_Amount field",
-        "4. Enter a valid value in Deposit_Period_Value that corresponds to a term covered by the product chart",
-        "5. Select the appropriate Deposit_Period_Unit",
-        "6. Select a Maturity_Instructions option",
-        "7. Click the create_action button"
+        "1. Click 'Create Recurring Deposit Account' on the Client Detail page",
+        "2. Select a Recurring_Deposit_Product",
+        "3. Enter a valid Mandatory_Deposit_Amount_per_Installment",
+        "4. Enter a valid Deposit_Period_Number",
+        "5. Select a Deposit_Period_Unit",
+        "6. Select a Deposit_Frequency",
+        "7. Set Expected_First_Deposit_On to today's date",
+        "8. Click Submit"
       ],
-      "expected_result": "Form submits successfully; creation of the Fixed Deposit account succeeds; FD Account Detail page displays an interest rate corresponding to the lower tier (i.e., the tier that applies to <one unit below tier lower bound>) — visible interest rate does not reflect the higher-tier rate",
+      "expected_result": "Submit succeeds; Recurring Deposit account is created and the Recurring Deposit Account detail page displays Expected First Deposit On set to the entered date (today)",
       "priority": "medium"
     },
     {
       "tc_id": "E-003",
+      "wf_ref": "WF-003",
       "subcategory": "boundary",
-      "test_case": "FD: Deposit Period Value exactly at product term-tier lower bound selects that term tier rate",
+      "test_case": "Fixed Deposit - Deposit Amount set to zero (ambiguous minimum)",
       "preconditions": [
-        "A Fixed Deposit product exists with an Interest Rate Chart that has a term-length tier breakpoint at <term tier lower bound>",
-        "User is on the Client Detail page"
+        "A client exists and Client Detail page is open",
+        "A Fixed Deposit Product is available in the Fixed_Deposit_Product dropdown"
       ],
       "steps": [
-        "1. Click 'Create Fixed Deposit Account' in the Client Detail Actions",
-        "2. Select the Fixed Deposit product that has a term-tier lower bound at <term tier lower bound> in Fixed_Deposit_Product dropdown",
-        "3. Enter a Deposit_Amount that falls within the product's expected amounts",
-        "4. Enter <term tier lower bound> in Deposit_Period_Value",
-        "5. Select the Deposit_Period_Unit that matches the chart's unit",
+        "1. Click 'Create Fixed Deposit Account' on the Client Detail page",
+        "2. Select a Fixed_Deposit_Product",
+        "3. Enter 0 in the Deposit_Amount field",
+        "4. Enter a valid Deposit_Period_Number",
+        "5. Select a Deposit_Period_Unit",
         "6. Select a Maturity_Instructions option",
-        "7. Click the create_action button"
+        "7. Click Submit"
       ],
-      "expected_result": "Form submits successfully; creation of the Fixed Deposit account succeeds; FD Account Detail page displays an interest rate equal to the rate defined for the term tier that begins at <term tier lower bound> and the maturity amount is calculated accordingly",
+      "expected_result": "Submit is blocked / error shown; Deposit_Amount shows a visible inline validation error indicating the amount must be greater than zero",
       "priority": "medium"
     },
     {
       "tc_id": "E-004",
-      "subcategory": "boundary",
-      "test_case": "FD: Deposit Period Value one unit below term-tier lower bound applies the previous term tier rate",
+      "wf_ref": "WF-003",
+      "subcategory": "input_edge",
+      "test_case": "Fixed Deposit - Deposit Amount entered with excessive decimal precision",
       "preconditions": [
-        "A Fixed Deposit product exists with an Interest Rate Chart that has a term-length tier breakpoint at <term tier lower bound>",
-        "User is on the Client Detail page"
+        "A client exists and Client Detail page is open",
+        "A Fixed Deposit Product is available"
       ],
       "steps": [
-        "1. Click 'Create Fixed Deposit Account' in the Client Detail Actions",
-        "2. Select the Fixed Deposit product that has a term-tier lower bound at <term tier lower bound> in Fixed_Deposit_Product dropdown",
-        "3. Enter a Deposit_Amount that falls within the product's expected amounts",
-        "4. Enter <one unit below term tier lower bound> in Deposit_Period_Value",
-        "5. Select the Deposit_Period_Unit that matches the chart's unit",
+        "1. Click 'Create Fixed Deposit Account' on the Client Detail page",
+        "2. Select a Fixed_Deposit_Product",
+        "3. Enter a Deposit_Amount value with more decimal places than typical currency precision (many decimal places)",
+        "4. Enter a valid Deposit_Period_Number",
+        "5. Select a Deposit_Period_Unit",
         "6. Select a Maturity_Instructions option",
-        "7. Click the create_action button"
+        "7. Click Submit"
       ],
-      "expected_result": "Form submits successfully; creation of the Fixed Deposit account succeeds; FD Account Detail page displays an interest rate corresponding to the prior term tier (i.e., the tier that applies to <one unit below term tier lower bound>) rather than the higher-tier rate",
-      "priority": "medium"
+      "expected_result": "Submit succeeds; Fixed Deposit account is created and the Fixed Deposit Account detail page displays the Deposit Amount rounded to the system-supported precision (visible rounding on the detail page)",
+      "priority": "low"
     },
     {
       "tc_id": "E-005",
-      "subcategory": "data_edge",
-      "test_case": "RD: Expected First Deposit On set to today's date (boundary) creates schedule starting today",
+      "wf_ref": "WF-003",
+      "subcategory": "interaction_edge",
+      "test_case": "Fixed Deposit - rapid re-submission after successful create (browser back then submit)",
       "preconditions": [
-        "User is on the Client Detail page",
-        "A Recurring Deposit product is selected that accepts an Expected First Deposit On date"
+        "A client exists and Client Detail page is open",
+        "A Fixed Deposit Product is available"
       ],
       "steps": [
-        "1. Click 'Create Recurring Deposit Account' in the Client Detail Actions",
-        "2. Select the Recurring Deposit product in Recurring_Deposit_Product dropdown",
-        "3. Enter a valid value in Mandatory_Deposit_Amount",
-        "4. Enter a valid Deposit_Period_Value and select Deposit_Period_Unit",
-        "5. Select a Deposit_Frequency",
-        "6. Enter <today> in Expected_First_Deposit_On",
-        "7. Click the create_action button"
+        "1. Click 'Create Fixed Deposit Account' on the Client Detail page",
+        "2. Fill all required fields with valid values",
+        "3. Click Submit and wait for the application to navigate to the Fixed Deposit Account detail page",
+        "4. Use the browser Back button to return to the Fixed Deposit Account Creation Form",
+        "5. Without changing any fields, click Submit again"
       ],
-      "expected_result": "Form submits successfully; creation of the Recurring Deposit account succeeds; RD Account Detail page displays a deposit schedule whose first installment date equals <today> and the 'Next scheduled deposit' (or schedule UI) shows <today> as the first occurrence",
+      "expected_result": "Second submission attempt is blocked / error shown; no duplicate Fixed Deposit account is created and only one Fixed Deposit account appears in the client's accounts list or the UI shows a clear duplicate-prevention message",
       "priority": "medium"
     },
     {
       "tc_id": "E-006",
-      "subcategory": "data_edge",
-      "test_case": "RD: Expected First Deposit On set to one day before today is blocked",
+      "wf_ref": "WF-003",
+      "subcategory": "boundary",
+      "test_case": "Fixed Deposit - Deposit Period Number set to zero (term length boundary)",
       "preconditions": [
-        "User is on the Client Detail page",
-        "A Recurring Deposit product is selected that requires Expected_First_Deposit_On to be on or after today"
+        "A client exists and Client Detail page is open",
+        "A Fixed Deposit Product is available"
       ],
       "steps": [
-        "1. Click 'Create Recurring Deposit Account' in the Client Detail Actions",
-        "2. Select the Recurring Deposit product in Recurring_Deposit_Product dropdown",
-        "3. Enter a valid value in Mandatory_Deposit_Amount",
-        "4. Enter a valid Deposit_Period_Value and select Deposit_Period_Unit",
-        "5. Select a Deposit_Frequency",
-        "6. Enter <one day before today> in Expected_First_Deposit_On",
-        "7. Click the create_action button"
+        "1. Click 'Create Fixed Deposit Account' on the Client Detail page",
+        "2. Select a Fixed_Deposit_Product",
+        "3. Enter a valid Deposit_Amount",
+        "4. Enter 0 in the Deposit_Period_Number field",
+        "5. Select a Deposit_Period_Unit",
+        "6. Select a Maturity_Instructions option",
+        "7. Click Submit"
       ],
-      "expected_result": "Submission is blocked; an inline error is shown next to Expected_First_Deposit_On indicating the date cannot be before today (form does not create the Recurring Deposit account) — is blocked / error shown",
+      "expected_result": "Submit is blocked / error shown; Deposit_Period_Number displays a visible validation error indicating the term must be at least one unit",
       "priority": "medium"
     },
     {
       "tc_id": "E-007",
-      "subcategory": "interaction_edge",
-      "test_case": "FD: Rapid double-click on create_action results in a single account creation",
+      "wf_ref": "WF-005",
+      "subcategory": "state_edge",
+      "test_case": "Fixed Deposit - rapid consecutive state transitions (Approve then immediate Activate)",
       "preconditions": [
-        "User is on the Create Fixed Deposit Account form with all required fields available",
-        "All required fields have valid entries except the final submit"
+        "A Fixed Deposit account exists in a state eligible for approval on the Fixed Deposit Account detail page",
+        "User has permissions to perform Approve and Activate actions"
       ],
       "steps": [
-        "1. Ensure Fixed_Deposit_Product is selected",
-        "2. Ensure Deposit_Amount has a valid value",
-        "3. Ensure Deposit_Period_Value and Deposit_Period_Unit are set",
-        "4. Ensure Maturity_Instructions is selected",
-        "5. Double-click the create_action button rapidly (two clicks within ~200ms)"
+        "1. Open the Fixed Deposit Account detail page for the target account",
+        "2. Click the 'Approve' action button",
+        "3. Immediately (without waiting for the UI confirmation of approval) click the 'Activate' action button"
       ],
-      "expected_result": "One account creation succeeds; only a single success notification is shown and only one Fixed Deposit account record appears on the client's account listing/FD Account Detail page (no duplicate account created) — succeeds",
+      "expected_result": "Activate action is blocked / error shown if approval has not completed; UI displays a visible message indicating the account must be in Approved state before activation (only one successful state transition occurs and the second action is prevented)",
       "priority": "medium"
     }
   ],
   "summary": {
     "total": 7,
-    "boundary": 4,
-    "input_edge": 0,
+    "boundary": 2,
+    "input_edge": 1,
     "interaction_edge": 1,
-    "state_edge": 0,
+    "state_edge": 1,
     "data_edge": 2,
-    "medium_priority": 7,
-    "low_priority": 0
+    "medium_priority": 6,
+    "low_priority": 1
   }
 }
 
 ------------------------------------------------------------
-[22:33:38] Test-Edge - PARSED JSON
+[14:29:50] Test-Edge - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Fixed & Recurring Deposit Accounts",
@@ -575,151 +621,156 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "E-001",
-      "subcategory": "boundary",
-      "test_case": "FD: Deposit Amount exactly at product interest-rate tier lower bound picks tier rate",
+      "wf_ref": "WF-008",
+      "subcategory": "data_edge",
+      "test_case": "Recurring Deposit - Expected First Deposit On set to yesterday (past date)",
       "preconditions": [
-        "A Fixed Deposit product exists with an Interest Rate Chart that has a tier breakpoint at <tier lower bound>",
-        "User is on the Client Detail page"
+        "A client exists and Client Detail page is open",
+        "A Recurring Deposit Product is available in the Recurring_Deposit_Product dropdown"
       ],
       "steps": [
-        "1. Click 'Create Fixed Deposit Account' in the Client Detail Actions",
-        "2. Select the Fixed Deposit product that has a tier with lower bound <tier lower bound> in Fixed_Deposit_Product dropdown",
-        "3. Enter <tier lower bound> in the Deposit_Amount field",
-        "4. Enter a valid value in Deposit_Period_Value that corresponds to a term covered by the product chart",
-        "5. Select the appropriate Deposit_Period_Unit",
-        "6. Select a Maturity_Instructions option",
-        "7. Click the create_action button"
+        "1. Click 'Create Recurring Deposit Account' on the Client Detail page",
+        "2. Select a Recurring_Deposit_Product",
+        "3. Enter a valid Mandatory_Deposit_Amount_per_Installment",
+        "4. Enter a valid Deposit_Period_Number",
+        "5. Select a Deposit_Period_Unit",
+        "6. Select a Deposit_Frequency",
+        "7. Set Expected_First_Deposit_On to yesterday (one day before today)",
+        "8. Click Submit"
       ],
-      "expected_result": "Form submits successfully; creation of the Fixed Deposit account succeeds; FD Account Detail page displays an interest rate equal to the rate defined for the tier that begins at <tier lower bound> and the maturity amount displayed is calculated using that tier rate",
+      "expected_result": "Submission is blocked / error shown; Expected_First_Deposit_On displays a visible validation error next to the field indicating a past date is not allowed",
       "priority": "medium"
     },
     {
       "tc_id": "E-002",
-      "subcategory": "boundary",
-      "test_case": "FD: Deposit Amount one unit below a tier lower bound maps to the lower tier rate",
+      "wf_ref": "WF-008",
+      "subcategory": "data_edge",
+      "test_case": "Recurring Deposit - Expected First Deposit On set to today (same-day boundary)",
       "preconditions": [
-        "A Fixed Deposit product exists with an Interest Rate Chart that has a tier breakpoint at <tier lower bound>",
-        "User is on the Client Detail page"
+        "A client exists and Client Detail page is open",
+        "A Recurring Deposit Product is available"
       ],
       "steps": [
-        "1. Click 'Create Fixed Deposit Account' in the Client Detail Actions",
-        "2. Select the Fixed Deposit product that has a tier with lower bound <tier lower bound> in Fixed_Deposit_Product dropdown",
-        "3. Enter <one unit below tier lower bound> in the Deposit_Amount field",
-        "4. Enter a valid value in Deposit_Period_Value that corresponds to a term covered by the product chart",
-        "5. Select the appropriate Deposit_Period_Unit",
-        "6. Select a Maturity_Instructions option",
-        "7. Click the create_action button"
+        "1. Click 'Create Recurring Deposit Account' on the Client Detail page",
+        "2. Select a Recurring_Deposit_Product",
+        "3. Enter a valid Mandatory_Deposit_Amount_per_Installment",
+        "4. Enter a valid Deposit_Period_Number",
+        "5. Select a Deposit_Period_Unit",
+        "6. Select a Deposit_Frequency",
+        "7. Set Expected_First_Deposit_On to today's date",
+        "8. Click Submit"
       ],
-      "expected_result": "Form submits successfully; creation of the Fixed Deposit account succeeds; FD Account Detail page displays an interest rate corresponding to the lower tier (i.e., the tier that applies to <one unit below tier lower bound>) \u2014 visible interest rate does not reflect the higher-tier rate",
+      "expected_result": "Submit succeeds; Recurring Deposit account is created and the Recurring Deposit Account detail page displays Expected First Deposit On set to the entered date (today)",
       "priority": "medium"
     },
     {
       "tc_id": "E-003",
+      "wf_ref": "WF-003",
       "subcategory": "boundary",
-      "test_case": "FD: Deposit Period Value exactly at product term-tier lower bound selects that term tier rate",
+      "test_case": "Fixed Deposit - Deposit Amount set to zero (ambiguous minimum)",
       "preconditions": [
-        "A Fixed Deposit product exists with an Interest Rate Chart that has a term-length tier breakpoint at <term tier lower bound>",
-        "User is on the Client Detail page"
+        "A client exists and Client Detail page is open",
+        "A Fixed Deposit Product is available in the Fixed_Deposit_Product dropdown"
       ],
       "steps": [
-        "1. Click 'Create Fixed Deposit Account' in the Client Detail Actions",
-        "2. Select the Fixed Deposit product that has a term-tier lower bound at <term tier lower bound> in Fixed_Deposit_Product dropdown",
-        "3. Enter a Deposit_Amount that falls within the product's expected amounts",
-        "4. Enter <term tier lower bound> in Deposit_Period_Value",
-        "5. Select the Deposit_Period_Unit that matches the chart's unit",
+        "1. Click 'Create Fixed Deposit Account' on the Client Detail page",
+        "2. Select a Fixed_Deposit_Product",
+        "3. Enter 0 in the Deposit_Amount field",
+        "4. Enter a valid Deposit_Period_Number",
+        "5. Select a Deposit_Period_Unit",
         "6. Select a Maturity_Instructions option",
-        "7. Click the create_action button"
+        "7. Click Submit"
       ],
-      "expected_result": "Form submits successfully; creation of the Fixed Deposit account succeeds; FD Account Detail page displays an interest rate equal to the rate defined for the term tier that begins at <term tier lower bound> and the maturity amount is calculated accordingly",
+      "expected_result": "Submit is blocked / error shown; Deposit_Amount shows a visible inline validation error indicating the amount must be greater than zero",
       "priority": "medium"
     },
     {
       "tc_id": "E-004",
-      "subcategory": "boundary",
-      "test_case": "FD: Deposit Period Value one unit below term-tier lower bound applies the previous term tier rate",
+      "wf_ref": "WF-003",
+      "subcategory": "input_edge",
+      "test_case": "Fixed Deposit - Deposit Amount entered with excessive decimal precision",
       "preconditions": [
-        "A Fixed Deposit product exists with an Interest Rate Chart that has a term-length tier breakpoint at <term tier lower bound>",
-        "User is on the Client Detail page"
+        "A client exists and Client Detail page is open",
+        "A Fixed Deposit Product is available"
       ],
       "steps": [
-        "1. Click 'Create Fixed Deposit Account' in the Client Detail Actions",
-        "2. Select the Fixed Deposit product that has a term-tier lower bound at <term tier lower bound> in Fixed_Deposit_Product dropdown",
-        "3. Enter a Deposit_Amount that falls within the product's expected amounts",
-        "4. Enter <one unit below term tier lower bound> in Deposit_Period_Value",
-        "5. Select the Deposit_Period_Unit that matches the chart's unit",
+        "1. Click 'Create Fixed Deposit Account' on the Client Detail page",
+        "2. Select a Fixed_Deposit_Product",
+        "3. Enter a Deposit_Amount value with more decimal places than typical currency precision (many decimal places)",
+        "4. Enter a valid Deposit_Period_Number",
+        "5. Select a Deposit_Period_Unit",
         "6. Select a Maturity_Instructions option",
-        "7. Click the create_action button"
+        "7. Click Submit"
       ],
-      "expected_result": "Form submits successfully; creation of the Fixed Deposit account succeeds; FD Account Detail page displays an interest rate corresponding to the prior term tier (i.e., the tier that applies to <one unit below term tier lower bound>) rather than the higher-tier rate",
-      "priority": "medium"
+      "expected_result": "Submit succeeds; Fixed Deposit account is created and the Fixed Deposit Account detail page displays the Deposit Amount rounded to the system-supported precision (visible rounding on the detail page)",
+      "priority": "low"
     },
     {
       "tc_id": "E-005",
-      "subcategory": "data_edge",
-      "test_case": "RD: Expected First Deposit On set to today's date (boundary) creates schedule starting today",
+      "wf_ref": "WF-003",
+      "subcategory": "interaction_edge",
+      "test_case": "Fixed Deposit - rapid re-submission after successful create (browser back then submit)",
       "preconditions": [
-        "User is on the Client Detail page",
-        "A Recurring Deposit product is selected that accepts an Expected First Deposit On date"
+        "A client exists and Client Detail page is open",
+        "A Fixed Deposit Product is available"
       ],
       "steps": [
-        "1. Click 'Create Recurring Deposit Account' in the Client Detail Actions",
-        "2. Select the Recurring Deposit product in Recurring_Deposit_Product dropdown",
-        "3. Enter a valid value in Mandatory_Deposit_Amount",
-        "4. Enter a valid Deposit_Period_Value and select Deposit_Period_Unit",
-        "5. Select a Deposit_Frequency",
-        "6. Enter <today> in Expected_First_Deposit_On",
-        "7. Click the create_action button"
+        "1. Click 'Create Fixed Deposit Account' on the Client Detail page",
+        "2. Fill all required fields with valid values",
+        "3. Click Submit and wait for the application to navigate to the Fixed Deposit Account detail page",
+        "4. Use the browser Back button to return to the Fixed Deposit Account Creation Form",
+        "5. Without changing any fields, click Submit again"
       ],
-      "expected_result": "Form submits successfully; creation of the Recurring Deposit account succeeds; RD Account Detail page displays a deposit schedule whose first installment date equals <today> and the 'Next scheduled deposit' (or schedule UI) shows <today> as the first occurrence",
+      "expected_result": "Second submission attempt is blocked / error shown; no duplicate Fixed Deposit account is created and only one Fixed Deposit account appears in the client's accounts list or the UI shows a clear duplicate-prevention message",
       "priority": "medium"
     },
     {
       "tc_id": "E-006",
-      "subcategory": "data_edge",
-      "test_case": "RD: Expected First Deposit On set to one day before today is blocked",
+      "wf_ref": "WF-003",
+      "subcategory": "boundary",
+      "test_case": "Fixed Deposit - Deposit Period Number set to zero (term length boundary)",
       "preconditions": [
-        "User is on the Client Detail page",
-        "A Recurring Deposit product is selected that requires Expected_First_Deposit_On to be on or after today"
+        "A client exists and Client Detail page is open",
+        "A Fixed Deposit Product is available"
       ],
       "steps": [
-        "1. Click 'Create Recurring Deposit Account' in the Client Detail Actions",
-        "2. Select the Recurring Deposit product in Recurring_Deposit_Product dropdown",
-        "3. Enter a valid value in Mandatory_Deposit_Amount",
-        "4. Enter a valid Deposit_Period_Value and select Deposit_Period_Unit",
-        "5. Select a Deposit_Frequency",
-        "6. Enter <one day before today> in Expected_First_Deposit_On",
-        "7. Click the create_action button"
+        "1. Click 'Create Fixed Deposit Account' on the Client Detail page",
+        "2. Select a Fixed_Deposit_Product",
+        "3. Enter a valid Deposit_Amount",
+        "4. Enter 0 in the Deposit_Period_Number field",
+        "5. Select a Deposit_Period_Unit",
+        "6. Select a Maturity_Instructions option",
+        "7. Click Submit"
       ],
-      "expected_result": "Submission is blocked; an inline error is shown next to Expected_First_Deposit_On indicating the date cannot be before today (form does not create the Recurring Deposit account) \u2014 is blocked / error shown",
+      "expected_result": "Submit is blocked / error shown; Deposit_Period_Number displays a visible validation error indicating the term must be at least one unit",
       "priority": "medium"
     },
     {
       "tc_id": "E-007",
-      "subcategory": "interaction_edge",
-      "test_case": "FD: Rapid double-click on create_action results in a single account creation",
+      "wf_ref": "WF-005",
+      "subcategory": "state_edge",
+      "test_case": "Fixed Deposit - rapid consecutive state transitions (Approve then immediate Activate)",
       "preconditions": [
-        "User is on the Create Fixed Deposit Account form with all required fields available",
-        "All required fields have valid entries except the final submit"
+        "A Fixed Deposit account exists in a state eligible for approval on the Fixed Deposit Account detail page",
+        "User has permissions to perform Approve and Activate actions"
       ],
       "steps": [
-        "1. Ensure Fixed_Deposit_Product is selected",
-        "2. Ensure Deposit_Amount has a valid value",
-        "3. Ensure Deposit_Period_Value and Deposit_Period_Unit are set",
-        "4. Ensure Maturity_Instructions is selected",
-        "5. Double-click the create_action button rapidly (two clicks within ~200ms)"
+        "1. Open the Fixed Deposit Account detail page for the target account",
+        "2. Click the 'Approve' action button",
+        "3. Immediately (without waiting for the UI confirmation of approval) click the 'Activate' action button"
       ],
-      "expected_result": "One account creation succeeds; only a single success notification is shown and only one Fixed Deposit account record appears on the client's account listing/FD Account Detail page (no duplicate account created) \u2014 succeeds",
+      "expected_result": "Activate action is blocked / error shown if approval has not completed; UI displays a visible message indicating the account must be in Approved state before activation (only one successful state transition occurs and the second action is prevented)",
       "priority": "medium"
     }
   ],
   "summary": {
     "total": 7,
-    "boundary": 4,
-    "input_edge": 0,
+    "boundary": 2,
+    "input_edge": 1,
     "interaction_edge": 1,
-    "state_edge": 0,
+    "state_edge": 1,
     "data_edge": 2,
-    "medium_priority": 7,
-    "low_priority": 0
+    "medium_priority": 6,
+    "low_priority": 1
   }
 }

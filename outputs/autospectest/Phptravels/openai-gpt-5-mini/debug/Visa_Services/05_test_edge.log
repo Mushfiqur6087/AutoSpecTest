@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-21T22:54:00.272466
+DEBUG SESSION STARTED: 2026-05-25T14:51:20.258984
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[22:54:00] Test-Edge - SYSTEM PROMPT
+[14:51:20] Test-Edge - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Edge Case and Boundary Test Generator. You receive (1) a UI-AST JSON for one module and (2) the original functional description. Your job is to produce ONLY boundary and edge case tests — scenarios at the limits of valid/invalid input and unusual-but-plausible user behaviors.
 
@@ -25,6 +25,10 @@ You are NOT producing happy paths (positive prompt) or standard validation failu
 {Original functional description text for this module}
 </description>
 
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
+
 ---
 
 **UI-AST REFERENCE — How to Read the AST for Edge Testing:**
@@ -35,7 +39,7 @@ You are NOT producing happy paths (positive prompt) or standard validation failu
 | `repeating_group` with `max` | Test adding exactly `max` entries (should succeed) then one more (should block) |
 | `visible_when` / `required_when` | Edge: trigger condition, fill revealed field with boundary value |
 | `state_bound_action_bar` | State edges: rapid consecutive state transitions, transition from a boundary state |
-| `submit_actions[]` with multiple buttons | Interaction edge: double-click a submit button rapidly |
+
 | `type: "date"` fields | Data edges: today, yesterday, far future, Feb 29 leap year |
 | `type: "file_upload"` | Edge: file exactly at size limit, file at 1 byte over limit |
 
@@ -132,7 +136,6 @@ Pick only the ones that apply to field types present in this module's AST:
 
 Pick only the ones that match component types in this module's AST:
 
-- **Double-click submit** (any form/wizard with a submit button): rapidly double-click the submit button → assert only one record is created; no duplicate row appears in the listing table
 - **Rapid re-submission after redirect** (any form that redirects to a detail page on success): after a successful submit, press the browser back button → assert the creation form is shown blank (not pre-filled) OR the user is redirected to the detail page without a second entity being created
 - **Wizard step skip — enforced navigation** (wizard where steps must be completed sequentially): attempt to click a later step tab directly without completing earlier steps → assert navigation is blocked and the earlier step remains active
 - **Wizard step skip — free navigation** (wizard that allows free tab navigation): navigate to a later step without filling earlier steps → assert the later step displays and returning to the earlier step shows fields blank (no data was lost from the later step)
@@ -173,7 +176,16 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 
 - **High:** None — edge tests are secondary to core functionality
 - **Medium:** Boundary tests at thresholds (financial amounts, date ordering, count limits, file size limits)
-- **Low:** Input edge cases (long text, special chars, whitespace, decimal precision), interaction edge cases (double-click, browser back, wizard skip)
+- **Low:** Input edge cases (long text, special chars, whitespace, decimal precision), interaction edge cases (browser back, wizard skip)
+
+---
+
+**WORKFLOW-AWARE BOUNDARY SCOPING (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- For each workflow where `conditional_branch` activates a numeric or date field, check if that field has a boundary (a numeric/date threshold in the AST `constraints` or description).
+- If yes, that workflow's branch is a **candidate for a boundary edge test** — add or confirm a boundary TC exists for it.
+- Add `"wf_ref": "WF-NNN"` to each TC that maps to a specific workflow's boundary. Set `"wf_ref": null` for generic input/interaction edge tests.
 
 ---
 
@@ -185,6 +197,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": null,
       "subcategory": "boundary | input_edge | interaction_edge | state_edge | data_edge",
       "test_case": "Short descriptive name",
       "preconditions": ["precondition 1"],
@@ -207,7 +220,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 
 
 ------------------------------------------------------------
-[22:54:00] Test-Edge - USER PROMPT
+[14:51:20] Test-Edge - USER PROMPT
 ------------------------------------------------------------
 <module_name>Visa Services</module_name>
 
@@ -215,7 +228,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 {
   "module_name": "Visa Services",
   "components": {
-    "Visa_Requirements_Selector": {
+    "Visa_Requirements_Search": {
       "type": "form",
       "fields": {
         "Nationality": {
@@ -230,7 +243,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
       "submit_actions": [
         {
           "element_name": "View Requirements",
-          "on_success": "displays visa requirements for selected Nationality and Destination Country"
+          "on_success": "shows visa requirements (visa type, processing time, required documents, fees) for the selected Nationality and Destination Country"
         }
       ]
     },
@@ -239,27 +252,27 @@ If the module has any numeric/date/count threshold in the AST or description, pr
       "fields": {
         "Full_Name": {
           "type": "unspecified",
-          "required": true
+          "required": false
         },
         "Passport_Number": {
           "type": "unspecified",
-          "required": true
+          "required": false
         },
         "Passport_Expiry_Date": {
           "type": "date",
-          "required": true
+          "required": false
         },
         "Date_of_Birth": {
           "type": "date",
-          "required": true
+          "required": false
         },
         "Nationality": {
           "type": "dropdown",
-          "required": true
+          "required": false
         },
         "Email": {
           "type": "email",
-          "required": true
+          "required": false
         },
         "Phone": {
           "type": "unspecified",
@@ -277,41 +290,42 @@ If the module has any numeric/date/count threshold in the AST or description, pr
           "type": "date",
           "required": false
         },
-        "Duration_of_Stay": {
+        "Duration_of_Stay_Days": {
           "type": "number",
           "required": false
         },
-        "Passport_Copy": {
-          "type": "file_upload",
-          "required": true
-        },
-        "Photographs": {
-          "type": "file_upload",
-          "required": true
-        },
-        "Invitation_Letter": {
-          "type": "file_upload",
-          "required": false
-        },
-        "Supporting_Documents": {
-          "type": "repeating_group",
-          "item_fields": {
-            "Document": {
+        "Document_Uploads": {
+          "type": "group",
+          "fields": {
+            "Passport_Copy": {
               "type": "file_upload",
-              "required": true
-            },
-            "Description": {
-              "type": "unspecified",
               "required": false
+            },
+            "Photographs": {
+              "type": "file_upload",
+              "required": false
+            },
+            "Invitation_Letter": {
+              "type": "file_upload",
+              "required": false
+            },
+            "Supporting_Documents": {
+              "type": "repeating_group",
+              "min": 0,
+              "item_fields": {
+                "Document_File": {
+                  "type": "file_upload",
+                  "required": false
+                }
+              }
             }
-          },
-          "min": 0
+          }
         }
       },
       "submit_actions": [
         {
           "element_name": "Submit Application",
-          "on_success": "application submitted and appears in Bookings dashboard for tracking"
+          "on_success": "creates visa application in Pending status and lists the application in Bookings dashboard"
         }
       ]
     },
@@ -320,7 +334,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
       "row_actions": [
         {
           "action_name": "View Application",
-          "on_action": "opens visa application detail for tracking status"
+          "on_success": "opens application detail for tracking status"
         }
       ]
     }
@@ -337,10 +351,16 @@ Users select their Nationality and Destination Country to view visa requirements
 
 </description>
 
+<workflows>
+WF-001 | View Visa Requirements | actor: <role> | branch: none | terminal: View Requirements | on_success: shows visa requirements (visa type, processing time, required documents, fees) for the selected Nationality and Destination Country
+WF-002 | Submit Visa Application | actor: <role> | branch: none | terminal: Submit Application | on_success: creates visa application in Pending status and lists the application in Bookings dashboard
+WF-003 | View Application from Bookings | actor: <role> | branch: none | terminal: View Application | on_success: opens application detail for tracking status
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[22:57:28] Test-Edge - LLM RESPONSE
+[14:53:54] Test-Edge - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Visa Services",
@@ -348,155 +368,146 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "E-001",
-      "subcategory": "boundary",
-      "test_case": "Passport expiry = today (boundary) is rejected",
+      "wf_ref": "WF-002",
+      "subcategory": "input_edge",
+      "test_case": "Very long Full Name submitted in application",
       "preconditions": [
-        "User is on the Visa_Application_Form page",
-        "All required fields except Passport_Expiry_Date are available to edit"
+        "User is authenticated and on the Visa Application Form page"
       ],
       "steps": [
-        "1. Enter <today's date> into Passport_Expiry_Date",
-        "2. Fill all other required fields with valid values",
-        "3. Click Submit Application"
+        "1. Focus Full_Name field",
+        "2. Enter <a very long string (200+ characters)> in Full_Name",
+        "3. Focus Passport_Number field",
+        "4. Enter <a syntactically valid passport number> in Passport_Number",
+        "5. Focus Date_of_Birth field",
+        "6. Enter <a non-future date> in Date_of_Birth",
+        "7. Fill minimal other fields required to attempt submission (Nationality/Email/Phone may be left blank if optional)",
+        "8. Click Submit Application"
       ],
-      "expected_result": "Passport Expiry Date field displays an inline error indicating the date must be in the future; submission is blocked / error shown",
-      "priority": "medium"
+      "expected_result": "Form submission succeeds; a visa application is created in Pending status and appears in the Bookings dashboard. The Bookings table row and the application detail page display the Full_Name containing the full long string as entered (no silent truncation in the UI).",
+      "priority": "low"
     },
     {
       "tc_id": "E-002",
-      "subcategory": "boundary",
-      "test_case": "Passport expiry = one day after today (just-past boundary) succeeds",
+      "wf_ref": "WF-002",
+      "subcategory": "input_edge",
+      "test_case": "Passport number with special/unicode characters",
       "preconditions": [
-        "User is on the Visa_Application_Form page",
-        "All other required fields are available to edit"
+        "User is on the Visa Application Form page"
       ],
       "steps": [
-        "1. Enter <one day after today> into Passport_Expiry_Date",
-        "2. Fill all other required fields with valid values",
-        "3. Click Submit Application"
+        "1. Focus Passport_Number field",
+        "2. Enter <passport number containing special characters and unicode/emoji> in Passport_Number",
+        "3. Fill Date_of_Birth with <a non-future date>",
+        "4. Fill minimal other fields required to attempt submission",
+        "5. Click Submit Application"
       ],
-      "expected_result": "Form submits successfully; application appears in the Bookings dashboard for tracking (submission succeeds)",
-      "priority": "medium"
+      "expected_result": "Submission either succeeds or is blocked only if the system enforces a strict passport-character policy. If submission succeeds, the Bookings dashboard and application detail show the Passport_Number value exactly as entered (special characters preserved). If the input is disallowed, the Passport_Number field displays a visible inline error message and submission is blocked.",
+      "priority": "low"
     },
     {
       "tc_id": "E-003",
+      "wf_ref": "WF-002",
       "subcategory": "boundary",
-      "test_case": "Intended travel start date = end date (same-day travel) is allowed",
+      "test_case": "Date of Birth set to today's date (boundary acceptance)",
       "preconditions": [
-        "User is on the Visa_Application_Form page",
-        "Intended_Travel_Start_Date and Intended_Travel_End_Date fields are visible/editable"
+        "User is on the Visa Application Form page"
       ],
       "steps": [
-        "1. Enter <a future date> into Intended_Travel_Start_Date",
-        "2. Enter the same <future date> into Intended_Travel_End_Date",
-        "3. Fill all other required fields with valid values",
+        "1. Focus Date_of_Birth field",
+        "2. Enter <today's date> in Date_of_Birth",
+        "3. Fill minimal other fields required to attempt submission",
         "4. Click Submit Application"
       ],
-      "expected_result": "Form submits successfully; application appears in the Bookings dashboard (same-day start and end accepted; submission succeeds)",
+      "expected_result": "Submission succeeds; an application is created in Pending status and appears in the Bookings dashboard. The application detail displays Date_of_Birth equal to <today's date>. (Visible evidence: new row in Bookings table and Date_of_Birth value shown on detail page) — success is explicit.",
       "priority": "medium"
     },
     {
       "tc_id": "E-004",
+      "wf_ref": "WF-002",
       "subcategory": "boundary",
-      "test_case": "Intended travel start date is after end date (end before start) is blocked",
+      "test_case": "Date of Birth set to one day in the future (just past boundary) is blocked",
       "preconditions": [
-        "User is on the Visa_Application_Form page",
-        "Intended_Travel_Start_Date and Intended_Travel_End_Date fields are visible/editable"
+        "User is on the Visa Application Form page"
       ],
       "steps": [
-        "1. Enter <date A> into Intended_Travel_End_Date",
-        "2. Enter <one day after date A> into Intended_Travel_Start_Date",
-        "3. Fill all other required fields with valid values",
+        "1. Focus Date_of_Birth field",
+        "2. Enter <one day after today's date> in Date_of_Birth",
+        "3. Fill minimal other fields required to attempt submission",
         "4. Click Submit Application"
       ],
-      "expected_result": "Intended Travel End Date or Start Date displays an inline error indicating the end date must be the same as or after the start date; submission is blocked / error shown",
+      "expected_result": "Submission is blocked; Date_of_Birth field displays a visible inline error indicating a future date is not allowed (the field prevents submission). A clear error message is shown adjacent to the Date_of_Birth field and no application is created in Bookings.",
       "priority": "medium"
     },
     {
       "tc_id": "E-005",
-      "subcategory": "input_edge",
-      "test_case": "Very long Full Name input to test storage/display of long text",
-      "preconditions": [
-        "User is on the Visa_Application_Form page",
-        "Full_Name field is visible and required"
-      ],
-      "steps": [
-        "1. Enter <a very long string (200+ characters)> into Full_Name",
-        "2. Fill all other required fields with valid values",
-        "3. Click Submit Application",
-        "4. Open the created application from the Bookings dashboard and view the Full_Name value on the detail page"
-      ],
-      "expected_result": "Form submits successfully; the application detail page displays the Full Name value. The UI either shows the full entered long string or indicates truncation with a visible ellipsis/tooltip; the field's displayed value is consistent and readable (submission succeeds or truncation is visibly indicated)",
-      "priority": "low"
-    },
-    {
-      "tc_id": "E-006",
-      "subcategory": "input_edge",
-      "test_case": "Email field with leading and trailing whitespace is trimmed on save",
-      "preconditions": [
-        "User is on the Visa_Application_Form page",
-        "Email field is visible and required"
-      ],
-      "steps": [
-        "1. Enter <email address with leading and trailing spaces> into Email",
-        "2. Fill all other required fields with valid values",
-        "3. Click Submit Application",
-        "4. Open the created application from the Bookings dashboard and view the Email value on the detail page"
-      ],
-      "expected_result": "Form submits successfully; the Email value shown on the application detail page has leading and trailing whitespace removed (email is trimmed in saved output)",
-      "priority": "low"
-    },
-    {
-      "tc_id": "E-007",
+      "wf_ref": "WF-002",
       "subcategory": "interaction_edge",
-      "test_case": "Rapid double-click of Submit Application button does not create duplicate applications",
+      "test_case": "Rapid re-submission after successful submit (browser Back/resubmit)",
       "preconditions": [
-        "User is on the Visa_Application_Form page",
-        "All required fields are filled with valid values"
+        "User is on the Visa Application Form page"
       ],
       "steps": [
-        "1. Prepare the Visa Application form with all required fields completed",
-        "2. Rapidly double-click the Submit Application button (two clicks within a short interval)",
-        "3. After submission, navigate to the Bookings dashboard"
+        "1. Fill the form with valid values sufficient to submit an application",
+        "2. Click Submit Application",
+        "3. Verify success and that the application appears in Bookings dashboard (observe new row)",
+        "4. Click the browser Back button to return to the application form page",
+        "5. Without changing fields, click Submit Application again"
       ],
-      "expected_result": "Only one application record is created in the Bookings dashboard; duplicate creation is blocked and no duplicate row appears (only one record is shown; duplicate submission prevented)",
+      "expected_result": "Second submission attempt is blocked or deduplicated; only one application appears in the Bookings dashboard for this submission attempt. Visible outcomes: either an inline message or modal preventing duplicate creation is shown and no second row appears, or if a second submit is ignored the Bookings table still shows a single row for the created application.",
       "priority": "medium"
     },
     {
-      "tc_id": "E-008",
+      "tc_id": "E-006",
+      "wf_ref": "WF-002",
       "subcategory": "interaction_edge",
-      "test_case": "Add supporting documents then remove all entries and submit (repeating group min=0)",
+      "test_case": "Add multiple supporting documents then remove all and submit (repeating group min=0)",
       "preconditions": [
-        "User is on the Visa_Application_Form page",
-        "Supporting_Documents repeating_group is visible (min = 0)"
+        "User is on the Visa Application Form page"
       ],
       "steps": [
-        "1. Click to add a Supporting_Documents entry",
-        "2. Upload a file into the Document field of the new entry",
-        "3. Click to add a second Supporting_Documents entry and upload a file",
-        "4. Remove the first Supporting_Documents entry",
-        "5. Remove the second Supporting_Documents entry (leaving zero entries)",
-        "6. Fill all other required fields with valid values",
-        "7. Click Submit Application"
+        "1. In Document_Uploads > Supporting_Documents, click Add to insert a new Supporting_Documents entry",
+        "2. In the new entry, upload <a valid file> to Document_File",
+        "3. Repeat steps 1-2 to add multiple Supporting_Documents entries (add at least two)",
+        "4. Remove all Supporting_Documents entries using the UI remove action (so zero supporting documents remain)",
+        "5. Fill minimal other fields required to attempt submission",
+        "6. Click Submit Application"
       ],
-      "expected_result": "Form submits successfully; application appears in the Bookings dashboard and the application detail shows an empty Supporting Documents section (submission succeeds since repeating group min = 0)",
+      "expected_result": "Form submission succeeds (since Supporting_Documents min = 0); an application is created in Pending status and appears in the Bookings dashboard. The application detail shows no Supporting_Documents entries. No error is shown about zero supporting documents.",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "E-007",
+      "wf_ref": "WF-002",
+      "subcategory": "input_edge",
+      "test_case": "File upload with long and special-character filename for Passport Copy",
+      "preconditions": [
+        "User is on the Visa Application Form page"
+      ],
+      "steps": [
+        "1. Focus Passport_Copy file upload control",
+        "2. Upload a file whose filename contains special characters and an unusually long filename (but valid file content)",
+        "3. Fill minimal other fields required to attempt submission",
+        "4. Click Submit Application"
+      ],
+      "expected_result": "If the UI accepts filenames with special characters/long names, submission succeeds and the application detail shows the uploaded Passport_Copy with the filename exactly as uploaded. If the UI/UI backend rejects certain filenames, a visible inline error is shown at the Passport_Copy control explaining the filename constraint and submission is blocked.",
       "priority": "low"
     }
   ],
   "summary": {
-    "total": 8,
-    "boundary": 4,
-    "input_edge": 2,
+    "total": 7,
+    "boundary": 2,
+    "input_edge": 3,
     "interaction_edge": 2,
     "state_edge": 0,
     "data_edge": 0,
-    "medium_priority": 5,
+    "medium_priority": 4,
     "low_priority": 3
   }
 }
 
 ------------------------------------------------------------
-[22:57:28] Test-Edge - PARSED JSON
+[14:53:54] Test-Edge - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Visa Services",
@@ -504,149 +515,140 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "E-001",
-      "subcategory": "boundary",
-      "test_case": "Passport expiry = today (boundary) is rejected",
+      "wf_ref": "WF-002",
+      "subcategory": "input_edge",
+      "test_case": "Very long Full Name submitted in application",
       "preconditions": [
-        "User is on the Visa_Application_Form page",
-        "All required fields except Passport_Expiry_Date are available to edit"
+        "User is authenticated and on the Visa Application Form page"
       ],
       "steps": [
-        "1. Enter <today's date> into Passport_Expiry_Date",
-        "2. Fill all other required fields with valid values",
-        "3. Click Submit Application"
+        "1. Focus Full_Name field",
+        "2. Enter <a very long string (200+ characters)> in Full_Name",
+        "3. Focus Passport_Number field",
+        "4. Enter <a syntactically valid passport number> in Passport_Number",
+        "5. Focus Date_of_Birth field",
+        "6. Enter <a non-future date> in Date_of_Birth",
+        "7. Fill minimal other fields required to attempt submission (Nationality/Email/Phone may be left blank if optional)",
+        "8. Click Submit Application"
       ],
-      "expected_result": "Passport Expiry Date field displays an inline error indicating the date must be in the future; submission is blocked / error shown",
-      "priority": "medium"
+      "expected_result": "Form submission succeeds; a visa application is created in Pending status and appears in the Bookings dashboard. The Bookings table row and the application detail page display the Full_Name containing the full long string as entered (no silent truncation in the UI).",
+      "priority": "low"
     },
     {
       "tc_id": "E-002",
-      "subcategory": "boundary",
-      "test_case": "Passport expiry = one day after today (just-past boundary) succeeds",
+      "wf_ref": "WF-002",
+      "subcategory": "input_edge",
+      "test_case": "Passport number with special/unicode characters",
       "preconditions": [
-        "User is on the Visa_Application_Form page",
-        "All other required fields are available to edit"
+        "User is on the Visa Application Form page"
       ],
       "steps": [
-        "1. Enter <one day after today> into Passport_Expiry_Date",
-        "2. Fill all other required fields with valid values",
-        "3. Click Submit Application"
+        "1. Focus Passport_Number field",
+        "2. Enter <passport number containing special characters and unicode/emoji> in Passport_Number",
+        "3. Fill Date_of_Birth with <a non-future date>",
+        "4. Fill minimal other fields required to attempt submission",
+        "5. Click Submit Application"
       ],
-      "expected_result": "Form submits successfully; application appears in the Bookings dashboard for tracking (submission succeeds)",
-      "priority": "medium"
+      "expected_result": "Submission either succeeds or is blocked only if the system enforces a strict passport-character policy. If submission succeeds, the Bookings dashboard and application detail show the Passport_Number value exactly as entered (special characters preserved). If the input is disallowed, the Passport_Number field displays a visible inline error message and submission is blocked.",
+      "priority": "low"
     },
     {
       "tc_id": "E-003",
+      "wf_ref": "WF-002",
       "subcategory": "boundary",
-      "test_case": "Intended travel start date = end date (same-day travel) is allowed",
+      "test_case": "Date of Birth set to today's date (boundary acceptance)",
       "preconditions": [
-        "User is on the Visa_Application_Form page",
-        "Intended_Travel_Start_Date and Intended_Travel_End_Date fields are visible/editable"
+        "User is on the Visa Application Form page"
       ],
       "steps": [
-        "1. Enter <a future date> into Intended_Travel_Start_Date",
-        "2. Enter the same <future date> into Intended_Travel_End_Date",
-        "3. Fill all other required fields with valid values",
+        "1. Focus Date_of_Birth field",
+        "2. Enter <today's date> in Date_of_Birth",
+        "3. Fill minimal other fields required to attempt submission",
         "4. Click Submit Application"
       ],
-      "expected_result": "Form submits successfully; application appears in the Bookings dashboard (same-day start and end accepted; submission succeeds)",
+      "expected_result": "Submission succeeds; an application is created in Pending status and appears in the Bookings dashboard. The application detail displays Date_of_Birth equal to <today's date>. (Visible evidence: new row in Bookings table and Date_of_Birth value shown on detail page) \u2014 success is explicit.",
       "priority": "medium"
     },
     {
       "tc_id": "E-004",
+      "wf_ref": "WF-002",
       "subcategory": "boundary",
-      "test_case": "Intended travel start date is after end date (end before start) is blocked",
+      "test_case": "Date of Birth set to one day in the future (just past boundary) is blocked",
       "preconditions": [
-        "User is on the Visa_Application_Form page",
-        "Intended_Travel_Start_Date and Intended_Travel_End_Date fields are visible/editable"
+        "User is on the Visa Application Form page"
       ],
       "steps": [
-        "1. Enter <date A> into Intended_Travel_End_Date",
-        "2. Enter <one day after date A> into Intended_Travel_Start_Date",
-        "3. Fill all other required fields with valid values",
+        "1. Focus Date_of_Birth field",
+        "2. Enter <one day after today's date> in Date_of_Birth",
+        "3. Fill minimal other fields required to attempt submission",
         "4. Click Submit Application"
       ],
-      "expected_result": "Intended Travel End Date or Start Date displays an inline error indicating the end date must be the same as or after the start date; submission is blocked / error shown",
+      "expected_result": "Submission is blocked; Date_of_Birth field displays a visible inline error indicating a future date is not allowed (the field prevents submission). A clear error message is shown adjacent to the Date_of_Birth field and no application is created in Bookings.",
       "priority": "medium"
     },
     {
       "tc_id": "E-005",
-      "subcategory": "input_edge",
-      "test_case": "Very long Full Name input to test storage/display of long text",
-      "preconditions": [
-        "User is on the Visa_Application_Form page",
-        "Full_Name field is visible and required"
-      ],
-      "steps": [
-        "1. Enter <a very long string (200+ characters)> into Full_Name",
-        "2. Fill all other required fields with valid values",
-        "3. Click Submit Application",
-        "4. Open the created application from the Bookings dashboard and view the Full_Name value on the detail page"
-      ],
-      "expected_result": "Form submits successfully; the application detail page displays the Full Name value. The UI either shows the full entered long string or indicates truncation with a visible ellipsis/tooltip; the field's displayed value is consistent and readable (submission succeeds or truncation is visibly indicated)",
-      "priority": "low"
-    },
-    {
-      "tc_id": "E-006",
-      "subcategory": "input_edge",
-      "test_case": "Email field with leading and trailing whitespace is trimmed on save",
-      "preconditions": [
-        "User is on the Visa_Application_Form page",
-        "Email field is visible and required"
-      ],
-      "steps": [
-        "1. Enter <email address with leading and trailing spaces> into Email",
-        "2. Fill all other required fields with valid values",
-        "3. Click Submit Application",
-        "4. Open the created application from the Bookings dashboard and view the Email value on the detail page"
-      ],
-      "expected_result": "Form submits successfully; the Email value shown on the application detail page has leading and trailing whitespace removed (email is trimmed in saved output)",
-      "priority": "low"
-    },
-    {
-      "tc_id": "E-007",
+      "wf_ref": "WF-002",
       "subcategory": "interaction_edge",
-      "test_case": "Rapid double-click of Submit Application button does not create duplicate applications",
+      "test_case": "Rapid re-submission after successful submit (browser Back/resubmit)",
       "preconditions": [
-        "User is on the Visa_Application_Form page",
-        "All required fields are filled with valid values"
+        "User is on the Visa Application Form page"
       ],
       "steps": [
-        "1. Prepare the Visa Application form with all required fields completed",
-        "2. Rapidly double-click the Submit Application button (two clicks within a short interval)",
-        "3. After submission, navigate to the Bookings dashboard"
+        "1. Fill the form with valid values sufficient to submit an application",
+        "2. Click Submit Application",
+        "3. Verify success and that the application appears in Bookings dashboard (observe new row)",
+        "4. Click the browser Back button to return to the application form page",
+        "5. Without changing fields, click Submit Application again"
       ],
-      "expected_result": "Only one application record is created in the Bookings dashboard; duplicate creation is blocked and no duplicate row appears (only one record is shown; duplicate submission prevented)",
+      "expected_result": "Second submission attempt is blocked or deduplicated; only one application appears in the Bookings dashboard for this submission attempt. Visible outcomes: either an inline message or modal preventing duplicate creation is shown and no second row appears, or if a second submit is ignored the Bookings table still shows a single row for the created application.",
       "priority": "medium"
     },
     {
-      "tc_id": "E-008",
+      "tc_id": "E-006",
+      "wf_ref": "WF-002",
       "subcategory": "interaction_edge",
-      "test_case": "Add supporting documents then remove all entries and submit (repeating group min=0)",
+      "test_case": "Add multiple supporting documents then remove all and submit (repeating group min=0)",
       "preconditions": [
-        "User is on the Visa_Application_Form page",
-        "Supporting_Documents repeating_group is visible (min = 0)"
+        "User is on the Visa Application Form page"
       ],
       "steps": [
-        "1. Click to add a Supporting_Documents entry",
-        "2. Upload a file into the Document field of the new entry",
-        "3. Click to add a second Supporting_Documents entry and upload a file",
-        "4. Remove the first Supporting_Documents entry",
-        "5. Remove the second Supporting_Documents entry (leaving zero entries)",
-        "6. Fill all other required fields with valid values",
-        "7. Click Submit Application"
+        "1. In Document_Uploads > Supporting_Documents, click Add to insert a new Supporting_Documents entry",
+        "2. In the new entry, upload <a valid file> to Document_File",
+        "3. Repeat steps 1-2 to add multiple Supporting_Documents entries (add at least two)",
+        "4. Remove all Supporting_Documents entries using the UI remove action (so zero supporting documents remain)",
+        "5. Fill minimal other fields required to attempt submission",
+        "6. Click Submit Application"
       ],
-      "expected_result": "Form submits successfully; application appears in the Bookings dashboard and the application detail shows an empty Supporting Documents section (submission succeeds since repeating group min = 0)",
+      "expected_result": "Form submission succeeds (since Supporting_Documents min = 0); an application is created in Pending status and appears in the Bookings dashboard. The application detail shows no Supporting_Documents entries. No error is shown about zero supporting documents.",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "E-007",
+      "wf_ref": "WF-002",
+      "subcategory": "input_edge",
+      "test_case": "File upload with long and special-character filename for Passport Copy",
+      "preconditions": [
+        "User is on the Visa Application Form page"
+      ],
+      "steps": [
+        "1. Focus Passport_Copy file upload control",
+        "2. Upload a file whose filename contains special characters and an unusually long filename (but valid file content)",
+        "3. Fill minimal other fields required to attempt submission",
+        "4. Click Submit Application"
+      ],
+      "expected_result": "If the UI accepts filenames with special characters/long names, submission succeeds and the application detail shows the uploaded Passport_Copy with the filename exactly as uploaded. If the UI/UI backend rejects certain filenames, a visible inline error is shown at the Passport_Copy control explaining the filename constraint and submission is blocked.",
       "priority": "low"
     }
   ],
   "summary": {
-    "total": 8,
-    "boundary": 4,
-    "input_edge": 2,
+    "total": 7,
+    "boundary": 2,
+    "input_edge": 3,
     "interaction_edge": 2,
     "state_edge": 0,
     "data_edge": 0,
-    "medium_priority": 5,
+    "medium_priority": 4,
     "low_priority": 3
   }
 }

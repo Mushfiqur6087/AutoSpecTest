@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-22T21:41:13.076056
+DEBUG SESSION STARTED: 2026-05-25T15:09:37.486446
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[21:41:13] Test-Edge - SYSTEM PROMPT
+[15:09:37] Test-Edge - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Edge Case and Boundary Test Generator. You receive (1) a UI-AST JSON for one module and (2) the original functional description. Your job is to produce ONLY boundary and edge case tests — scenarios at the limits of valid/invalid input and unusual-but-plausible user behaviors.
 
@@ -24,6 +24,10 @@ You are NOT producing happy paths (positive prompt) or standard validation failu
 <description>
 {Original functional description text for this module}
 </description>
+
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
 
 ---
 
@@ -176,6 +180,15 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 
 ---
 
+**WORKFLOW-AWARE BOUNDARY SCOPING (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- For each workflow where `conditional_branch` activates a numeric or date field, check if that field has a boundary (a numeric/date threshold in the AST `constraints` or description).
+- If yes, that workflow's branch is a **candidate for a boundary edge test** — add or confirm a boundary TC exists for it.
+- Add `"wf_ref": "WF-NNN"` to each TC that maps to a specific workflow's boundary. Set `"wf_ref": null` for generic input/interaction edge tests.
+
+---
+
 **OUTPUT — JSON only, no prose, no markdown fencing:**
 
 {
@@ -184,6 +197,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": null,
       "subcategory": "boundary | input_edge | interaction_edge | state_edge | data_edge",
       "test_case": "Short descriptive name",
       "preconditions": ["precondition 1"],
@@ -206,7 +220,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 
 
 ------------------------------------------------------------
-[21:41:13] Test-Edge - USER PROMPT
+[15:09:37] Test-Edge - USER PROMPT
 ------------------------------------------------------------
 <module_name>My Courses</module_name>
 
@@ -214,11 +228,12 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 {
   "module_name": "My Courses",
   "components": {
-    "Controls_Bar": {
+    "My_Courses_Toolbar": {
       "type": "form",
       "fields": {
         "Status_Filter": {
           "type": "dropdown",
+          "required": false,
           "options": [
             "All",
             "In progress",
@@ -226,44 +241,59 @@ If the module has any numeric/date/count threshold in the AST or description, pr
             "Past",
             "Starred",
             "Hidden"
-          ]
+          ],
+          "on_change": "filters courses by selected status"
         },
         "Search": {
-          "type": "search"
+          "type": "search",
+          "required": false,
+          "on_change": "filters courses by text match on course name and category"
         },
         "Sort": {
-          "type": "dropdown"
+          "type": "dropdown",
+          "required": false,
+          "on_change": "sorts courses by selected criterion"
         },
         "Layout": {
           "type": "dropdown",
+          "required": false,
           "options": [
             "Card",
             "List",
             "Summary"
-          ]
+          ],
+          "on_change": "switches course grid layout between Card, List, and Summary"
         }
       }
     },
     "Courses_Grid": {
-      "type": "card_grid",
-      "item_fields": {
+      "type": "grid",
+      "item_template": {
         "Course_Name": {
           "type": "link",
-          "on_success": "navigates to course main page"
+          "on_click": "navigates to the course's main page"
         },
-        "Three_Dot_Menu": {
-          "type": "unspecified",
-          "row_actions": [
+        "Card_Menu": {
+          "type": "menu",
+          "menu_items": [
             {
               "action_name": "Star this course",
-              "on_success": "pins course to the top"
+              "on_success": "pins the course to the top of the list and marks it as Starred"
             },
             {
               "action_name": "Remove from view",
-              "on_success": "hides course from view without unenrolling"
+              "on_success": "hides the course from the user's view without unenrolling (sets status to Hidden)"
             }
           ]
         }
+      },
+      "interactions": {
+        "filters": [
+          "Status_Filter",
+          "Search"
+        ],
+        "sort_control": "Sort",
+        "layout_control": "Layout"
       }
     }
   }
@@ -279,10 +309,22 @@ The My Courses page displays all courses in which the student is enrolled as vis
 
 </description>
 
+<workflows>
+WF-001 | Change Status filter | actor: <role> | branch: none | terminal: Status_Filter | on_success: filters courses by selected status
+WF-002 | Search with query | actor: <role> | branch: Search != empty | terminal: Search | on_success: filters courses by text match on course name and category
+WF-003 | Change Sort order | actor: <role> | branch: none | terminal: Sort | on_success: sorts courses by selected criterion
+WF-004 | Switch layout to Card | actor: <role> | branch: Layout == Card | terminal: Layout | on_success: switches course grid layout between Card, List, and Summary
+WF-005 | Switch layout to List | actor: <role> | branch: Layout == List | terminal: Layout | on_success: switches course grid layout between Card, List, and Summary
+WF-006 | Switch layout to Summary | actor: <role> | branch: Layout == Summary | terminal: Layout | on_success: switches course grid layout between Card, List, and Summary
+WF-007 | Open course main page via course name link | actor: <role> | branch: none | terminal: Course_Name | on_success: navigates to the course's main page
+WF-008 | Star this course from card menu | actor: <role> | branch: none | terminal: Star this course | on_success: pins the course to the top of the list and marks it as Starred
+WF-009 | Remove course from view from card menu | actor: <role> | branch: none | terminal: Remove from view | on_success: hides the course from the user's view without unenrolling (sets status to Hidden)
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[21:41:35] Test-Edge - LLM RESPONSE
+[15:10:16] Test-Edge - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "My Courses",
@@ -290,87 +332,89 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": "WF-002",
       "subcategory": "input_edge",
-      "test_case": "Search with a very long string (200+ chars)",
+      "test_case": "Very long search query (200+ chars) in Search field",
       "preconditions": [
-        "User is on the My Courses page"
+        "User is authenticated and on the My Courses page",
+        "The Courses grid has at least one course loaded"
       ],
       "steps": [
-        "1. Focus the Search field in the Controls_Bar",
-        "2. Enter <a very long search string (200+ characters)> in the Search field",
-        "3. Press Enter (or click the Search submit control)"
+        "1. Focus the Search field",
+        "2. Enter <very long search string (200+ characters)> into the Search field",
+        "3. Press Enter to apply the search"
       ],
-      "expected_result": "Entering the very long string succeeds; the search operation completes and Courses_Grid either displays matching course cards or shows a visible 'No courses found' message. The UI does not crash or visually break.",
+      "expected_result": "Search succeeds: the Search field retains the entire entered string; the Courses grid updates to show only courses that match the literal long query. If no courses match, the grid shows the page's empty-state indication (visible message or empty list) and no error banner is shown.",
       "priority": "medium"
     },
     {
       "tc_id": "E-002",
+      "wf_ref": "WF-002",
       "subcategory": "input_edge",
-      "test_case": "Search with special characters, emoji, and leading/trailing whitespace",
+      "test_case": "Search query containing special characters, punctuation, and emoji",
       "preconditions": [
-        "User is on the My Courses page and at least one course exists"
+        "User is authenticated and on the My Courses page",
+        "The Courses grid has at least one course loaded"
       ],
       "steps": [
-        "1. Focus the Search field in the Controls_Bar",
-        "2. Enter <a search string containing special characters and emoji, with leading and trailing spaces> in the Search field",
-        "3. Press Enter (or click the Search submit control)"
+        "1. Focus the Search field",
+        "2. Enter <search string containing special characters, punctuation, and emoji> into the Search field",
+        "3. Press Enter to apply the search"
       ],
-      "expected_result": "Search with special characters and whitespace succeeds; the search is executed and Courses_Grid either shows matching results or a visible 'No courses found' message. Leading/trailing whitespace is trimmed in the effective search (visible by results) or clearly ignored without an error; no error message is shown.",
-      "priority": "low"
+      "expected_result": "Search succeeds: the Search field displays the exact characters entered; the Courses grid filters by the literal character sequence (shows matching items or the empty-state if none match). No sanitization error or blocking modal is displayed.",
+      "priority": "medium"
     },
     {
       "tc_id": "E-003",
-      "subcategory": "interaction_edge",
-      "test_case": "Remove from view then confirm visibility via Status filter 'Hidden'",
+      "wf_ref": "WF-008",
+      "subcategory": "state_edge",
+      "test_case": "Rapid consecutive 'Star this course' actions on the same course card",
       "preconditions": [
-        "User is on the My Courses page and there is at least one visible course card"
+        "User is authenticated and on the My Courses page",
+        "Target course is visible in the current layout and is not currently Starred"
       ],
       "steps": [
-        "1. Locate a specific course card in Courses_Grid",
-        "2. Click the Three_Dot_Menu on that course card",
-        "3. Click the 'Remove from view' row action",
-        "4. Observe the Courses_Grid immediately after the action",
-        "5. Open the Status_Filter dropdown in the Controls_Bar",
-        "6. Select 'Hidden' from the Status_Filter options",
-        "7. Observe the Courses_Grid after selecting 'Hidden'"
+        "1. Open the target course's card menu (three-dot menu)",
+        "2. Click 'Star this course'",
+        "3. Immediately (within one second) open the card menu again for the same course",
+        "4. Click 'Star this course' a second time"
       ],
-      "expected_result": "'Remove from view' succeeds; the course card is removed from the current (default) Courses_Grid view immediately. Selecting Status_Filter='Hidden' succeeds; the previously removed course card appears in Courses_Grid when 'Hidden' is active, showing that the course is hidden from default view but still present in the Hidden filter.",
+      "expected_result": "First click succeeds: the course is marked as Starred and is pinned to the top of the list (visible at top of grid). The second immediate attempt is blocked or treated as a no-op (menu item is disabled or shows 'Already starred'); no duplicate pin entries are created and only one card for the course remains at the top. No error banner appears.",
       "priority": "medium"
     },
     {
       "tc_id": "E-004",
+      "wf_ref": "WF-009",
       "subcategory": "interaction_edge",
-      "test_case": "Star a course, navigate into it, then use browser back — verify pin persists and no duplicate entries",
+      "test_case": "Remove from view then immediately verify in Hidden status filter",
       "preconditions": [
-        "User is on the My Courses page and there is at least one course card that is not currently starred"
+        "User is authenticated and on the My Courses page",
+        "Target course is visible in the current layout and has status other than Hidden"
       ],
       "steps": [
-        "1. Locate a non-starred course card in Courses_Grid",
-        "2. Click the Three_Dot_Menu on that course card",
-        "3. Click the 'Star this course' row action",
-        "4. Observe the Courses_Grid to confirm the course is pinned to the top position",
-        "5. Click the Course_Name link on that same course card to navigate to the course main page",
-        "6. Use the browser Back button",
-        "7. Observe the My Courses page and Courses_Grid after returning"
+        "1. Open the target course's card menu (three-dot menu)",
+        "2. Click 'Remove from view'",
+        "3. Open the Status_Filter dropdown",
+        "4. Select 'Hidden' from the Status_Filter dropdown"
       ],
-      "expected_result": "Clicking 'Star this course' succeeds; the course is pinned to the top of Courses_Grid immediately. Navigating to the course main page and pressing the browser Back button succeeds in returning to My Courses; the pinned course remains at the top and is shown only once (no duplicate entries are created).",
-      "priority": "low"
+      "expected_result": "The 'Remove from view' action succeeds: the course is removed from the current (previous) view and is set to status Hidden. After selecting 'Hidden' in the Status_Filter, the course appears in the grid under Hidden. The course no longer appears in the previous filter (e.g., All or In progress). No duplicate entries are displayed and no error message is shown.",
+      "priority": "medium"
     }
   ],
   "summary": {
     "total": 4,
     "boundary": 0,
     "input_edge": 2,
-    "interaction_edge": 2,
-    "state_edge": 0,
+    "interaction_edge": 1,
+    "state_edge": 1,
     "data_edge": 0,
-    "medium_priority": 2,
-    "low_priority": 2
+    "medium_priority": 4,
+    "low_priority": 0
   }
 }
 
 ------------------------------------------------------------
-[21:41:35] Test-Edge - PARSED JSON
+[15:10:16] Test-Edge - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "My Courses",
@@ -378,81 +422,83 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": "WF-002",
       "subcategory": "input_edge",
-      "test_case": "Search with a very long string (200+ chars)",
+      "test_case": "Very long search query (200+ chars) in Search field",
       "preconditions": [
-        "User is on the My Courses page"
+        "User is authenticated and on the My Courses page",
+        "The Courses grid has at least one course loaded"
       ],
       "steps": [
-        "1. Focus the Search field in the Controls_Bar",
-        "2. Enter <a very long search string (200+ characters)> in the Search field",
-        "3. Press Enter (or click the Search submit control)"
+        "1. Focus the Search field",
+        "2. Enter <very long search string (200+ characters)> into the Search field",
+        "3. Press Enter to apply the search"
       ],
-      "expected_result": "Entering the very long string succeeds; the search operation completes and Courses_Grid either displays matching course cards or shows a visible 'No courses found' message. The UI does not crash or visually break.",
+      "expected_result": "Search succeeds: the Search field retains the entire entered string; the Courses grid updates to show only courses that match the literal long query. If no courses match, the grid shows the page's empty-state indication (visible message or empty list) and no error banner is shown.",
       "priority": "medium"
     },
     {
       "tc_id": "E-002",
+      "wf_ref": "WF-002",
       "subcategory": "input_edge",
-      "test_case": "Search with special characters, emoji, and leading/trailing whitespace",
+      "test_case": "Search query containing special characters, punctuation, and emoji",
       "preconditions": [
-        "User is on the My Courses page and at least one course exists"
+        "User is authenticated and on the My Courses page",
+        "The Courses grid has at least one course loaded"
       ],
       "steps": [
-        "1. Focus the Search field in the Controls_Bar",
-        "2. Enter <a search string containing special characters and emoji, with leading and trailing spaces> in the Search field",
-        "3. Press Enter (or click the Search submit control)"
+        "1. Focus the Search field",
+        "2. Enter <search string containing special characters, punctuation, and emoji> into the Search field",
+        "3. Press Enter to apply the search"
       ],
-      "expected_result": "Search with special characters and whitespace succeeds; the search is executed and Courses_Grid either shows matching results or a visible 'No courses found' message. Leading/trailing whitespace is trimmed in the effective search (visible by results) or clearly ignored without an error; no error message is shown.",
-      "priority": "low"
+      "expected_result": "Search succeeds: the Search field displays the exact characters entered; the Courses grid filters by the literal character sequence (shows matching items or the empty-state if none match). No sanitization error or blocking modal is displayed.",
+      "priority": "medium"
     },
     {
       "tc_id": "E-003",
-      "subcategory": "interaction_edge",
-      "test_case": "Remove from view then confirm visibility via Status filter 'Hidden'",
+      "wf_ref": "WF-008",
+      "subcategory": "state_edge",
+      "test_case": "Rapid consecutive 'Star this course' actions on the same course card",
       "preconditions": [
-        "User is on the My Courses page and there is at least one visible course card"
+        "User is authenticated and on the My Courses page",
+        "Target course is visible in the current layout and is not currently Starred"
       ],
       "steps": [
-        "1. Locate a specific course card in Courses_Grid",
-        "2. Click the Three_Dot_Menu on that course card",
-        "3. Click the 'Remove from view' row action",
-        "4. Observe the Courses_Grid immediately after the action",
-        "5. Open the Status_Filter dropdown in the Controls_Bar",
-        "6. Select 'Hidden' from the Status_Filter options",
-        "7. Observe the Courses_Grid after selecting 'Hidden'"
+        "1. Open the target course's card menu (three-dot menu)",
+        "2. Click 'Star this course'",
+        "3. Immediately (within one second) open the card menu again for the same course",
+        "4. Click 'Star this course' a second time"
       ],
-      "expected_result": "'Remove from view' succeeds; the course card is removed from the current (default) Courses_Grid view immediately. Selecting Status_Filter='Hidden' succeeds; the previously removed course card appears in Courses_Grid when 'Hidden' is active, showing that the course is hidden from default view but still present in the Hidden filter.",
+      "expected_result": "First click succeeds: the course is marked as Starred and is pinned to the top of the list (visible at top of grid). The second immediate attempt is blocked or treated as a no-op (menu item is disabled or shows 'Already starred'); no duplicate pin entries are created and only one card for the course remains at the top. No error banner appears.",
       "priority": "medium"
     },
     {
       "tc_id": "E-004",
+      "wf_ref": "WF-009",
       "subcategory": "interaction_edge",
-      "test_case": "Star a course, navigate into it, then use browser back \u2014 verify pin persists and no duplicate entries",
+      "test_case": "Remove from view then immediately verify in Hidden status filter",
       "preconditions": [
-        "User is on the My Courses page and there is at least one course card that is not currently starred"
+        "User is authenticated and on the My Courses page",
+        "Target course is visible in the current layout and has status other than Hidden"
       ],
       "steps": [
-        "1. Locate a non-starred course card in Courses_Grid",
-        "2. Click the Three_Dot_Menu on that course card",
-        "3. Click the 'Star this course' row action",
-        "4. Observe the Courses_Grid to confirm the course is pinned to the top position",
-        "5. Click the Course_Name link on that same course card to navigate to the course main page",
-        "6. Use the browser Back button",
-        "7. Observe the My Courses page and Courses_Grid after returning"
+        "1. Open the target course's card menu (three-dot menu)",
+        "2. Click 'Remove from view'",
+        "3. Open the Status_Filter dropdown",
+        "4. Select 'Hidden' from the Status_Filter dropdown"
       ],
-      "expected_result": "Clicking 'Star this course' succeeds; the course is pinned to the top of Courses_Grid immediately. Navigating to the course main page and pressing the browser Back button succeeds in returning to My Courses; the pinned course remains at the top and is shown only once (no duplicate entries are created).",
-      "priority": "low"
+      "expected_result": "The 'Remove from view' action succeeds: the course is removed from the current (previous) view and is set to status Hidden. After selecting 'Hidden' in the Status_Filter, the course appears in the grid under Hidden. The course no longer appears in the previous filter (e.g., All or In progress). No duplicate entries are displayed and no error message is shown.",
+      "priority": "medium"
     }
   ],
   "summary": {
     "total": 4,
     "boundary": 0,
     "input_edge": 2,
-    "interaction_edge": 2,
-    "state_edge": 0,
+    "interaction_edge": 1,
+    "state_edge": 1,
     "data_edge": 0,
-    "medium_priority": 2,
-    "low_priority": 2
+    "medium_priority": 4,
+    "low_priority": 0
   }
 }

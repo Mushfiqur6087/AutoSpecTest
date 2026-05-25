@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-22T21:41:13.084947
+DEBUG SESSION STARTED: 2026-05-25T15:09:37.493247
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[21:41:13] Test-Edge - SYSTEM PROMPT
+[15:09:37] Test-Edge - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Edge Case and Boundary Test Generator. You receive (1) a UI-AST JSON for one module and (2) the original functional description. Your job is to produce ONLY boundary and edge case tests — scenarios at the limits of valid/invalid input and unusual-but-plausible user behaviors.
 
@@ -24,6 +24,10 @@ You are NOT producing happy paths (positive prompt) or standard validation failu
 <description>
 {Original functional description text for this module}
 </description>
+
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
 
 ---
 
@@ -176,6 +180,15 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 
 ---
 
+**WORKFLOW-AWARE BOUNDARY SCOPING (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- For each workflow where `conditional_branch` activates a numeric or date field, check if that field has a boundary (a numeric/date threshold in the AST `constraints` or description).
+- If yes, that workflow's branch is a **candidate for a boundary edge test** — add or confirm a boundary TC exists for it.
+- Add `"wf_ref": "WF-NNN"` to each TC that maps to a specific workflow's boundary. Set `"wf_ref": null` for generic input/interaction edge tests.
+
+---
+
 **OUTPUT — JSON only, no prose, no markdown fencing:**
 
 {
@@ -184,6 +197,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": null,
       "subcategory": "boundary | input_edge | interaction_edge | state_edge | data_edge",
       "test_case": "Short descriptive name",
       "preconditions": ["precondition 1"],
@@ -206,7 +220,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 
 
 ------------------------------------------------------------
-[21:41:13] Test-Edge - USER PROMPT
+[15:09:37] Test-Edge - USER PROMPT
 ------------------------------------------------------------
 <module_name>Grades</module_name>
 
@@ -217,117 +231,59 @@ If the module has any numeric/date/count threshold in the AST or description, pr
     "Grades_User_Report": {
       "type": "data_table",
       "preconditions": [
-        "role must be Student"
-      ],
-      "constraints": [
-        "students can only view their own grades",
-        "cannot access full gradebook or other students' grades"
+        "user must be the student (owner of this report)",
+        "user must not have gradebook_access",
+        "user must not have permission to view other students' grades"
       ],
       "columns": [
-        {
-          "name": "Grade item",
-          "type": "unspecified",
-          "description": "Course header is collapsible; graded activities are indented beneath"
-        },
-        {
-          "name": "Calculated weight",
-          "type": "number"
-        },
-        {
-          "name": "Grade",
-          "type": "unspecified",
-          "description": "earned value or '\u2013' if not yet graded"
-        },
-        {
-          "name": "Range",
-          "type": "unspecified"
-        },
-        {
-          "name": "Percentage",
-          "type": "number"
-        },
-        {
-          "name": "Feedback",
-          "type": "unspecified"
-        },
-        {
-          "name": "Contribution to course total",
-          "type": "number"
-        }
+        "Grade item",
+        "Calculated weight",
+        "Grade",
+        "Range",
+        "Percentage",
+        "Feedback",
+        "Contribution to course total"
       ],
       "row_grouping": {
-        "type": "repeating_group",
-        "group_name": "Courses",
-        "group_by_field": "Course_Name",
-        "group_behavior": "collapsible",
-        "group_toggle_action": "Expand/Collapse Course",
-        "item_fields": {
-          "Course_Name": {
-            "type": "unspecified",
-            "required": true
-          },
-          "Course_Expanded": {
-            "type": "checkbox",
-            "required": false,
-            "description": "controls visibility of Activities for this course"
-          }
+        "type": "collapsible_group",
+        "group_by_field": "Course Name",
+        "group_header_interaction": {
+          "action_name": "Toggle Course Collapse",
+          "on_action": "expands_or_collapses_course_group"
         },
-        "child_items": {
-          "type": "repeating_group",
-          "field_name": "Activities",
-          "visible_when": "Course_Expanded == true",
-          "item_fields": {
-            "Grade_item": {
-              "type": "unspecified",
-              "required": true
-            },
-            "Calculated_weight": {
-              "type": "number"
-            },
-            "Grade": {
-              "type": "unspecified"
-            },
-            "Range": {
-              "type": "unspecified"
-            },
-            "Percentage": {
-              "type": "number"
-            },
-            "Feedback": {
-              "type": "unspecified"
-            },
-            "Contribution_to_course_total": {
-              "type": "number"
-            }
-          }
-        }
-      },
-      "row_actions": [
-        {
-          "action_name": "Expand/Collapse Course",
-          "applies_to": "group_header",
-          "description": "toggles visibility of the course's activity rows"
-        }
-      ],
-      "aggregation_row": {
-        "row_name": "AGGREGATION Course total",
-        "fields": {
-          "Calculated_weight_total": {
-            "type": "number"
-          },
-          "Grade_total": {
+        "group_item_fields": {
+          "Grade item": {
             "type": "unspecified"
           },
-          "Percentage_total": {
+          "Calculated weight": {
             "type": "number"
           },
-          "Contribution_total": {
+          "Grade": {
+            "type": "unspecified"
+          },
+          "Range": {
+            "type": "unspecified"
+          },
+          "Percentage": {
+            "type": "number"
+          },
+          "Feedback": {
+            "type": "unspecified"
+          },
+          "Contribution to course total": {
             "type": "number"
           }
         },
-        "constraints": [
-          "displays cumulative grade across all weighted items"
-        ]
+        "description": "Course name appears as a collapsible header; graded activities are child rows indented beneath each course header"
+      },
+      "aggregation_row": {
+        "label": "AGGREGATION Course total",
+        "fields": {
+          "Cumulative grade": {
+            "type": "number",
+            "on_display": "displays the cumulative grade across all weighted items"
+          }
+        }
       }
     }
   }
@@ -343,10 +299,14 @@ The Grades page displays the student's own grades for the course via a User repo
 
 </description>
 
+<workflows>
+WF-001 | Toggle Course Collapse | actor: student | branch: none | terminal: Toggle Course Collapse | on_success: expands_or_collapses_course_group
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[21:43:05] Test-Edge - LLM RESPONSE
+[15:11:02] Test-Edge - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Grades",
@@ -354,97 +314,123 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "E-001",
-      "subcategory": "interaction_edge",
-      "test_case": "Rapid expand/collapse toggle stability for a course group",
+      "wf_ref": "WF-001",
+      "subcategory": "state_edge",
+      "test_case": "Rapid consecutive Toggle Course Collapse clicks",
       "preconditions": [
-        "Test data contains at least one Course group with >0 Activities",
-        "User is assigned role Student"
+        "User is the student (owner of this report) and is logged in",
+        "Grades page contains at least one course group with child graded activity rows"
       ],
       "steps": [
-        "1. Log in as Student",
-        "2. Navigate to the Grades page",
-        "3. Locate a Course group row (Course header) in the table",
-        "4. Click the Course's Expand/Collapse Course toggle rapidly (more than 5 clicks) finishing with a click to expand",
-        "5. Observe the Activities rows displayed under the Course",
-        "6. Click the Course's Expand/Collapse Course toggle rapidly (more than 5 clicks) finishing with a click to collapse",
-        "7. Observe the Activities rows are hidden"
+        "1. Navigate to the Grades page",
+        "2. Identify a course header with a visible 'Toggle Course Collapse' control",
+        "3. Click the 'Toggle Course Collapse' control once",
+        "4. Immediately click the same 'Toggle Course Collapse' control again within one second"
       ],
-      "expected_result": "Rapid toggling succeeds: after step 4 the Activities rows are visible exactly once (no duplicate or ghost rows), the table layout remains intact and no JavaScript error dialog appears; after step 6 the Activities rows are hidden and the Course header remains interactive (UI remains responsive) — test succeeds.",
+      "expected_result": "Rapid toggling succeeds: the course group ends in a single well-defined state (expanded or collapsed) consistent with the last click; no duplicate child rows appear and the group header's expanded/collapsed visual state updates accordingly",
       "priority": "medium"
     },
     {
       "tc_id": "E-002",
-      "subcategory": "input_edge",
-      "test_case": "Long Feedback text display (very long >200 characters) in an Activity row",
+      "wf_ref": "WF-001",
+      "subcategory": "interaction_edge",
+      "test_case": "Keyboard activation of course collapse (Space/Enter) accessibility edge",
       "preconditions": [
-        "Test data contains at least one Course with an Activity whose Feedback text length exceeds 200 characters",
-        "User is assigned role Student"
+        "User is the student (owner of this report) and is logged in",
+        "Grades page contains at least one course group with a focusable collapse control"
       ],
       "steps": [
-        "1. Log in as Student",
-        "2. Navigate to the Grades page",
-        "3. Locate the Course row that contains the Activity with the long Feedback",
-        "4. Click the Course's Expand/Collapse Course toggle to reveal Activities",
-        "5. Observe the Feedback cell for the Activity",
-        "6. If a 'Show more' / expansion control is present in the Feedback cell, click that control",
-        "7. Observe the Feedback cell after expansion"
+        "1. Navigate to the Grades page",
+        "2. Press Tab repeatedly until the course header's collapse control receives keyboard focus",
+        "3. Press the Space key once",
+        "4. (Optional) Press Enter once on the same focused control"
       ],
-      "expected_result": "The UI succeeds in handling long Feedback: initially the Feedback cell shows a truncated preview with a visible 'Show more' or ellipsis indicator; clicking 'Show more' expands to show the full Feedback text without layout overflow or loss of other table rows; collapsing restores the truncated preview — test succeeds.",
-      "priority": "low"
+      "expected_result": "Keyboard activation succeeds: pressing Space (and Enter) toggles the course group between expanded and collapsed; the course group's child rows become visible/hidden and the header's accessible state (e.g., aria-expanded) visibly updates",
+      "priority": "medium"
     },
     {
       "tc_id": "E-003",
+      "wf_ref": null,
       "subcategory": "input_edge",
-      "test_case": "Rendering and interaction with Course and Grade item names containing special characters and emoji",
+      "test_case": "Very long Feedback text display (200+ characters)",
       "preconditions": [
-        "Test data contains a Course_Name and at least one Grade item whose text includes special Unicode characters and emoji",
-        "User is assigned role Student"
+        "User is the student (owner of this report) and is logged in",
+        "Test data exists: at least one graded activity row where the Feedback field contains a very long string (>= 200 characters)"
       ],
       "steps": [
-        "1. Log in as Student",
-        "2. Navigate to the Grades page",
-        "3. Locate the Course header whose Course_Name contains special characters/emoji",
-        "4. Visually inspect the Course header text rendering",
-        "5. Click the Course's Expand/Collapse Course toggle",
-        "6. Inspect the Grade item rows under that Course for correct rendering of special characters/emoji"
+        "1. Navigate to the Grades page",
+        "2. Locate the graded activity row with the very long Feedback content",
+        "3. Observe the Feedback cell in the table and interact with it (hover or click) if a tooltip/expander is present"
       ],
-      "expected_result": "Rendering of special Unicode characters and emoji succeeds: Course header and Grade item text display the special characters/emoji uncorrupted (no replacement glyphs or truncated code sequences), and Expand/Collapse interaction succeeds with those rows displayed correctly — test succeeds.",
+      "expected_result": "Long Feedback handling succeeds: the table cell does not break layout — long text is visibly truncated with an ellipsis in the cell and the full feedback is accessible via a visible mechanism (tooltip, expand control, or separate details view); there is a clear visual indicator that the content has been truncated",
       "priority": "low"
     },
     {
       "tc_id": "E-004",
-      "subcategory": "data_edge",
-      "test_case": "Aggregation row rounding/precision when individual Percentage values have high decimal precision",
+      "wf_ref": null,
+      "subcategory": "input_edge",
+      "test_case": "Special characters and emoji in Feedback render correctly",
       "preconditions": [
-        "Test data contains a Course with multiple Activities whose Percentage values include many decimal places (more precision than typical displayed precision)",
-        "User is assigned role Student"
+        "User is the student (owner of this report) and is logged in",
+        "Test data exists: at least one graded activity row where the Feedback contains special characters and emoji (multi-byte/unicode characters)"
       ],
       "steps": [
-        "1. Log in as Student",
-        "2. Navigate to the Grades page",
-        "3. Locate the Course with Activities that have high-precision Percentage values",
-        "4. Click the Course's Expand/Collapse Course toggle to reveal all Activity Percentage values",
-        "5. Manually sum the visible Percentage column values for the activities in that Course (observe the values as shown in the UI)",
-        "6. Observe the AGGREGATION Course total Percentage_total cell at the bottom of that Course group"
+        "1. Navigate to the Grades page",
+        "2. Locate the graded activity row containing special/unicode characters in Feedback",
+        "3. Observe the Feedback cell rendering in the table and open any detail/tooltip that shows the full feedback"
       ],
-      "expected_result": "Display of aggregated Percentage succeeds: the AGGREGATION Course total cell shows the cumulative Percentage consistent with the UI's displayed per-activity values after the UI's rounding policy (e.g., the aggregation equals the sum of the displayed per-activity percentages when both sides are rounded to the same visible precision); the aggregation cell is visible and shows no truncation or overflow — test succeeds.",
+      "expected_result": "Unicode/emoji rendering succeeds: special characters and emoji are displayed correctly (not shown as placeholder boxes or garbled text); the Feedback cell and any tooltip/detail view show the characters without UI rendering errors",
+      "priority": "low"
+    },
+    {
+      "tc_id": "E-005",
+      "wf_ref": null,
+      "subcategory": "data_edge",
+      "test_case": "High-precision Percentage and aggregation rounding behavior",
+      "preconditions": [
+        "User is the student (owner of this report) and is logged in",
+        "Test data exists: at least one graded activity with Percentage stored with high decimal precision and the course has multiple weighted items affecting the aggregation row"
+      ],
+      "steps": [
+        "1. Navigate to the Grades page",
+        "2. Locate the Percentage cell for the high-precision graded activity",
+        "3. Locate the 'AGGREGATION Course total' row and observe the displayed Cumulative grade"
+      ],
+      "expected_result": "Precision/rounding display succeeds: the Percentage cell shows a rounded value to the UI's displayed precision (no raw extra-decimal noise), and the Aggregation Course total displays a cumulative grade whose displayed value reflects consistent rounding/aggregation; no UI overflow of decimals is shown and numeric display is stable",
       "priority": "medium"
+    },
+    {
+      "tc_id": "E-006",
+      "wf_ref": null,
+      "subcategory": "input_edge",
+      "test_case": "Feedback that is only whitespace is trimmed in display",
+      "preconditions": [
+        "User is the student (owner of this report) and is logged in",
+        "Test data exists: at least one graded activity row where the Feedback field contains only leading/trailing whitespace or is whitespace-only"
+      ],
+      "steps": [
+        "1. Navigate to the Grades page",
+        "2. Locate the graded activity row with whitespace-only Feedback",
+        "3. Observe the Feedback cell in the table and any detail/tooltip view"
+      ],
+      "expected_result": "Whitespace trimming succeeds: leading and trailing whitespace are not shown in the Feedback cell; the cell displays as empty or shows the standard empty placeholder (e.g., a dash) rather than visible whitespace, indicating trimming has occurred",
+      "priority": "low"
     }
   ],
   "summary": {
-    "total": 4,
+    "total": 6,
     "boundary": 0,
-    "input_edge": 2,
+    "input_edge": 3,
     "interaction_edge": 1,
-    "state_edge": 0,
+    "state_edge": 1,
     "data_edge": 1,
-    "medium_priority": 2,
-    "low_priority": 2
+    "medium_priority": 3,
+    "low_priority": 3
   }
 }
 
 ------------------------------------------------------------
-[21:43:05] Test-Edge - PARSED JSON
+[15:11:02] Test-Edge - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Grades",
@@ -452,91 +438,117 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "E-001",
-      "subcategory": "interaction_edge",
-      "test_case": "Rapid expand/collapse toggle stability for a course group",
+      "wf_ref": "WF-001",
+      "subcategory": "state_edge",
+      "test_case": "Rapid consecutive Toggle Course Collapse clicks",
       "preconditions": [
-        "Test data contains at least one Course group with >0 Activities",
-        "User is assigned role Student"
+        "User is the student (owner of this report) and is logged in",
+        "Grades page contains at least one course group with child graded activity rows"
       ],
       "steps": [
-        "1. Log in as Student",
-        "2. Navigate to the Grades page",
-        "3. Locate a Course group row (Course header) in the table",
-        "4. Click the Course's Expand/Collapse Course toggle rapidly (more than 5 clicks) finishing with a click to expand",
-        "5. Observe the Activities rows displayed under the Course",
-        "6. Click the Course's Expand/Collapse Course toggle rapidly (more than 5 clicks) finishing with a click to collapse",
-        "7. Observe the Activities rows are hidden"
+        "1. Navigate to the Grades page",
+        "2. Identify a course header with a visible 'Toggle Course Collapse' control",
+        "3. Click the 'Toggle Course Collapse' control once",
+        "4. Immediately click the same 'Toggle Course Collapse' control again within one second"
       ],
-      "expected_result": "Rapid toggling succeeds: after step 4 the Activities rows are visible exactly once (no duplicate or ghost rows), the table layout remains intact and no JavaScript error dialog appears; after step 6 the Activities rows are hidden and the Course header remains interactive (UI remains responsive) \u2014 test succeeds.",
+      "expected_result": "Rapid toggling succeeds: the course group ends in a single well-defined state (expanded or collapsed) consistent with the last click; no duplicate child rows appear and the group header's expanded/collapsed visual state updates accordingly",
       "priority": "medium"
     },
     {
       "tc_id": "E-002",
-      "subcategory": "input_edge",
-      "test_case": "Long Feedback text display (very long >200 characters) in an Activity row",
+      "wf_ref": "WF-001",
+      "subcategory": "interaction_edge",
+      "test_case": "Keyboard activation of course collapse (Space/Enter) accessibility edge",
       "preconditions": [
-        "Test data contains at least one Course with an Activity whose Feedback text length exceeds 200 characters",
-        "User is assigned role Student"
+        "User is the student (owner of this report) and is logged in",
+        "Grades page contains at least one course group with a focusable collapse control"
       ],
       "steps": [
-        "1. Log in as Student",
-        "2. Navigate to the Grades page",
-        "3. Locate the Course row that contains the Activity with the long Feedback",
-        "4. Click the Course's Expand/Collapse Course toggle to reveal Activities",
-        "5. Observe the Feedback cell for the Activity",
-        "6. If a 'Show more' / expansion control is present in the Feedback cell, click that control",
-        "7. Observe the Feedback cell after expansion"
+        "1. Navigate to the Grades page",
+        "2. Press Tab repeatedly until the course header's collapse control receives keyboard focus",
+        "3. Press the Space key once",
+        "4. (Optional) Press Enter once on the same focused control"
       ],
-      "expected_result": "The UI succeeds in handling long Feedback: initially the Feedback cell shows a truncated preview with a visible 'Show more' or ellipsis indicator; clicking 'Show more' expands to show the full Feedback text without layout overflow or loss of other table rows; collapsing restores the truncated preview \u2014 test succeeds.",
-      "priority": "low"
+      "expected_result": "Keyboard activation succeeds: pressing Space (and Enter) toggles the course group between expanded and collapsed; the course group's child rows become visible/hidden and the header's accessible state (e.g., aria-expanded) visibly updates",
+      "priority": "medium"
     },
     {
       "tc_id": "E-003",
+      "wf_ref": null,
       "subcategory": "input_edge",
-      "test_case": "Rendering and interaction with Course and Grade item names containing special characters and emoji",
+      "test_case": "Very long Feedback text display (200+ characters)",
       "preconditions": [
-        "Test data contains a Course_Name and at least one Grade item whose text includes special Unicode characters and emoji",
-        "User is assigned role Student"
+        "User is the student (owner of this report) and is logged in",
+        "Test data exists: at least one graded activity row where the Feedback field contains a very long string (>= 200 characters)"
       ],
       "steps": [
-        "1. Log in as Student",
-        "2. Navigate to the Grades page",
-        "3. Locate the Course header whose Course_Name contains special characters/emoji",
-        "4. Visually inspect the Course header text rendering",
-        "5. Click the Course's Expand/Collapse Course toggle",
-        "6. Inspect the Grade item rows under that Course for correct rendering of special characters/emoji"
+        "1. Navigate to the Grades page",
+        "2. Locate the graded activity row with the very long Feedback content",
+        "3. Observe the Feedback cell in the table and interact with it (hover or click) if a tooltip/expander is present"
       ],
-      "expected_result": "Rendering of special Unicode characters and emoji succeeds: Course header and Grade item text display the special characters/emoji uncorrupted (no replacement glyphs or truncated code sequences), and Expand/Collapse interaction succeeds with those rows displayed correctly \u2014 test succeeds.",
+      "expected_result": "Long Feedback handling succeeds: the table cell does not break layout \u2014 long text is visibly truncated with an ellipsis in the cell and the full feedback is accessible via a visible mechanism (tooltip, expand control, or separate details view); there is a clear visual indicator that the content has been truncated",
       "priority": "low"
     },
     {
       "tc_id": "E-004",
-      "subcategory": "data_edge",
-      "test_case": "Aggregation row rounding/precision when individual Percentage values have high decimal precision",
+      "wf_ref": null,
+      "subcategory": "input_edge",
+      "test_case": "Special characters and emoji in Feedback render correctly",
       "preconditions": [
-        "Test data contains a Course with multiple Activities whose Percentage values include many decimal places (more precision than typical displayed precision)",
-        "User is assigned role Student"
+        "User is the student (owner of this report) and is logged in",
+        "Test data exists: at least one graded activity row where the Feedback contains special characters and emoji (multi-byte/unicode characters)"
       ],
       "steps": [
-        "1. Log in as Student",
-        "2. Navigate to the Grades page",
-        "3. Locate the Course with Activities that have high-precision Percentage values",
-        "4. Click the Course's Expand/Collapse Course toggle to reveal all Activity Percentage values",
-        "5. Manually sum the visible Percentage column values for the activities in that Course (observe the values as shown in the UI)",
-        "6. Observe the AGGREGATION Course total Percentage_total cell at the bottom of that Course group"
+        "1. Navigate to the Grades page",
+        "2. Locate the graded activity row containing special/unicode characters in Feedback",
+        "3. Observe the Feedback cell rendering in the table and open any detail/tooltip that shows the full feedback"
       ],
-      "expected_result": "Display of aggregated Percentage succeeds: the AGGREGATION Course total cell shows the cumulative Percentage consistent with the UI's displayed per-activity values after the UI's rounding policy (e.g., the aggregation equals the sum of the displayed per-activity percentages when both sides are rounded to the same visible precision); the aggregation cell is visible and shows no truncation or overflow \u2014 test succeeds.",
+      "expected_result": "Unicode/emoji rendering succeeds: special characters and emoji are displayed correctly (not shown as placeholder boxes or garbled text); the Feedback cell and any tooltip/detail view show the characters without UI rendering errors",
+      "priority": "low"
+    },
+    {
+      "tc_id": "E-005",
+      "wf_ref": null,
+      "subcategory": "data_edge",
+      "test_case": "High-precision Percentage and aggregation rounding behavior",
+      "preconditions": [
+        "User is the student (owner of this report) and is logged in",
+        "Test data exists: at least one graded activity with Percentage stored with high decimal precision and the course has multiple weighted items affecting the aggregation row"
+      ],
+      "steps": [
+        "1. Navigate to the Grades page",
+        "2. Locate the Percentage cell for the high-precision graded activity",
+        "3. Locate the 'AGGREGATION Course total' row and observe the displayed Cumulative grade"
+      ],
+      "expected_result": "Precision/rounding display succeeds: the Percentage cell shows a rounded value to the UI's displayed precision (no raw extra-decimal noise), and the Aggregation Course total displays a cumulative grade whose displayed value reflects consistent rounding/aggregation; no UI overflow of decimals is shown and numeric display is stable",
       "priority": "medium"
+    },
+    {
+      "tc_id": "E-006",
+      "wf_ref": null,
+      "subcategory": "input_edge",
+      "test_case": "Feedback that is only whitespace is trimmed in display",
+      "preconditions": [
+        "User is the student (owner of this report) and is logged in",
+        "Test data exists: at least one graded activity row where the Feedback field contains only leading/trailing whitespace or is whitespace-only"
+      ],
+      "steps": [
+        "1. Navigate to the Grades page",
+        "2. Locate the graded activity row with whitespace-only Feedback",
+        "3. Observe the Feedback cell in the table and any detail/tooltip view"
+      ],
+      "expected_result": "Whitespace trimming succeeds: leading and trailing whitespace are not shown in the Feedback cell; the cell displays as empty or shows the standard empty placeholder (e.g., a dash) rather than visible whitespace, indicating trimming has occurred",
+      "priority": "low"
     }
   ],
   "summary": {
-    "total": 4,
+    "total": 6,
     "boundary": 0,
-    "input_edge": 2,
+    "input_edge": 3,
     "interaction_edge": 1,
-    "state_edge": 0,
+    "state_edge": 1,
     "data_edge": 1,
-    "medium_priority": 2,
-    "low_priority": 2
+    "medium_priority": 3,
+    "low_priority": 3
   }
 }

@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-21T22:19:56.393878
+DEBUG SESSION STARTED: 2026-05-25T14:09:57.017988
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[22:19:56] UI-AST Agent - SYSTEM PROMPT
+[14:09:57] UI-AST Agent - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Expert UI/UX Architect and Systems Analyst. Parse natural language functional specifications into a strict, deterministic UI Abstract Syntax Tree (UI-AST) formatted as a JSON Component Schema.
 
@@ -204,7 +204,7 @@ Mentally enumerate every interactive element in the source. Every field, button,
 }
 
 ------------------------------------------------------------
-[22:19:56] UI-AST Agent - USER PROMPT
+[14:09:57] UI-AST Agent - USER PROMPT
 ------------------------------------------------------------
 Module: Delinquency Management
 
@@ -218,19 +218,26 @@ The Delinquency pages cover two sub-pages: Delinquency Ranges and Delinquency Bu
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[22:21:13] UI-AST Agent - LLM RESPONSE
+[14:11:50] UI-AST Agent - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module_name": "Delinquency Management",
   "components": {
-    "Delinquency_Ranges_Page": {
+    "Delinquency_Ranges_Table": {
       "type": "data_table",
-      "columns": ["Classification", "Minimum Age Days", "Maximum Age Days"],
+      "columns": [
+        {
+          "name": "Classification",
+          "clickable": true,
+          "description": "clicking navigates to delinquency range detail/edit"
+        },
+        { "name": "Minimum Age Days" },
+        { "name": "Maximum Age Days" }
+      ],
       "row_actions": [
         {
-          "action_name": "Open Classification",
-          "action_type": "link",
-          "on_invoke": "navigates to Delinquency Range detail/edit"
+          "action_name": "View Range",
+          "description": "navigates to delinquency range detail (triggered by Classification link)"
         }
       ]
     },
@@ -243,19 +250,13 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
         },
         "Minimum_Age_Days": {
           "type": "number",
-          "required": true,
-          "constraints": [
-            "must be integer",
-            "must be >= 0"
-          ]
+          "required": true
         },
         "Maximum_Age_Days": {
           "type": "number",
           "required": false,
           "constraints": [
-            "if blank, applies to all days beyond Minimum_Age_Days",
-            "when present, must be >= Minimum_Age_Days",
-            "must be integer"
+            "if blank, applies to all days beyond the Minimum Age Days"
           ]
         }
       },
@@ -264,19 +265,25 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
           "element_name": "Create",
           "on_success": "creates delinquency range"
         }
-      ],
-      "constraints": [
-        "Maximum_Age_Days must be blank or >= Minimum_Age_Days"
       ]
     },
-    "Delinquency_Buckets_Page": {
+    "Delinquency_Buckets_Table": {
       "type": "data_table",
-      "columns": ["Bucket Name", "Associated Ranges"],
+      "columns": [
+        {
+          "name": "Bucket Name",
+          "clickable": true,
+          "description": "clicking navigates to delinquency bucket detail/edit"
+        },
+        {
+          "name": "Associated Ranges",
+          "description": "lists ranges associated with the bucket"
+        }
+      ],
       "row_actions": [
         {
-          "action_name": "Open Bucket",
-          "action_type": "link",
-          "on_invoke": "navigates to Delinquency Bucket detail/edit"
+          "action_name": "View Bucket",
+          "description": "navigates to delinquency bucket detail (triggered by Bucket Name link)"
         }
       ]
     },
@@ -287,24 +294,36 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
           "type": "unspecified",
           "required": true
         },
-        "Ranges": {
+        "Bucket_Ranges": {
           "type": "repeating_group",
           "item_fields": {
             "Delinquency_Range": {
               "type": "unspecified",
               "required": true,
               "constraints": [
-                "must reference an existing Delinquency Range (Classification)"
+                "must reference an existing Delinquency Range or define a range equivalent to an existing classification"
               ]
             },
-            "Label": {
-              "type": "unspecified",
+            "Minimum_Age_Days": {
+              "type": "number",
               "required": false,
               "constraints": [
-                "optional human-readable label (e.g., 'Range 1', 'Range 2')"
+                "optional when referencing an existing Delinquency Range",
+                "if provided, defines the lower bound for this bucket range"
+              ]
+            },
+            "Maximum_Age_Days": {
+              "type": "number",
+              "required": false,
+              "constraints": [
+                "optional when referencing an existing Delinquency Range",
+                "if blank, applies to all days beyond the minimum for this range"
               ]
             }
-          }
+          },
+          "constraints": [
+            "items are ordered and sequence order determines evaluation order when classifying overdue loans"
+          ]
         }
       },
       "submit_actions": [
@@ -312,60 +331,49 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
           "element_name": "Create",
           "on_success": "creates delinquency bucket"
         }
-      ],
-      "constraints": [
-        "Ranges must form a contiguous, non-overlapping sequence of days when expanded (no overlapping day ranges)",
-        "Each repeating range item must reference an existing Delinquency Range"
       ]
     },
-    "Bucket_Assignment_Action": {
-      "type": "action",
-      "action_name": "Assign Bucket to Loan Product",
-      "fields": {
-        "Loan_Product": {
-          "type": "unspecified",
-          "required": true
-        },
-        "Delinquency_Bucket": {
-          "type": "unspecified",
-          "required": true
-        }
-      },
-      "on_success": "links specified delinquency bucket to selected loan product",
-      "preconditions": [
-        "user must have permission to manage loan product settings"
-      ]
-    },
-    "Auto_Classification_On_Overdue": {
-      "type": "automation",
-      "automation_name": "Auto classify overdue loans",
-      "preconditions": [
-        "loan becomes overdue (days past due > 0)"
-      ],
-      "action": "assigns loan to appropriate delinquency range based on days past due and the ranges defined in the linked delinquency bucket",
-      "on_success": "classification applied to loan; used for portfolio-at-risk reporting, provisioning calculations, and collection workflow triggers"
+    "Delinquency_Classification_Behavior": {
+      "type": "system_behavior",
+      "description": "automated classification and downstream uses",
+      "on_overdue_trigger": {
+        "trigger": "loan becomes overdue",
+        "action": "system classifies loan into the appropriate delinquency range from the linked bucket based on days past due",
+        "used_for": [
+          "portfolio-at-risk reporting",
+          "provisioning calculations",
+          "collection workflow triggers"
+        ]
+      }
     }
   }
 }
 
 ------------------------------------------------------------
-[22:21:13] UI-AST Agent - PARSED JSON
+[14:11:50] UI-AST Agent - PARSED JSON
 ------------------------------------------------------------
 {
   "module_name": "Delinquency Management",
   "components": {
-    "Delinquency_Ranges_Page": {
+    "Delinquency_Ranges_Table": {
       "type": "data_table",
       "columns": [
-        "Classification",
-        "Minimum Age Days",
-        "Maximum Age Days"
+        {
+          "name": "Classification",
+          "clickable": true,
+          "description": "clicking navigates to delinquency range detail/edit"
+        },
+        {
+          "name": "Minimum Age Days"
+        },
+        {
+          "name": "Maximum Age Days"
+        }
       ],
       "row_actions": [
         {
-          "action_name": "Open Classification",
-          "action_type": "link",
-          "on_invoke": "navigates to Delinquency Range detail/edit"
+          "action_name": "View Range",
+          "description": "navigates to delinquency range detail (triggered by Classification link)"
         }
       ]
     },
@@ -378,19 +386,13 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
         },
         "Minimum_Age_Days": {
           "type": "number",
-          "required": true,
-          "constraints": [
-            "must be integer",
-            "must be >= 0"
-          ]
+          "required": true
         },
         "Maximum_Age_Days": {
           "type": "number",
           "required": false,
           "constraints": [
-            "if blank, applies to all days beyond Minimum_Age_Days",
-            "when present, must be >= Minimum_Age_Days",
-            "must be integer"
+            "if blank, applies to all days beyond the Minimum Age Days"
           ]
         }
       },
@@ -399,22 +401,25 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
           "element_name": "Create",
           "on_success": "creates delinquency range"
         }
-      ],
-      "constraints": [
-        "Maximum_Age_Days must be blank or >= Minimum_Age_Days"
       ]
     },
-    "Delinquency_Buckets_Page": {
+    "Delinquency_Buckets_Table": {
       "type": "data_table",
       "columns": [
-        "Bucket Name",
-        "Associated Ranges"
+        {
+          "name": "Bucket Name",
+          "clickable": true,
+          "description": "clicking navigates to delinquency bucket detail/edit"
+        },
+        {
+          "name": "Associated Ranges",
+          "description": "lists ranges associated with the bucket"
+        }
       ],
       "row_actions": [
         {
-          "action_name": "Open Bucket",
-          "action_type": "link",
-          "on_invoke": "navigates to Delinquency Bucket detail/edit"
+          "action_name": "View Bucket",
+          "description": "navigates to delinquency bucket detail (triggered by Bucket Name link)"
         }
       ]
     },
@@ -425,24 +430,36 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
           "type": "unspecified",
           "required": true
         },
-        "Ranges": {
+        "Bucket_Ranges": {
           "type": "repeating_group",
           "item_fields": {
             "Delinquency_Range": {
               "type": "unspecified",
               "required": true,
               "constraints": [
-                "must reference an existing Delinquency Range (Classification)"
+                "must reference an existing Delinquency Range or define a range equivalent to an existing classification"
               ]
             },
-            "Label": {
-              "type": "unspecified",
+            "Minimum_Age_Days": {
+              "type": "number",
               "required": false,
               "constraints": [
-                "optional human-readable label (e.g., 'Range 1', 'Range 2')"
+                "optional when referencing an existing Delinquency Range",
+                "if provided, defines the lower bound for this bucket range"
+              ]
+            },
+            "Maximum_Age_Days": {
+              "type": "number",
+              "required": false,
+              "constraints": [
+                "optional when referencing an existing Delinquency Range",
+                "if blank, applies to all days beyond the minimum for this range"
               ]
             }
-          }
+          },
+          "constraints": [
+            "items are ordered and sequence order determines evaluation order when classifying overdue loans"
+          ]
         }
       },
       "submit_actions": [
@@ -450,44 +467,26 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
           "element_name": "Create",
           "on_success": "creates delinquency bucket"
         }
-      ],
-      "constraints": [
-        "Ranges must form a contiguous, non-overlapping sequence of days when expanded (no overlapping day ranges)",
-        "Each repeating range item must reference an existing Delinquency Range"
       ]
     },
-    "Bucket_Assignment_Action": {
-      "type": "action",
-      "action_name": "Assign Bucket to Loan Product",
-      "fields": {
-        "Loan_Product": {
-          "type": "unspecified",
-          "required": true
-        },
-        "Delinquency_Bucket": {
-          "type": "unspecified",
-          "required": true
-        }
-      },
-      "on_success": "links specified delinquency bucket to selected loan product",
-      "preconditions": [
-        "user must have permission to manage loan product settings"
-      ]
-    },
-    "Auto_Classification_On_Overdue": {
-      "type": "automation",
-      "automation_name": "Auto classify overdue loans",
-      "preconditions": [
-        "loan becomes overdue (days past due > 0)"
-      ],
-      "action": "assigns loan to appropriate delinquency range based on days past due and the ranges defined in the linked delinquency bucket",
-      "on_success": "classification applied to loan; used for portfolio-at-risk reporting, provisioning calculations, and collection workflow triggers"
+    "Delinquency_Classification_Behavior": {
+      "type": "system_behavior",
+      "description": "automated classification and downstream uses",
+      "on_overdue_trigger": {
+        "trigger": "loan becomes overdue",
+        "action": "system classifies loan into the appropriate delinquency range from the linked bucket based on days past due",
+        "used_for": [
+          "portfolio-at-risk reporting",
+          "provisioning calculations",
+          "collection workflow triggers"
+        ]
+      }
     }
   }
 }
 
 ------------------------------------------------------------
-[22:23:33] UI-AST Agent - USER PROMPT
+[14:13:58] UI-AST Agent - USER PROMPT
 ------------------------------------------------------------
 Module: Delinquency Management
 
@@ -499,43 +498,42 @@ The Delinquency pages cover two sub-pages: Delinquency Ranges and Delinquency Bu
 
 
 **CRITIC FEEDBACK FROM PREVIOUS ATTEMPT — address every point:**
-1. Delinquency_Ranges_Page: add an explicit page-level create action entry (e.g., Delinquency_Ranges_Page.create_action) to open the Create Delinquency Range form — regenerate AST to include it.
-2. Delinquency_Buckets_Page: add an explicit page-level create action entry (e.g., Delinquency_Buckets_Page.create_action) to open the Create Delinquency Bucket form — regenerate AST to include it.
-3. Create_Delinquency_Bucket_Form.fields.Ranges: replace or augment the current repeating item_fields so each item explicitly exposes Minimum_Age_Days and Maximum_Age_Days fields (e.g., Create_Delinquency_Bucket_Form.fields.Ranges.item_fields.Minimum_Age_Days and Create_Delinquency_Bucket_Form.fields.Ranges.item_fields.Maximum_Age_Days) instead of requiring an implicit reference to existing Delinquency Range, unless the description is updated to explicitly say ranges must reference existing classifications.
-4. Remove or soften constraint-level and field-level validations that were not explicitly stated in the description: delete Create_Delinquency_Range_Form.fields.Minimum_Age_Days.constraints entries for 'must be integer' and 'must be >= 0', delete Create_Delinquency_Range_Form.fields.Maximum_Age_Days.constraints entries 'must be integer' and 'when present, must be >= Minimum_Age_Days', and remove the duplicate Create_Delinquency_Range_Form.constraints entry; only include validations that are explicitly described (required/optional and the described 'if blank applies to all days beyond the minimum').
-5. Remove Create_Delinquency_Bucket_Form.constraints entry 'Ranges must form a contiguous, non-overlapping sequence of days' unless the description is updated to explicitly require this validation; if kept, make sure it's anchored to explicit description text.
-6. Remove the Bucket_Assignment_Action UI action and its 'preconditions' unless the description is updated to explicitly describe a UI for linking buckets to loan products and required permissions; otherwise document linking as an implementation detail/association rather than a UI action in the AST.
+1. Remove or reword the inferred constraint at Create_Delinquency_Bucket_Form.fields.Bucket_Ranges.item_fields.Delinquency_Range.constraints[0]; the description does not require referencing existing ranges, so either allow selecting an existing range OR defining numeric bounds without asserting a strict 'must reference' constraint.
+2. Remove the inferred 'optional when referencing an existing Delinquency Range' constraints from Create_Delinquency_Bucket_Form.fields.Bucket_Ranges.item_fields.Minimum_Age_Days.constraints and Create_Delinquency_Bucket_Form.fields.Bucket_Ranges.item_fields.Maximum_Age_Days.constraints; the description did not state these conditionals.
+3. Either remove or loosen the evaluation-order constraint at Create_Delinquency_Bucket_Form.fields.Bucket_Ranges.constraints[0]; the description only says ranges are added 'in sequence' (UI should capture ordering) but does not explicitly state the system evaluation rule — if you keep it, tie it explicitly to description by stating 'sequence as entered (UI order)'.
+4. Replace Delinquency_Ranges_Table.row_actions[0] and Delinquency_Buckets_Table.row_actions[0] with explicit representation that the 'Classification' and 'Bucket Name' columns are clickable links that navigate to the detail/edit page; do not invent separate action names unless the description provides them.
+5. Add an explicit add control for the repeating ranges UI at Create_Delinquency_Bucket_Form.fields.Bucket_Ranges.add_action — e.g., an 'Add Range' button and optional 'Remove' and 'Reorder' controls, since the description requires an interface to add multiple ranges in sequence.
+6. Add an explicit UI element for linking delinquency buckets to loan products: Delinquency_Buckets.Link_To_Loan_Products_UI (e.g., a mapping/assignment control on bucket detail or a Loan Product dropdown/assignment field) because the description states buckets are linked to Loan Products even though it does not detail the UI.
 
 
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[22:25:05] UI-AST Agent - LLM RESPONSE
+[14:15:46] UI-AST Agent - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module_name": "Delinquency Management",
   "components": {
     "Delinquency_Ranges_Page": {
-      "type": "page",
-      "create_action": {
-        "element_name": "Create Delinquency Range",
-        "opens": "Create_Delinquency_Range_Form"
-      },
-      "data_table": {
-        "type": "data_table",
-        "columns": ["Classification", "Minimum Age Days", "Maximum Age Days"],
-        "link_columns": ["Classification"],
-        "row_actions": [
-          {
-            "action_name": "Open Classification",
-            "type": "link",
-            "description": "navigates to Delinquency Range detail"
-          }
-        ]
-      }
+      "type": "data_table",
+      "columns": [
+        {
+          "column_name": "Classification",
+          "clickable_link": true,
+          "link_navigates_to": "Delinquency_Range_Detail"
+        },
+        { "column_name": "Minimum Age Days" },
+        { "column_name": "Maximum Age Days" }
+      ]
     },
     "Create_Delinquency_Range_Form": {
       "type": "form",
+      "submit_actions": [
+        {
+          "element_name": "Create",
+          "on_success": "creates delinquency range"
+        }
+      ],
       "fields": {
         "Classification": {
           "type": "unspecified",
@@ -549,100 +547,429 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
           "type": "number",
           "required": false,
           "constraints": [
-            "if blank, applies to all days beyond the Minimum_Age_Days"
+            "if blank, applies to all days beyond the Minimum Age Days"
           ]
         }
-      },
-      "submit_actions": [
-        {
-          "element_name": "Create",
-          "on_success": "creates delinquency range"
-        }
-      ]
+      }
     },
     "Delinquency_Buckets_Page": {
-      "type": "page",
-      "create_action": {
-        "element_name": "Create Delinquency Bucket",
-        "opens": "Create_Delinquency_Bucket_Form"
-      },
-      "data_table": {
-        "type": "data_table",
-        "columns": ["Bucket Name", "Associated Ranges"],
-        "link_columns": ["Bucket Name"],
-        "row_actions": [
-          {
-            "action_name": "Open Bucket",
-            "type": "link",
-            "description": "navigates to Delinquency Bucket detail"
-          }
-        ]
-      }
+      "type": "data_table",
+      "columns": [
+        {
+          "column_name": "Bucket Name",
+          "clickable_link": true,
+          "link_navigates_to": "Delinquency_Bucket_Detail"
+        },
+        { "column_name": "Associated Ranges" }
+      ]
     },
     "Create_Delinquency_Bucket_Form": {
       "type": "form",
-      "fields": {
-        "Bucket_Name": {
-          "type": "unspecified",
-          "required": true
-        },
-        "Ranges": {
-          "type": "repeating_group",
-          "item_fields": {
-            "Minimum_Age_Days": {
-              "type": "number",
-              "required": true
-            },
-            "Maximum_Age_Days": {
-              "type": "number",
-              "required": false,
-              "constraints": [
-                "if blank for the last range, applies to all days beyond the minimum"
-              ]
-            }
-          }
-        }
-      },
       "submit_actions": [
         {
           "element_name": "Create",
           "on_success": "creates delinquency bucket"
         }
+      ],
+      "fields": {
+        "Bucket_Name": {
+          "type": "unspecified",
+          "required": true
+        },
+        "Bucket_Ranges": {
+          "type": "repeating_group",
+          "item_fields": {
+            "Label": {
+              "type": "unspecified",
+              "required": false
+            },
+            "Referenced_Range": {
+              "type": "dropdown",
+              "required": false,
+              "description": "Optionally select an existing Delinquency Range"
+            },
+            "Minimum_Age_Days": {
+              "type": "number",
+              "required": false
+            },
+            "Maximum_Age_Days": {
+              "type": "number",
+              "required": false,
+              "constraints": [
+                "if blank, applies to all days beyond the Minimum Age Days"
+              ]
+            }
+          },
+          "constraints": [
+            "either Referenced_Range OR (Minimum_Age_Days defined) must be provided for each item",
+            "sequence as entered (UI order) determines the bucket ordering"
+          ],
+          "min": 1,
+          "add_action": {
+            "element_name": "Add Range",
+            "description": "Adds a new range row to the bucket in sequence"
+          },
+          "item_actions": [
+            { "action_name": "Remove", "element_name": "Remove Range" },
+            { "action_name": "Reorder", "element_name": "Reorder Range (drag/drop or move up/down)" }
+          ]
+        },
+        "Linked_Loan_Products": {
+          "type": "dropdown",
+          "required": false,
+          "multi_select": true,
+          "description": "Assign this bucket to one or more Loan Products"
+        }
+      }
+    },
+    "Delinquency_Bucket_Detail": {
+      "type": "detail_page",
+      "fields": {
+        "Bucket_Name": { "type": "unspecified", "required": true },
+        "Bucket_Ranges": {
+          "type": "repeating_group",
+          "item_fields": {
+            "Label": { "type": "unspecified", "required": false },
+            "Referenced_Range": { "type": "dropdown", "required": false },
+            "Minimum_Age_Days": { "type": "number", "required": false },
+            "Maximum_Age_Days": { "type": "number", "required": false }
+          },
+          "constraints": [
+            "sequence as entered (UI order) determines the bucket ordering"
+          ],
+          "add_action": {
+            "element_name": "Add Range",
+            "description": "Adds a new range row to the bucket in sequence"
+          },
+          "item_actions": [
+            { "action_name": "Remove", "element_name": "Remove Range" },
+            { "action_name": "Reorder", "element_name": "Reorder Range (drag/drop or move up/down)" }
+          ]
+        },
+        "Linked_Loan_Products": {
+          "type": "dropdown",
+          "required": false,
+          "multi_select": true,
+          "description": "Assign or unassign Loan Products to this bucket"
+        }
+      },
+      "submit_actions": [
+        {
+          "element_name": "Save",
+          "on_success": "updates delinquency bucket"
+        }
+      ]
+    },
+    "Link_To_Loan_Products_UI": {
+      "type": "mapping_control",
+      "description": "UI control for linking delinquency buckets to Loan Products (used on bucket create/edit/detail screens)",
+      "fields": {
+        "Loan_Product_Selector": {
+          "type": "dropdown",
+          "multi_select": true,
+          "required": false,
+          "description": "Select one or more Loan Products to assign to the bucket"
+        },
+        "Assign_Action": {
+          "type": "button",
+          "element_name": "Assign",
+          "on_success": "associates selected Loan Products with the bucket"
+        },
+        "Unassign_Action": {
+          "type": "button",
+          "element_name": "Unassign",
+          "on_success": "removes association between selected Loan Products and the bucket"
+        }
+      }
+    },
+    "Automatic_Classification_Process": {
+      "type": "system_process",
+      "triggers": [
+        "loan becomes overdue"
+      ],
+      "effects": [
+        "assigns loan to appropriate delinquency range within its linked bucket based on days past due (uses bucket sequence as entered)",
+        "used for portfolio-at-risk reporting",
+        "used for provisioning calculations",
+        "used to trigger collection workflow actions"
+      ],
+      "notes": [
+        "Bucket ordering is determined by sequence as entered in the bucket's ranges UI",
+        "Range matching uses Minimum/Maximum Age Days bounds; if Maximum is blank, range applies to all days beyond Minimum"
       ]
     }
   }
 }
 
 ------------------------------------------------------------
-[22:25:05] UI-AST Agent - PARSED JSON
+[14:15:46] UI-AST Agent - PARSED JSON
 ------------------------------------------------------------
 {
   "module_name": "Delinquency Management",
   "components": {
     "Delinquency_Ranges_Page": {
-      "type": "page",
-      "create_action": {
-        "element_name": "Create Delinquency Range",
-        "opens": "Create_Delinquency_Range_Form"
-      },
-      "data_table": {
-        "type": "data_table",
-        "columns": [
-          "Classification",
-          "Minimum Age Days",
-          "Maximum Age Days"
-        ],
-        "link_columns": [
-          "Classification"
-        ],
-        "row_actions": [
-          {
-            "action_name": "Open Classification",
-            "type": "link",
-            "description": "navigates to Delinquency Range detail"
-          }
-        ]
+      "type": "data_table",
+      "columns": [
+        {
+          "column_name": "Classification",
+          "clickable_link": true,
+          "link_navigates_to": "Delinquency_Range_Detail"
+        },
+        {
+          "column_name": "Minimum Age Days"
+        },
+        {
+          "column_name": "Maximum Age Days"
+        }
+      ]
+    },
+    "Create_Delinquency_Range_Form": {
+      "type": "form",
+      "submit_actions": [
+        {
+          "element_name": "Create",
+          "on_success": "creates delinquency range"
+        }
+      ],
+      "fields": {
+        "Classification": {
+          "type": "unspecified",
+          "required": true
+        },
+        "Minimum_Age_Days": {
+          "type": "number",
+          "required": true
+        },
+        "Maximum_Age_Days": {
+          "type": "number",
+          "required": false,
+          "constraints": [
+            "if blank, applies to all days beyond the Minimum Age Days"
+          ]
+        }
       }
+    },
+    "Delinquency_Buckets_Page": {
+      "type": "data_table",
+      "columns": [
+        {
+          "column_name": "Bucket Name",
+          "clickable_link": true,
+          "link_navigates_to": "Delinquency_Bucket_Detail"
+        },
+        {
+          "column_name": "Associated Ranges"
+        }
+      ]
+    },
+    "Create_Delinquency_Bucket_Form": {
+      "type": "form",
+      "submit_actions": [
+        {
+          "element_name": "Create",
+          "on_success": "creates delinquency bucket"
+        }
+      ],
+      "fields": {
+        "Bucket_Name": {
+          "type": "unspecified",
+          "required": true
+        },
+        "Bucket_Ranges": {
+          "type": "repeating_group",
+          "item_fields": {
+            "Label": {
+              "type": "unspecified",
+              "required": false
+            },
+            "Referenced_Range": {
+              "type": "dropdown",
+              "required": false,
+              "description": "Optionally select an existing Delinquency Range"
+            },
+            "Minimum_Age_Days": {
+              "type": "number",
+              "required": false
+            },
+            "Maximum_Age_Days": {
+              "type": "number",
+              "required": false,
+              "constraints": [
+                "if blank, applies to all days beyond the Minimum Age Days"
+              ]
+            }
+          },
+          "constraints": [
+            "either Referenced_Range OR (Minimum_Age_Days defined) must be provided for each item",
+            "sequence as entered (UI order) determines the bucket ordering"
+          ],
+          "min": 1,
+          "add_action": {
+            "element_name": "Add Range",
+            "description": "Adds a new range row to the bucket in sequence"
+          },
+          "item_actions": [
+            {
+              "action_name": "Remove",
+              "element_name": "Remove Range"
+            },
+            {
+              "action_name": "Reorder",
+              "element_name": "Reorder Range (drag/drop or move up/down)"
+            }
+          ]
+        },
+        "Linked_Loan_Products": {
+          "type": "dropdown",
+          "required": false,
+          "multi_select": true,
+          "description": "Assign this bucket to one or more Loan Products"
+        }
+      }
+    },
+    "Delinquency_Bucket_Detail": {
+      "type": "detail_page",
+      "fields": {
+        "Bucket_Name": {
+          "type": "unspecified",
+          "required": true
+        },
+        "Bucket_Ranges": {
+          "type": "repeating_group",
+          "item_fields": {
+            "Label": {
+              "type": "unspecified",
+              "required": false
+            },
+            "Referenced_Range": {
+              "type": "dropdown",
+              "required": false
+            },
+            "Minimum_Age_Days": {
+              "type": "number",
+              "required": false
+            },
+            "Maximum_Age_Days": {
+              "type": "number",
+              "required": false
+            }
+          },
+          "constraints": [
+            "sequence as entered (UI order) determines the bucket ordering"
+          ],
+          "add_action": {
+            "element_name": "Add Range",
+            "description": "Adds a new range row to the bucket in sequence"
+          },
+          "item_actions": [
+            {
+              "action_name": "Remove",
+              "element_name": "Remove Range"
+            },
+            {
+              "action_name": "Reorder",
+              "element_name": "Reorder Range (drag/drop or move up/down)"
+            }
+          ]
+        },
+        "Linked_Loan_Products": {
+          "type": "dropdown",
+          "required": false,
+          "multi_select": true,
+          "description": "Assign or unassign Loan Products to this bucket"
+        }
+      },
+      "submit_actions": [
+        {
+          "element_name": "Save",
+          "on_success": "updates delinquency bucket"
+        }
+      ]
+    },
+    "Link_To_Loan_Products_UI": {
+      "type": "mapping_control",
+      "description": "UI control for linking delinquency buckets to Loan Products (used on bucket create/edit/detail screens)",
+      "fields": {
+        "Loan_Product_Selector": {
+          "type": "dropdown",
+          "multi_select": true,
+          "required": false,
+          "description": "Select one or more Loan Products to assign to the bucket"
+        },
+        "Assign_Action": {
+          "type": "button",
+          "element_name": "Assign",
+          "on_success": "associates selected Loan Products with the bucket"
+        },
+        "Unassign_Action": {
+          "type": "button",
+          "element_name": "Unassign",
+          "on_success": "removes association between selected Loan Products and the bucket"
+        }
+      }
+    },
+    "Automatic_Classification_Process": {
+      "type": "system_process",
+      "triggers": [
+        "loan becomes overdue"
+      ],
+      "effects": [
+        "assigns loan to appropriate delinquency range within its linked bucket based on days past due (uses bucket sequence as entered)",
+        "used for portfolio-at-risk reporting",
+        "used for provisioning calculations",
+        "used to trigger collection workflow actions"
+      ],
+      "notes": [
+        "Bucket ordering is determined by sequence as entered in the bucket's ranges UI",
+        "Range matching uses Minimum/Maximum Age Days bounds; if Maximum is blank, range applies to all days beyond Minimum"
+      ]
+    }
+  }
+}
+
+------------------------------------------------------------
+[14:17:19] UI-AST Agent - USER PROMPT
+------------------------------------------------------------
+Module: Delinquency Management
+
+
+The Delinquency pages cover two sub-pages: Delinquency Ranges and Delinquency Buckets. The Delinquency Ranges page displays a data table with columns for Classification (clickable link), Minimum Age Days, and Maximum Age Days. The Create Delinquency Range form contains Classification (required), Minimum Age Days (required), and Maximum Age Days (optional — if blank, applies to all days beyond the minimum). The Delinquency Buckets page displays a data table with columns for Bucket Name (clickable link) and associated ranges. The Create Delinquency Bucket form contains Bucket Name (required) and an interface for adding multiple delinquency ranges in sequence (e.g., 1–29 days = Range 1, 30–59 days = Range 2, 60+ days = Range 3). Delinquency buckets are linked to Loan Products; when a loan becomes overdue, the system automatically classifies it into the appropriate range based on days past due, which is used for portfolio-at-risk reporting, provisioning calculations, and collection workflow triggers.
+
+---
+
+
+
+**CRITIC FEEDBACK FROM PREVIOUS ATTEMPT — address every point:**
+1. Either define components.Delinquency_Range_Detail under components (e.g., a detail_page for a single delinquency range) or remove link_navigates_to: 'Delinquency_Range_Detail' from components.Delinquency_Ranges_Page.columns[0].
+2. Remove components.Create_Delinquency_Bucket_Form.fields.Bucket_Ranges.item_fields.Label — the description does not mention a separate label field for each bucket range; keep only the numeric bounds fields.
+3. Remove components.Create_Delinquency_Bucket_Form.fields.Bucket_Ranges.item_fields.Referenced_Range and the related constraint components.Create_Delinquency_Bucket_Form.fields.Bucket_Ranges.constraints[0] — the description only specifies entering ranges (min/max) in sequence, not referencing existing ranges.
+4. Remove components.Create_Delinquency_Bucket_Form.fields.Bucket_Ranges.min unless a minimum number of ranges is explicitly required by the spec.
+5. Remove the Reorder item action (components.Create_Delinquency_Bucket_Form.fields.Bucket_Ranges.item_actions[1]) unless the spec explicitly states UI reordering (drag/drop or move up/down). Keep a simple 'Add Range' action as described.
+6. Remove the entire components.Link_To_Loan_Products_UI component and its Assign/Unassign buttons; instead rely on the existing Linked_Loan_Products multi-select field inside Create_Delinquency_Bucket_Form and Delinquency_Bucket_Detail (components.Create_Delinquency_Bucket_Form.fields.Linked_Loan_Products and components.Delinquency_Bucket_Detail.fields.Linked_Loan_Products) to represent linking to loan products as described.
+
+
+IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
+
+------------------------------------------------------------
+[14:18:07] UI-AST Agent - LLM RESPONSE
+------------------------------------------------------------
+{
+  "module_name": "Delinquency Management",
+  "components": {
+    "Delinquency_Ranges_Page": {
+      "type": "data_table",
+      "columns": [
+        {
+          "column_name": "Classification",
+          "link_navigates_to": "Delinquency_Range_Detail"
+        },
+        {
+          "column_name": "Minimum Age Days"
+        },
+        {
+          "column_name": "Maximum Age Days"
+        }
+      ]
     },
     "Create_Delinquency_Range_Form": {
       "type": "form",
@@ -659,7 +986,7 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
           "type": "number",
           "required": false,
           "constraints": [
-            "if blank, applies to all days beyond the Minimum_Age_Days"
+            "if blank, applies to all days beyond the minimum"
           ]
         }
       },
@@ -670,29 +997,21 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
         }
       ]
     },
+    "Delinquency_Range_Detail": {
+      "type": "detail_page",
+      "fields": {}
+    },
     "Delinquency_Buckets_Page": {
-      "type": "page",
-      "create_action": {
-        "element_name": "Create Delinquency Bucket",
-        "opens": "Create_Delinquency_Bucket_Form"
-      },
-      "data_table": {
-        "type": "data_table",
-        "columns": [
-          "Bucket Name",
-          "Associated Ranges"
-        ],
-        "link_columns": [
-          "Bucket Name"
-        ],
-        "row_actions": [
-          {
-            "action_name": "Open Bucket",
-            "type": "link",
-            "description": "navigates to Delinquency Bucket detail"
-          }
-        ]
-      }
+      "type": "data_table",
+      "columns": [
+        {
+          "column_name": "Bucket Name",
+          "link_navigates_to": "Delinquency_Bucket_Detail"
+        },
+        {
+          "column_name": "Associated Ranges"
+        }
+      ]
     },
     "Create_Delinquency_Bucket_Form": {
       "type": "form",
@@ -701,7 +1020,7 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
           "type": "unspecified",
           "required": true
         },
-        "Ranges": {
+        "Bucket_Ranges": {
           "type": "repeating_group",
           "item_fields": {
             "Minimum_Age_Days": {
@@ -712,18 +1031,197 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
               "type": "number",
               "required": false,
               "constraints": [
-                "if blank for the last range, applies to all days beyond the minimum"
+                "if blank, applies to all days beyond the minimum"
               ]
             }
+          },
+          "add_action": {
+            "element_name": "Add Range"
           }
+        },
+        "Linked_Loan_Products": {
+          "type": "dropdown",
+          "multi": true,
+          "required": false
         }
       },
       "submit_actions": [
         {
           "element_name": "Create",
-          "on_success": "creates delinquency bucket"
+          "on_success": "creates delinquency bucket; when a linked loan becomes overdue the system automatically classifies it into the appropriate range based on days past due for portfolio-at-risk reporting, provisioning calculations, and collection workflow triggers"
         }
       ]
+    },
+    "Delinquency_Bucket_Detail": {
+      "type": "detail_page",
+      "fields": {
+        "Bucket_Name": {
+          "type": "unspecified",
+          "required": true
+        },
+        "Bucket_Ranges": {
+          "type": "repeating_group",
+          "item_fields": {
+            "Minimum_Age_Days": {
+              "type": "number",
+              "required": true
+            },
+            "Maximum_Age_Days": {
+              "type": "number",
+              "required": false,
+              "constraints": [
+                "if blank, applies to all days beyond the minimum"
+              ]
+            }
+          },
+          "add_action": {
+            "element_name": "Add Range"
+          }
+        },
+        "Linked_Loan_Products": {
+          "type": "dropdown",
+          "multi": true,
+          "required": false
+        }
+      }
+    }
+  }
+}
+
+------------------------------------------------------------
+[14:18:07] UI-AST Agent - PARSED JSON
+------------------------------------------------------------
+{
+  "module_name": "Delinquency Management",
+  "components": {
+    "Delinquency_Ranges_Page": {
+      "type": "data_table",
+      "columns": [
+        {
+          "column_name": "Classification",
+          "link_navigates_to": "Delinquency_Range_Detail"
+        },
+        {
+          "column_name": "Minimum Age Days"
+        },
+        {
+          "column_name": "Maximum Age Days"
+        }
+      ]
+    },
+    "Create_Delinquency_Range_Form": {
+      "type": "form",
+      "fields": {
+        "Classification": {
+          "type": "unspecified",
+          "required": true
+        },
+        "Minimum_Age_Days": {
+          "type": "number",
+          "required": true
+        },
+        "Maximum_Age_Days": {
+          "type": "number",
+          "required": false,
+          "constraints": [
+            "if blank, applies to all days beyond the minimum"
+          ]
+        }
+      },
+      "submit_actions": [
+        {
+          "element_name": "Create",
+          "on_success": "creates delinquency range"
+        }
+      ]
+    },
+    "Delinquency_Range_Detail": {
+      "type": "detail_page",
+      "fields": {}
+    },
+    "Delinquency_Buckets_Page": {
+      "type": "data_table",
+      "columns": [
+        {
+          "column_name": "Bucket Name",
+          "link_navigates_to": "Delinquency_Bucket_Detail"
+        },
+        {
+          "column_name": "Associated Ranges"
+        }
+      ]
+    },
+    "Create_Delinquency_Bucket_Form": {
+      "type": "form",
+      "fields": {
+        "Bucket_Name": {
+          "type": "unspecified",
+          "required": true
+        },
+        "Bucket_Ranges": {
+          "type": "repeating_group",
+          "item_fields": {
+            "Minimum_Age_Days": {
+              "type": "number",
+              "required": true
+            },
+            "Maximum_Age_Days": {
+              "type": "number",
+              "required": false,
+              "constraints": [
+                "if blank, applies to all days beyond the minimum"
+              ]
+            }
+          },
+          "add_action": {
+            "element_name": "Add Range"
+          }
+        },
+        "Linked_Loan_Products": {
+          "type": "dropdown",
+          "multi": true,
+          "required": false
+        }
+      },
+      "submit_actions": [
+        {
+          "element_name": "Create",
+          "on_success": "creates delinquency bucket; when a linked loan becomes overdue the system automatically classifies it into the appropriate range based on days past due for portfolio-at-risk reporting, provisioning calculations, and collection workflow triggers"
+        }
+      ]
+    },
+    "Delinquency_Bucket_Detail": {
+      "type": "detail_page",
+      "fields": {
+        "Bucket_Name": {
+          "type": "unspecified",
+          "required": true
+        },
+        "Bucket_Ranges": {
+          "type": "repeating_group",
+          "item_fields": {
+            "Minimum_Age_Days": {
+              "type": "number",
+              "required": true
+            },
+            "Maximum_Age_Days": {
+              "type": "number",
+              "required": false,
+              "constraints": [
+                "if blank, applies to all days beyond the minimum"
+              ]
+            }
+          },
+          "add_action": {
+            "element_name": "Add Range"
+          }
+        },
+        "Linked_Loan_Products": {
+          "type": "dropdown",
+          "multi": true,
+          "required": false
+        }
+      }
     }
   }
 }

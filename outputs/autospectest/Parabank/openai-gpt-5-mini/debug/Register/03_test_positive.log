@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-22T21:31:44.610792
+DEBUG SESSION STARTED: 2026-05-25T15:41:24.118819
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[21:31:44] Test-Positive - SYSTEM PROMPT
+[15:41:24] Test-Positive - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Expert UI Test Case Generator. You receive (1) a UI-AST JSON for one specific module and (2) the original functional description for that module.
 
@@ -24,6 +24,10 @@ Your job is to produce ONLY positive/functional UI test cases — tests where va
 <description>
 {Original functional description text for this module}
 </description>
+
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
 
 ---
 
@@ -146,6 +150,13 @@ Because you are testing a module in isolation, establish the required entry stat
 **1. Forms & Wizards (`form`, `wizard`):**
 - Generate ONE happy path per distinct success outcome.
 - *Conditional UI Check:* If a toggle/dropdown reveals new mandatory fields (`visible_when`), generate a separate test for that conditional branch.
+- **Wizard step coverage (CRITICAL):** If a wizard has multiple steps and any step beyond Step 1 contains its own named field group (e.g., "Address Details", "Family Members", "Identifiers"), generate ONE dedicated positive TC per such step. The TC must:
+  - Navigate to that specific step (include the preceding steps as preconditions or brief navigation steps)
+  - Fill the fields described for that step (not just pass through)
+  - Assert the step's content is visible/saved on the detail page after final submission
+  - **Do NOT collapse all wizard steps into one happy-path TC** — if Steps 2, 3, and 4 each have their own named section in the spec, they each need their own TC.
+- **Wizard in-step identifiers/duplicates:** If a wizard step allows adding identifiers, documents, or similar entries that have a uniqueness constraint, include a TC for that wizard step that also verifies the constraint (e.g., attempting to add a duplicate Document Type+Key pair inside the wizard). This is a different code path from adding the same post-creation on the detail page.
+- **Action dialogs:** If a `state_bound_action_bar` action opens a dialog with its own `fields{}` (e.g., Activate requires Activation Date, Reject requires Reason), generate ONE positive TC per such action-dialog — distinct from the state-transition TC. The TC fills the dialog field and completes the action.
 
 **2. State Machines (`state_bound_action_bar`):**
 - For each unique action available in a specific state, generate ONE test performing that action.
@@ -200,6 +211,19 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 
 ---
 
+**WORKFLOW COVERAGE OBLIGATION (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- Your test cases must **collectively cover every workflow** listed.
+- For each `wf_id`, at least one TC must:
+  - Activate the `conditional_branch` (if not null) — i.e. the test must set up the condition described.
+  - Assert the `on_success` as its `expected_result` (verbatim or as the primary basis for the expected result).
+- Add `"wf_ref": "WF-NNN"` to each TC to identify which workflow it covers.
+- If one TC naturally covers multiple workflows (e.g., the base path overlaps), pick the most specific `wf_ref`.
+- If a TC does not map to any workflow (e.g., a navigation-only test), set `"wf_ref": null`.
+
+---
+
 **OUTPUT — JSON only, no prose, no markdown fencing:**
 
 {
@@ -208,6 +232,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
   "test_cases": [
     {
       "tc_id": "P-001",
+      "wf_ref": "WF-001",
       "test_case": "Short descriptive name",
       "preconditions": ["User logged in as <Role>", "<Prerequisite state>"],
       "steps": ["1. Step one", "2. Step two"],
@@ -224,7 +249,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 }
 
 ------------------------------------------------------------
-[21:31:44] Test-Positive - USER PROMPT
+[15:41:24] Test-Positive - USER PROMPT
 ------------------------------------------------------------
 <module_name>Register</module_name>
 
@@ -237,19 +262,23 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
       "fields": {
         "First_Name": {
           "type": "unspecified",
-          "required": true
+          "required": true,
+          "constraints": []
         },
         "Last_Name": {
           "type": "unspecified",
-          "required": true
+          "required": true,
+          "constraints": []
         },
         "Street_Address": {
           "type": "unspecified",
-          "required": true
+          "required": true,
+          "constraints": []
         },
         "City": {
           "type": "unspecified",
-          "required": true
+          "required": true,
+          "constraints": []
         },
         "State": {
           "type": "dropdown",
@@ -304,33 +333,35 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
             "Washington",
             "West Virginia",
             "Wisconsin",
-            "Wyoming"
-          ]
+            "Wyoming",
+            "District of Columbia"
+          ],
+          "constraints": []
         },
         "ZIP_Code": {
           "type": "unspecified",
           "required": true,
           "constraints": [
-            "must match 5-digit or 5+4 format (12345 or 12345-6789)",
-            "pattern: ^\\d{5}(-\\d{4})?$"
+            "must match 5-digit or 5+4 format (e.g. 12345 or 12345-6789)",
+            "pattern: ^(\\d{5}|\\d{5}-\\d{4})$"
           ]
         },
         "Phone_Number": {
           "type": "unspecified",
           "required": true,
           "constraints": [
-            "must match pattern (123) 456-7890",
+            "must follow format (123) 456-7890",
             "pattern: ^\\(\\d{3}\\) \\d{3}-\\d{4}$",
-            "autoformat on input to (123) 456-7890"
+            "automatic formatting applied as user types to (123) 456-7890"
           ]
         },
-        "Social_Security_Number": {
+        "SSN": {
           "type": "unspecified",
           "required": true,
           "constraints": [
-            "must match pattern 123-45-6789",
+            "must follow format 123-45-6789",
             "pattern: ^\\d{3}-\\d{2}-\\d{4}$",
-            "autoformat on input to 123-45-6789"
+            "automatic formatting applied as user types to 123-45-6789"
           ]
         },
         "Username": {
@@ -344,8 +375,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
           "type": "password",
           "required": true,
           "constraints": [
-            "minimum length 8",
-            "min_length: 8"
+            "minimum length 8 characters"
           ]
         },
         "Confirm_Password": {
@@ -356,18 +386,18 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
           ]
         }
       },
-      "constraints": [
-        "on submit validate required fields are present",
-        "on submit validate each field pattern conformance",
-        "on submit validate Password and Confirm_Password match"
-      ],
       "submit_actions": [
         {
           "element_name": "Register",
           "type": "button",
+          "constraints": [
+            "on submit validate field completeness",
+            "on submit validate pattern conformance for ZIP_Code, Phone_Number, SSN, Username",
+            "on submit validate Password and Confirm_Password match"
+          ],
           "on_success": "Account created successfully \u2014 please sign in",
-          "on_success_redirect": "Login page",
-          "on_failure": "displays field-level errors for correction"
+          "redirect_to": "Login page",
+          "on_error": "displays specific field-level errors for correction"
         }
       ]
     }
@@ -381,10 +411,14 @@ The registration page presents a comprehensive sign-up form with required inputs
 
 </description>
 
+<workflows>
+WF-001 | Register new account (all required fields valid) | actor: <role> | branch: none | terminal: Register | on_success: Account created successfully — please sign in
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[21:32:21] Test-Positive - LLM RESPONSE
+[15:42:03] Test-Positive - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Register",
@@ -392,9 +426,9 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Complete registration happy path with already-formatted Phone and SSN",
+      "wf_ref": "WF-001",
+      "test_case": "Successful registration with all required fields valid (standard 5-digit ZIP, formatted phone/SSN, password >=8)",
       "preconditions": [
-        "User not authenticated",
         "Registration page is open"
       ],
       "steps": [
@@ -402,39 +436,47 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
         "2. Enter <valid last name> in the Last Name field",
         "3. Enter <valid street address> in the Street Address field",
         "4. Enter <valid city> in the City field",
-        "5. Select <valid US state> from the State dropdown",
+        "5. Select <State> from the State dropdown",
         "6. Enter <valid 5-digit ZIP> in the ZIP Code field",
-        "7. Enter <valid phone in (123) 456-7890 format> in the Phone Number field",
-        "8. Enter <valid SSN in 123-45-6789 format> in the Social Security Number field",
+        "7. Enter <valid phone digits> in the Phone Number field (type digits to allow automatic formatting)",
+        "8. Enter <valid SSN digits> in the SSN field (type digits to allow automatic formatting)",
         "9. Enter <valid email> in the Username field",
-        "10. Enter <valid password longer than 8 characters> in the Password field",
-        "11. Enter the same <valid password longer than 8 characters> in the Confirm Password field",
+        "10. Enter <valid password at least 8 characters> in the Password field",
+        "11. Enter <same password as Password> in the Confirm Password field",
         "12. Click the Register button"
       ],
-      "expected_result": "Page shows 'Account created successfully — please sign in' and the user is redirected to the Login page",
+      "expected_result": "Page displays \"Account created successfully — please sign in\" and the user is redirected to the Login page",
       "priority": "high"
     },
     {
       "tc_id": "P-002",
-      "test_case": "Phone Number and SSN auto-format on input",
+      "wf_ref": null,
+      "test_case": "Successful registration using 9+4 ZIP format (12345-6789)",
       "preconditions": [
-        "User not authenticated",
         "Registration page is open"
       ],
       "steps": [
-        "1. Enter <unformatted 10-digit phone number digits> into the Phone Number field",
-        "2. Move focus out of the Phone Number field",
-        "3. Enter <unformatted 9-digit SSN digits> into the Social Security Number field",
-        "4. Move focus out of the Social Security Number field"
+        "1. Enter <valid first name> in the First Name field",
+        "2. Enter <valid last name> in the Last Name field",
+        "3. Enter <valid street address> in the Street Address field",
+        "4. Enter <valid city> in the City field",
+        "5. Select <State> from the State dropdown",
+        "6. Enter <valid ZIP in 12345-6789 format> in the ZIP Code field",
+        "7. Enter <valid phone digits in a formattable sequence> in the Phone Number field",
+        "8. Enter <valid SSN digits> in the SSN field",
+        "9. Enter <valid email> in the Username field",
+        "10. Enter <valid password at least 8 characters> in the Password field",
+        "11. Enter <same password as Password> in the Confirm Password field",
+        "12. Click the Register button"
       ],
-      "expected_result": "The Phone Number field displays the value formatted as (123) 456-7890 and the Social Security Number field displays the value formatted as 123-45-6789",
+      "expected_result": "Page displays \"Account created successfully — please sign in\" and the user is redirected to the Login page",
       "priority": "medium"
     },
     {
       "tc_id": "P-003",
-      "test_case": "Registration succeeds with Password at minimum allowed length (8 chars)",
+      "wf_ref": null,
+      "test_case": "Phone and SSN auto-format while typing; successful registration after formatted inputs",
       "preconditions": [
-        "User not authenticated",
         "Registration page is open"
       ],
       "steps": [
@@ -442,23 +484,24 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
         "2. Enter <valid last name> in the Last Name field",
         "3. Enter <valid street address> in the Street Address field",
         "4. Enter <valid city> in the City field",
-        "5. Select <valid US state> from the State dropdown",
+        "5. Select <State> from the State dropdown",
         "6. Enter <valid 5-digit ZIP> in the ZIP Code field",
-        "7. Enter <valid phone in (123) 456-7890 format> in the Phone Number field",
-        "8. Enter <valid SSN in 123-45-6789 format> in the Social Security Number field",
-        "9. Enter <valid email> in the Username field",
-        "10. Enter <valid password of length 8> in the Password field",
-        "11. Enter the same <valid password of length 8> in the Confirm Password field",
-        "12. Click the Register button"
+        "7. Type <unformatted phone digits> into the Phone Number field",
+        "8. Verify the Phone Number field displays the entered digits formatted to match the pattern (123) 456-7890",
+        "9. Type <unformatted SSN digits> into the SSN field",
+        "10. Verify the SSN field displays the entered digits formatted to match the pattern 123-45-6789",
+        "11. Enter <valid email> in the Username field",
+        "12. Enter <valid password at least 8 characters> in the Password field and enter the same in Confirm Password",
+        "13. Click the Register button"
       ],
-      "expected_result": "Page shows 'Account created successfully — please sign in' and the user is redirected to the Login page",
-      "priority": "high"
+      "expected_result": "Phone Number and SSN fields show the entered values formatted to the patterns (123) 456-7890 and 123-45-6789 respectively; after submission the page displays \"Account created successfully — please sign in\" and the user is redirected to the Login page",
+      "priority": "medium"
     },
     {
       "tc_id": "P-004",
-      "test_case": "Registration succeeds with ZIP Code in 5+4 format",
+      "wf_ref": null,
+      "test_case": "Successful registration with Password exactly 8 characters and matching Confirm Password",
       "preconditions": [
-        "User not authenticated",
         "Registration page is open"
       ],
       "steps": [
@@ -466,29 +509,29 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
         "2. Enter <valid last name> in the Last Name field",
         "3. Enter <valid street address> in the Street Address field",
         "4. Enter <valid city> in the City field",
-        "5. Select <valid US state> from the State dropdown",
-        "6. Enter <valid ZIP in 12345-6789 format> in the ZIP Code field",
-        "7. Enter <valid phone in (123) 456-7890 format> in the Phone Number field",
-        "8. Enter <valid SSN in 123-45-6789 format> in the Social Security Number field",
+        "5. Select <State> from the State dropdown",
+        "6. Enter <valid 5-digit ZIP> in the ZIP Code field",
+        "7. Enter <valid phone digits> in the Phone Number field",
+        "8. Enter <valid SSN digits> in the SSN field",
         "9. Enter <valid email> in the Username field",
-        "10. Enter <valid password longer than 8 characters> in the Password field",
-        "11. Enter the same <valid password longer than 8 characters> in the Confirm Password field",
+        "10. Enter <valid password exactly 8 characters> in the Password field",
+        "11. Enter <same 8-character password> in the Confirm Password field",
         "12. Click the Register button"
       ],
-      "expected_result": "Page shows 'Account created successfully — please sign in' and the user is redirected to the Login page",
+      "expected_result": "Page displays \"Account created successfully — please sign in\" and the user is redirected to the Login page",
       "priority": "medium"
     }
   ],
   "summary": {
     "total": 4,
-    "high_priority": 2,
-    "medium_priority": 2,
+    "high_priority": 1,
+    "medium_priority": 3,
     "low_priority": 0
   }
 }
 
 ------------------------------------------------------------
-[21:32:21] Test-Positive - PARSED JSON
+[15:42:03] Test-Positive - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Register",
@@ -496,9 +539,9 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Complete registration happy path with already-formatted Phone and SSN",
+      "wf_ref": "WF-001",
+      "test_case": "Successful registration with all required fields valid (standard 5-digit ZIP, formatted phone/SSN, password >=8)",
       "preconditions": [
-        "User not authenticated",
         "Registration page is open"
       ],
       "steps": [
@@ -506,39 +549,47 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
         "2. Enter <valid last name> in the Last Name field",
         "3. Enter <valid street address> in the Street Address field",
         "4. Enter <valid city> in the City field",
-        "5. Select <valid US state> from the State dropdown",
+        "5. Select <State> from the State dropdown",
         "6. Enter <valid 5-digit ZIP> in the ZIP Code field",
-        "7. Enter <valid phone in (123) 456-7890 format> in the Phone Number field",
-        "8. Enter <valid SSN in 123-45-6789 format> in the Social Security Number field",
+        "7. Enter <valid phone digits> in the Phone Number field (type digits to allow automatic formatting)",
+        "8. Enter <valid SSN digits> in the SSN field (type digits to allow automatic formatting)",
         "9. Enter <valid email> in the Username field",
-        "10. Enter <valid password longer than 8 characters> in the Password field",
-        "11. Enter the same <valid password longer than 8 characters> in the Confirm Password field",
+        "10. Enter <valid password at least 8 characters> in the Password field",
+        "11. Enter <same password as Password> in the Confirm Password field",
         "12. Click the Register button"
       ],
-      "expected_result": "Page shows 'Account created successfully \u2014 please sign in' and the user is redirected to the Login page",
+      "expected_result": "Page displays \"Account created successfully \u2014 please sign in\" and the user is redirected to the Login page",
       "priority": "high"
     },
     {
       "tc_id": "P-002",
-      "test_case": "Phone Number and SSN auto-format on input",
+      "wf_ref": null,
+      "test_case": "Successful registration using 9+4 ZIP format (12345-6789)",
       "preconditions": [
-        "User not authenticated",
         "Registration page is open"
       ],
       "steps": [
-        "1. Enter <unformatted 10-digit phone number digits> into the Phone Number field",
-        "2. Move focus out of the Phone Number field",
-        "3. Enter <unformatted 9-digit SSN digits> into the Social Security Number field",
-        "4. Move focus out of the Social Security Number field"
+        "1. Enter <valid first name> in the First Name field",
+        "2. Enter <valid last name> in the Last Name field",
+        "3. Enter <valid street address> in the Street Address field",
+        "4. Enter <valid city> in the City field",
+        "5. Select <State> from the State dropdown",
+        "6. Enter <valid ZIP in 12345-6789 format> in the ZIP Code field",
+        "7. Enter <valid phone digits in a formattable sequence> in the Phone Number field",
+        "8. Enter <valid SSN digits> in the SSN field",
+        "9. Enter <valid email> in the Username field",
+        "10. Enter <valid password at least 8 characters> in the Password field",
+        "11. Enter <same password as Password> in the Confirm Password field",
+        "12. Click the Register button"
       ],
-      "expected_result": "The Phone Number field displays the value formatted as (123) 456-7890 and the Social Security Number field displays the value formatted as 123-45-6789",
+      "expected_result": "Page displays \"Account created successfully \u2014 please sign in\" and the user is redirected to the Login page",
       "priority": "medium"
     },
     {
       "tc_id": "P-003",
-      "test_case": "Registration succeeds with Password at minimum allowed length (8 chars)",
+      "wf_ref": null,
+      "test_case": "Phone and SSN auto-format while typing; successful registration after formatted inputs",
       "preconditions": [
-        "User not authenticated",
         "Registration page is open"
       ],
       "steps": [
@@ -546,23 +597,24 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
         "2. Enter <valid last name> in the Last Name field",
         "3. Enter <valid street address> in the Street Address field",
         "4. Enter <valid city> in the City field",
-        "5. Select <valid US state> from the State dropdown",
+        "5. Select <State> from the State dropdown",
         "6. Enter <valid 5-digit ZIP> in the ZIP Code field",
-        "7. Enter <valid phone in (123) 456-7890 format> in the Phone Number field",
-        "8. Enter <valid SSN in 123-45-6789 format> in the Social Security Number field",
-        "9. Enter <valid email> in the Username field",
-        "10. Enter <valid password of length 8> in the Password field",
-        "11. Enter the same <valid password of length 8> in the Confirm Password field",
-        "12. Click the Register button"
+        "7. Type <unformatted phone digits> into the Phone Number field",
+        "8. Verify the Phone Number field displays the entered digits formatted to match the pattern (123) 456-7890",
+        "9. Type <unformatted SSN digits> into the SSN field",
+        "10. Verify the SSN field displays the entered digits formatted to match the pattern 123-45-6789",
+        "11. Enter <valid email> in the Username field",
+        "12. Enter <valid password at least 8 characters> in the Password field and enter the same in Confirm Password",
+        "13. Click the Register button"
       ],
-      "expected_result": "Page shows 'Account created successfully \u2014 please sign in' and the user is redirected to the Login page",
-      "priority": "high"
+      "expected_result": "Phone Number and SSN fields show the entered values formatted to the patterns (123) 456-7890 and 123-45-6789 respectively; after submission the page displays \"Account created successfully \u2014 please sign in\" and the user is redirected to the Login page",
+      "priority": "medium"
     },
     {
       "tc_id": "P-004",
-      "test_case": "Registration succeeds with ZIP Code in 5+4 format",
+      "wf_ref": null,
+      "test_case": "Successful registration with Password exactly 8 characters and matching Confirm Password",
       "preconditions": [
-        "User not authenticated",
         "Registration page is open"
       ],
       "steps": [
@@ -570,23 +622,23 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
         "2. Enter <valid last name> in the Last Name field",
         "3. Enter <valid street address> in the Street Address field",
         "4. Enter <valid city> in the City field",
-        "5. Select <valid US state> from the State dropdown",
-        "6. Enter <valid ZIP in 12345-6789 format> in the ZIP Code field",
-        "7. Enter <valid phone in (123) 456-7890 format> in the Phone Number field",
-        "8. Enter <valid SSN in 123-45-6789 format> in the Social Security Number field",
+        "5. Select <State> from the State dropdown",
+        "6. Enter <valid 5-digit ZIP> in the ZIP Code field",
+        "7. Enter <valid phone digits> in the Phone Number field",
+        "8. Enter <valid SSN digits> in the SSN field",
         "9. Enter <valid email> in the Username field",
-        "10. Enter <valid password longer than 8 characters> in the Password field",
-        "11. Enter the same <valid password longer than 8 characters> in the Confirm Password field",
+        "10. Enter <valid password exactly 8 characters> in the Password field",
+        "11. Enter <same 8-character password> in the Confirm Password field",
         "12. Click the Register button"
       ],
-      "expected_result": "Page shows 'Account created successfully \u2014 please sign in' and the user is redirected to the Login page",
+      "expected_result": "Page displays \"Account created successfully \u2014 please sign in\" and the user is redirected to the Login page",
       "priority": "medium"
     }
   ],
   "summary": {
     "total": 4,
-    "high_priority": 2,
-    "medium_priority": 2,
+    "high_priority": 1,
+    "medium_priority": 3,
     "low_priority": 0
   }
 }

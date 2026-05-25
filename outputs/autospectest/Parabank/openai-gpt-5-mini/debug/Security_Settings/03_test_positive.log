@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-22T21:31:44.631195
+DEBUG SESSION STARTED: 2026-05-25T15:41:24.136698
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[21:31:44] Test-Positive - SYSTEM PROMPT
+[15:41:24] Test-Positive - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Expert UI Test Case Generator. You receive (1) a UI-AST JSON for one specific module and (2) the original functional description for that module.
 
@@ -24,6 +24,10 @@ Your job is to produce ONLY positive/functional UI test cases — tests where va
 <description>
 {Original functional description text for this module}
 </description>
+
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
 
 ---
 
@@ -146,6 +150,13 @@ Because you are testing a module in isolation, establish the required entry stat
 **1. Forms & Wizards (`form`, `wizard`):**
 - Generate ONE happy path per distinct success outcome.
 - *Conditional UI Check:* If a toggle/dropdown reveals new mandatory fields (`visible_when`), generate a separate test for that conditional branch.
+- **Wizard step coverage (CRITICAL):** If a wizard has multiple steps and any step beyond Step 1 contains its own named field group (e.g., "Address Details", "Family Members", "Identifiers"), generate ONE dedicated positive TC per such step. The TC must:
+  - Navigate to that specific step (include the preceding steps as preconditions or brief navigation steps)
+  - Fill the fields described for that step (not just pass through)
+  - Assert the step's content is visible/saved on the detail page after final submission
+  - **Do NOT collapse all wizard steps into one happy-path TC** — if Steps 2, 3, and 4 each have their own named section in the spec, they each need their own TC.
+- **Wizard in-step identifiers/duplicates:** If a wizard step allows adding identifiers, documents, or similar entries that have a uniqueness constraint, include a TC for that wizard step that also verifies the constraint (e.g., attempting to add a duplicate Document Type+Key pair inside the wizard). This is a different code path from adding the same post-creation on the detail page.
+- **Action dialogs:** If a `state_bound_action_bar` action opens a dialog with its own `fields{}` (e.g., Activate requires Activation Date, Reject requires Reason), generate ONE positive TC per such action-dialog — distinct from the state-transition TC. The TC fills the dialog field and completes the action.
 
 **2. State Machines (`state_bound_action_bar`):**
 - For each unique action available in a specific state, generate ONE test performing that action.
@@ -200,6 +211,19 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 
 ---
 
+**WORKFLOW COVERAGE OBLIGATION (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- Your test cases must **collectively cover every workflow** listed.
+- For each `wf_id`, at least one TC must:
+  - Activate the `conditional_branch` (if not null) — i.e. the test must set up the condition described.
+  - Assert the `on_success` as its `expected_result` (verbatim or as the primary basis for the expected result).
+- Add `"wf_ref": "WF-NNN"` to each TC to identify which workflow it covers.
+- If one TC naturally covers multiple workflows (e.g., the base path overlaps), pick the most specific `wf_ref`.
+- If a TC does not map to any workflow (e.g., a navigation-only test), set `"wf_ref": null`.
+
+---
+
 **OUTPUT — JSON only, no prose, no markdown fencing:**
 
 {
@@ -208,6 +232,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
   "test_cases": [
     {
       "tc_id": "P-001",
+      "wf_ref": "WF-001",
       "test_case": "Short descriptive name",
       "preconditions": ["User logged in as <Role>", "<Prerequisite state>"],
       "steps": ["1. Step one", "2. Step two"],
@@ -224,7 +249,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 }
 
 ------------------------------------------------------------
-[21:31:44] Test-Positive - USER PROMPT
+[15:41:24] Test-Positive - USER PROMPT
 ------------------------------------------------------------
 <module_name>Security Settings</module_name>
 
@@ -232,7 +257,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 {
   "module_name": "Security Settings",
   "components": {
-    "Change_Password_Panel": {
+    "Security_Panel": {
       "type": "collapsible_panel",
       "fields": {
         "Change_Password_Form": {
@@ -242,14 +267,14 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
               "type": "password",
               "required": true,
               "constraints": [
-                "will be verified by the system on submit"
+                "will be verified against existing credentials"
               ]
             },
             "New_Password": {
               "type": "password",
               "required": true,
               "constraints": [
-                "must comply with strong-password policy"
+                "must meet strong-password policy"
               ]
             },
             "Confirm_New_Password": {
@@ -263,14 +288,12 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
           "submit_actions": [
             {
               "element_name": "Change Password",
+              "type": "button",
               "preconditions": [
-                "Current_Password must be correct"
+                "Current_Password must be verified"
               ],
-              "constraints": [
-                "updates credentials on success"
-              ],
-              "on_success": "Password changed successfully.",
-              "on_validation_error": "highlights the appropriate fields and returns field-level validation messages"
+              "on_success": "updates credentials and returns \"Password changed successfully.\"",
+              "on_validation_error": "highlights invalid fields"
             }
           ]
         }
@@ -286,10 +309,14 @@ The Security Settings page contains a single form under a collapsible panel.The 
 
 </description>
 
+<workflows>
+WF-001 | Change Password | actor: <role> | branch: none | terminal: Change Password | on_success: updates credentials and returns "Password changed successfully."
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[21:33:25] Test-Positive - LLM RESPONSE
+[15:43:47] Test-Positive - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Security Settings",
@@ -297,33 +324,48 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Change password with valid current password and matching strong new password",
+      "wf_ref": "WF-001",
+      "test_case": "Change password with valid current password and a strong matching new password",
       "preconditions": [
-        "User logged in as <User>",
+        "User logged in as <role>",
         "Security Settings page is open",
-        "User's current password is known and correct (<current password>)"
+        "Current password is known to the tester as <current password>"
       ],
       "steps": [
-        "1. Expand the 'Change Password' panel if it is collapsed",
+        "1. Click the 'Security' panel to expand the panel and reveal the Change Password form",
         "2. Enter <current password> in the Current Password field",
-        "3. Enter <new strong password> in the New Password field (meets strong-password policy)",
-        "4. Enter <new strong password> in the Confirm New Password field (matches New Password)",
-        "5. Click the Change Password button"
+        "3. Enter <strong new password> in the New Password field",
+        "4. Enter <strong new password> in the Confirm New Password field",
+        "5. Click the 'Change Password' button"
       ],
-      "expected_result": "A success notification is displayed with the text \"Password changed successfully.\"",
+      "expected_result": "A success notification displays \"Password changed successfully.\"",
       "priority": "high"
+    },
+    {
+      "tc_id": "P-002",
+      "wf_ref": null,
+      "test_case": "Open Security panel and verify Change Password form fields are present",
+      "preconditions": [
+        "User logged in as <role>",
+        "Security Settings page is open"
+      ],
+      "steps": [
+        "1. Click the 'Security' panel to expand the panel"
+      ],
+      "expected_result": "Change Password form is visible with fields 'Current Password', 'New Password', 'Confirm New Password' and a 'Change Password' button",
+      "priority": "medium"
     }
   ],
   "summary": {
-    "total": 1,
+    "total": 2,
     "high_priority": 1,
-    "medium_priority": 0,
+    "medium_priority": 1,
     "low_priority": 0
   }
 }
 
 ------------------------------------------------------------
-[21:33:25] Test-Positive - PARSED JSON
+[15:43:47] Test-Positive - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Security Settings",
@@ -331,27 +373,42 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Change password with valid current password and matching strong new password",
+      "wf_ref": "WF-001",
+      "test_case": "Change password with valid current password and a strong matching new password",
       "preconditions": [
-        "User logged in as <User>",
+        "User logged in as <role>",
         "Security Settings page is open",
-        "User's current password is known and correct (<current password>)"
+        "Current password is known to the tester as <current password>"
       ],
       "steps": [
-        "1. Expand the 'Change Password' panel if it is collapsed",
+        "1. Click the 'Security' panel to expand the panel and reveal the Change Password form",
         "2. Enter <current password> in the Current Password field",
-        "3. Enter <new strong password> in the New Password field (meets strong-password policy)",
-        "4. Enter <new strong password> in the Confirm New Password field (matches New Password)",
-        "5. Click the Change Password button"
+        "3. Enter <strong new password> in the New Password field",
+        "4. Enter <strong new password> in the Confirm New Password field",
+        "5. Click the 'Change Password' button"
       ],
-      "expected_result": "A success notification is displayed with the text \"Password changed successfully.\"",
+      "expected_result": "A success notification displays \"Password changed successfully.\"",
       "priority": "high"
+    },
+    {
+      "tc_id": "P-002",
+      "wf_ref": null,
+      "test_case": "Open Security panel and verify Change Password form fields are present",
+      "preconditions": [
+        "User logged in as <role>",
+        "Security Settings page is open"
+      ],
+      "steps": [
+        "1. Click the 'Security' panel to expand the panel"
+      ],
+      "expected_result": "Change Password form is visible with fields 'Current Password', 'New Password', 'Confirm New Password' and a 'Change Password' button",
+      "priority": "medium"
     }
   ],
   "summary": {
-    "total": 1,
+    "total": 2,
     "high_priority": 1,
-    "medium_priority": 0,
+    "medium_priority": 1,
     "low_priority": 0
   }
 }

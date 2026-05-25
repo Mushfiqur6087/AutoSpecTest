@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-22T21:41:13.085414
+DEBUG SESSION STARTED: 2026-05-25T15:09:37.493566
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[21:41:13] Test-Positive - SYSTEM PROMPT
+[15:09:37] Test-Positive - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Expert UI Test Case Generator. You receive (1) a UI-AST JSON for one specific module and (2) the original functional description for that module.
 
@@ -24,6 +24,10 @@ Your job is to produce ONLY positive/functional UI test cases — tests where va
 <description>
 {Original functional description text for this module}
 </description>
+
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
 
 ---
 
@@ -146,6 +150,13 @@ Because you are testing a module in isolation, establish the required entry stat
 **1. Forms & Wizards (`form`, `wizard`):**
 - Generate ONE happy path per distinct success outcome.
 - *Conditional UI Check:* If a toggle/dropdown reveals new mandatory fields (`visible_when`), generate a separate test for that conditional branch.
+- **Wizard step coverage (CRITICAL):** If a wizard has multiple steps and any step beyond Step 1 contains its own named field group (e.g., "Address Details", "Family Members", "Identifiers"), generate ONE dedicated positive TC per such step. The TC must:
+  - Navigate to that specific step (include the preceding steps as preconditions or brief navigation steps)
+  - Fill the fields described for that step (not just pass through)
+  - Assert the step's content is visible/saved on the detail page after final submission
+  - **Do NOT collapse all wizard steps into one happy-path TC** — if Steps 2, 3, and 4 each have their own named section in the spec, they each need their own TC.
+- **Wizard in-step identifiers/duplicates:** If a wizard step allows adding identifiers, documents, or similar entries that have a uniqueness constraint, include a TC for that wizard step that also verifies the constraint (e.g., attempting to add a duplicate Document Type+Key pair inside the wizard). This is a different code path from adding the same post-creation on the detail page.
+- **Action dialogs:** If a `state_bound_action_bar` action opens a dialog with its own `fields{}` (e.g., Activate requires Activation Date, Reject requires Reason), generate ONE positive TC per such action-dialog — distinct from the state-transition TC. The TC fills the dialog field and completes the action.
 
 **2. State Machines (`state_bound_action_bar`):**
 - For each unique action available in a specific state, generate ONE test performing that action.
@@ -200,6 +211,19 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 
 ---
 
+**WORKFLOW COVERAGE OBLIGATION (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- Your test cases must **collectively cover every workflow** listed.
+- For each `wf_id`, at least one TC must:
+  - Activate the `conditional_branch` (if not null) — i.e. the test must set up the condition described.
+  - Assert the `on_success` as its `expected_result` (verbatim or as the primary basis for the expected result).
+- Add `"wf_ref": "WF-NNN"` to each TC to identify which workflow it covers.
+- If one TC naturally covers multiple workflows (e.g., the base path overlaps), pick the most specific `wf_ref`.
+- If a TC does not map to any workflow (e.g., a navigation-only test), set `"wf_ref": null`.
+
+---
+
 **OUTPUT — JSON only, no prose, no markdown fencing:**
 
 {
@@ -208,6 +232,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
   "test_cases": [
     {
       "tc_id": "P-001",
+      "wf_ref": "WF-001",
       "test_case": "Short descriptive name",
       "preconditions": ["User logged in as <Role>", "<Prerequisite state>"],
       "steps": ["1. Step one", "2. Step two"],
@@ -224,7 +249,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 }
 
 ------------------------------------------------------------
-[21:41:13] Test-Positive - USER PROMPT
+[15:09:37] Test-Positive - USER PROMPT
 ------------------------------------------------------------
 <module_name>Assignment</module_name>
 
@@ -232,73 +257,69 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 {
   "module_name": "Assignment",
   "components": {
-    "Assignment_Page": {
-      "type": "page",
-      "fields": {}
+    "Add_Submission_Button": {
+      "type": "button",
+      "element_name": "Add submission",
+      "on_success": "opens Submission_Form"
     },
     "Submission_Form": {
       "type": "form",
-      "description": "Used for Add submission and Edit submission (prefilled when editing). Visible when opened by an action.",
       "fields": {
         "Online_Text_Editor": {
           "type": "unspecified",
-          "visible_when": "Assignment.allows_online_text == true",
-          "required": false
+          "visible_when": "assignment_allows_online_text == true"
         },
         "File_Upload_Area": {
           "type": "file_upload",
-          "visible_when": "Assignment.allows_file_upload == true",
-          "required": false
+          "visible_when": "assignment_allows_file_upload == true"
         }
       },
       "submit_actions": [
         {
           "element_name": "Submit",
-          "on_success": "creates submission with Submission status == Submitted for grading"
-        },
-        {
-          "element_name": "Cancel",
-          "on_success": "closes submission form without saving"
+          "on_success": "creates submission and sets status to Submitted for grading"
         }
       ]
     },
-    "Submission_State_Action_Bar": {
+    "Submission_State_Actions": {
       "type": "state_bound_action_bar",
       "states": {
-        "No submissions have been made yet": {
+        "No_Submission": {
           "available_actions": [
             {
               "action_name": "Add submission",
-              "opens_form": "Submission_Form",
-              "on_success": "creates submission with Submission status == Submitted for grading"
+              "on_success": "opens Submission_Form"
             }
           ]
         },
-        "Submitted for grading": {
+        "Submitted_for_grading": {
           "available_actions": [
             {
               "action_name": "View submission",
-              "type": "link",
-              "on_success": "opens read-only view of the submitted content"
+              "on_success": "displays student's submission"
             },
             {
               "action_name": "Edit submission",
-              "opens_form": "Submission_Form",
               "preconditions": [
-                "due date not passed",
-                "teacher permits resubmission",
-                "grading status == Not graded"
+                "due date has not passed",
+                "teacher permits resubmission"
               ],
-              "on_success": "updates existing submission (keeps Submission status == Submitted for grading)"
+              "on_success": "opens Submission_Form prefilled with student's submission"
             }
           ]
         },
         "Graded": {
           "available_actions": [
             {
+              "action_name": "View feedback",
+              "preconditions": [
+                "status must be Graded"
+              ],
+              "on_success": "displays earned grade and written feedback"
+            },
+            {
               "action_name": "View submission",
-              "type": "link",
-              "on_success": "opens read-only view including earned grade and written feedback"
+              "on_success": "displays student's submission and associated grade/feedback"
             }
           ]
         }
@@ -317,10 +338,23 @@ The Assignment page displays the assignment's Opened date, Due date, and full De
 
 </description>
 
+<workflows>
+WF-001 | Open submission form via Add submission button | actor: <role> | branch: none | terminal: Add submission | on_success: opens Submission_Form
+WF-002 | Submit with both Online Text and File Upload available | actor: <role> | branch: assignment_allows_online_text == true AND assignment_allows_file_upload == true | terminal: Submit | on_success: creates submission and sets status to Submitted for grading
+WF-003 | Submit with only Online Text available | actor: <role> | branch: assignment_allows_online_text == true AND assignment_allows_file_upload == false | terminal: Submit | on_success: creates submission and sets status to Submitted for grading
+WF-004 | Submit with only File Upload available | actor: <role> | branch: assignment_allows_online_text == false AND assignment_allows_file_upload == true | terminal: Submit | on_success: creates submission and sets status to Submitted for grading
+WF-005 | Submit when no input areas are enabled | actor: <role> | branch: assignment_allows_online_text == false AND assignment_allows_file_upload == false | terminal: Submit | on_success: creates submission and sets status to Submitted for grading
+WF-006 | Add submission action from No_Submission state | actor: <role> | branch: entity_state == No_Submission | terminal: Add submission | on_success: opens Submission_Form
+WF-007 | View submission from Submitted_for_grading state | actor: <role> | branch: entity_state == Submitted_for_grading | terminal: View submission | on_success: displays student's submission
+WF-008 | Edit submission from Submitted_for_grading state | actor: <role> | branch: entity_state == Submitted_for_grading | terminal: Edit submission | on_success: opens Submission_Form prefilled with student's submission
+WF-009 | View feedback from Graded state | actor: <role> | branch: entity_state == Graded | terminal: View feedback | on_success: displays earned grade and written feedback
+WF-010 | View submission from Graded state | actor: <role> | branch: entity_state == Graded | terminal: View submission | on_success: displays student's submission and associated grade/feedback
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[21:42:13] Test-Positive - LLM RESPONSE
+[15:11:09] Test-Positive - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Assignment",
@@ -328,117 +362,180 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Add submission using Online Text editor (assignment allows online text)",
+      "wf_ref": "WF-001",
+      "test_case": "Open Submission Form via Add submission button",
       "preconditions": [
         "User logged in as <Student>",
-        "Assignment allows_online_text == true",
-        "Assignment allows_file_upload == false",
-        "Submission status == No submissions have been made yet"
+        "Assignment page is open"
       ],
       "steps": [
-        "1. Open the Assignment page",
-        "2. Click Add submission in the Submission status section",
-        "3. Enter <valid text> in the Online Text Editor",
-        "4. Click Submit"
+        "1. Click the 'Add submission' button"
       ],
-      "expected_result": "Submission status row displays 'Submitted for grading' in the Submission status section and the submitted online text is visible in the submission summary",
-      "priority": "high"
+      "expected_result": "Submission form is displayed on screen (the Submission_Form panel opens showing the available input areas for this assignment)",
+      "priority": "medium"
     },
     {
       "tc_id": "P-002",
-      "test_case": "Add submission using File Upload area (assignment allows file upload)",
+      "wf_ref": "WF-002",
+      "test_case": "Submit when both Online Text and File Upload are enabled",
       "preconditions": [
         "User logged in as <Student>",
-        "Assignment allows_file_upload == true",
-        "Assignment allows_online_text == false",
-        "Submission status == No submissions have been made yet"
+        "Assignment page is open",
+        "assignment_allows_online_text == true",
+        "assignment_allows_file_upload == true"
       ],
       "steps": [
-        "1. Open the Assignment page",
-        "2. Click Add submission in the Submission status section",
-        "3. Click Upload / Select file and choose a <valid file> in the OS file picker",
-        "4. Click Submit"
+        "1. Click the 'Add submission' button to open the Submission Form",
+        "2. Enter <online text> in the Online Text Editor",
+        "3. Upload a <valid file> via the File Upload Area",
+        "4. Click the 'Submit' button"
       ],
-      "expected_result": "Submission status row displays 'Submitted for grading' in the Submission status section and the Submitted files list shows the <uploaded file> in the submission summary",
+      "expected_result": "Submission status row shows 'Submitted for grading' and the Submission summary displays an online text preview of the entered <online text> and a file entry for <uploaded file>",
       "priority": "high"
     },
     {
       "tc_id": "P-003",
-      "test_case": "Open submission form and Cancel without saving",
+      "wf_ref": "WF-003",
+      "test_case": "Submit when only Online Text is enabled",
       "preconditions": [
         "User logged in as <Student>",
-        "Assignment allows_online_text == true or Assignment allows_file_upload == true",
-        "Submission status == No submissions have been made yet"
+        "Assignment page is open",
+        "assignment_allows_online_text == true",
+        "assignment_allows_file_upload == false"
       ],
       "steps": [
-        "1. Open the Assignment page",
-        "2. Click Add submission in the Submission status section",
-        "3. (Optional) Enter <valid text> in the Online Text Editor or upload a <valid file>",
-        "4. Click Cancel"
+        "1. Click the 'Add submission' button to open the Submission Form",
+        "2. Enter <online text> in the Online Text Editor",
+        "3. Click the 'Submit' button"
       ],
-      "expected_result": "Submission form is closed and the Submission status row continues to show 'No submissions have been made yet'",
-      "priority": "medium"
+      "expected_result": "Submission status row shows 'Submitted for grading' and the Submission summary displays an online text preview of the entered <online text>; no file attachments are listed",
+      "priority": "high"
     },
     {
       "tc_id": "P-004",
-      "test_case": "View an existing submitted submission (Submitted for grading state) in read-only mode",
+      "wf_ref": "WF-004",
+      "test_case": "Submit when only File Upload is enabled",
       "preconditions": [
         "User logged in as <Student>",
-        "Submission status == Submitted for grading",
-        "Student has an existing submission (online text and/or files)"
+        "Assignment page is open",
+        "assignment_allows_online_text == false",
+        "assignment_allows_file_upload == true"
       ],
       "steps": [
-        "1. Open the Assignment page",
-        "2. Click View submission in the Submission status section"
+        "1. Click the 'Add submission' button to open the Submission Form",
+        "2. Upload a <valid file> via the File Upload Area",
+        "3. Click the 'Submit' button"
       ],
-      "expected_result": "A read-only view opens showing the student's submitted content (online text and/or submitted files); edit controls and input fields are not present in this view",
-      "priority": "medium"
+      "expected_result": "Submission status row shows 'Submitted for grading' and the Submission summary lists the uploaded file <uploaded file>; no online text preview is shown",
+      "priority": "high"
     },
     {
       "tc_id": "P-005",
-      "test_case": "Edit an existing submission before due date when resubmission is permitted",
+      "wf_ref": "WF-005",
+      "test_case": "Submit when no input areas are enabled",
       "preconditions": [
         "User logged in as <Student>",
-        "Submission status == Submitted for grading",
-        "due date not passed",
-        "teacher permits resubmission",
-        "grading status == Not graded"
+        "Assignment page is open",
+        "assignment_allows_online_text == false",
+        "assignment_allows_file_upload == false"
       ],
       "steps": [
-        "1. Open the Assignment page",
-        "2. Click Edit submission in the Submission status section",
-        "3. Update the online text by entering <updated text> and/or replace the file by uploading a <replacement file>",
-        "4. Click Submit"
+        "1. Click the 'Add submission' button to open the Submission Form",
+        "2. Click the 'Submit' button without entering text or uploading files"
       ],
-      "expected_result": "Submission form closes and the Submission status row still shows 'Submitted for grading'; the Submission summary displays the updated <online text> and/or the updated <uploaded file>",
+      "expected_result": "Submission status row shows 'Submitted for grading' and the Submission summary shows no uploaded files and no online text preview",
       "priority": "high"
     },
     {
       "tc_id": "P-006",
-      "test_case": "View a graded submission showing earned grade and written feedback",
+      "wf_ref": "WF-006",
+      "test_case": "Add submission action from No_Submission state opens the form",
       "preconditions": [
         "User logged in as <Student>",
-        "Submission status == Graded",
-        "A grade and written feedback exist for the student's submission"
+        "Assignment page is open",
+        "entity_state == No_Submission"
       ],
       "steps": [
-        "1. Open the Assignment page",
-        "2. Click View submission in the Submission status section"
+        "1. Click the 'Add submission' action in the Submission State Actions bar"
       ],
-      "expected_result": "Read-only view opens showing the earned grade and the written feedback within the submission view; Submission status row displays 'Graded'",
+      "expected_result": "Submission form is displayed (Submission_Form opens) allowing the student to enter online text or upload files as configured",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-007",
+      "wf_ref": "WF-007",
+      "test_case": "View submission from Submitted_for_grading state displays submitted content",
+      "preconditions": [
+        "User logged in as <Student>",
+        "Assignment page is open",
+        "entity_state == Submitted_for_grading"
+      ],
+      "steps": [
+        "1. Click 'View submission' in the Submission State Actions bar"
+      ],
+      "expected_result": "The student's submission is displayed in a submission detail panel (shows online text preview if present and lists any uploaded files); Submission status shows 'Submitted for grading'",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-008",
+      "wf_ref": "WF-008",
+      "test_case": "Edit submission when resubmission is permitted and due date has not passed",
+      "preconditions": [
+        "User logged in as <Student>",
+        "Assignment page is open",
+        "entity_state == Submitted_for_grading",
+        "due date has not passed",
+        "teacher permits resubmission"
+      ],
+      "steps": [
+        "1. Click 'Edit submission' in the Submission State Actions bar",
+        "2. Verify the Submission Form opens prefilled",
+        "3. Confirm the Online Text Editor contains the student's previous text (if applicable) and the File Upload Area shows the previously attached file(s) (if applicable)"
+      ],
+      "expected_result": "Submission Form opens prefilled with the student's submission (opens Submission_Form prefilled with student's submission); previously entered online text and previously uploaded files are visible in their respective fields",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-009",
+      "wf_ref": "WF-009",
+      "test_case": "View feedback from Graded state shows grade and written feedback",
+      "preconditions": [
+        "User logged in as <Student>",
+        "Assignment page is open",
+        "entity_state == Graded"
+      ],
+      "steps": [
+        "1. Click 'View feedback' in the Submission State Actions bar"
+      ],
+      "expected_result": "Earned grade and written feedback are displayed on the assignment page (displays earned grade and written feedback)",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-010",
+      "wf_ref": "WF-010",
+      "test_case": "View submission from Graded state shows submission and associated grade/feedback",
+      "preconditions": [
+        "User logged in as <Student>",
+        "Assignment page is open",
+        "entity_state == Graded"
+      ],
+      "steps": [
+        "1. Click 'View submission' in the Submission State Actions bar"
+      ],
+      "expected_result": "Submission detail displays the student's submission and associated grade and written feedback (displays student's submission and associated grade/feedback)",
       "priority": "medium"
     }
   ],
   "summary": {
-    "total": 6,
-    "high_priority": 3,
-    "medium_priority": 3,
+    "total": 10,
+    "high_priority": 4,
+    "medium_priority": 6,
     "low_priority": 0
   }
 }
 
 ------------------------------------------------------------
-[21:42:13] Test-Positive - PARSED JSON
+[15:11:09] Test-Positive - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Assignment",
@@ -446,111 +543,174 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Add submission using Online Text editor (assignment allows online text)",
+      "wf_ref": "WF-001",
+      "test_case": "Open Submission Form via Add submission button",
       "preconditions": [
         "User logged in as <Student>",
-        "Assignment allows_online_text == true",
-        "Assignment allows_file_upload == false",
-        "Submission status == No submissions have been made yet"
+        "Assignment page is open"
       ],
       "steps": [
-        "1. Open the Assignment page",
-        "2. Click Add submission in the Submission status section",
-        "3. Enter <valid text> in the Online Text Editor",
-        "4. Click Submit"
+        "1. Click the 'Add submission' button"
       ],
-      "expected_result": "Submission status row displays 'Submitted for grading' in the Submission status section and the submitted online text is visible in the submission summary",
-      "priority": "high"
+      "expected_result": "Submission form is displayed on screen (the Submission_Form panel opens showing the available input areas for this assignment)",
+      "priority": "medium"
     },
     {
       "tc_id": "P-002",
-      "test_case": "Add submission using File Upload area (assignment allows file upload)",
+      "wf_ref": "WF-002",
+      "test_case": "Submit when both Online Text and File Upload are enabled",
       "preconditions": [
         "User logged in as <Student>",
-        "Assignment allows_file_upload == true",
-        "Assignment allows_online_text == false",
-        "Submission status == No submissions have been made yet"
+        "Assignment page is open",
+        "assignment_allows_online_text == true",
+        "assignment_allows_file_upload == true"
       ],
       "steps": [
-        "1. Open the Assignment page",
-        "2. Click Add submission in the Submission status section",
-        "3. Click Upload / Select file and choose a <valid file> in the OS file picker",
-        "4. Click Submit"
+        "1. Click the 'Add submission' button to open the Submission Form",
+        "2. Enter <online text> in the Online Text Editor",
+        "3. Upload a <valid file> via the File Upload Area",
+        "4. Click the 'Submit' button"
       ],
-      "expected_result": "Submission status row displays 'Submitted for grading' in the Submission status section and the Submitted files list shows the <uploaded file> in the submission summary",
+      "expected_result": "Submission status row shows 'Submitted for grading' and the Submission summary displays an online text preview of the entered <online text> and a file entry for <uploaded file>",
       "priority": "high"
     },
     {
       "tc_id": "P-003",
-      "test_case": "Open submission form and Cancel without saving",
+      "wf_ref": "WF-003",
+      "test_case": "Submit when only Online Text is enabled",
       "preconditions": [
         "User logged in as <Student>",
-        "Assignment allows_online_text == true or Assignment allows_file_upload == true",
-        "Submission status == No submissions have been made yet"
+        "Assignment page is open",
+        "assignment_allows_online_text == true",
+        "assignment_allows_file_upload == false"
       ],
       "steps": [
-        "1. Open the Assignment page",
-        "2. Click Add submission in the Submission status section",
-        "3. (Optional) Enter <valid text> in the Online Text Editor or upload a <valid file>",
-        "4. Click Cancel"
+        "1. Click the 'Add submission' button to open the Submission Form",
+        "2. Enter <online text> in the Online Text Editor",
+        "3. Click the 'Submit' button"
       ],
-      "expected_result": "Submission form is closed and the Submission status row continues to show 'No submissions have been made yet'",
-      "priority": "medium"
+      "expected_result": "Submission status row shows 'Submitted for grading' and the Submission summary displays an online text preview of the entered <online text>; no file attachments are listed",
+      "priority": "high"
     },
     {
       "tc_id": "P-004",
-      "test_case": "View an existing submitted submission (Submitted for grading state) in read-only mode",
+      "wf_ref": "WF-004",
+      "test_case": "Submit when only File Upload is enabled",
       "preconditions": [
         "User logged in as <Student>",
-        "Submission status == Submitted for grading",
-        "Student has an existing submission (online text and/or files)"
+        "Assignment page is open",
+        "assignment_allows_online_text == false",
+        "assignment_allows_file_upload == true"
       ],
       "steps": [
-        "1. Open the Assignment page",
-        "2. Click View submission in the Submission status section"
+        "1. Click the 'Add submission' button to open the Submission Form",
+        "2. Upload a <valid file> via the File Upload Area",
+        "3. Click the 'Submit' button"
       ],
-      "expected_result": "A read-only view opens showing the student's submitted content (online text and/or submitted files); edit controls and input fields are not present in this view",
-      "priority": "medium"
+      "expected_result": "Submission status row shows 'Submitted for grading' and the Submission summary lists the uploaded file <uploaded file>; no online text preview is shown",
+      "priority": "high"
     },
     {
       "tc_id": "P-005",
-      "test_case": "Edit an existing submission before due date when resubmission is permitted",
+      "wf_ref": "WF-005",
+      "test_case": "Submit when no input areas are enabled",
       "preconditions": [
         "User logged in as <Student>",
-        "Submission status == Submitted for grading",
-        "due date not passed",
-        "teacher permits resubmission",
-        "grading status == Not graded"
+        "Assignment page is open",
+        "assignment_allows_online_text == false",
+        "assignment_allows_file_upload == false"
       ],
       "steps": [
-        "1. Open the Assignment page",
-        "2. Click Edit submission in the Submission status section",
-        "3. Update the online text by entering <updated text> and/or replace the file by uploading a <replacement file>",
-        "4. Click Submit"
+        "1. Click the 'Add submission' button to open the Submission Form",
+        "2. Click the 'Submit' button without entering text or uploading files"
       ],
-      "expected_result": "Submission form closes and the Submission status row still shows 'Submitted for grading'; the Submission summary displays the updated <online text> and/or the updated <uploaded file>",
+      "expected_result": "Submission status row shows 'Submitted for grading' and the Submission summary shows no uploaded files and no online text preview",
       "priority": "high"
     },
     {
       "tc_id": "P-006",
-      "test_case": "View a graded submission showing earned grade and written feedback",
+      "wf_ref": "WF-006",
+      "test_case": "Add submission action from No_Submission state opens the form",
       "preconditions": [
         "User logged in as <Student>",
-        "Submission status == Graded",
-        "A grade and written feedback exist for the student's submission"
+        "Assignment page is open",
+        "entity_state == No_Submission"
       ],
       "steps": [
-        "1. Open the Assignment page",
-        "2. Click View submission in the Submission status section"
+        "1. Click the 'Add submission' action in the Submission State Actions bar"
       ],
-      "expected_result": "Read-only view opens showing the earned grade and the written feedback within the submission view; Submission status row displays 'Graded'",
+      "expected_result": "Submission form is displayed (Submission_Form opens) allowing the student to enter online text or upload files as configured",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-007",
+      "wf_ref": "WF-007",
+      "test_case": "View submission from Submitted_for_grading state displays submitted content",
+      "preconditions": [
+        "User logged in as <Student>",
+        "Assignment page is open",
+        "entity_state == Submitted_for_grading"
+      ],
+      "steps": [
+        "1. Click 'View submission' in the Submission State Actions bar"
+      ],
+      "expected_result": "The student's submission is displayed in a submission detail panel (shows online text preview if present and lists any uploaded files); Submission status shows 'Submitted for grading'",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-008",
+      "wf_ref": "WF-008",
+      "test_case": "Edit submission when resubmission is permitted and due date has not passed",
+      "preconditions": [
+        "User logged in as <Student>",
+        "Assignment page is open",
+        "entity_state == Submitted_for_grading",
+        "due date has not passed",
+        "teacher permits resubmission"
+      ],
+      "steps": [
+        "1. Click 'Edit submission' in the Submission State Actions bar",
+        "2. Verify the Submission Form opens prefilled",
+        "3. Confirm the Online Text Editor contains the student's previous text (if applicable) and the File Upload Area shows the previously attached file(s) (if applicable)"
+      ],
+      "expected_result": "Submission Form opens prefilled with the student's submission (opens Submission_Form prefilled with student's submission); previously entered online text and previously uploaded files are visible in their respective fields",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-009",
+      "wf_ref": "WF-009",
+      "test_case": "View feedback from Graded state shows grade and written feedback",
+      "preconditions": [
+        "User logged in as <Student>",
+        "Assignment page is open",
+        "entity_state == Graded"
+      ],
+      "steps": [
+        "1. Click 'View feedback' in the Submission State Actions bar"
+      ],
+      "expected_result": "Earned grade and written feedback are displayed on the assignment page (displays earned grade and written feedback)",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-010",
+      "wf_ref": "WF-010",
+      "test_case": "View submission from Graded state shows submission and associated grade/feedback",
+      "preconditions": [
+        "User logged in as <Student>",
+        "Assignment page is open",
+        "entity_state == Graded"
+      ],
+      "steps": [
+        "1. Click 'View submission' in the Submission State Actions bar"
+      ],
+      "expected_result": "Submission detail displays the student's submission and associated grade and written feedback (displays student's submission and associated grade/feedback)",
       "priority": "medium"
     }
   ],
   "summary": {
-    "total": 6,
-    "high_priority": 3,
-    "medium_priority": 3,
+    "total": 10,
+    "high_priority": 4,
+    "medium_priority": 6,
     "low_priority": 0
   }
 }

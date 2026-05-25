@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-21T22:29:06.549969
+DEBUG SESSION STARTED: 2026-05-25T14:24:50.740005
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[22:29:06] Test-Edge - SYSTEM PROMPT
+[14:24:50] Test-Edge - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Edge Case and Boundary Test Generator. You receive (1) a UI-AST JSON for one module and (2) the original functional description. Your job is to produce ONLY boundary and edge case tests — scenarios at the limits of valid/invalid input and unusual-but-plausible user behaviors.
 
@@ -25,6 +25,10 @@ You are NOT producing happy paths (positive prompt) or standard validation failu
 {Original functional description text for this module}
 </description>
 
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
+
 ---
 
 **UI-AST REFERENCE — How to Read the AST for Edge Testing:**
@@ -35,7 +39,7 @@ You are NOT producing happy paths (positive prompt) or standard validation failu
 | `repeating_group` with `max` | Test adding exactly `max` entries (should succeed) then one more (should block) |
 | `visible_when` / `required_when` | Edge: trigger condition, fill revealed field with boundary value |
 | `state_bound_action_bar` | State edges: rapid consecutive state transitions, transition from a boundary state |
-| `submit_actions[]` with multiple buttons | Interaction edge: double-click a submit button rapidly |
+
 | `type: "date"` fields | Data edges: today, yesterday, far future, Feb 29 leap year |
 | `type: "file_upload"` | Edge: file exactly at size limit, file at 1 byte over limit |
 
@@ -132,7 +136,6 @@ Pick only the ones that apply to field types present in this module's AST:
 
 Pick only the ones that match component types in this module's AST:
 
-- **Double-click submit** (any form/wizard with a submit button): rapidly double-click the submit button → assert only one record is created; no duplicate row appears in the listing table
 - **Rapid re-submission after redirect** (any form that redirects to a detail page on success): after a successful submit, press the browser back button → assert the creation form is shown blank (not pre-filled) OR the user is redirected to the detail page without a second entity being created
 - **Wizard step skip — enforced navigation** (wizard where steps must be completed sequentially): attempt to click a later step tab directly without completing earlier steps → assert navigation is blocked and the earlier step remains active
 - **Wizard step skip — free navigation** (wizard that allows free tab navigation): navigate to a later step without filling earlier steps → assert the later step displays and returning to the earlier step shows fields blank (no data was lost from the later step)
@@ -173,7 +176,16 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 
 - **High:** None — edge tests are secondary to core functionality
 - **Medium:** Boundary tests at thresholds (financial amounts, date ordering, count limits, file size limits)
-- **Low:** Input edge cases (long text, special chars, whitespace, decimal precision), interaction edge cases (double-click, browser back, wizard skip)
+- **Low:** Input edge cases (long text, special chars, whitespace, decimal precision), interaction edge cases (browser back, wizard skip)
+
+---
+
+**WORKFLOW-AWARE BOUNDARY SCOPING (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- For each workflow where `conditional_branch` activates a numeric or date field, check if that field has a boundary (a numeric/date threshold in the AST `constraints` or description).
+- If yes, that workflow's branch is a **candidate for a boundary edge test** — add or confirm a boundary TC exists for it.
+- Add `"wf_ref": "WF-NNN"` to each TC that maps to a specific workflow's boundary. Set `"wf_ref": null` for generic input/interaction edge tests.
 
 ---
 
@@ -185,6 +197,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": null,
       "subcategory": "boundary | input_edge | interaction_edge | state_edge | data_edge",
       "test_case": "Short descriptive name",
       "preconditions": ["precondition 1"],
@@ -207,7 +220,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 
 
 ------------------------------------------------------------
-[22:29:06] Test-Edge - USER PROMPT
+[14:24:50] Test-Edge - USER PROMPT
 ------------------------------------------------------------
 <module_name>Employees</module_name>
 
@@ -218,39 +231,22 @@ If the module has any numeric/date/count threshold in the AST or description, pr
     "Employees_Table": {
       "type": "data_table",
       "columns": [
-        {
-          "column_name": "Name",
-          "type": "link",
-          "action": "navigates to Staff_Detail_Page"
-        },
-        {
-          "column_name": "Office",
-          "type": "unspecified"
-        },
-        {
-          "column_name": "Is Loan Officer",
-          "type": "unspecified"
-        },
-        {
-          "column_name": "Status",
-          "type": "unspecified",
-          "options": [
-            "Active",
-            "Inactive"
-          ]
-        }
+        "Name",
+        "Office",
+        "Is Loan Officer",
+        "Status"
       ],
       "row_actions": [
         {
-          "action_name": "View Details",
-          "triggers": "navigates to Staff_Detail_Page"
+          "triggered_by": "Name",
+          "opens": "Staff_Detail_Page"
         }
-      ],
-      "create_button": {
-        "element_name": "+ Create Employee",
-        "action": "opens",
-        "target": "Create_Employee_Form"
-      }
+      ]
+    },
+    "Create_Employee_Button": {
+      "type": "button",
+      "element_name": "+ Create Employee",
+      "opens": "Create_Employee_Form"
     },
     "Create_Employee_Form": {
       "type": "form",
@@ -268,25 +264,29 @@ If the module has any numeric/date/count threshold in the AST or description, pr
           "required": true
         },
         "Is_Loan_Officer": {
-          "type": "checkbox"
+          "type": "checkbox",
+          "required": false
         },
         "Mobile_Number": {
-          "type": "unspecified"
+          "type": "unspecified",
+          "required": false
         },
         "Is_Active": {
-          "type": "checkbox"
+          "type": "checkbox",
+          "required": false
         },
         "Joining_Date": {
-          "type": "date"
+          "type": "date",
+          "required": false
         },
         "External_ID": {
-          "type": "unspecified"
+          "type": "unspecified",
+          "required": false
         }
       },
       "submit_actions": [
         {
-          "element_name": "Create Employee",
-          "on_success": "creates employee; if Is Loan Officer is true, the staff member becomes selectable in the Loan Officer dropdown when creating loans and available for assignment to clients, groups, and centers"
+          "on_success": "creates employee; if Is Loan Officer is true, staff is included in the Loan Officer dropdown for loan creation and can be assigned to clients, groups, and centers"
         }
       ]
     },
@@ -306,38 +306,45 @@ If the module has any numeric/date/count threshold in the AST or description, pr
           "required": true
         },
         "Is_Loan_Officer": {
-          "type": "checkbox"
+          "type": "checkbox",
+          "required": false
         },
         "Mobile_Number": {
-          "type": "unspecified"
+          "type": "unspecified",
+          "required": false
         },
         "Is_Active": {
-          "type": "checkbox"
+          "type": "checkbox",
+          "required": false
         },
         "Joining_Date": {
-          "type": "date"
+          "type": "date",
+          "required": false
         },
         "External_ID": {
-          "type": "unspecified"
+          "type": "unspecified",
+          "required": false
         }
       },
       "submit_actions": [
         {
-          "element_name": "Save Changes",
-          "on_success": "updates employee; if Is Loan Officer is true, the staff member becomes selectable in the Loan Officer dropdown when creating loans and available for assignment to clients, groups, and centers"
+          "on_success": "updates employee; if Is Loan Officer is true, staff is included in the Loan Officer dropdown for loan creation and can be assigned to clients, groups, and centers"
         }
       ]
     },
     "Staff_Detail_Page": {
       "type": "detail_page",
-      "fields": {},
-      "actions": [
-        {
-          "action_name": "Edit",
-          "triggers": "opens Edit Employee form",
-          "target": "Edit_Employee_Form"
+      "components": {
+        "Staff_Detail_Actions": {
+          "type": "action_bar",
+          "available_actions": [
+            {
+              "action_name": "Edit",
+              "opens": "Edit_Employee_Form"
+            }
+          ]
         }
-      ]
+      }
     }
   }
 }
@@ -352,10 +359,17 @@ The Employees page displays a data table with columns for Name (clickable link),
 
 </description>
 
+<workflows>
+WF-001 | Create employee — submit creation form | actor: <role> | branch: none | terminal: Submit | on_success: creates employee; if Is Loan Officer is true, staff is included in the Loan Officer dropdown for loan creation and can be assigned to clients, groups, and centers
+WF-002 | Edit employee — submit edit form | actor: <role> | branch: none | terminal: Submit | on_success: updates employee; if Is Loan Officer is true, staff is included in the Loan Officer dropdown for loan creation and can be assigned to clients, groups, and centers
+WF-003 | View staff detail — click Name in employees table | actor: <role> | branch: none | terminal: Name | on_success: opens Staff_Detail_Page showing employee information
+WF-004 | Open Edit from staff detail — use Edit action | actor: <role> | branch: none | terminal: Edit | on_success: opens Edit_Employee_Form
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[22:34:50] Test-Edge - LLM RESPONSE
+[14:31:11] Test-Edge - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Employees",
@@ -363,154 +377,175 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": "WF-001",
       "subcategory": "data_edge",
-      "test_case": "Create employee with Joining Date = <today>",
+      "test_case": "Create employee with Joining Date = today",
       "preconditions": [
-        "User is logged in",
+        "User is logged in with permission to create employees",
         "Employees page is open"
       ],
       "steps": [
-        "1. Click '+ Create Employee' to open Create_Employee_Form",
-        "2. Enter a valid value in Office",
-        "3. Enter a valid value in First_Name",
-        "4. Enter a valid value in Last_Name",
-        "5. Set Joining_Date to <today>",
-        "6. Click 'Create Employee'"
+        "1. Click + Create Employee",
+        "2. Enter <valid Office> in the Office field",
+        "3. Enter <valid First Name> in the First Name field",
+        "4. Enter <valid Last Name> in the Last Name field",
+        "5. Set Joining Date to <today>",
+        "6. Click Submit"
       ],
-      "expected_result": "Form submits successfully; creation succeeds and a new row appears in Employees_Table. Click the Name link to open Staff_Detail_Page; Staff_Detail_Page shows Joining Date = <today>",
+      "expected_result": "Form submits successfully; employee is created and Staff Detail page opens (or Employees table refreshes). Staff Detail (or table row) displays Joining Date = <today> — creation succeeds",
       "priority": "medium"
     },
     {
       "tc_id": "E-002",
+      "wf_ref": "WF-001",
       "subcategory": "data_edge",
-      "test_case": "Attempt to submit invalid text in Joining Date (typing malformed date into date field)",
+      "test_case": "Create employee with a far-future Joining Date",
       "preconditions": [
-        "User is logged in",
+        "User is logged in with permission to create employees",
         "Employees page is open"
       ],
       "steps": [
-        "1. Click '+ Create Employee' to open Create_Employee_Form",
-        "2. Enter a valid value in Office",
-        "3. Enter a valid value in First_Name",
-        "4. Enter a valid value in Last_Name",
-        "5. Type '<invalid date string>' into Joining_Date input (rather than selecting from the picker)",
-        "6. Click 'Create Employee'"
+        "1. Click + Create Employee",
+        "2. Enter <valid Office> in the Office field",
+        "3. Enter <valid First Name> in the First Name field",
+        "4. Enter <valid Last Name> in the Last Name field",
+        "5. Set Joining Date to a far future date (e.g., > 1 year from today)",
+        "6. Click Submit"
       ],
-      "expected_result": "Submission is blocked; the Joining_Date field displays an inline validation error and creation is blocked / error shown",
+      "expected_result": "Form submits successfully; employee is created and Staff Detail (or table row) shows the far-future Joining Date exactly as entered — creation succeeds (no blocking error shown)",
       "priority": "medium"
     },
     {
       "tc_id": "E-003",
-      "subcategory": "state_edge",
-      "test_case": "Create employee with Is_Loan_Officer checked — appears in Employees table indicator and becomes selectable as loan officer",
+      "wf_ref": "WF-001",
+      "subcategory": "interaction_edge",
+      "test_case": "Rapid re-submission after successful create (browser Back then Submit)",
       "preconditions": [
-        "User is logged in",
-        "Employees page is open",
-        "Loan creation page with Loan Officer dropdown is available in the application"
+        "User is logged in with permission to create employees",
+        "Employees page is open"
       ],
       "steps": [
-        "1. Click '+ Create Employee' to open Create_Employee_Form",
-        "2. Enter a valid value in Office",
-        "3. Enter a valid value in First_Name",
-        "4. Enter a valid value in Last_Name",
-        "5. Check 'Is_Loan_Officer'",
-        "6. Click 'Create Employee'",
-        "7. Return to Employees page and locate the new row in Employees_Table",
-        "8. Click the Name link to open Staff_Detail_Page",
-        "9. Open the application's Create Loan page and open the Loan Officer dropdown"
+        "1. Click + Create Employee",
+        "2. Enter <valid Office> in the Office field",
+        "3. Enter <valid First Name> in the First Name field",
+        "4. Enter <valid Last Name> in the Last Name field",
+        "5. Click Submit",
+        "6. After success redirect to Staff Detail or Employees list, click the browser Back button to return to the Create Employee form",
+        "7. Click Submit again without changing fields"
       ],
-      "expected_result": "Form submits successfully; creation succeeds. Employees_Table row shows the Is Loan Officer indicator for the created staff. Staff_Detail_Page shows Is Loan Officer = checked. The staff member appears as a selectable option in the Loan Officer dropdown when creating loans (visible in dropdown list)",
+      "expected_result": "Second submission attempt is blocked; no duplicate employee is created and only one row corresponding to that Name appears in the Employees table (user sees a visible blocking indication or the UI prevents creating a second record) — second submit is blocked / error shown",
       "priority": "medium"
     },
     {
       "tc_id": "E-004",
-      "subcategory": "state_edge",
-      "test_case": "Edit employee to uncheck Is_Loan_Officer — indicator removed and no longer selectable",
-      "preconditions": [
-        "User is logged in",
-        "An existing employee exists with Is_Loan_Officer = checked"
-      ],
-      "steps": [
-        "1. From Employees_Table, click the Name link for the existing employee to open Staff_Detail_Page",
-        "2. Click 'Edit' to open Edit_Employee_Form",
-        "3. Uncheck 'Is_Loan_Officer'",
-        "4. Click 'Save Changes'",
-        "5. Return to Employees page and locate the employee row in Employees_Table",
-        "6. Open the application's Create Loan page and open the Loan Officer dropdown"
-      ],
-      "expected_result": "Save succeeds; the Employees_Table row no longer shows the Is Loan Officer indicator for that staff. Staff_Detail_Page reflects Is Loan Officer = unchecked. The staff member no longer appears in the Loan Officer dropdown (not listed) when creating loans",
-      "priority": "medium"
-    },
-    {
-      "tc_id": "E-005",
+      "wf_ref": null,
       "subcategory": "input_edge",
-      "test_case": "First Name entered with leading and trailing whitespace is submitted and stored trimmed",
+      "test_case": "First Name very long text (200+ characters)",
       "preconditions": [
-        "User is logged in",
+        "User is logged in with permission to create employees",
         "Employees page is open"
       ],
       "steps": [
-        "1. Click '+ Create Employee' to open Create_Employee_Form",
-        "2. Enter a valid value in Office",
-        "3. Enter '<value with leading and trailing spaces>' into First_Name",
-        "4. Enter a valid value in Last_Name",
-        "5. Click 'Create Employee'",
-        "6. Open the created employee's Staff_Detail_Page from Employees_Table"
+        "1. Click + Create Employee",
+        "2. Enter <valid Office> in the Office field",
+        "3. Enter a very long string (200+ characters) in the First Name field",
+        "4. Enter <valid Last Name> in the Last Name field",
+        "5. Click Submit"
       ],
-      "expected_result": "Form submits successfully; creation succeeds. Staff_Detail_Page displays First Name with leading/trailing whitespace trimmed (no leading/trailing spaces visible in the saved value)",
+      "expected_result": "Form submits successfully; employee is created and Staff Detail (or Employees table) shows the First Name either truncated to the system's displayed value or displayed in a truncated form in the UI (visible difference from the full entered string) — creation succeeds",
+      "priority": "low"
+    },
+    {
+      "tc_id": "E-005",
+      "wf_ref": null,
+      "subcategory": "input_edge",
+      "test_case": "External ID with special characters and emoji",
+      "preconditions": [
+        "User is logged in with permission to create employees",
+        "Employees page is open"
+      ],
+      "steps": [
+        "1. Click + Create Employee",
+        "2. Enter <valid Office> in the Office field",
+        "3. Enter <valid First Name> in the First Name field",
+        "4. Enter <valid Last Name> in the Last Name field",
+        "5. Enter special characters and emoji (e.g., Unicode symbols) in the External ID field",
+        "6. Click Submit"
+      ],
+      "expected_result": "Form submits successfully; employee is created and Staff Detail displays the External ID containing the special characters/emoji exactly as entered (no silent stripping) — creation succeeds",
       "priority": "low"
     },
     {
       "tc_id": "E-006",
-      "subcategory": "interaction_edge",
-      "test_case": "Double-click 'Create Employee' rapidly to check for duplicate creation",
+      "wf_ref": "WF-001",
+      "subcategory": "state_edge",
+      "test_case": "Create employee with Is Loan Officer checked — indicator appears in Employees table",
       "preconditions": [
-        "User is logged in",
+        "User is logged in with permission to create employees",
         "Employees page is open"
       ],
       "steps": [
-        "1. Click '+ Create Employee' to open Create_Employee_Form",
-        "2. Enter a valid value in Office",
-        "3. Enter a valid value in First_Name",
-        "4. Enter a valid value in Last_Name",
-        "5. Rapidly double-click the 'Create Employee' button (two clicks in quick succession)"
+        "1. Click + Create Employee",
+        "2. Enter <valid Office> in the Office field",
+        "3. Enter <valid First Name> in the First Name field",
+        "4. Enter <valid Last Name> in the Last Name field",
+        "5. Check the Is Loan Officer checkbox",
+        "6. Click Submit",
+        "7. Return to the Employees table view"
       ],
-      "expected_result": "Only one submission is processed; creation succeeds exactly once and only one new row appears in Employees_Table for that staff (no duplicate row appears)",
+      "expected_result": "Form submits successfully; Employees table displays a row for the new employee and the 'Is Loan Officer' column shows the indicator (checkbox/yes icon) for that row — creation succeeds and state is visible in the table",
       "priority": "medium"
     },
     {
       "tc_id": "E-007",
-      "subcategory": "input_edge",
-      "test_case": "First Name very long input (200+ characters) — observe rejection or truncation behavior",
+      "wf_ref": "WF-002",
+      "subcategory": "state_edge",
+      "test_case": "Edit employee to unset Is Loan Officer — indicator is removed from Employees table",
       "preconditions": [
-        "User is logged in",
-        "Employees page is open"
+        "User is logged in with permission to edit employees",
+        "An existing employee who currently has Is Loan Officer = true is available in the Employees table"
       ],
       "steps": [
-        "1. Click '+ Create Employee' to open Create_Employee_Form",
-        "2. Enter a valid value in Office",
-        "3. Enter '<long string of 200+ characters>' into First_Name",
-        "4. Enter a valid value in Last_Name",
-        "5. Click 'Create Employee'"
+        "1. Click the Name link for the existing employee to open Staff Detail",
+        "2. Click Edit",
+        "3. Uncheck the Is Loan Officer checkbox",
+        "4. Click Submit",
+        "5. Return to the Employees table view"
       ],
-      "expected_result": "If the system enforces a length limit, submission is blocked and an inline validation error is shown on First_Name OR the form submits and the saved First_Name is truncated in Staff_Detail_Page; either case is visible to the user (explicit inline error displayed or truncated value shown)",
-      "priority": "low"
+      "expected_result": "Edit submits successfully; Employees table updates and the 'Is Loan Officer' indicator is no longer shown for that employee's row — edit succeeds and state change is visible",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "E-008",
+      "wf_ref": "WF-003",
+      "subcategory": "interaction_edge",
+      "test_case": "Click Name link opens Staff Detail showing entered fields including Joining Date",
+      "preconditions": [
+        "User is logged in with permission to view employees",
+        "An employee exists in the Employees table (created previously) with a non-empty Joining Date"
+      ],
+      "steps": [
+        "1. Open the Employees page",
+        "2. Click the Name link for that employee in the Employees table"
+      ],
+      "expected_result": "Click opens the Staff Detail page for that employee; Staff Detail displays fields including Office, First Name, Last Name, Is Loan Officer indicator, Status, and Joining Date (the Joining Date displayed matches the value previously entered) — navigation succeeds",
+      "priority": "medium"
     }
   ],
   "summary": {
-    "total": 7,
+    "total": 8,
     "boundary": 0,
     "input_edge": 2,
-    "interaction_edge": 1,
+    "interaction_edge": 2,
     "state_edge": 2,
     "data_edge": 2,
-    "medium_priority": 4,
-    "low_priority": 3
+    "medium_priority": 6,
+    "low_priority": 2
   }
 }
 
 ------------------------------------------------------------
-[22:34:50] Test-Edge - PARSED JSON
+[14:31:11] Test-Edge - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Employees",
@@ -518,148 +553,169 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": "WF-001",
       "subcategory": "data_edge",
-      "test_case": "Create employee with Joining Date = <today>",
+      "test_case": "Create employee with Joining Date = today",
       "preconditions": [
-        "User is logged in",
+        "User is logged in with permission to create employees",
         "Employees page is open"
       ],
       "steps": [
-        "1. Click '+ Create Employee' to open Create_Employee_Form",
-        "2. Enter a valid value in Office",
-        "3. Enter a valid value in First_Name",
-        "4. Enter a valid value in Last_Name",
-        "5. Set Joining_Date to <today>",
-        "6. Click 'Create Employee'"
+        "1. Click + Create Employee",
+        "2. Enter <valid Office> in the Office field",
+        "3. Enter <valid First Name> in the First Name field",
+        "4. Enter <valid Last Name> in the Last Name field",
+        "5. Set Joining Date to <today>",
+        "6. Click Submit"
       ],
-      "expected_result": "Form submits successfully; creation succeeds and a new row appears in Employees_Table. Click the Name link to open Staff_Detail_Page; Staff_Detail_Page shows Joining Date = <today>",
+      "expected_result": "Form submits successfully; employee is created and Staff Detail page opens (or Employees table refreshes). Staff Detail (or table row) displays Joining Date = <today> \u2014 creation succeeds",
       "priority": "medium"
     },
     {
       "tc_id": "E-002",
+      "wf_ref": "WF-001",
       "subcategory": "data_edge",
-      "test_case": "Attempt to submit invalid text in Joining Date (typing malformed date into date field)",
+      "test_case": "Create employee with a far-future Joining Date",
       "preconditions": [
-        "User is logged in",
+        "User is logged in with permission to create employees",
         "Employees page is open"
       ],
       "steps": [
-        "1. Click '+ Create Employee' to open Create_Employee_Form",
-        "2. Enter a valid value in Office",
-        "3. Enter a valid value in First_Name",
-        "4. Enter a valid value in Last_Name",
-        "5. Type '<invalid date string>' into Joining_Date input (rather than selecting from the picker)",
-        "6. Click 'Create Employee'"
+        "1. Click + Create Employee",
+        "2. Enter <valid Office> in the Office field",
+        "3. Enter <valid First Name> in the First Name field",
+        "4. Enter <valid Last Name> in the Last Name field",
+        "5. Set Joining Date to a far future date (e.g., > 1 year from today)",
+        "6. Click Submit"
       ],
-      "expected_result": "Submission is blocked; the Joining_Date field displays an inline validation error and creation is blocked / error shown",
+      "expected_result": "Form submits successfully; employee is created and Staff Detail (or table row) shows the far-future Joining Date exactly as entered \u2014 creation succeeds (no blocking error shown)",
       "priority": "medium"
     },
     {
       "tc_id": "E-003",
-      "subcategory": "state_edge",
-      "test_case": "Create employee with Is_Loan_Officer checked \u2014 appears in Employees table indicator and becomes selectable as loan officer",
+      "wf_ref": "WF-001",
+      "subcategory": "interaction_edge",
+      "test_case": "Rapid re-submission after successful create (browser Back then Submit)",
       "preconditions": [
-        "User is logged in",
-        "Employees page is open",
-        "Loan creation page with Loan Officer dropdown is available in the application"
+        "User is logged in with permission to create employees",
+        "Employees page is open"
       ],
       "steps": [
-        "1. Click '+ Create Employee' to open Create_Employee_Form",
-        "2. Enter a valid value in Office",
-        "3. Enter a valid value in First_Name",
-        "4. Enter a valid value in Last_Name",
-        "5. Check 'Is_Loan_Officer'",
-        "6. Click 'Create Employee'",
-        "7. Return to Employees page and locate the new row in Employees_Table",
-        "8. Click the Name link to open Staff_Detail_Page",
-        "9. Open the application's Create Loan page and open the Loan Officer dropdown"
+        "1. Click + Create Employee",
+        "2. Enter <valid Office> in the Office field",
+        "3. Enter <valid First Name> in the First Name field",
+        "4. Enter <valid Last Name> in the Last Name field",
+        "5. Click Submit",
+        "6. After success redirect to Staff Detail or Employees list, click the browser Back button to return to the Create Employee form",
+        "7. Click Submit again without changing fields"
       ],
-      "expected_result": "Form submits successfully; creation succeeds. Employees_Table row shows the Is Loan Officer indicator for the created staff. Staff_Detail_Page shows Is Loan Officer = checked. The staff member appears as a selectable option in the Loan Officer dropdown when creating loans (visible in dropdown list)",
+      "expected_result": "Second submission attempt is blocked; no duplicate employee is created and only one row corresponding to that Name appears in the Employees table (user sees a visible blocking indication or the UI prevents creating a second record) \u2014 second submit is blocked / error shown",
       "priority": "medium"
     },
     {
       "tc_id": "E-004",
-      "subcategory": "state_edge",
-      "test_case": "Edit employee to uncheck Is_Loan_Officer \u2014 indicator removed and no longer selectable",
-      "preconditions": [
-        "User is logged in",
-        "An existing employee exists with Is_Loan_Officer = checked"
-      ],
-      "steps": [
-        "1. From Employees_Table, click the Name link for the existing employee to open Staff_Detail_Page",
-        "2. Click 'Edit' to open Edit_Employee_Form",
-        "3. Uncheck 'Is_Loan_Officer'",
-        "4. Click 'Save Changes'",
-        "5. Return to Employees page and locate the employee row in Employees_Table",
-        "6. Open the application's Create Loan page and open the Loan Officer dropdown"
-      ],
-      "expected_result": "Save succeeds; the Employees_Table row no longer shows the Is Loan Officer indicator for that staff. Staff_Detail_Page reflects Is Loan Officer = unchecked. The staff member no longer appears in the Loan Officer dropdown (not listed) when creating loans",
-      "priority": "medium"
-    },
-    {
-      "tc_id": "E-005",
+      "wf_ref": null,
       "subcategory": "input_edge",
-      "test_case": "First Name entered with leading and trailing whitespace is submitted and stored trimmed",
+      "test_case": "First Name very long text (200+ characters)",
       "preconditions": [
-        "User is logged in",
+        "User is logged in with permission to create employees",
         "Employees page is open"
       ],
       "steps": [
-        "1. Click '+ Create Employee' to open Create_Employee_Form",
-        "2. Enter a valid value in Office",
-        "3. Enter '<value with leading and trailing spaces>' into First_Name",
-        "4. Enter a valid value in Last_Name",
-        "5. Click 'Create Employee'",
-        "6. Open the created employee's Staff_Detail_Page from Employees_Table"
+        "1. Click + Create Employee",
+        "2. Enter <valid Office> in the Office field",
+        "3. Enter a very long string (200+ characters) in the First Name field",
+        "4. Enter <valid Last Name> in the Last Name field",
+        "5. Click Submit"
       ],
-      "expected_result": "Form submits successfully; creation succeeds. Staff_Detail_Page displays First Name with leading/trailing whitespace trimmed (no leading/trailing spaces visible in the saved value)",
+      "expected_result": "Form submits successfully; employee is created and Staff Detail (or Employees table) shows the First Name either truncated to the system's displayed value or displayed in a truncated form in the UI (visible difference from the full entered string) \u2014 creation succeeds",
+      "priority": "low"
+    },
+    {
+      "tc_id": "E-005",
+      "wf_ref": null,
+      "subcategory": "input_edge",
+      "test_case": "External ID with special characters and emoji",
+      "preconditions": [
+        "User is logged in with permission to create employees",
+        "Employees page is open"
+      ],
+      "steps": [
+        "1. Click + Create Employee",
+        "2. Enter <valid Office> in the Office field",
+        "3. Enter <valid First Name> in the First Name field",
+        "4. Enter <valid Last Name> in the Last Name field",
+        "5. Enter special characters and emoji (e.g., Unicode symbols) in the External ID field",
+        "6. Click Submit"
+      ],
+      "expected_result": "Form submits successfully; employee is created and Staff Detail displays the External ID containing the special characters/emoji exactly as entered (no silent stripping) \u2014 creation succeeds",
       "priority": "low"
     },
     {
       "tc_id": "E-006",
-      "subcategory": "interaction_edge",
-      "test_case": "Double-click 'Create Employee' rapidly to check for duplicate creation",
+      "wf_ref": "WF-001",
+      "subcategory": "state_edge",
+      "test_case": "Create employee with Is Loan Officer checked \u2014 indicator appears in Employees table",
       "preconditions": [
-        "User is logged in",
+        "User is logged in with permission to create employees",
         "Employees page is open"
       ],
       "steps": [
-        "1. Click '+ Create Employee' to open Create_Employee_Form",
-        "2. Enter a valid value in Office",
-        "3. Enter a valid value in First_Name",
-        "4. Enter a valid value in Last_Name",
-        "5. Rapidly double-click the 'Create Employee' button (two clicks in quick succession)"
+        "1. Click + Create Employee",
+        "2. Enter <valid Office> in the Office field",
+        "3. Enter <valid First Name> in the First Name field",
+        "4. Enter <valid Last Name> in the Last Name field",
+        "5. Check the Is Loan Officer checkbox",
+        "6. Click Submit",
+        "7. Return to the Employees table view"
       ],
-      "expected_result": "Only one submission is processed; creation succeeds exactly once and only one new row appears in Employees_Table for that staff (no duplicate row appears)",
+      "expected_result": "Form submits successfully; Employees table displays a row for the new employee and the 'Is Loan Officer' column shows the indicator (checkbox/yes icon) for that row \u2014 creation succeeds and state is visible in the table",
       "priority": "medium"
     },
     {
       "tc_id": "E-007",
-      "subcategory": "input_edge",
-      "test_case": "First Name very long input (200+ characters) \u2014 observe rejection or truncation behavior",
+      "wf_ref": "WF-002",
+      "subcategory": "state_edge",
+      "test_case": "Edit employee to unset Is Loan Officer \u2014 indicator is removed from Employees table",
       "preconditions": [
-        "User is logged in",
-        "Employees page is open"
+        "User is logged in with permission to edit employees",
+        "An existing employee who currently has Is Loan Officer = true is available in the Employees table"
       ],
       "steps": [
-        "1. Click '+ Create Employee' to open Create_Employee_Form",
-        "2. Enter a valid value in Office",
-        "3. Enter '<long string of 200+ characters>' into First_Name",
-        "4. Enter a valid value in Last_Name",
-        "5. Click 'Create Employee'"
+        "1. Click the Name link for the existing employee to open Staff Detail",
+        "2. Click Edit",
+        "3. Uncheck the Is Loan Officer checkbox",
+        "4. Click Submit",
+        "5. Return to the Employees table view"
       ],
-      "expected_result": "If the system enforces a length limit, submission is blocked and an inline validation error is shown on First_Name OR the form submits and the saved First_Name is truncated in Staff_Detail_Page; either case is visible to the user (explicit inline error displayed or truncated value shown)",
-      "priority": "low"
+      "expected_result": "Edit submits successfully; Employees table updates and the 'Is Loan Officer' indicator is no longer shown for that employee's row \u2014 edit succeeds and state change is visible",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "E-008",
+      "wf_ref": "WF-003",
+      "subcategory": "interaction_edge",
+      "test_case": "Click Name link opens Staff Detail showing entered fields including Joining Date",
+      "preconditions": [
+        "User is logged in with permission to view employees",
+        "An employee exists in the Employees table (created previously) with a non-empty Joining Date"
+      ],
+      "steps": [
+        "1. Open the Employees page",
+        "2. Click the Name link for that employee in the Employees table"
+      ],
+      "expected_result": "Click opens the Staff Detail page for that employee; Staff Detail displays fields including Office, First Name, Last Name, Is Loan Officer indicator, Status, and Joining Date (the Joining Date displayed matches the value previously entered) \u2014 navigation succeeds",
+      "priority": "medium"
     }
   ],
   "summary": {
-    "total": 7,
+    "total": 8,
     "boundary": 0,
     "input_edge": 2,
-    "interaction_edge": 1,
+    "interaction_edge": 2,
     "state_edge": 2,
     "data_edge": 2,
-    "medium_priority": 4,
-    "low_priority": 3
+    "medium_priority": 6,
+    "low_priority": 2
   }
 }

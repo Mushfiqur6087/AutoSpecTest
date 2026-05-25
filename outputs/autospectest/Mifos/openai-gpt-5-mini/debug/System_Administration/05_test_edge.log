@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-21T22:29:06.560296
+DEBUG SESSION STARTED: 2026-05-25T14:24:50.748650
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[22:29:06] Test-Edge - SYSTEM PROMPT
+[14:24:50] Test-Edge - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Edge Case and Boundary Test Generator. You receive (1) a UI-AST JSON for one module and (2) the original functional description. Your job is to produce ONLY boundary and edge case tests — scenarios at the limits of valid/invalid input and unusual-but-plausible user behaviors.
 
@@ -25,6 +25,10 @@ You are NOT producing happy paths (positive prompt) or standard validation failu
 {Original functional description text for this module}
 </description>
 
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
+
 ---
 
 **UI-AST REFERENCE — How to Read the AST for Edge Testing:**
@@ -35,7 +39,7 @@ You are NOT producing happy paths (positive prompt) or standard validation failu
 | `repeating_group` with `max` | Test adding exactly `max` entries (should succeed) then one more (should block) |
 | `visible_when` / `required_when` | Edge: trigger condition, fill revealed field with boundary value |
 | `state_bound_action_bar` | State edges: rapid consecutive state transitions, transition from a boundary state |
-| `submit_actions[]` with multiple buttons | Interaction edge: double-click a submit button rapidly |
+
 | `type: "date"` fields | Data edges: today, yesterday, far future, Feb 29 leap year |
 | `type: "file_upload"` | Edge: file exactly at size limit, file at 1 byte over limit |
 
@@ -132,7 +136,6 @@ Pick only the ones that apply to field types present in this module's AST:
 
 Pick only the ones that match component types in this module's AST:
 
-- **Double-click submit** (any form/wizard with a submit button): rapidly double-click the submit button → assert only one record is created; no duplicate row appears in the listing table
 - **Rapid re-submission after redirect** (any form that redirects to a detail page on success): after a successful submit, press the browser back button → assert the creation form is shown blank (not pre-filled) OR the user is redirected to the detail page without a second entity being created
 - **Wizard step skip — enforced navigation** (wizard where steps must be completed sequentially): attempt to click a later step tab directly without completing earlier steps → assert navigation is blocked and the earlier step remains active
 - **Wizard step skip — free navigation** (wizard that allows free tab navigation): navigate to a later step without filling earlier steps → assert the later step displays and returning to the earlier step shows fields blank (no data was lost from the later step)
@@ -173,7 +176,16 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 
 - **High:** None — edge tests are secondary to core functionality
 - **Medium:** Boundary tests at thresholds (financial amounts, date ordering, count limits, file size limits)
-- **Low:** Input edge cases (long text, special chars, whitespace, decimal precision), interaction edge cases (double-click, browser back, wizard skip)
+- **Low:** Input edge cases (long text, special chars, whitespace, decimal precision), interaction edge cases (browser back, wizard skip)
+
+---
+
+**WORKFLOW-AWARE BOUNDARY SCOPING (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- For each workflow where `conditional_branch` activates a numeric or date field, check if that field has a boundary (a numeric/date threshold in the AST `constraints` or description).
+- If yes, that workflow's branch is a **candidate for a boundary edge test** — add or confirm a boundary TC exists for it.
+- Add `"wf_ref": "WF-NNN"` to each TC that maps to a specific workflow's boundary. Set `"wf_ref": null` for generic input/interaction edge tests.
 
 ---
 
@@ -185,6 +197,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": null,
       "subcategory": "boundary | input_edge | interaction_edge | state_edge | data_edge",
       "test_case": "Short descriptive name",
       "preconditions": ["precondition 1"],
@@ -207,7 +220,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 
 
 ------------------------------------------------------------
-[22:29:06] Test-Edge - USER PROMPT
+[14:24:50] Test-Edge - USER PROMPT
 ------------------------------------------------------------
 <module_name>System Administration</module_name>
 
@@ -215,134 +228,198 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 {
   "module_name": "System Administration",
   "components": {
+    "Scheduler_Global_Control": {
+      "type": "form",
+      "fields": {
+        "Scheduler_Enabled": {
+          "type": "checkbox",
+          "required": false,
+          "on_success": "toggles scheduler start/stop for all scheduled jobs"
+        }
+      }
+    },
     "Manage_Scheduler_Jobs_Table": {
       "type": "data_table",
-      "description": "Table of all batch jobs. Per-row interactive elements: Is Active toggle and editable CRON expression. Global control to start/stop scheduler.",
-      "preset_rows": [
-        {
-          "Job_Name": "Apply Annual Fee"
-        },
-        {
-          "Job_Name": "Add Accrual Transactions"
-        },
-        {
-          "Job_Name": "Apply Penalty to Overdue Loans"
-        },
-        {
-          "Job_Name": "Update Loan Summary"
-        },
-        {
-          "Job_Name": "Post Interest for Savings"
-        },
-        {
-          "Job_Name": "Transfer Fees"
-        },
-        {
-          "Job_Name": "Generate Loan Loss Provisioning"
-        }
-      ],
-      "columns": {
+      "row_fields": {
         "Job_Name": {
-          "type": "unspecified"
+          "type": "unspecified",
+          "required": false
         },
         "Is_Active": {
           "type": "checkbox",
-          "description": "toggle job active/inactive (per-row)"
+          "required": false,
+          "on_success": "toggles job active state"
         },
         "CRON_Expression": {
           "type": "unspecified",
-          "editable": true,
-          "description": "editable CRON expression for the job"
-        },
-        "Previous_Run_Status": {
-          "type": "unspecified"
-        },
-        "Next_Run_Time": {
-          "type": "date"
-        },
-        "Currently_Running": {
-          "type": "unspecified"
-        },
-        "Action_Buttons": {
-          "type": "unspecified",
-          "description": "per-row action buttons (generic actions menu)"
+          "required": false,
+          "constraints": [
+            "must be a valid CRON expression"
+          ],
+          "on_success": "updates job CRON expression"
         }
       },
+      "sortable_columns": [
+        "Job_Name",
+        "Next_Run_Time"
+      ],
       "row_actions": [
         {
-          "action_name": "Action_Buttons",
-          "description": "Opens job-specific actions menu (names of actions not specified in source)"
+          "action_name": "Edit_CRON",
+          "fields": {
+            "CRON_Expression": {
+              "type": "unspecified",
+              "required": true,
+              "constraints": [
+                "must be a valid CRON expression"
+              ]
+            }
+          },
+          "on_success": "updates job CRON expression"
         }
       ],
-      "global_controls": {
-        "Start_Stop_Scheduler": {
-          "type": "checkbox",
-          "element_name": "Start/Stop Scheduler",
-          "on_change": "controls whether scheduled jobs execute globally"
-        }
-      }
+      "preconditions": [],
+      "notes": "Jobs include: Apply Annual Fee, Add Accrual Transactions, Apply Penalty to Overdue Loans, Update Loan Summary, Post Interest for Savings, Transfer Fees, Generate Loan Loss Provisioning"
     },
     "Global_Configuration_Table": {
       "type": "data_table",
-      "description": "System-wide feature flags and configuration values.",
-      "preset_rows": [
-        {
-          "Configuration_Name": "maker-checker"
-        },
-        {
-          "Configuration_Name": "reschedule-future-repayments"
-        },
-        {
-          "Configuration_Name": "allow-transactions-on-non-workingday"
-        },
-        {
-          "Configuration_Name": "reschedule-repayments-on-holidays"
-        },
-        {
-          "Configuration_Name": "savings-interest-posting-current-period-end"
-        },
-        {
-          "Configuration_Name": "financial-year-beginning-month"
-        },
-        {
-          "Configuration_Name": "meetings-mandatory-for-jlg-loans"
-        }
-      ],
-      "columns": {
+      "row_fields": {
         "Configuration_Name": {
-          "type": "unspecified"
+          "type": "unspecified",
+          "required": false
         },
         "Enabled": {
           "type": "checkbox",
-          "description": "toggle to enable/disable the configuration"
+          "required": false,
+          "on_success": "toggles configuration enabled state"
         },
         "Value": {
           "type": "unspecified",
-          "description": "editable value field (type varies by configuration)"
-        },
-        "Description": {
-          "type": "unspecified"
+          "required": false,
+          "on_success": "updates configuration value"
         }
-      }
+      },
+      "rows": [
+        {
+          "config_key": "maker-checker",
+          "fields": {
+            "Configuration_Name": {
+              "type": "unspecified"
+            },
+            "Enabled": {
+              "type": "checkbox"
+            },
+            "Value": {
+              "type": "unspecified"
+            }
+          }
+        },
+        {
+          "config_key": "reschedule-future-repayments",
+          "fields": {
+            "Configuration_Name": {
+              "type": "unspecified"
+            },
+            "Enabled": {
+              "type": "checkbox"
+            },
+            "Value": {
+              "type": "unspecified"
+            }
+          }
+        },
+        {
+          "config_key": "allow-transactions-on-non-workingday",
+          "fields": {
+            "Configuration_Name": {
+              "type": "unspecified"
+            },
+            "Enabled": {
+              "type": "checkbox"
+            },
+            "Value": {
+              "type": "unspecified"
+            }
+          }
+        },
+        {
+          "config_key": "reschedule-repayments-on-holidays",
+          "fields": {
+            "Configuration_Name": {
+              "type": "unspecified"
+            },
+            "Enabled": {
+              "type": "checkbox"
+            },
+            "Value": {
+              "type": "unspecified"
+            }
+          }
+        },
+        {
+          "config_key": "savings-interest-posting-current-period-end",
+          "fields": {
+            "Configuration_Name": {
+              "type": "unspecified"
+            },
+            "Enabled": {
+              "type": "checkbox"
+            },
+            "Value": {
+              "type": "unspecified"
+            }
+          }
+        },
+        {
+          "config_key": "financial-year-beginning-month",
+          "fields": {
+            "Configuration_Name": {
+              "type": "unspecified"
+            },
+            "Enabled": {
+              "type": "checkbox"
+            },
+            "Value": {
+              "type": "unspecified",
+              "required": false
+            }
+          }
+        },
+        {
+          "config_key": "meetings-mandatory-for-jlg-loans",
+          "fields": {
+            "Configuration_Name": {
+              "type": "unspecified"
+            },
+            "Enabled": {
+              "type": "checkbox"
+            },
+            "Value": {
+              "type": "unspecified"
+            }
+          }
+        }
+      ],
+      "row_actions": [
+        {
+          "action_name": "Edit_Configuration",
+          "fields": {
+            "Enabled": {
+              "type": "checkbox",
+              "required": false
+            },
+            "Value": {
+              "type": "unspecified",
+              "required": false
+            }
+          },
+          "on_success": "updates configuration"
+        }
+      ]
     },
     "Manage_Codes_Table": {
       "type": "data_table",
-      "description": "Lists all code lists. Clicking a row opens the code values detail view where entries can be added, edited, reordered, or deactivated.",
-      "preset_rows": [
-        {
-          "Name": "Client Type"
-        },
-        {
-          "Name": "Gender"
-        },
-        {
-          "Name": "Address Type"
-        },
-        {
-          "Name": "Loan Purpose"
-        }
-      ],
-      "columns": {
+      "row_fields": {
         "Name": {
           "type": "unspecified"
         },
@@ -352,39 +429,76 @@ If the module has any numeric/date/count threshold in the AST or description, pr
       },
       "row_actions": [
         {
-          "action_name": "Open",
-          "on_success": "navigates to Code_List_Detail for the selected code list"
+          "action_name": "Open_Code_Values",
+          "on_success": "opens Code Values editor for the selected code"
         }
-      ]
+      ],
+      "notes": "Code lists include: Client Type, Gender, Address Type, Loan Purpose, etc."
     },
-    "Code_List_Detail": {
-      "type": "form",
-      "description": "Detail view for a code list. Supports adding, editing, reordering, and deactivating entries that populate dropdowns system-wide.",
-      "fields": {
-        "Entries": {
-          "type": "repeating_group",
-          "item_fields": {}
+    "Code_Values_Editor": {
+      "type": "data_table",
+      "description": "Editor opened when a code is clicked; allows adding, editing, reordering, deactivating entries that populate dropdowns",
+      "row_fields": {
+        "Value": {
+          "type": "unspecified",
+          "required": true
+        },
+        "Is_Active": {
+          "type": "checkbox",
+          "required": false
         }
       },
-      "entry_actions": [
+      "row_actions": [
         {
-          "action_name": "Add_Entry"
+          "action_name": "Edit_Value",
+          "fields": {
+            "Value": {
+              "type": "unspecified",
+              "required": true
+            },
+            "Is_Active": {
+              "type": "checkbox",
+              "required": false
+            }
+          },
+          "on_success": "updates code value entry"
         },
         {
-          "action_name": "Edit_Entry"
+          "action_name": "Deactivate_Value",
+          "fields": {},
+          "on_success": "marks code value as inactive"
         },
         {
-          "action_name": "Reorder_Entries"
+          "action_name": "Move_Up",
+          "fields": {},
+          "on_success": "moves entry up in ordering"
         },
         {
-          "action_name": "Deactivate_Entry"
+          "action_name": "Move_Down",
+          "fields": {},
+          "on_success": "moves entry down in ordering"
+        }
+      ],
+      "actions": [
+        {
+          "action_name": "Add_Value",
+          "fields": {
+            "Entry_Value": {
+              "type": "unspecified",
+              "required": true
+            },
+            "Is_Active": {
+              "type": "checkbox",
+              "required": false
+            }
+          },
+          "on_success": "adds new code value entry"
         }
       ]
     },
-    "Manage_Data_Tables_Table": {
+    "Manage_Data_Tables": {
       "type": "data_table",
-      "description": "Lists custom data tables that extend core entities (rows represent custom tables).",
-      "columns": {
+      "row_fields": {
         "Data_Table_Name": {
           "type": "unspecified"
         },
@@ -397,28 +511,35 @@ If the module has any numeric/date/count threshold in the AST or description, pr
       },
       "row_actions": [
         {
-          "action_name": "Edit"
+          "action_name": "Edit_Data_Table",
+          "on_success": "opens data table definition editor"
         },
         {
-          "action_name": "Delete"
+          "action_name": "Delete_Data_Table",
+          "preconditions": [
+            "user must confirm deletion"
+          ],
+          "on_success": "deletes custom data table"
         }
       ],
-      "page_actions": [
+      "actions": [
         {
-          "action_name": "Create",
-          "on_success": "opens Create_Data_Table_Form"
+          "action_name": "Create_Data_Table",
+          "on_success": "creates custom data table",
+          "opens": "Create_Data_Table_Form"
         }
       ]
     },
     "Create_Data_Table_Form": {
       "type": "form",
-      "description": "Form to create a new custom data table with column definitions.",
       "fields": {
         "Data_Table_Name": {
-          "type": "unspecified"
+          "type": "unspecified",
+          "required": true
         },
         "Application_Table_Name": {
           "type": "dropdown",
+          "required": true,
           "options": [
             "m_client",
             "m_group",
@@ -430,16 +551,20 @@ If the module has any numeric/date/count threshold in the AST or description, pr
           ]
         },
         "Multi_Row": {
-          "type": "checkbox"
+          "type": "checkbox",
+          "required": false
         },
-        "Columns": {
+        "Column_Definitions": {
           "type": "repeating_group",
+          "min": 0,
           "item_fields": {
             "Name": {
-              "type": "unspecified"
+              "type": "unspecified",
+              "required": true
             },
             "Type": {
               "type": "dropdown",
+              "required": true,
               "options": [
                 "string",
                 "number",
@@ -452,32 +577,34 @@ If the module has any numeric/date/count threshold in the AST or description, pr
               ]
             },
             "Length": {
-              "type": "number"
+              "type": "number",
+              "required": false
             },
             "Is_Mandatory": {
-              "type": "checkbox"
+              "type": "checkbox",
+              "required": false
             },
             "Is_Unique": {
-              "type": "checkbox"
+              "type": "checkbox",
+              "required": false
             }
           }
         }
       },
       "submit_actions": [
         {
-          "element_name": "Save",
-          "on_success": "creates custom data table"
+          "element_name": "Create",
+          "on_success": "creates data table definition"
         },
         {
           "element_name": "Cancel",
-          "on_success": "closes form without saving"
+          "on_success": "closes form without creating"
         }
       ]
     },
-    "Audit_Trails_Table": {
+    "Audit_Trails": {
       "type": "data_table",
-      "description": "Displays system actions with filters. When maker-checker is enabled, pending commands expose Approve/Reject actions.",
-      "columns": {
+      "row_fields": {
         "Action_Name": {
           "type": "unspecified"
         },
@@ -500,55 +627,61 @@ If the module has any numeric/date/count threshold in the AST or description, pr
           "type": "date"
         },
         "Processing_Result": {
-          "type": "unspecified",
-          "description": "Pending, Approved, Rejected"
-        },
-        "Office_Name": {
           "type": "unspecified"
         },
-        "Client_Loan_Savings_Details": {
+        "Office_Name": {
           "type": "unspecified"
         }
       },
       "filters": {
         "Action_Name": {
-          "type": "unspecified"
+          "type": "search"
         },
         "Entity_Name": {
-          "type": "unspecified"
+          "type": "search"
         },
         "Resource_ID": {
-          "type": "unspecified"
+          "type": "search"
         },
         "Maker_ID": {
-          "type": "unspecified"
+          "type": "search"
         },
         "Checker_ID": {
-          "type": "unspecified"
+          "type": "search"
         },
         "Office": {
-          "type": "unspecified"
+          "type": "search"
         },
-        "Date_Range": {
-          "type": "date_range"
+        "Date_From": {
+          "type": "date"
+        },
+        "Date_To": {
+          "type": "date"
         }
       },
       "row_actions": [
         {
           "action_name": "Approve",
           "preconditions": [
-            "maker-checker must be enabled",
-            "Processing_Result == Pending"
+            "maker-checker enabled",
+            "Processing Result == Pending"
           ],
-          "on_success": "approves the pending command"
+          "fields": {},
+          "on_success": "sets Processing Result to Approved"
         },
         {
           "action_name": "Reject",
           "preconditions": [
-            "maker-checker must be enabled",
-            "Processing_Result == Pending"
+            "maker-checker enabled",
+            "Processing Result == Pending"
           ],
-          "on_success": "rejects the pending command"
+          "fields": {
+            "Rejection_Reason": {
+              "type": "unspecified",
+              "required": false
+            }
+          },
+          "on_success": "sets Processing Result to Rejected"
         }
       ]
     }
@@ -573,10 +706,33 @@ The Audit Trails page displays all system actions with columns for Action Name, 
 
 </description>
 
+<workflows>
+WF-001 | Toggle global scheduler Start/Stop | actor: <role> | branch: none | terminal: Scheduler_Enabled | on_success: toggles scheduler start/stop for all scheduled jobs
+WF-002 | Toggle a scheduler job active/inactive | actor: <role> | branch: none | terminal: Is_Active | on_success: toggles job active state
+WF-003 | Edit job CRON expression (inline field) | actor: <role> | branch: none | terminal: CRON_Expression | on_success: updates job CRON expression
+WF-004 | Edit job CRON expression (Edit_CRON row action) | actor: <role> | branch: none | terminal: Edit_CRON | on_success: updates job CRON expression
+WF-005 | Toggle configuration Enabled (inline) | actor: <role> | branch: none | terminal: Enabled | on_success: toggles configuration enabled state
+WF-006 | Update configuration Value (inline) | actor: <role> | branch: none | terminal: Value | on_success: updates configuration value
+WF-007 | Edit configuration (row action) | actor: <role> | branch: none | terminal: Edit_Configuration | on_success: updates configuration
+WF-008 | Open a code list's values | actor: <role> | branch: none | terminal: Open_Code_Values | on_success: opens Code Values editor for the selected code
+WF-009 | Add a new code value | actor: <role> | branch: none | terminal: Add_Value | on_success: adds new code value entry
+WF-010 | Edit a code value entry | actor: <role> | branch: none | terminal: Edit_Value | on_success: updates code value entry
+WF-011 | Deactivate a code value entry | actor: <role> | branch: none | terminal: Deactivate_Value | on_success: marks code value as inactive
+WF-012 | Move a code value up in ordering | actor: <role> | branch: none | terminal: Move_Up | on_success: moves entry up in ordering
+WF-013 | Move a code value down in ordering | actor: <role> | branch: none | terminal: Move_Down | on_success: moves entry down in ordering
+WF-014 | Create Data Table action (opens form) | actor: <role> | branch: none | terminal: Create_Data_Table | on_success: creates custom data table
+WF-015 | Edit a custom data table (row action) | actor: <role> | branch: none | terminal: Edit_Data_Table | on_success: opens data table definition editor
+WF-016 | Delete a custom data table (requires confirmation) | actor: <role> | branch: user must confirm deletion | terminal: Delete_Data_Table | on_success: deletes custom data table
+WF-017 | Submit Create Data Table form (Create) | actor: <role> | branch: none | terminal: Create | on_success: creates data table definition
+WF-018 | Cancel Create Data Table form | actor: <role> | branch: none | terminal: Cancel | on_success: closes form without creating
+WF-019 | Approve an Audit Trail entry | actor: <role> | branch: maker-checker enabled AND Processing Result == Pending | terminal: Approve | on_success: sets Processing Result to Approved
+WF-020 | Reject an Audit Trail entry | actor: <role> | branch: maker-checker enabled AND Processing Result == Pending | terminal: Reject | on_success: sets Processing Result to Rejected
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[22:36:26] Test-Edge - LLM RESPONSE
+[14:33:08] Test-Edge - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "System Administration",
@@ -584,152 +740,190 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": "WF-003",
       "subcategory": "boundary",
-      "test_case": "Audit Trails Date Range: single-day start=end filter succeeds",
+      "test_case": "Inline edit CRON: enter a minimal valid CRON expression (boundary pass)",
       "preconditions": [
-        "User has access to Audit Trails page",
-        "There exists at least one audit entry on <date>"
+        "User is on Manage Scheduler Jobs page",
+        "There is at least one scheduler job row visible with an editable CRON_Expression"
       ],
       "steps": [
-        "1. Open Audit Trails page",
-        "2. Set Date_Range Start = <date X>",
-        "3. Set Date_Range End = <date X> (same day as Start)",
-        "4. Click Apply/Filter"
+        "1. Click the CRON_Expression inline edit control for a visible job row",
+        "2. Enter <a minimal valid CRON expression> into the CRON_Expression field",
+        "3. Commit the inline edit (press Save or confirm inline edit control)"
       ],
-      "expected_result": "Filter applies and the table refreshes showing only entries from <date X>; the date-range filter indicator shows Start = End; action succeeds",
+      "expected_result": "The inline edit saves and the job row displays the new CRON expression; update succeeds and no validation error is shown",
       "priority": "medium"
     },
     {
       "tc_id": "E-002",
+      "wf_ref": "WF-003",
       "subcategory": "boundary",
-      "test_case": "Audit Trails Date Range: Start one day after End is blocked",
+      "test_case": "Inline edit CRON: enter a nearly-valid but structurally broken CRON (one-field missing) — boundary fail",
       "preconditions": [
-        "User has access to Audit Trails page"
+        "User is on Manage Scheduler Jobs page",
+        "There is at least one scheduler job row visible with an editable CRON_Expression"
       ],
       "steps": [
-        "1. Open Audit Trails page",
-        "2. Set Date_Range End = <date Y>",
-        "3. Set Date_Range Start = <date Y + 1 day> (one day after End)",
-        "4. Click Apply/Filter"
+        "1. Click the CRON_Expression inline edit control for a visible job row",
+        "2. Enter <a CRON expression that is one structural unit short of a valid expression> into the CRON_Expression field",
+        "3. Commit the inline edit (press Save or confirm inline edit control)"
       ],
-      "expected_result": "Filter is blocked / error shown: an inline validation indicates the start date is after the end date and the filter is not applied",
+      "expected_result": "The update is blocked; the CRON_Expression field displays an inline validation error indicating the CRON expression is invalid and the table row retains the previous CRON value (is blocked / error shown)",
       "priority": "medium"
     },
     {
       "tc_id": "E-003",
-      "subcategory": "state_edge",
-      "test_case": "Approve pending audit when maker-checker enabled succeeds",
+      "wf_ref": "WF-004",
+      "subcategory": "boundary",
+      "test_case": "Edit_CRON row action: submit an invalid CRON expression with extra invalid token (boundary fail)",
       "preconditions": [
-        "Global Configuration page includes 'maker-checker' toggle",
-        "'maker-checker' is enabled",
-        "Audit Trails contains a row with Processing_Result == Pending"
+        "User is on Manage Scheduler Jobs page",
+        "A job row offers the Edit_CRON row action and the Edit_CRON dialog opens an editor for CRON_Expression"
       ],
       "steps": [
-        "1. Open Audit Trails page",
-        "2. Locate a row with Processing_Result == Pending",
-        "3. Click the Approve action for that row"
+        "1. Click the Edit_CRON action for a job row to open the edit dialog",
+        "2. Enter <a CRON expression containing one extra invalid token> into the CRON_Expression field in the dialog",
+        "3. Click the dialog Save/Update button"
       ],
-      "expected_result": "Processing_Result for the row updates to Approved and the Approve/Reject actions are removed for that row; the approve action succeeds and the row visibly reflects Approved",
+      "expected_result": "The dialog submission is blocked; the CRON_Expression field in the dialog shows a validation error and the dialog remains open or shows the error message (is blocked / error shown)",
       "priority": "medium"
     },
     {
       "tc_id": "E-004",
-      "subcategory": "state_edge",
-      "test_case": "Approve action is blocked when maker-checker is disabled",
+      "wf_ref": "WF-012",
+      "subcategory": "boundary",
+      "test_case": "Move_Up boundary: attempt to move up the first code value in the Code Values editor",
       "preconditions": [
-        "Global Configuration page includes 'maker-checker' toggle",
-        "'maker-checker' is disabled",
-        "Audit Trails contains a row with Processing_Result == Pending"
+        "User has opened Manage Codes and opened a Code Values Editor for a code list with at least one value",
+        "The code values list has a clearly identifiable first/top entry"
       ],
       "steps": [
-        "1. Open Audit Trails page",
-        "2. Locate a row with Processing_Result == Pending",
-        "3. Attempt to click the Approve action for that row"
+        "1. In the Code Values Editor, locate the first/top entry in the list",
+        "2. Click the Move_Up action for that first/top entry"
       ],
-      "expected_result": "Approve action is not available or clicking it is blocked; an inline indicator or disabled control communicates that maker-checker must be enabled (is blocked / error shown)",
+      "expected_result": "The Move_Up action is blocked for the first/top entry; the UI shows no change in ordering and displays a visible message or disables the action for that entry (is blocked / error shown)",
       "priority": "medium"
     },
     {
       "tc_id": "E-005",
-      "subcategory": "interaction_edge",
-      "test_case": "Rapid double-click Approve on a pending audit records only one approval",
+      "wf_ref": "WF-013",
+      "subcategory": "boundary",
+      "test_case": "Move_Down boundary: attempt to move down the last code value in the Code Values editor",
       "preconditions": [
-        "'maker-checker' is enabled",
-        "Audit Trails contains a row with Processing_Result == Pending"
+        "User has opened Manage Codes and opened a Code Values Editor for a code list with at least one value",
+        "The code values list has a clearly identifiable last/bottom entry"
       ],
       "steps": [
-        "1. Open Audit Trails page",
-        "2. Locate a row with Processing_Result == Pending",
-        "3. Rapidly double-click the Approve button for that row (two clicks in quick succession)"
+        "1. In the Code Values Editor, locate the last/bottom entry in the list",
+        "2. Click the Move_Down action for that last/bottom entry"
       ],
-      "expected_result": "Only one approval is recorded; Processing_Result becomes Approved once and the second click has no additional effect (second approval is blocked / error shown); the row shows a single Approved state",
+      "expected_result": "The Move_Down action is blocked for the last/bottom entry; the UI shows no change in ordering and displays a visible message or disables the action for that entry (is blocked / error shown)",
       "priority": "medium"
     },
     {
       "tc_id": "E-006",
-      "subcategory": "interaction_edge",
-      "test_case": "Double-click Save on Create Data Table form results in single table creation",
+      "wf_ref": "WF-009",
+      "subcategory": "input_edge",
+      "test_case": "Add_Value with very long Entry_Value (200+ characters) in Code Values editor",
       "preconditions": [
-        "User has access to Create Data Table form",
-        "Manage Data Tables page is reachable to verify created rows"
+        "User has opened Manage Codes and opened a Code Values Editor for a code list",
+        "Add_Value action is available"
       ],
       "steps": [
-        "1. Open Create Data Table form",
-        "2. Enter a value into Data_Table_Name",
-        "3. Select an Application_Table_Name from the dropdown",
-        "4. (Optional) Add one Columns entry sufficient to create the table",
-        "5. Rapidly click the Save button twice (two clicks in quick succession)"
+        "1. Click Add_Value to open the add entry form",
+        "2. Enter <a very long string (200+ characters) containing unicode and emoji> into the Entry_Value field",
+        "3. Optionally set Is_Active as desired",
+        "4. Click Save/Add to submit the new code value"
       ],
-      "expected_result": "Only one custom data table is created; Manage Data Tables list shows a single new row for the Data_Table_Name entered; duplicate creation is blocked and only one entity appears (action succeeds)",
-      "priority": "medium"
+      "expected_result": "The add action succeeds and the new code value row appears in the Code Values list showing the full entered text (succeeds) or, if truncation occurs, a clear truncated preview is shown in the list with a visible indicator; the test expects acceptance and the full string displayed (succeeds)",
+      "priority": "low"
     },
     {
       "tc_id": "E-007",
+      "wf_ref": "WF-017",
       "subcategory": "interaction_edge",
-      "test_case": "Rapid toggling of global Start/Stop Scheduler yields consistent final state and no duplicate scheduler instances",
+      "test_case": "Create Data Table: add several Column_Definitions then remove all and submit (repeating_group min=0 boundary)",
       "preconditions": [
-        "User is on Manage Scheduler Jobs page",
-        "Global Start/Stop Scheduler control is visible"
+        "User is on Create_Data_Table_Form",
+        "Column_Definitions repeating group initial state has zero items"
       ],
       "steps": [
-        "1. Observe current state of Start/Stop Scheduler (on or off)",
-        "2. Rapidly toggle Start/Stop Scheduler off then on (or on then off) with two quick clicks",
-        "3. Observe the global control state and any changes to job scheduling indicators (Next_Run_Time / Currently_Running)"
+        "1. Click Add Column (repeat) to add at least one Column_Definitions item",
+        "2. For one added item, enter required fields: set Name and Type",
+        "3. Repeat step 1 and 2 for multiple items (add more than one entry)",
+        "4. Remove each Column_Definitions item until zero items remain",
+        "5. Ensure Data_Table_Name and Application_Table_Name are populated with valid values",
+        "6. Click Create to submit the Create_Data_Table_Form"
       ],
-      "expected_result": "Final global scheduler state matches the last toggle action; no duplicate scheduler instances or duplicate scheduled executions are created as a result of rapid toggling; UI shows a consistent scheduler state (action succeeds)",
+      "expected_result": "Because Column_Definitions min = 0, the Create action succeeds and a data table definition is created with zero custom columns; creation succeeds and the UI navigates/updates to show the new table entry (succeeds)",
       "priority": "medium"
     },
     {
       "tc_id": "E-008",
-      "subcategory": "boundary",
-      "test_case": "Attempt to reorder code-list entries when only one entry exists is blocked",
+      "wf_ref": "WF-019",
+      "subcategory": "state_edge",
+      "test_case": "Attempt Approve when maker-checker configuration is disabled (precondition boundary)",
       "preconditions": [
-        "User can open a Code List from Manage Codes Table",
-        "Selected Code List has exactly one entry"
+        "User is on Global Configuration page",
+        "maker-checker configuration is set to Disabled (Enabled toggle is off)",
+        "User navigates to Audit Trails page and locates an entry with Processing Result == Pending"
       ],
       "steps": [
-        "1. Open Manage Codes page",
-        "2. Click the row to open the Code_List_Detail for a code list that has exactly one entry",
-        "3. Click Reorder_Entries action"
+        "1. On Audit Trails row with Processing Result == Pending, locate the Approve action button",
+        "2. Click Approve for that Audit Trails row"
       ],
-      "expected_result": "Reorder control is disabled or the action is blocked with a visible message indicating at least two entries are required to reorder (is blocked / error shown)",
+      "expected_result": "The Approve action is blocked due to maker-checker being disabled; the Approve button is either hidden or clicking it does not change Processing Result and the UI shows a visible message indicating the precondition is not met (is blocked / error shown)",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "E-009",
+      "wf_ref": null,
+      "subcategory": "data_edge",
+      "test_case": "Audit Trails filters: set Date_From equal to Date_To (same-day range) — boundary pass",
+      "preconditions": [
+        "User is on Audit Trails page with filters visible",
+        "There exist audit trail entries on the selected date"
+      ],
+      "steps": [
+        "1. Open the Date_From filter and select <a given date>",
+        "2. Open the Date_To filter and select the same <given date>",
+        "3. Click Apply/Filter to run the search"
+      ],
+      "expected_result": "The filter applies and returns audit trail entries for that single day; the results list refreshes showing entries for the selected date and the filter operation succeeds (succeeds)",
+      "priority": "low"
+    },
+    {
+      "tc_id": "E-010",
+      "wf_ref": null,
+      "subcategory": "data_edge",
+      "test_case": "Audit Trails filters: set Date_From one day after Date_To (out-of-order) — boundary fail",
+      "preconditions": [
+        "User is on Audit Trails page with filters visible"
+      ],
+      "steps": [
+        "1. Open the Date_From filter and select <a date>",
+        "2. Open the Date_To filter and select <the date one day before Date_From>",
+        "3. Click Apply/Filter to run the search"
+      ],
+      "expected_result": "The filter application is blocked; the UI displays a visible validation message indicating the date range is invalid or Date_From must be on or before Date_To and no results are shown (is blocked / error shown)",
       "priority": "low"
     }
   ],
   "summary": {
-    "total": 8,
-    "boundary": 3,
-    "input_edge": 0,
-    "interaction_edge": 3,
-    "state_edge": 2,
-    "data_edge": 0,
-    "medium_priority": 7,
-    "low_priority": 1
+    "total": 10,
+    "boundary": 5,
+    "input_edge": 1,
+    "interaction_edge": 1,
+    "state_edge": 1,
+    "data_edge": 2,
+    "medium_priority": 6,
+    "low_priority": 4
   }
 }
 
 ------------------------------------------------------------
-[22:36:26] Test-Edge - PARSED JSON
+[14:33:08] Test-Edge - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "System Administration",
@@ -737,146 +931,184 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": "WF-003",
       "subcategory": "boundary",
-      "test_case": "Audit Trails Date Range: single-day start=end filter succeeds",
+      "test_case": "Inline edit CRON: enter a minimal valid CRON expression (boundary pass)",
       "preconditions": [
-        "User has access to Audit Trails page",
-        "There exists at least one audit entry on <date>"
+        "User is on Manage Scheduler Jobs page",
+        "There is at least one scheduler job row visible with an editable CRON_Expression"
       ],
       "steps": [
-        "1. Open Audit Trails page",
-        "2. Set Date_Range Start = <date X>",
-        "3. Set Date_Range End = <date X> (same day as Start)",
-        "4. Click Apply/Filter"
+        "1. Click the CRON_Expression inline edit control for a visible job row",
+        "2. Enter <a minimal valid CRON expression> into the CRON_Expression field",
+        "3. Commit the inline edit (press Save or confirm inline edit control)"
       ],
-      "expected_result": "Filter applies and the table refreshes showing only entries from <date X>; the date-range filter indicator shows Start = End; action succeeds",
+      "expected_result": "The inline edit saves and the job row displays the new CRON expression; update succeeds and no validation error is shown",
       "priority": "medium"
     },
     {
       "tc_id": "E-002",
+      "wf_ref": "WF-003",
       "subcategory": "boundary",
-      "test_case": "Audit Trails Date Range: Start one day after End is blocked",
+      "test_case": "Inline edit CRON: enter a nearly-valid but structurally broken CRON (one-field missing) \u2014 boundary fail",
       "preconditions": [
-        "User has access to Audit Trails page"
+        "User is on Manage Scheduler Jobs page",
+        "There is at least one scheduler job row visible with an editable CRON_Expression"
       ],
       "steps": [
-        "1. Open Audit Trails page",
-        "2. Set Date_Range End = <date Y>",
-        "3. Set Date_Range Start = <date Y + 1 day> (one day after End)",
-        "4. Click Apply/Filter"
+        "1. Click the CRON_Expression inline edit control for a visible job row",
+        "2. Enter <a CRON expression that is one structural unit short of a valid expression> into the CRON_Expression field",
+        "3. Commit the inline edit (press Save or confirm inline edit control)"
       ],
-      "expected_result": "Filter is blocked / error shown: an inline validation indicates the start date is after the end date and the filter is not applied",
+      "expected_result": "The update is blocked; the CRON_Expression field displays an inline validation error indicating the CRON expression is invalid and the table row retains the previous CRON value (is blocked / error shown)",
       "priority": "medium"
     },
     {
       "tc_id": "E-003",
-      "subcategory": "state_edge",
-      "test_case": "Approve pending audit when maker-checker enabled succeeds",
+      "wf_ref": "WF-004",
+      "subcategory": "boundary",
+      "test_case": "Edit_CRON row action: submit an invalid CRON expression with extra invalid token (boundary fail)",
       "preconditions": [
-        "Global Configuration page includes 'maker-checker' toggle",
-        "'maker-checker' is enabled",
-        "Audit Trails contains a row with Processing_Result == Pending"
+        "User is on Manage Scheduler Jobs page",
+        "A job row offers the Edit_CRON row action and the Edit_CRON dialog opens an editor for CRON_Expression"
       ],
       "steps": [
-        "1. Open Audit Trails page",
-        "2. Locate a row with Processing_Result == Pending",
-        "3. Click the Approve action for that row"
+        "1. Click the Edit_CRON action for a job row to open the edit dialog",
+        "2. Enter <a CRON expression containing one extra invalid token> into the CRON_Expression field in the dialog",
+        "3. Click the dialog Save/Update button"
       ],
-      "expected_result": "Processing_Result for the row updates to Approved and the Approve/Reject actions are removed for that row; the approve action succeeds and the row visibly reflects Approved",
+      "expected_result": "The dialog submission is blocked; the CRON_Expression field in the dialog shows a validation error and the dialog remains open or shows the error message (is blocked / error shown)",
       "priority": "medium"
     },
     {
       "tc_id": "E-004",
-      "subcategory": "state_edge",
-      "test_case": "Approve action is blocked when maker-checker is disabled",
+      "wf_ref": "WF-012",
+      "subcategory": "boundary",
+      "test_case": "Move_Up boundary: attempt to move up the first code value in the Code Values editor",
       "preconditions": [
-        "Global Configuration page includes 'maker-checker' toggle",
-        "'maker-checker' is disabled",
-        "Audit Trails contains a row with Processing_Result == Pending"
+        "User has opened Manage Codes and opened a Code Values Editor for a code list with at least one value",
+        "The code values list has a clearly identifiable first/top entry"
       ],
       "steps": [
-        "1. Open Audit Trails page",
-        "2. Locate a row with Processing_Result == Pending",
-        "3. Attempt to click the Approve action for that row"
+        "1. In the Code Values Editor, locate the first/top entry in the list",
+        "2. Click the Move_Up action for that first/top entry"
       ],
-      "expected_result": "Approve action is not available or clicking it is blocked; an inline indicator or disabled control communicates that maker-checker must be enabled (is blocked / error shown)",
+      "expected_result": "The Move_Up action is blocked for the first/top entry; the UI shows no change in ordering and displays a visible message or disables the action for that entry (is blocked / error shown)",
       "priority": "medium"
     },
     {
       "tc_id": "E-005",
-      "subcategory": "interaction_edge",
-      "test_case": "Rapid double-click Approve on a pending audit records only one approval",
+      "wf_ref": "WF-013",
+      "subcategory": "boundary",
+      "test_case": "Move_Down boundary: attempt to move down the last code value in the Code Values editor",
       "preconditions": [
-        "'maker-checker' is enabled",
-        "Audit Trails contains a row with Processing_Result == Pending"
+        "User has opened Manage Codes and opened a Code Values Editor for a code list with at least one value",
+        "The code values list has a clearly identifiable last/bottom entry"
       ],
       "steps": [
-        "1. Open Audit Trails page",
-        "2. Locate a row with Processing_Result == Pending",
-        "3. Rapidly double-click the Approve button for that row (two clicks in quick succession)"
+        "1. In the Code Values Editor, locate the last/bottom entry in the list",
+        "2. Click the Move_Down action for that last/bottom entry"
       ],
-      "expected_result": "Only one approval is recorded; Processing_Result becomes Approved once and the second click has no additional effect (second approval is blocked / error shown); the row shows a single Approved state",
+      "expected_result": "The Move_Down action is blocked for the last/bottom entry; the UI shows no change in ordering and displays a visible message or disables the action for that entry (is blocked / error shown)",
       "priority": "medium"
     },
     {
       "tc_id": "E-006",
-      "subcategory": "interaction_edge",
-      "test_case": "Double-click Save on Create Data Table form results in single table creation",
+      "wf_ref": "WF-009",
+      "subcategory": "input_edge",
+      "test_case": "Add_Value with very long Entry_Value (200+ characters) in Code Values editor",
       "preconditions": [
-        "User has access to Create Data Table form",
-        "Manage Data Tables page is reachable to verify created rows"
+        "User has opened Manage Codes and opened a Code Values Editor for a code list",
+        "Add_Value action is available"
       ],
       "steps": [
-        "1. Open Create Data Table form",
-        "2. Enter a value into Data_Table_Name",
-        "3. Select an Application_Table_Name from the dropdown",
-        "4. (Optional) Add one Columns entry sufficient to create the table",
-        "5. Rapidly click the Save button twice (two clicks in quick succession)"
+        "1. Click Add_Value to open the add entry form",
+        "2. Enter <a very long string (200+ characters) containing unicode and emoji> into the Entry_Value field",
+        "3. Optionally set Is_Active as desired",
+        "4. Click Save/Add to submit the new code value"
       ],
-      "expected_result": "Only one custom data table is created; Manage Data Tables list shows a single new row for the Data_Table_Name entered; duplicate creation is blocked and only one entity appears (action succeeds)",
-      "priority": "medium"
+      "expected_result": "The add action succeeds and the new code value row appears in the Code Values list showing the full entered text (succeeds) or, if truncation occurs, a clear truncated preview is shown in the list with a visible indicator; the test expects acceptance and the full string displayed (succeeds)",
+      "priority": "low"
     },
     {
       "tc_id": "E-007",
+      "wf_ref": "WF-017",
       "subcategory": "interaction_edge",
-      "test_case": "Rapid toggling of global Start/Stop Scheduler yields consistent final state and no duplicate scheduler instances",
+      "test_case": "Create Data Table: add several Column_Definitions then remove all and submit (repeating_group min=0 boundary)",
       "preconditions": [
-        "User is on Manage Scheduler Jobs page",
-        "Global Start/Stop Scheduler control is visible"
+        "User is on Create_Data_Table_Form",
+        "Column_Definitions repeating group initial state has zero items"
       ],
       "steps": [
-        "1. Observe current state of Start/Stop Scheduler (on or off)",
-        "2. Rapidly toggle Start/Stop Scheduler off then on (or on then off) with two quick clicks",
-        "3. Observe the global control state and any changes to job scheduling indicators (Next_Run_Time / Currently_Running)"
+        "1. Click Add Column (repeat) to add at least one Column_Definitions item",
+        "2. For one added item, enter required fields: set Name and Type",
+        "3. Repeat step 1 and 2 for multiple items (add more than one entry)",
+        "4. Remove each Column_Definitions item until zero items remain",
+        "5. Ensure Data_Table_Name and Application_Table_Name are populated with valid values",
+        "6. Click Create to submit the Create_Data_Table_Form"
       ],
-      "expected_result": "Final global scheduler state matches the last toggle action; no duplicate scheduler instances or duplicate scheduled executions are created as a result of rapid toggling; UI shows a consistent scheduler state (action succeeds)",
+      "expected_result": "Because Column_Definitions min = 0, the Create action succeeds and a data table definition is created with zero custom columns; creation succeeds and the UI navigates/updates to show the new table entry (succeeds)",
       "priority": "medium"
     },
     {
       "tc_id": "E-008",
-      "subcategory": "boundary",
-      "test_case": "Attempt to reorder code-list entries when only one entry exists is blocked",
+      "wf_ref": "WF-019",
+      "subcategory": "state_edge",
+      "test_case": "Attempt Approve when maker-checker configuration is disabled (precondition boundary)",
       "preconditions": [
-        "User can open a Code List from Manage Codes Table",
-        "Selected Code List has exactly one entry"
+        "User is on Global Configuration page",
+        "maker-checker configuration is set to Disabled (Enabled toggle is off)",
+        "User navigates to Audit Trails page and locates an entry with Processing Result == Pending"
       ],
       "steps": [
-        "1. Open Manage Codes page",
-        "2. Click the row to open the Code_List_Detail for a code list that has exactly one entry",
-        "3. Click Reorder_Entries action"
+        "1. On Audit Trails row with Processing Result == Pending, locate the Approve action button",
+        "2. Click Approve for that Audit Trails row"
       ],
-      "expected_result": "Reorder control is disabled or the action is blocked with a visible message indicating at least two entries are required to reorder (is blocked / error shown)",
+      "expected_result": "The Approve action is blocked due to maker-checker being disabled; the Approve button is either hidden or clicking it does not change Processing Result and the UI shows a visible message indicating the precondition is not met (is blocked / error shown)",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "E-009",
+      "wf_ref": null,
+      "subcategory": "data_edge",
+      "test_case": "Audit Trails filters: set Date_From equal to Date_To (same-day range) \u2014 boundary pass",
+      "preconditions": [
+        "User is on Audit Trails page with filters visible",
+        "There exist audit trail entries on the selected date"
+      ],
+      "steps": [
+        "1. Open the Date_From filter and select <a given date>",
+        "2. Open the Date_To filter and select the same <given date>",
+        "3. Click Apply/Filter to run the search"
+      ],
+      "expected_result": "The filter applies and returns audit trail entries for that single day; the results list refreshes showing entries for the selected date and the filter operation succeeds (succeeds)",
+      "priority": "low"
+    },
+    {
+      "tc_id": "E-010",
+      "wf_ref": null,
+      "subcategory": "data_edge",
+      "test_case": "Audit Trails filters: set Date_From one day after Date_To (out-of-order) \u2014 boundary fail",
+      "preconditions": [
+        "User is on Audit Trails page with filters visible"
+      ],
+      "steps": [
+        "1. Open the Date_From filter and select <a date>",
+        "2. Open the Date_To filter and select <the date one day before Date_From>",
+        "3. Click Apply/Filter to run the search"
+      ],
+      "expected_result": "The filter application is blocked; the UI displays a visible validation message indicating the date range is invalid or Date_From must be on or before Date_To and no results are shown (is blocked / error shown)",
       "priority": "low"
     }
   ],
   "summary": {
-    "total": 8,
-    "boundary": 3,
-    "input_edge": 0,
-    "interaction_edge": 3,
-    "state_edge": 2,
-    "data_edge": 0,
-    "medium_priority": 7,
-    "low_priority": 1
+    "total": 10,
+    "boundary": 5,
+    "input_edge": 1,
+    "interaction_edge": 1,
+    "state_edge": 1,
+    "data_edge": 2,
+    "medium_priority": 6,
+    "low_priority": 4
   }
 }

@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-21T22:29:06.517436
+DEBUG SESSION STARTED: 2026-05-25T14:24:50.717537
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[22:29:06] Test-Positive - SYSTEM PROMPT
+[14:24:50] Test-Positive - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Expert UI Test Case Generator. You receive (1) a UI-AST JSON for one specific module and (2) the original functional description for that module.
 
@@ -24,6 +24,10 @@ Your job is to produce ONLY positive/functional UI test cases — tests where va
 <description>
 {Original functional description text for this module}
 </description>
+
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
 
 ---
 
@@ -146,6 +150,13 @@ Because you are testing a module in isolation, establish the required entry stat
 **1. Forms & Wizards (`form`, `wizard`):**
 - Generate ONE happy path per distinct success outcome.
 - *Conditional UI Check:* If a toggle/dropdown reveals new mandatory fields (`visible_when`), generate a separate test for that conditional branch.
+- **Wizard step coverage (CRITICAL):** If a wizard has multiple steps and any step beyond Step 1 contains its own named field group (e.g., "Address Details", "Family Members", "Identifiers"), generate ONE dedicated positive TC per such step. The TC must:
+  - Navigate to that specific step (include the preceding steps as preconditions or brief navigation steps)
+  - Fill the fields described for that step (not just pass through)
+  - Assert the step's content is visible/saved on the detail page after final submission
+  - **Do NOT collapse all wizard steps into one happy-path TC** — if Steps 2, 3, and 4 each have their own named section in the spec, they each need their own TC.
+- **Wizard in-step identifiers/duplicates:** If a wizard step allows adding identifiers, documents, or similar entries that have a uniqueness constraint, include a TC for that wizard step that also verifies the constraint (e.g., attempting to add a duplicate Document Type+Key pair inside the wizard). This is a different code path from adding the same post-creation on the detail page.
+- **Action dialogs:** If a `state_bound_action_bar` action opens a dialog with its own `fields{}` (e.g., Activate requires Activation Date, Reject requires Reason), generate ONE positive TC per such action-dialog — distinct from the state-transition TC. The TC fills the dialog field and completes the action.
 
 **2. State Machines (`state_bound_action_bar`):**
 - For each unique action available in a specific state, generate ONE test performing that action.
@@ -200,6 +211,19 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 
 ---
 
+**WORKFLOW COVERAGE OBLIGATION (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- Your test cases must **collectively cover every workflow** listed.
+- For each `wf_id`, at least one TC must:
+  - Activate the `conditional_branch` (if not null) — i.e. the test must set up the condition described.
+  - Assert the `on_success` as its `expected_result` (verbatim or as the primary basis for the expected result).
+- Add `"wf_ref": "WF-NNN"` to each TC to identify which workflow it covers.
+- If one TC naturally covers multiple workflows (e.g., the base path overlaps), pick the most specific `wf_ref`.
+- If a TC does not map to any workflow (e.g., a navigation-only test), set `"wf_ref": null`.
+
+---
+
 **OUTPUT — JSON only, no prose, no markdown fencing:**
 
 {
@@ -208,6 +232,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
   "test_cases": [
     {
       "tc_id": "P-001",
+      "wf_ref": "WF-001",
       "test_case": "Short descriptive name",
       "preconditions": ["User logged in as <Role>", "<Prerequisite state>"],
       "steps": ["1. Step one", "2. Step two"],
@@ -224,7 +249,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 }
 
 ------------------------------------------------------------
-[22:29:06] Test-Positive - USER PROMPT
+[14:24:50] Test-Positive - USER PROMPT
 ------------------------------------------------------------
 <module_name>Client Management</module_name>
 
@@ -233,100 +258,93 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
   "module_name": "Client Management",
   "components": {
     "Clients_Page": {
-      "type": "view",
+      "type": "data_table",
+      "description": "Clients listing with search and filters",
       "search": {
         "type": "search",
         "element_name": "Client_Search",
-        "searchable_fields": [
+        "search_targets": [
           "Name",
-          "Account_No",
-          "External_ID",
-          "Mobile_Number"
+          "Account No.",
+          "External ID",
+          "Mobile Number"
         ]
       },
-      "filter_bar": {
-        "type": "filter_bar",
-        "filters": {
-          "Status": {
-            "type": "dropdown",
-            "element_name": "Status_Filter",
-            "options": [
-              "Pending",
-              "Active",
-              "Closed",
-              "Rejected",
-              "Withdrawn"
-            ],
-            "required": false
-          }
+      "filters": {
+        "Status_Filter": {
+          "type": "dropdown",
+          "options": [
+            "Pending",
+            "Active",
+            "Closed",
+            "Rejected",
+            "Withdrawn"
+          ]
         }
       },
       "top_actions": [
         {
           "element_name": "Import Client",
-          "type": "button",
-          "on_click": "navigates to Bulk Import page"
+          "type": "link",
+          "target": "Bulk_Import_Page"
         },
         {
           "element_name": "Create Client",
           "type": "button",
-          "on_click": "opens Create Client wizard"
+          "target": "Create_Client_Wizard"
         }
       ],
-      "clients_table": {
-        "type": "data_table",
-        "element_name": "Clients_Table",
-        "columns": [
-          "Name",
-          "Account_No",
-          "External_ID",
-          "Status",
-          "Office",
-          "Staff"
-        ],
-        "row_actions": [
-          {
-            "action_name": "Open",
-            "element_type": "link",
-            "trigger_column": "Name",
-            "on_click": "navigates to Client Detail page"
-          }
-        ]
-      }
+      "columns": [
+        "Name",
+        "Account No.",
+        "External ID",
+        "Status",
+        "Office",
+        "Staff"
+      ],
+      "row_actions": [
+        {
+          "action_name": "Open Client Detail",
+          "action_type": "link",
+          "mapped_column": "Name",
+          "target": "Client_Detail_Page"
+        }
+      ]
     },
     "Bulk_Import_Page": {
-      "type": "page",
+      "type": "form",
       "fields": {
-        "Download_Template": {
+        "Download_Client_Template": {
           "type": "button",
-          "element_name": "Download_Client_Template",
-          "on_click": "downloads client Excel template"
+          "element_name": "Download Client Excel Template"
         },
         "Upload_File": {
           "type": "file_upload",
-          "element_name": "Upload_Client_File",
-          "required": false,
-          "on_success": "queues import job and records import history"
+          "element_name": "Upload Completed File"
         }
       },
-      "import_history_table": {
+      "submit_actions": [
+        {
+          "element_name": "Upload",
+          "on_success": "starts import job"
+        }
+      ],
+      "Import_History_Table": {
         "type": "data_table",
-        "element_name": "Import_History",
         "columns": [
           "Name",
-          "Import_Time",
-          "End_Time",
+          "Import Time",
+          "End Time",
           "Completed",
-          "Total_Records",
-          "Success_Count",
-          "Failure_Count",
+          "Total Records",
+          "Success Count",
+          "Failure Count",
           "Download"
         ],
         "row_actions": [
           {
             "action_name": "Download",
-            "element_type": "link",
-            "on_click": "downloads import result or error file"
+            "mapped_column": "Download"
           }
         ]
       }
@@ -345,75 +363,72 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
           "step_name": "General Details",
           "fields": {
             "Office": {
-              "type": "unspecified",
+              "type": "dropdown",
               "required": true
             },
-            "Legal_Form": {
+            "Legal Form": {
               "type": "unspecified",
               "required": false
             },
-            "First_Name": {
+            "First Name": {
               "type": "unspecified",
               "required": true
             },
-            "Middle_Name": {
+            "Middle Name": {
               "type": "unspecified",
               "required": false
             },
-            "Last_Name": {
+            "Last Name": {
               "type": "unspecified",
               "required": true
             },
-            "Date_of_Birth": {
+            "Date of Birth": {
               "type": "date",
               "required": false
             },
             "Gender": {
-              "type": "unspecified",
+              "type": "dropdown",
               "required": false
             },
             "Staff": {
-              "type": "unspecified",
+              "type": "dropdown",
               "required": false
             },
-            "Mobile_Number": {
-              "type": "unspecified",
+            "Mobile Number": {
+              "type": "number",
               "required": false
             },
-            "Email_Address": {
+            "Email Address": {
               "type": "email",
               "required": false
             },
-            "Client_Type": {
-              "type": "unspecified",
+            "Client Type": {
+              "type": "dropdown",
               "required": false
             },
-            "Client_Classification": {
-              "type": "unspecified",
+            "Client Classification": {
+              "type": "dropdown",
               "required": false
             },
-            "External_ID": {
+            "External ID": {
               "type": "unspecified",
               "required": false,
               "constraints": [
-                "must be unique across clients"
+                "must be unique"
               ]
             },
-            "Submitted_On": {
+            "Submitted On": {
               "type": "date",
               "required": true
             },
-            "Is_Staff": {
-              "type": "checkbox",
-              "required": false
+            "Is Staff": {
+              "type": "checkbox"
             },
             "Active": {
-              "type": "checkbox",
-              "required": false
+              "type": "checkbox"
             },
-            "Open_Savings_Account": {
-              "type": "checkbox",
-              "required": false
+            "Open Savings Account": {
+              "type": "checkbox"
             }
           }
         },
@@ -433,19 +448,18 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
           "fields": {
             "Identifiers": {
               "type": "repeating_group",
-              "element_name": "Create_Identifiers",
               "item_fields": {
-                "Document_Type": {
+                "Document Type": {
                   "type": "unspecified",
                   "required": false
                 },
-                "Document_Key": {
+                "Document Key": {
                   "type": "unspecified",
                   "required": false
                 }
               },
               "constraints": [
-                "duplicates not allowed"
+                "duplicates prevented"
               ]
             }
           }
@@ -453,172 +467,176 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
       ]
     },
     "Client_Detail_Page": {
-      "type": "detail_view",
-      "action_bar": {
-        "type": "state_bound_action_bar",
-        "states": {
-          "Pending": {
-            "available_actions": [
-              {
-                "action_name": "Activate",
-                "fields": {
-                  "Activation_Date": {
-                    "type": "date",
-                    "required": true,
-                    "constraints": [
-                      "must not be before Submitted_On"
-                    ]
-                  }
-                }
-              },
-              {
-                "action_name": "Edit"
-              },
-              {
-                "action_name": "Reject",
-                "fields": {
-                  "Reason": {
-                    "type": "unspecified",
-                    "required": true
-                  }
-                }
-              },
-              {
-                "action_name": "Withdraw",
-                "fields": {
-                  "Reason": {
-                    "type": "unspecified",
-                    "required": true
-                  }
-                }
-              }
-            ]
-          },
-          "Active": {
-            "available_actions": [
-              {
-                "action_name": "Edit"
-              },
-              {
-                "action_name": "Transfer Client",
-                "fields": {
-                  "Destination_Office": {
-                    "type": "unspecified",
-                    "required": true,
-                    "constraints": [
-                      "must be different from current office"
-                    ]
-                  }
-                }
-              },
-              {
-                "action_name": "Close",
-                "fields": {
-                  "Closure_Reason": {
-                    "type": "unspecified",
-                    "required": true
-                  }
+      "type": "page",
+      "tabs": [
+        {
+          "tab_name": "General",
+          "fields": {}
+        },
+        {
+          "tab_name": "Accounts",
+          "tabs": [
+            {
+              "tab_name": "Loans",
+              "fields": {}
+            },
+            {
+              "tab_name": "Savings",
+              "fields": {}
+            },
+            {
+              "tab_name": "Shares",
+              "fields": {}
+            },
+            {
+              "tab_name": "Fixed Deposits",
+              "fields": {}
+            },
+            {
+              "tab_name": "Recurring Deposits",
+              "fields": {}
+            }
+          ]
+        },
+        {
+          "tab_name": "Identifiers",
+          "fields": {
+            "Identifiers": {
+              "type": "repeating_group",
+              "item_fields": {
+                "Document Type": {
+                  "type": "unspecified",
+                  "required": false
                 },
-                "preconditions": [
-                  "no active accounts"
-                ]
+                "Document Key": {
+                  "type": "unspecified",
+                  "required": false
+                }
               },
-              {
-                "action_name": "Add Charge"
-              },
-              {
-                "action_name": "New Loan"
-              },
-              {
-                "action_name": "New Savings"
-              },
-              {
-                "action_name": "New Share Account"
-              }
-            ]
-          },
-          "Closed": {
-            "available_actions": [
-              {
-                "action_name": "Reactivate"
-              }
-            ]
-          },
-          "Rejected": {
-            "available_actions": []
-          },
-          "Withdrawn": {
-            "available_actions": []
+              "constraints": [
+                "duplicates prevented"
+              ],
+              "item_actions": [
+                {
+                  "action_name": "Add"
+                },
+                {
+                  "action_name": "Remove"
+                }
+              ]
+            }
           }
+        },
+        {
+          "tab_name": "Family Members",
+          "fields": {}
+        },
+        {
+          "tab_name": "Notes",
+          "fields": {}
+        },
+        {
+          "tab_name": "Documents",
+          "fields": {}
         }
-      },
-      "tabs": {
-        "type": "tab_container",
-        "tabs": [
-          {
-            "tab_name": "General",
-            "fields": {}
-          },
-          {
-            "tab_name": "Accounts",
-            "tabs": [
-              {
-                "tab_name": "Loans",
-                "fields": {}
-              },
-              {
-                "tab_name": "Savings",
-                "fields": {}
-              },
-              {
-                "tab_name": "Shares",
-                "fields": {}
-              },
-              {
-                "tab_name": "Fixed Deposits",
-                "fields": {}
-              },
-              {
-                "tab_name": "Recurring Deposits",
-                "fields": {}
+      ]
+    },
+    "Client_Detail_Actions": {
+      "type": "state_bound_action_bar",
+      "states": {
+        "Pending": {
+          "available_actions": [
+            {
+              "action_name": "Activate",
+              "fields": {
+                "Activation Date": {
+                  "type": "date",
+                  "required": true,
+                  "constraints": [
+                    "must not be before Submitted On"
+                  ]
+                }
               }
-            ]
-          },
-          {
-            "tab_name": "Identifiers",
-            "fields": {
-              "Identifiers": {
-                "type": "repeating_group",
-                "element_name": "Detail_Identifiers",
-                "item_fields": {
-                  "Document_Type": {
-                    "type": "unspecified",
-                    "required": false
-                  },
-                  "Document_Key": {
-                    "type": "unspecified",
-                    "required": false
-                  }
-                },
-                "constraints": [
-                  "duplicates not allowed"
-                ]
+            },
+            {
+              "action_name": "Edit"
+            },
+            {
+              "action_name": "Reject",
+              "fields": {
+                "Reason": {
+                  "type": "unspecified",
+                  "required": true
+                }
+              }
+            },
+            {
+              "action_name": "Withdraw",
+              "fields": {
+                "Reason": {
+                  "type": "unspecified",
+                  "required": true
+                }
               }
             }
-          },
-          {
-            "tab_name": "Family Members",
-            "fields": {}
-          },
-          {
-            "tab_name": "Notes",
-            "fields": {}
-          },
-          {
-            "tab_name": "Documents",
-            "fields": {}
-          }
-        ]
+          ]
+        },
+        "Active": {
+          "available_actions": [
+            {
+              "action_name": "Edit"
+            },
+            {
+              "action_name": "Transfer Client",
+              "fields": {
+                "Destination Office": {
+                  "type": "dropdown",
+                  "required": true
+                }
+              },
+              "constraints": [
+                "Destination Office must be different from current Office"
+              ]
+            },
+            {
+              "action_name": "Close",
+              "fields": {
+                "Closure Reason": {
+                  "type": "unspecified",
+                  "required": true
+                }
+              },
+              "constraints": [
+                "cannot close with active accounts"
+              ]
+            },
+            {
+              "action_name": "Add Charge"
+            },
+            {
+              "action_name": "New Loan"
+            },
+            {
+              "action_name": "New Savings"
+            },
+            {
+              "action_name": "New Share Account"
+            }
+          ]
+        },
+        "Closed": {
+          "available_actions": [
+            {
+              "action_name": "Reactivate"
+            }
+          ]
+        },
+        "Rejected": {
+          "available_actions": []
+        },
+        "Withdrawn": {
+          "available_actions": []
+        }
       }
     }
   }
@@ -638,10 +656,36 @@ The Client Detail page displays the client name, account number, status badge, a
 
 </description>
 
+<workflows>
+WF-001 | Open Create Client wizard | actor: <role> | branch: none | terminal: Create Client | on_success: opens Create Client wizard
+WF-002 | Open Bulk Import page | actor: <role> | branch: none | terminal: Import Client | on_success: opens Bulk Import page
+WF-003 | Search clients | actor: <role> | branch: none | terminal: Client_Search | on_success: filters client list by search query (Name, Account No., External ID, or Mobile Number)
+WF-004 | Filter clients by Status | actor: <role> | branch: none | terminal: Status_Filter | on_success: filters client list by selected status
+WF-005 | Open Client Detail from listing | actor: <role> | branch: none | terminal: Open Client Detail | on_success: navigates to Client Detail page for selected client
+WF-006 | Download client Excel template (Bulk Import) | actor: <role> | branch: none | terminal: Download Client Excel Template | on_success: downloads client Excel template
+WF-007 | Upload file to start import | actor: <role> | branch: none | terminal: Upload | on_success: starts import job
+WF-008 | Download import result from Import History | actor: <role> | branch: none | terminal: Download | on_success: downloads import results for the selected import entry
+WF-009 | Submit Create Client wizard | actor: <role> | branch: none | terminal: Submit | on_success: creates client in Pending status
+WF-010 | Activate client (Pending) | actor: <role> | branch: entity_state == Pending | terminal: Activate | on_success: client status changes to Active
+WF-011 | Edit client (Pending) | actor: <role> | branch: entity_state == Pending | terminal: Edit | on_success: client updated
+WF-012 | Reject client (Pending) | actor: <role> | branch: entity_state == Pending | terminal: Reject | on_success: client status set to Rejected
+WF-013 | Withdraw client (Pending) | actor: <role> | branch: entity_state == Pending | terminal: Withdraw | on_success: client status set to Withdrawn
+WF-014 | Edit client (Active) | actor: <role> | branch: entity_state == Active | terminal: Edit | on_success: client updated
+WF-015 | Transfer client (Active) | actor: <role> | branch: entity_state == Active | terminal: Transfer Client | on_success: client transferred to Destination Office
+WF-016 | Close client (Active) | actor: <role> | branch: entity_state == Active | terminal: Close | on_success: client status set to Closed
+WF-017 | Add charge to client (Active) | actor: <role> | branch: entity_state == Active | terminal: Add Charge | on_success: charge added for client
+WF-018 | Create new loan for client (Active) | actor: <role> | branch: entity_state == Active | terminal: New Loan | on_success: initiates new loan flow for client
+WF-019 | Create new savings for client (Active) | actor: <role> | branch: entity_state == Active | terminal: New Savings | on_success: initiates new savings flow for client
+WF-020 | Create new share account for client (Active) | actor: <role> | branch: entity_state == Active | terminal: New Share Account | on_success: initiates new share account flow for client
+WF-021 | Reactivate client (Closed) | actor: <role> | branch: entity_state == Closed | terminal: Reactivate | on_success: client status set to Active
+WF-022 | Add identifier (Client Detail Identifiers) | actor: <role> | branch: none | terminal: Add | on_success: identifier added (duplicates prevented)
+WF-023 | Remove identifier (Client Detail Identifiers) | actor: <role> | branch: none | terminal: Remove | on_success: identifier removed
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[22:31:06] Test-Positive - LLM RESPONSE
+[14:27:06] Test-Positive - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Client Management",
@@ -649,212 +693,451 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Search clients by Name returns only matching rows",
+      "wf_ref": "WF-001",
+      "test_case": "Open Create Client wizard from Clients page",
       "preconditions": [
-        "User logged in as <Staff>",
-        "At least one client exists with Name matching <search term> and other clients exist with different names"
+        "User logged in as <role>"
       ],
       "steps": [
         "1. Navigate to the Clients page",
-        "2. Enter <search term> in the Client_Search field",
-        "3. Press Enter or click the search icon"
+        "2. Click the 'Create Client' button in the top-right"
       ],
-      "expected_result": "Clients_Table displays only rows matching <search term> in Name/Account_No/External_ID/Mobile_Number; unrelated client rows are not visible",
-      "priority": "high"
+      "expected_result": "opens Create Client wizard",
+      "priority": "medium"
     },
     {
       "tc_id": "P-002",
-      "test_case": "Filter clients by Status shows only those status rows",
+      "wf_ref": "WF-009",
+      "test_case": "Submit Create Client wizard with required fields and an identifier",
       "preconditions": [
-        "User logged in as <Staff>",
-        "Clients exist in multiple statuses including 'Active'"
+        "User logged in as <role>"
       ],
       "steps": [
         "1. Navigate to the Clients page",
-        "2. Open the Status_Filter dropdown",
-        "3. Select 'Active' from the Status_Filter"
+        "2. Click 'Create Client' to open the Create Client wizard",
+        "3. On Step 1 (General Details) select <Office>, enter <First Name>, enter <Last Name>, select <Submitted On>",
+        "4. Click Next to proceed to Step 2, then click Next to proceed to Step 3",
+        "5. Click Next to reach Step 4 (Identifiers); click Add Row, enter <Document Type> and <Document Key>",
+        "6. Click Submit"
       ],
-      "expected_result": "Clients_Table displays only rows whose Status column shows 'Active' (green); rows with other status badges are not visible",
+      "expected_result": "creates client in Pending status",
       "priority": "high"
     },
     {
       "tc_id": "P-003",
-      "test_case": "Open client from Clients table navigates to Client Detail page",
+      "wf_ref": "WF-002",
+      "test_case": "Open Bulk Import page via Import Client link",
       "preconditions": [
-        "User logged in as <Staff>",
-        "A client exists with Name = <target client>"
+        "User logged in as <role>"
       ],
       "steps": [
         "1. Navigate to the Clients page",
-        "2. Click the Name link for <target client> in the Clients_Table"
+        "2. Click the 'Import Client' link at the top-right"
       ],
-      "expected_result": "Client Detail page is displayed for <target client>; the client's name is visible and the Status badge is shown on the page",
+      "expected_result": "opens Bulk Import page",
       "priority": "medium"
     },
     {
       "tc_id": "P-004",
-      "test_case": "Create Client wizard happy path creates client in Pending status",
+      "wf_ref": "WF-006",
+      "test_case": "Download client Excel template from Bulk Import page",
       "preconditions": [
-        "User logged in as <Staff>"
+        "User logged in as <role>"
       ],
       "steps": [
         "1. Navigate to the Clients page",
-        "2. Click the Create Client button to open the Create Client wizard",
-        "3. In Step 1 (General Details) select <Office> in Office",
-        "4. Enter <First name> in First_Name and <Last name> in Last_Name",
-        "5. Enter <Submitted date> in Submitted_On",
-        "6. (Optional) enter a unique value in External_ID as <unique external id>",
-        "7. Navigate through Step 2 and Step 3 using Next (no required fields)",
-        "8. In Step 4 (Identifiers) do not add identifiers for this test",
-        "9. Click Submit"
+        "2. Click 'Import Client' to open the Bulk Import page",
+        "3. Click 'Download Client Excel Template' button"
       ],
-      "expected_result": "Client Detail page is displayed for the new client; Status badge shows 'Pending' (yellow) and the client's name is visible on the page",
-      "priority": "high"
+      "expected_result": "downloads client Excel template",
+      "priority": "medium"
     },
     {
       "tc_id": "P-005",
-      "test_case": "Create Client wizard with Identifiers adds identifier and results are visible on detail page",
+      "wf_ref": "WF-007",
+      "test_case": "Upload completed client import file to start import job",
       "preconditions": [
-        "User logged in as <Staff>"
+        "User logged in as <role>"
       ],
       "steps": [
         "1. Navigate to the Clients page",
-        "2. Click the Create Client button to open the Create Client wizard",
-        "3. In Step 1 (General Details) select <Office> and enter <First name>, <Last name>, and <Submitted date>",
-        "4. Proceed to Step 4 (Identifiers)",
-        "5. Click Add Row in the Create_Identifiers repeating group",
-        "6. Enter <Document Type A> in Document_Type and <Document Key A> in Document_Key for the new row",
-        "7. (Optional) Add a second identifier row with <Document Type B> and <Document Key B> to demonstrate multiple identifiers",
-        "8. Click Submit"
+        "2. Click 'Import Client' to open the Bulk Import page",
+        "3. Click 'Upload Completed File' and select a <valid client import file>",
+        "4. Click the 'Upload' button"
       ],
-      "expected_result": "Client Detail page is displayed for the new client; Status badge shows 'Pending' (yellow) and on the Identifiers tab the added identifier rows list the entered Document_Type and Document_Key values",
+      "expected_result": "starts import job",
       "priority": "medium"
     },
     {
       "tc_id": "P-006",
-      "test_case": "Bulk Import page Download Template triggers client Excel template download",
+      "wf_ref": "WF-008",
+      "test_case": "Download import result from Import History table",
       "preconditions": [
-        "User logged in as <Staff>"
+        "User logged in as <role>",
+        "An import history entry exists for <existing import entry>"
       ],
       "steps": [
         "1. Navigate to the Clients page",
-        "2. Click Import Client to navigate to the Bulk Import page",
-        "3. Click the Download_Client_Template button"
+        "2. Click 'Import Client' to open the Bulk Import page",
+        "3. In the Import History table locate the row for <existing import entry>",
+        "4. Click the 'Download' action in that row"
       ],
-      "expected_result": "File download is triggered in the browser for the client Excel template",
-      "priority": "low"
+      "expected_result": "downloads import results for the selected import entry",
+      "priority": "medium"
     },
     {
       "tc_id": "P-007",
-      "test_case": "Bulk Import upload queues import and creates an Import History row",
+      "wf_ref": "WF-003",
+      "test_case": "Search clients by a query that matches Name/Account/External ID/Mobile",
       "preconditions": [
-        "User logged in as <Staff>",
-        "A valid client import file <valid import file> is available"
+        "User logged in as <role>",
+        "Clients page is populated with multiple client rows"
       ],
       "steps": [
         "1. Navigate to the Clients page",
-        "2. Click Import Client to navigate to the Bulk Import page",
-        "3. Click Upload_Client_File and select <valid import file> from the OS file dialog",
-        "4. Confirm the upload"
+        "2. Enter <search query> in the Client_Search field and trigger search (press Enter or click Search)"
       ],
-      "expected_result": "A new row appears in the Import_History table for <valid import file>; the row is visible in the Import History table with Name corresponding to the uploaded file",
+      "expected_result": "Clients list displays only rows matching <search query> in Name, Account No., External ID, or Mobile Number; unrelated rows are no longer visible",
       "priority": "medium"
     },
     {
       "tc_id": "P-008",
-      "test_case": "Download import result from Import History triggers file download",
+      "wf_ref": "WF-004",
+      "test_case": "Filter clients by Status using the Status dropdown",
       "preconditions": [
-        "User logged in as <Staff>",
-        "Import_History contains a completed import row for <completed import>"
+        "User logged in as <role>",
+        "Clients page is populated with clients in various statuses"
       ],
       "steps": [
         "1. Navigate to the Clients page",
-        "2. Click Import Client to navigate to the Bulk Import page",
-        "3. In the Import_History table click the Download action for the row corresponding to <completed import>"
+        "2. Open the Status_Filter dropdown and select <Status>"
       ],
-      "expected_result": "File download is triggered in the browser for the import result or error file associated with <completed import>",
+      "expected_result": "Clients list displays only rows with Status = <Status>; unrelated rows are no longer visible",
       "priority": "medium"
     },
     {
       "tc_id": "P-009",
-      "test_case": "Activate action on Pending client sets status to Active and shows Activation Date",
+      "wf_ref": "WF-005",
+      "test_case": "Open Client Detail by clicking client Name in listing",
       "preconditions": [
-        "User logged in as <Staff>",
-        "A client exists in Pending status with Submitted_On = <submitted date> and Client Detail page is open for that client"
+        "User logged in as <role>",
+        "Clients page shows a row for <target client>"
       ],
       "steps": [
-        "1. On the Client Detail page ensure the action bar shows Activate in Pending state",
-        "2. Click Activate",
-        "3. Enter <activation date> in Activation_Date (where <activation date> is on or after <submitted date>)",
-        "4. Click Confirm on the Activate dialog"
+        "1. Navigate to the Clients page",
+        "2. Click the client Name link for <target client> in the table"
       ],
-      "expected_result": "On the Client Detail page the Status badge updates to 'Active' (green) and the Activation Date field displays <activation date>",
-      "priority": "high"
-    },
-    {
-      "tc_id": "P-010",
-      "test_case": "Reject action on Pending client sets status to Rejected",
-      "preconditions": [
-        "User logged in as <Staff>",
-        "A client exists in Pending status and Client Detail page is open for that client"
-      ],
-      "steps": [
-        "1. On the Client Detail page click Reject in the action bar",
-        "2. Enter <rejection reason> in Reason",
-        "3. Click Confirm on the Reject dialog"
-      ],
-      "expected_result": "On the Client Detail page the Status badge updates to 'Rejected' (red)",
+      "expected_result": "navigates to Client Detail page for selected client",
       "priority": "medium"
     },
     {
-      "tc_id": "P-011",
-      "test_case": "Transfer Client action on Active client updates Office to selected Destination_Office",
+      "tc_id": "P-010",
+      "wf_ref": "WF-010",
+      "test_case": "Activate a Pending client by providing a valid Activation Date",
       "preconditions": [
-        "User logged in as <Staff>",
-        "A client exists in Active status with Office = <current office> and Client Detail page is open for that client"
+        "User logged in as <role>",
+        "A client exists in Pending status named <target client>"
       ],
       "steps": [
-        "1. On the Client Detail page click Transfer Client in the action bar",
-        "2. Select <Destination_Office> (different from <current office>) in Destination_Office",
-        "3. Click Confirm on the Transfer dialog"
+        "1. Navigate to the Clients page",
+        "2. Click the client Name link for <target client> to open Client Detail page",
+        "3. Click the 'Activate' action",
+        "4. In the Activate dialog enter <Activation Date> that is on or after the client's <Submitted On> date",
+        "5. Click Confirm on the Activate dialog"
       ],
-      "expected_result": "On the Client Detail page the Office field updates to the selected <Destination_Office>",
+      "expected_result": "client status changes to Active",
       "priority": "high"
     },
     {
-      "tc_id": "P-012",
-      "test_case": "Navigate across all tabs and Accounts sub-tabs on the Client Detail page",
+      "tc_id": "P-011",
+      "wf_ref": "WF-011",
+      "test_case": "Edit a Pending client and save changes",
       "preconditions": [
-        "User logged in as <Staff>",
-        "Client Detail page is open for a client"
+        "User logged in as <role>",
+        "A client exists in Pending status named <target client>"
       ],
       "steps": [
-        "1. On the Client Detail page click the General tab and verify its panel is visible",
-        "2. Click the Accounts tab and verify the Accounts panel is visible",
-        "3. Within Accounts click the Loans sub-tab and verify its panel is visible",
-        "4. Click the Savings sub-tab and verify its panel is visible",
-        "5. Click the Shares sub-tab and verify its panel is visible",
-        "6. Click the Fixed Deposits sub-tab and verify its panel is visible",
-        "7. Click the Recurring Deposits sub-tab and verify its panel is visible",
-        "8. Click the Identifiers tab and verify the Identifiers panel with the Detail_Identifiers repeating group is visible",
-        "9. Click the Family Members tab and verify its panel is visible",
-        "10. Click the Notes tab and verify its panel is visible",
-        "11. Click the Documents tab and verify its panel is visible"
+        "1. Navigate to the Clients page",
+        "2. Click the client Name link for <target client> to open Client Detail page",
+        "3. Click the 'Edit' action",
+        "4. Modify an editable field (for example enter <new value> in the Mobile Number field)",
+        "5. Click Save"
       ],
-      "expected_result": "Each selected tab/sub-tab displays its corresponding panel; Accounts shows sub-tabs Loans, Savings, Shares, Fixed Deposits and Recurring Deposits and Identifiers displays the identifiers repeating-group area",
+      "expected_result": "client updated",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-012",
+      "wf_ref": "WF-012",
+      "test_case": "Reject a Pending client with a required reason",
+      "preconditions": [
+        "User logged in as <role>",
+        "A client exists in Pending status named <target client>"
+      ],
+      "steps": [
+        "1. Navigate to the Clients page",
+        "2. Click the client Name link for <target client> to open Client Detail page",
+        "3. Click the 'Reject' action",
+        "4. In the Reject dialog enter <Reason>",
+        "5. Click Confirm on the Reject dialog"
+      ],
+      "expected_result": "client status set to Rejected",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-013",
+      "wf_ref": "WF-013",
+      "test_case": "Withdraw a Pending client by providing a reason",
+      "preconditions": [
+        "User logged in as <role>",
+        "A client exists in Pending status named <target client>"
+      ],
+      "steps": [
+        "1. Navigate to the Clients page",
+        "2. Click the client Name link for <target client> to open Client Detail page",
+        "3. Click the 'Withdraw' action",
+        "4. In the Withdraw dialog enter <Reason>",
+        "5. Click Confirm on the Withdraw dialog"
+      ],
+      "expected_result": "client status set to Withdrawn",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-014",
+      "wf_ref": "WF-014",
+      "test_case": "Edit an Active client and save changes",
+      "preconditions": [
+        "User logged in as <role>",
+        "A client exists in Active status named <target client>"
+      ],
+      "steps": [
+        "1. Navigate to the Clients page",
+        "2. Click the client Name link for <target client> to open Client Detail page",
+        "3. Click the 'Edit' action",
+        "4. Modify an editable field (for example enter <new value> in the Email Address field)",
+        "5. Click Save"
+      ],
+      "expected_result": "client updated",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-015",
+      "wf_ref": "WF-015",
+      "test_case": "Transfer an Active client to a different Destination Office",
+      "preconditions": [
+        "User logged in as <role>",
+        "A client exists in Active status at <Current Office>"
+      ],
+      "steps": [
+        "1. Navigate to the Clients page",
+        "2. Click the client Name link for <target client> to open Client Detail page",
+        "3. Click the 'Transfer Client' action",
+        "4. In the Transfer dialog select <Destination Office> that is different from <Current Office>",
+        "5. Click Confirm on the Transfer dialog"
+      ],
+      "expected_result": "client transferred to Destination Office",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-016",
+      "wf_ref": "WF-016",
+      "test_case": "Close an Active client that has no active accounts by providing a closure reason",
+      "preconditions": [
+        "User logged in as <role>",
+        "A client exists in Active status named <target client> with no active accounts"
+      ],
+      "steps": [
+        "1. Navigate to the Clients page",
+        "2. Click the client Name link for <target client> to open Client Detail page",
+        "3. Click the 'Close' action",
+        "4. In the Close dialog enter <Closure Reason>",
+        "5. Click Confirm on the Close dialog"
+      ],
+      "expected_result": "client status set to Closed",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-017",
+      "wf_ref": "WF-017",
+      "test_case": "Add a charge to an Active client",
+      "preconditions": [
+        "User logged in as <role>",
+        "A client exists in Active status named <target client>"
+      ],
+      "steps": [
+        "1. Navigate to the Clients page",
+        "2. Click the client Name link for <target client> to open Client Detail page",
+        "3. Click the 'Add Charge' action",
+        "4. In the Add Charge dialog enter required <Charge details>",
+        "5. Click Save or Confirm on the Add Charge dialog"
+      ],
+      "expected_result": "charge added for client",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-018",
+      "wf_ref": "WF-018",
+      "test_case": "Initiate New Loan flow for an Active client",
+      "preconditions": [
+        "User logged in as <role>",
+        "A client exists in Active status named <target client>"
+      ],
+      "steps": [
+        "1. Navigate to the Clients page",
+        "2. Click the client Name link for <target client> to open Client Detail page",
+        "3. Click the 'New Loan' action"
+      ],
+      "expected_result": "initiates new loan flow for client",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-019",
+      "wf_ref": "WF-019",
+      "test_case": "Initiate New Savings flow for an Active client",
+      "preconditions": [
+        "User logged in as <role>",
+        "A client exists in Active status named <target client>"
+      ],
+      "steps": [
+        "1. Navigate to the Clients page",
+        "2. Click the client Name link for <target client> to open Client Detail page",
+        "3. Click the 'New Savings' action"
+      ],
+      "expected_result": "initiates new savings flow for client",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-020",
+      "wf_ref": "WF-020",
+      "test_case": "Initiate New Share Account flow for an Active client",
+      "preconditions": [
+        "User logged in as <role>",
+        "A client exists in Active status named <target client>"
+      ],
+      "steps": [
+        "1. Navigate to the Clients page",
+        "2. Click the client Name link for <target client> to open Client Detail page",
+        "3. Click the 'New Share Account' action"
+      ],
+      "expected_result": "initiates new share account flow for client",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-021",
+      "wf_ref": "WF-021",
+      "test_case": "Reactivate a Closed client",
+      "preconditions": [
+        "User logged in as <role>",
+        "A client exists in Closed status named <target client>"
+      ],
+      "steps": [
+        "1. Navigate to the Clients page",
+        "2. Click the client Name link for <target client> to open Client Detail page",
+        "3. Click the 'Reactivate' action",
+        "4. Click Confirm on the Reactivate dialog"
+      ],
+      "expected_result": "client status set to Active",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-022",
+      "wf_ref": "WF-022",
+      "test_case": "Add an identifier on Client Detail Identifiers tab",
+      "preconditions": [
+        "User logged in as <role>",
+        "Client Detail page is open for <target client>"
+      ],
+      "steps": [
+        "1. Navigate to the Clients page",
+        "2. Click the client Name link for <target client> to open Client Detail page",
+        "3. Click the 'Identifiers' tab",
+        "4. Click 'Add' to add a new identifier row",
+        "5. Enter <Document Type> and <Document Key> and click Save/Add"
+      ],
+      "expected_result": "identifier added (duplicates prevented)",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-023",
+      "wf_ref": "WF-023",
+      "test_case": "Remove an identifier from Client Detail Identifiers tab",
+      "preconditions": [
+        "User logged in as <role>",
+        "Client Detail page is open for <target client> with at least one identifier present"
+      ],
+      "steps": [
+        "1. Navigate to the Clients page",
+        "2. Click the client Name link for <target client> to open Client Detail page",
+        "3. Click the 'Identifiers' tab",
+        "4. Click 'Remove' on the target identifier row and confirm the removal"
+      ],
+      "expected_result": "identifier removed",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-024",
+      "wf_ref": null,
+      "test_case": "Create Client wizard: enter Address Details on Step 2 and verify on detail page after submit",
+      "preconditions": [
+        "User logged in as <role>"
+      ],
+      "steps": [
+        "1. Navigate to the Clients page",
+        "2. Click 'Create Client' to open the Create Client wizard",
+        "3. On Step 1 (General Details) select <Office>, enter <First Name>, enter <Last Name>, select <Submitted On>",
+        "4. Click Next to reach Step 2 (Address Details)",
+        "5. Enter <Address fields> (for example enter <Address line 1> and <City>)",
+        "6. Click Next until the final step and click Submit"
+      ],
+      "expected_result": "On the Client Detail page the Address section displays the entered <Address fields>",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-025",
+      "wf_ref": null,
+      "test_case": "Create Client wizard: add Family Member on Step 3 and verify on detail page after submit",
+      "preconditions": [
+        "User logged in as <role>"
+      ],
+      "steps": [
+        "1. Navigate to the Clients page",
+        "2. Click 'Create Client' to open the Create Client wizard",
+        "3. On Step 1 (General Details) select <Office>, enter <First Name>, enter <Last Name>, select <Submitted On>",
+        "4. Click Next to reach Step 2, click Next to reach Step 3 (Family Members)",
+        "5. In Family Members add a member by entering <Family Member Name> and <relationship>",
+        "6. Click Next to reach the final step and click Submit"
+      ],
+      "expected_result": "On the Client Detail page the Family Members tab lists the added member with the entered relationship",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-026",
+      "wf_ref": null,
+      "test_case": "Create Client wizard: verify duplicate Identifier is prevented within the wizard",
+      "preconditions": [
+        "User logged in as <role>"
+      ],
+      "steps": [
+        "1. Navigate to the Clients page",
+        "2. Click 'Create Client' to open the Create Client wizard",
+        "3. On Step 1 fill required fields (select <Office>, enter <First Name>, enter <Last Name>, select <Submitted On>) and click Next repeatedly to reach Step 4 (Identifiers)",
+        "4. Click Add Row and enter <Document Type A> and <Document Key A>; click Add Row again and enter <Document Type A> and <Document Key A> (same values)",
+        "5. Attempt to proceed or save the identifiers within the wizard"
+      ],
+      "expected_result": "An inline validation prevents adding a duplicate Document Type + Document Key entry (duplicates prevented)",
       "priority": "medium"
     }
   ],
   "summary": {
-    "total": 12,
-    "high_priority": 5,
-    "medium_priority": 6,
-    "low_priority": 1
+    "total": 26,
+    "high_priority": 8,
+    "medium_priority": 18,
+    "low_priority": 0
   }
 }
 
 ------------------------------------------------------------
-[22:31:06] Test-Positive - PARSED JSON
+[14:27:06] Test-Positive - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Client Management",
@@ -862,206 +1145,445 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Search clients by Name returns only matching rows",
+      "wf_ref": "WF-001",
+      "test_case": "Open Create Client wizard from Clients page",
       "preconditions": [
-        "User logged in as <Staff>",
-        "At least one client exists with Name matching <search term> and other clients exist with different names"
+        "User logged in as <role>"
       ],
       "steps": [
         "1. Navigate to the Clients page",
-        "2. Enter <search term> in the Client_Search field",
-        "3. Press Enter or click the search icon"
+        "2. Click the 'Create Client' button in the top-right"
       ],
-      "expected_result": "Clients_Table displays only rows matching <search term> in Name/Account_No/External_ID/Mobile_Number; unrelated client rows are not visible",
-      "priority": "high"
+      "expected_result": "opens Create Client wizard",
+      "priority": "medium"
     },
     {
       "tc_id": "P-002",
-      "test_case": "Filter clients by Status shows only those status rows",
+      "wf_ref": "WF-009",
+      "test_case": "Submit Create Client wizard with required fields and an identifier",
       "preconditions": [
-        "User logged in as <Staff>",
-        "Clients exist in multiple statuses including 'Active'"
+        "User logged in as <role>"
       ],
       "steps": [
         "1. Navigate to the Clients page",
-        "2. Open the Status_Filter dropdown",
-        "3. Select 'Active' from the Status_Filter"
+        "2. Click 'Create Client' to open the Create Client wizard",
+        "3. On Step 1 (General Details) select <Office>, enter <First Name>, enter <Last Name>, select <Submitted On>",
+        "4. Click Next to proceed to Step 2, then click Next to proceed to Step 3",
+        "5. Click Next to reach Step 4 (Identifiers); click Add Row, enter <Document Type> and <Document Key>",
+        "6. Click Submit"
       ],
-      "expected_result": "Clients_Table displays only rows whose Status column shows 'Active' (green); rows with other status badges are not visible",
+      "expected_result": "creates client in Pending status",
       "priority": "high"
     },
     {
       "tc_id": "P-003",
-      "test_case": "Open client from Clients table navigates to Client Detail page",
+      "wf_ref": "WF-002",
+      "test_case": "Open Bulk Import page via Import Client link",
       "preconditions": [
-        "User logged in as <Staff>",
-        "A client exists with Name = <target client>"
+        "User logged in as <role>"
       ],
       "steps": [
         "1. Navigate to the Clients page",
-        "2. Click the Name link for <target client> in the Clients_Table"
+        "2. Click the 'Import Client' link at the top-right"
       ],
-      "expected_result": "Client Detail page is displayed for <target client>; the client's name is visible and the Status badge is shown on the page",
+      "expected_result": "opens Bulk Import page",
       "priority": "medium"
     },
     {
       "tc_id": "P-004",
-      "test_case": "Create Client wizard happy path creates client in Pending status",
+      "wf_ref": "WF-006",
+      "test_case": "Download client Excel template from Bulk Import page",
       "preconditions": [
-        "User logged in as <Staff>"
+        "User logged in as <role>"
       ],
       "steps": [
         "1. Navigate to the Clients page",
-        "2. Click the Create Client button to open the Create Client wizard",
-        "3. In Step 1 (General Details) select <Office> in Office",
-        "4. Enter <First name> in First_Name and <Last name> in Last_Name",
-        "5. Enter <Submitted date> in Submitted_On",
-        "6. (Optional) enter a unique value in External_ID as <unique external id>",
-        "7. Navigate through Step 2 and Step 3 using Next (no required fields)",
-        "8. In Step 4 (Identifiers) do not add identifiers for this test",
-        "9. Click Submit"
+        "2. Click 'Import Client' to open the Bulk Import page",
+        "3. Click 'Download Client Excel Template' button"
       ],
-      "expected_result": "Client Detail page is displayed for the new client; Status badge shows 'Pending' (yellow) and the client's name is visible on the page",
-      "priority": "high"
+      "expected_result": "downloads client Excel template",
+      "priority": "medium"
     },
     {
       "tc_id": "P-005",
-      "test_case": "Create Client wizard with Identifiers adds identifier and results are visible on detail page",
+      "wf_ref": "WF-007",
+      "test_case": "Upload completed client import file to start import job",
       "preconditions": [
-        "User logged in as <Staff>"
+        "User logged in as <role>"
       ],
       "steps": [
         "1. Navigate to the Clients page",
-        "2. Click the Create Client button to open the Create Client wizard",
-        "3. In Step 1 (General Details) select <Office> and enter <First name>, <Last name>, and <Submitted date>",
-        "4. Proceed to Step 4 (Identifiers)",
-        "5. Click Add Row in the Create_Identifiers repeating group",
-        "6. Enter <Document Type A> in Document_Type and <Document Key A> in Document_Key for the new row",
-        "7. (Optional) Add a second identifier row with <Document Type B> and <Document Key B> to demonstrate multiple identifiers",
-        "8. Click Submit"
+        "2. Click 'Import Client' to open the Bulk Import page",
+        "3. Click 'Upload Completed File' and select a <valid client import file>",
+        "4. Click the 'Upload' button"
       ],
-      "expected_result": "Client Detail page is displayed for the new client; Status badge shows 'Pending' (yellow) and on the Identifiers tab the added identifier rows list the entered Document_Type and Document_Key values",
+      "expected_result": "starts import job",
       "priority": "medium"
     },
     {
       "tc_id": "P-006",
-      "test_case": "Bulk Import page Download Template triggers client Excel template download",
+      "wf_ref": "WF-008",
+      "test_case": "Download import result from Import History table",
       "preconditions": [
-        "User logged in as <Staff>"
+        "User logged in as <role>",
+        "An import history entry exists for <existing import entry>"
       ],
       "steps": [
         "1. Navigate to the Clients page",
-        "2. Click Import Client to navigate to the Bulk Import page",
-        "3. Click the Download_Client_Template button"
+        "2. Click 'Import Client' to open the Bulk Import page",
+        "3. In the Import History table locate the row for <existing import entry>",
+        "4. Click the 'Download' action in that row"
       ],
-      "expected_result": "File download is triggered in the browser for the client Excel template",
-      "priority": "low"
+      "expected_result": "downloads import results for the selected import entry",
+      "priority": "medium"
     },
     {
       "tc_id": "P-007",
-      "test_case": "Bulk Import upload queues import and creates an Import History row",
+      "wf_ref": "WF-003",
+      "test_case": "Search clients by a query that matches Name/Account/External ID/Mobile",
       "preconditions": [
-        "User logged in as <Staff>",
-        "A valid client import file <valid import file> is available"
+        "User logged in as <role>",
+        "Clients page is populated with multiple client rows"
       ],
       "steps": [
         "1. Navigate to the Clients page",
-        "2. Click Import Client to navigate to the Bulk Import page",
-        "3. Click Upload_Client_File and select <valid import file> from the OS file dialog",
-        "4. Confirm the upload"
+        "2. Enter <search query> in the Client_Search field and trigger search (press Enter or click Search)"
       ],
-      "expected_result": "A new row appears in the Import_History table for <valid import file>; the row is visible in the Import History table with Name corresponding to the uploaded file",
+      "expected_result": "Clients list displays only rows matching <search query> in Name, Account No., External ID, or Mobile Number; unrelated rows are no longer visible",
       "priority": "medium"
     },
     {
       "tc_id": "P-008",
-      "test_case": "Download import result from Import History triggers file download",
+      "wf_ref": "WF-004",
+      "test_case": "Filter clients by Status using the Status dropdown",
       "preconditions": [
-        "User logged in as <Staff>",
-        "Import_History contains a completed import row for <completed import>"
+        "User logged in as <role>",
+        "Clients page is populated with clients in various statuses"
       ],
       "steps": [
         "1. Navigate to the Clients page",
-        "2. Click Import Client to navigate to the Bulk Import page",
-        "3. In the Import_History table click the Download action for the row corresponding to <completed import>"
+        "2. Open the Status_Filter dropdown and select <Status>"
       ],
-      "expected_result": "File download is triggered in the browser for the import result or error file associated with <completed import>",
+      "expected_result": "Clients list displays only rows with Status = <Status>; unrelated rows are no longer visible",
       "priority": "medium"
     },
     {
       "tc_id": "P-009",
-      "test_case": "Activate action on Pending client sets status to Active and shows Activation Date",
+      "wf_ref": "WF-005",
+      "test_case": "Open Client Detail by clicking client Name in listing",
       "preconditions": [
-        "User logged in as <Staff>",
-        "A client exists in Pending status with Submitted_On = <submitted date> and Client Detail page is open for that client"
+        "User logged in as <role>",
+        "Clients page shows a row for <target client>"
       ],
       "steps": [
-        "1. On the Client Detail page ensure the action bar shows Activate in Pending state",
-        "2. Click Activate",
-        "3. Enter <activation date> in Activation_Date (where <activation date> is on or after <submitted date>)",
-        "4. Click Confirm on the Activate dialog"
+        "1. Navigate to the Clients page",
+        "2. Click the client Name link for <target client> in the table"
       ],
-      "expected_result": "On the Client Detail page the Status badge updates to 'Active' (green) and the Activation Date field displays <activation date>",
-      "priority": "high"
-    },
-    {
-      "tc_id": "P-010",
-      "test_case": "Reject action on Pending client sets status to Rejected",
-      "preconditions": [
-        "User logged in as <Staff>",
-        "A client exists in Pending status and Client Detail page is open for that client"
-      ],
-      "steps": [
-        "1. On the Client Detail page click Reject in the action bar",
-        "2. Enter <rejection reason> in Reason",
-        "3. Click Confirm on the Reject dialog"
-      ],
-      "expected_result": "On the Client Detail page the Status badge updates to 'Rejected' (red)",
+      "expected_result": "navigates to Client Detail page for selected client",
       "priority": "medium"
     },
     {
-      "tc_id": "P-011",
-      "test_case": "Transfer Client action on Active client updates Office to selected Destination_Office",
+      "tc_id": "P-010",
+      "wf_ref": "WF-010",
+      "test_case": "Activate a Pending client by providing a valid Activation Date",
       "preconditions": [
-        "User logged in as <Staff>",
-        "A client exists in Active status with Office = <current office> and Client Detail page is open for that client"
+        "User logged in as <role>",
+        "A client exists in Pending status named <target client>"
       ],
       "steps": [
-        "1. On the Client Detail page click Transfer Client in the action bar",
-        "2. Select <Destination_Office> (different from <current office>) in Destination_Office",
-        "3. Click Confirm on the Transfer dialog"
+        "1. Navigate to the Clients page",
+        "2. Click the client Name link for <target client> to open Client Detail page",
+        "3. Click the 'Activate' action",
+        "4. In the Activate dialog enter <Activation Date> that is on or after the client's <Submitted On> date",
+        "5. Click Confirm on the Activate dialog"
       ],
-      "expected_result": "On the Client Detail page the Office field updates to the selected <Destination_Office>",
+      "expected_result": "client status changes to Active",
       "priority": "high"
     },
     {
-      "tc_id": "P-012",
-      "test_case": "Navigate across all tabs and Accounts sub-tabs on the Client Detail page",
+      "tc_id": "P-011",
+      "wf_ref": "WF-011",
+      "test_case": "Edit a Pending client and save changes",
       "preconditions": [
-        "User logged in as <Staff>",
-        "Client Detail page is open for a client"
+        "User logged in as <role>",
+        "A client exists in Pending status named <target client>"
       ],
       "steps": [
-        "1. On the Client Detail page click the General tab and verify its panel is visible",
-        "2. Click the Accounts tab and verify the Accounts panel is visible",
-        "3. Within Accounts click the Loans sub-tab and verify its panel is visible",
-        "4. Click the Savings sub-tab and verify its panel is visible",
-        "5. Click the Shares sub-tab and verify its panel is visible",
-        "6. Click the Fixed Deposits sub-tab and verify its panel is visible",
-        "7. Click the Recurring Deposits sub-tab and verify its panel is visible",
-        "8. Click the Identifiers tab and verify the Identifiers panel with the Detail_Identifiers repeating group is visible",
-        "9. Click the Family Members tab and verify its panel is visible",
-        "10. Click the Notes tab and verify its panel is visible",
-        "11. Click the Documents tab and verify its panel is visible"
+        "1. Navigate to the Clients page",
+        "2. Click the client Name link for <target client> to open Client Detail page",
+        "3. Click the 'Edit' action",
+        "4. Modify an editable field (for example enter <new value> in the Mobile Number field)",
+        "5. Click Save"
       ],
-      "expected_result": "Each selected tab/sub-tab displays its corresponding panel; Accounts shows sub-tabs Loans, Savings, Shares, Fixed Deposits and Recurring Deposits and Identifiers displays the identifiers repeating-group area",
+      "expected_result": "client updated",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-012",
+      "wf_ref": "WF-012",
+      "test_case": "Reject a Pending client with a required reason",
+      "preconditions": [
+        "User logged in as <role>",
+        "A client exists in Pending status named <target client>"
+      ],
+      "steps": [
+        "1. Navigate to the Clients page",
+        "2. Click the client Name link for <target client> to open Client Detail page",
+        "3. Click the 'Reject' action",
+        "4. In the Reject dialog enter <Reason>",
+        "5. Click Confirm on the Reject dialog"
+      ],
+      "expected_result": "client status set to Rejected",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-013",
+      "wf_ref": "WF-013",
+      "test_case": "Withdraw a Pending client by providing a reason",
+      "preconditions": [
+        "User logged in as <role>",
+        "A client exists in Pending status named <target client>"
+      ],
+      "steps": [
+        "1. Navigate to the Clients page",
+        "2. Click the client Name link for <target client> to open Client Detail page",
+        "3. Click the 'Withdraw' action",
+        "4. In the Withdraw dialog enter <Reason>",
+        "5. Click Confirm on the Withdraw dialog"
+      ],
+      "expected_result": "client status set to Withdrawn",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-014",
+      "wf_ref": "WF-014",
+      "test_case": "Edit an Active client and save changes",
+      "preconditions": [
+        "User logged in as <role>",
+        "A client exists in Active status named <target client>"
+      ],
+      "steps": [
+        "1. Navigate to the Clients page",
+        "2. Click the client Name link for <target client> to open Client Detail page",
+        "3. Click the 'Edit' action",
+        "4. Modify an editable field (for example enter <new value> in the Email Address field)",
+        "5. Click Save"
+      ],
+      "expected_result": "client updated",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-015",
+      "wf_ref": "WF-015",
+      "test_case": "Transfer an Active client to a different Destination Office",
+      "preconditions": [
+        "User logged in as <role>",
+        "A client exists in Active status at <Current Office>"
+      ],
+      "steps": [
+        "1. Navigate to the Clients page",
+        "2. Click the client Name link for <target client> to open Client Detail page",
+        "3. Click the 'Transfer Client' action",
+        "4. In the Transfer dialog select <Destination Office> that is different from <Current Office>",
+        "5. Click Confirm on the Transfer dialog"
+      ],
+      "expected_result": "client transferred to Destination Office",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-016",
+      "wf_ref": "WF-016",
+      "test_case": "Close an Active client that has no active accounts by providing a closure reason",
+      "preconditions": [
+        "User logged in as <role>",
+        "A client exists in Active status named <target client> with no active accounts"
+      ],
+      "steps": [
+        "1. Navigate to the Clients page",
+        "2. Click the client Name link for <target client> to open Client Detail page",
+        "3. Click the 'Close' action",
+        "4. In the Close dialog enter <Closure Reason>",
+        "5. Click Confirm on the Close dialog"
+      ],
+      "expected_result": "client status set to Closed",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-017",
+      "wf_ref": "WF-017",
+      "test_case": "Add a charge to an Active client",
+      "preconditions": [
+        "User logged in as <role>",
+        "A client exists in Active status named <target client>"
+      ],
+      "steps": [
+        "1. Navigate to the Clients page",
+        "2. Click the client Name link for <target client> to open Client Detail page",
+        "3. Click the 'Add Charge' action",
+        "4. In the Add Charge dialog enter required <Charge details>",
+        "5. Click Save or Confirm on the Add Charge dialog"
+      ],
+      "expected_result": "charge added for client",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-018",
+      "wf_ref": "WF-018",
+      "test_case": "Initiate New Loan flow for an Active client",
+      "preconditions": [
+        "User logged in as <role>",
+        "A client exists in Active status named <target client>"
+      ],
+      "steps": [
+        "1. Navigate to the Clients page",
+        "2. Click the client Name link for <target client> to open Client Detail page",
+        "3. Click the 'New Loan' action"
+      ],
+      "expected_result": "initiates new loan flow for client",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-019",
+      "wf_ref": "WF-019",
+      "test_case": "Initiate New Savings flow for an Active client",
+      "preconditions": [
+        "User logged in as <role>",
+        "A client exists in Active status named <target client>"
+      ],
+      "steps": [
+        "1. Navigate to the Clients page",
+        "2. Click the client Name link for <target client> to open Client Detail page",
+        "3. Click the 'New Savings' action"
+      ],
+      "expected_result": "initiates new savings flow for client",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-020",
+      "wf_ref": "WF-020",
+      "test_case": "Initiate New Share Account flow for an Active client",
+      "preconditions": [
+        "User logged in as <role>",
+        "A client exists in Active status named <target client>"
+      ],
+      "steps": [
+        "1. Navigate to the Clients page",
+        "2. Click the client Name link for <target client> to open Client Detail page",
+        "3. Click the 'New Share Account' action"
+      ],
+      "expected_result": "initiates new share account flow for client",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-021",
+      "wf_ref": "WF-021",
+      "test_case": "Reactivate a Closed client",
+      "preconditions": [
+        "User logged in as <role>",
+        "A client exists in Closed status named <target client>"
+      ],
+      "steps": [
+        "1. Navigate to the Clients page",
+        "2. Click the client Name link for <target client> to open Client Detail page",
+        "3. Click the 'Reactivate' action",
+        "4. Click Confirm on the Reactivate dialog"
+      ],
+      "expected_result": "client status set to Active",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-022",
+      "wf_ref": "WF-022",
+      "test_case": "Add an identifier on Client Detail Identifiers tab",
+      "preconditions": [
+        "User logged in as <role>",
+        "Client Detail page is open for <target client>"
+      ],
+      "steps": [
+        "1. Navigate to the Clients page",
+        "2. Click the client Name link for <target client> to open Client Detail page",
+        "3. Click the 'Identifiers' tab",
+        "4. Click 'Add' to add a new identifier row",
+        "5. Enter <Document Type> and <Document Key> and click Save/Add"
+      ],
+      "expected_result": "identifier added (duplicates prevented)",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-023",
+      "wf_ref": "WF-023",
+      "test_case": "Remove an identifier from Client Detail Identifiers tab",
+      "preconditions": [
+        "User logged in as <role>",
+        "Client Detail page is open for <target client> with at least one identifier present"
+      ],
+      "steps": [
+        "1. Navigate to the Clients page",
+        "2. Click the client Name link for <target client> to open Client Detail page",
+        "3. Click the 'Identifiers' tab",
+        "4. Click 'Remove' on the target identifier row and confirm the removal"
+      ],
+      "expected_result": "identifier removed",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-024",
+      "wf_ref": null,
+      "test_case": "Create Client wizard: enter Address Details on Step 2 and verify on detail page after submit",
+      "preconditions": [
+        "User logged in as <role>"
+      ],
+      "steps": [
+        "1. Navigate to the Clients page",
+        "2. Click 'Create Client' to open the Create Client wizard",
+        "3. On Step 1 (General Details) select <Office>, enter <First Name>, enter <Last Name>, select <Submitted On>",
+        "4. Click Next to reach Step 2 (Address Details)",
+        "5. Enter <Address fields> (for example enter <Address line 1> and <City>)",
+        "6. Click Next until the final step and click Submit"
+      ],
+      "expected_result": "On the Client Detail page the Address section displays the entered <Address fields>",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-025",
+      "wf_ref": null,
+      "test_case": "Create Client wizard: add Family Member on Step 3 and verify on detail page after submit",
+      "preconditions": [
+        "User logged in as <role>"
+      ],
+      "steps": [
+        "1. Navigate to the Clients page",
+        "2. Click 'Create Client' to open the Create Client wizard",
+        "3. On Step 1 (General Details) select <Office>, enter <First Name>, enter <Last Name>, select <Submitted On>",
+        "4. Click Next to reach Step 2, click Next to reach Step 3 (Family Members)",
+        "5. In Family Members add a member by entering <Family Member Name> and <relationship>",
+        "6. Click Next to reach the final step and click Submit"
+      ],
+      "expected_result": "On the Client Detail page the Family Members tab lists the added member with the entered relationship",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-026",
+      "wf_ref": null,
+      "test_case": "Create Client wizard: verify duplicate Identifier is prevented within the wizard",
+      "preconditions": [
+        "User logged in as <role>"
+      ],
+      "steps": [
+        "1. Navigate to the Clients page",
+        "2. Click 'Create Client' to open the Create Client wizard",
+        "3. On Step 1 fill required fields (select <Office>, enter <First Name>, enter <Last Name>, select <Submitted On>) and click Next repeatedly to reach Step 4 (Identifiers)",
+        "4. Click Add Row and enter <Document Type A> and <Document Key A>; click Add Row again and enter <Document Type A> and <Document Key A> (same values)",
+        "5. Attempt to proceed or save the identifiers within the wizard"
+      ],
+      "expected_result": "An inline validation prevents adding a duplicate Document Type + Document Key entry (duplicates prevented)",
       "priority": "medium"
     }
   ],
   "summary": {
-    "total": 12,
-    "high_priority": 5,
-    "medium_priority": 6,
-    "low_priority": 1
+    "total": 26,
+    "high_priority": 8,
+    "medium_priority": 18,
+    "low_priority": 0
   }
 }

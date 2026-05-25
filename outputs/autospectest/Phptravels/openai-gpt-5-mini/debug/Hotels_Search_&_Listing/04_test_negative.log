@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-21T22:54:00.260098
+DEBUG SESSION STARTED: 2026-05-25T14:51:20.249285
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[22:54:00] Test-Negative - SYSTEM PROMPT
+[14:51:20] Test-Negative - SYSTEM PROMPT
 ------------------------------------------------------------
 You are a Negative Test Case Generator. You receive (1) a UI-AST JSON for one module and (2) the original functional description. Your job is to produce ONLY negative test cases — tests where invalid input is provided or business rules are violated, and the system correctly rejects or blocks the action.
 
@@ -22,6 +22,10 @@ You are a Negative Test Case Generator. You receive (1) a UI-AST JSON for one mo
 <description>
 {Original functional description text for this module}
 </description>
+
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
 
 ---
 
@@ -111,6 +115,9 @@ Group required fields by type: `text/unspecified`, `email`, `password`, `number`
 
 Do NOT generate a separate blank-field test for every required field. If 5 text fields are all required, one representative covers them all.
 
+**Action dialog required fields — NOT subject to cross-form deduplication:**
+If a `state_bound_action_bar` action opens a dialog with its own required `fields{}` (e.g., Activate requires Activation Date, Reject requires a Reason, Withdraw requires a Reason, Close requires a Closure Reason), each such dialog is its own testing scope. Generate ONE "leave the required dialog field blank and submit" test per distinct action dialog. These are HIGH priority — they block state transitions and are common defect sites. Do not suppress them because the main wizard already has a blank-field test.
+
 **2. Format violations:**
 
 For fields with type-specific format rules (from AST type or description):
@@ -143,6 +150,10 @@ For each unique `constraints[]` entry in the AST, and for cross-field rules desc
 
 One test per unique constraint. Do not duplicate the same mechanism.
 
+**Constraint timing tests:** If the spec states an action is blocked by a pre-existing system state (e.g., "cannot close with active accounts", "cannot transfer to the same office"), generate TWO tests:
+1. The standard constraint violation test (user opens the dialog, fills required fields, submits → blocked).
+2. A constraint-timing test: user opens the dialog WITHOUT filling required fields → assert whether the block is shown immediately on dialog open (before the user fills anything) OR only on submit. This distinguishes whether the UI enforces the constraint eagerly or lazily. Steps: open the dialog, observe the state → assert what is visible before any interaction. If the spec is silent on timing, generate only the first test.
+
 **5. Precondition violations (auth, role, and state):**
 
 For each `preconditions[]` entry on any action — and for auth/role rules described in the spec:
@@ -154,18 +165,18 @@ For each `preconditions[]` entry on any action — and for auth/role rules descr
 **6. State-machine violations:**
 
 From `state_bound_action_bar` nodes:
-- For each state where an action is NOT listed in `available_actions`, generate one test attempting that action from that state. Example: attempting "Approve" on an entity already in "Active" state.
+- **Every defined state must have at least one wrong-state test.** For each state, identify at least one action that is NOT in its `available_actions` list and generate a test attempting that action from that state.
 - If a state has an empty `available_actions` array, generate one test verifying no action buttons are visible in that state.
-
-One test per unique wrong-state scenario — do not enumerate every action × every invalid state.
+- **Do not stop after 1–2 representative examples** when the module defines 4+ distinct states. The states Active, Pending, Closed, Rejected, and Withdrawn each have different action sets — each must be independently verified.
+- One test per state is sufficient — pick the most distinct unavailable action for that state. Do not enumerate every action × every state (that would be exponential).
 
 ---
 
 **DEDUPLICATION GATE (run before outputting):**
 
-1. **Required field dedup:** Multiple required text fields → ONE representative test, not one per field.
+1. **Required field dedup:** Multiple required text fields in the **same form or dialog** → ONE representative test, not one per field.
 2. **Sub-rule dedup:** A field with multiple validation sub-rules (e.g., password: length + uppercase + lowercase + number + special char) → ONE representative violation test, not one per sub-rule.
-3. **Cross-form dedup:** If two forms in the same module share the same validation mechanism (e.g., both have a required text field) → test it on the primary form only.
+3. **Cross-form dedup:** If two **main forms** in the same module share the same validation mechanism → test it on the primary form only. **Exception: action dialogs are never suppressed by cross-form dedup** — each action dialog with a required field gets its own blank-field test regardless.
 4. **Uniqueness check:** Before outputting, ask for each TC: "Does this test catch a bug that NO other test in this module would catch?" If no → remove it.
 
 ---
@@ -174,9 +185,11 @@ One test per unique wrong-state scenario — do not enumerate every action × ev
 
 - Simple module (login, single form, display page): **2–4 tests**
 - Medium module (standard CRUD form, form with constraints): **4–8 tests**
-- Complex module (state machine, multi-form, wizard with many constraints): **8–12 tests**
+- Complex module (state machine, multi-form, wizard with many constraints): **10–16 tests**
 
-If you exceed these ranges, you are generating redundant tests. Apply the deduplication gate again before outputting.
+For modules with a `state_bound_action_bar` defining 4+ states, the state-machine violation tests alone will produce 4–5 tests. This is expected and correct — do not suppress them to hit a lower target.
+
+If you exceed the upper range, apply the deduplication gate again before outputting.
 
 ---
 
@@ -184,6 +197,17 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
 
 - **High:** State precondition violations, constraint violations that could corrupt data, unauthenticated access, required field representatives
 - **Medium:** Format violations, cross-field validation, numeric bounds, wrong-role access, wrong-state action attempts
+
+---
+
+**WORKFLOW-AWARE FAILURE INJECTION (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- For each workflow that contains a form interaction (terminal action is a submit/save/create/approve button):
+  - Identify the most **critical blocking failure** for that workflow's `conditional_branch`.
+  - If that failure mode is NOT already covered by another workflow's negative test, generate one negative TC for it.
+- **Do NOT generate one negative TC per workflow mechanically.** Apply the existing deduplication gate first — only add a TC if it catches a bug that no other test would catch.
+- Add `"wf_ref": "WF-NNN"` to each TC that maps to a workflow. Set `"wf_ref": null` for generic validation tests.
 
 ---
 
@@ -195,6 +219,7 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
   "test_cases": [
     {
       "tc_id": "N-001",
+      "wf_ref": null,
       "test_case": "Short descriptive name",
       "preconditions": ["precondition 1"],
       "steps": ["1. Step one", "2. Step two"],
@@ -212,7 +237,7 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
 
 
 ------------------------------------------------------------
-[22:54:00] Test-Negative - USER PROMPT
+[14:51:20] Test-Negative - USER PROMPT
 ------------------------------------------------------------
 <module_name>Hotels Search & Listing</module_name>
 
@@ -222,112 +247,133 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
   "components": {
     "Hotels_Search_Form": {
       "type": "form",
-      "fields": {
-        "Destination": {
-          "type": "search",
-          "required": false
-        },
-        "Check_In": {
-          "type": "date",
-          "required": false
-        },
-        "Check_Out": {
-          "type": "date",
-          "required": false
-        },
-        "Rooms": {
-          "type": "number",
-          "required": false
-        },
-        "Adults": {
-          "type": "number",
-          "required": false
-        },
-        "Children": {
-          "type": "number",
-          "required": false
-        }
-      },
       "submit_actions": [
         {
           "element_name": "Search",
-          "on_success": "redirects to Listing page"
+          "on_success": "redirects to Hotels_Listing page"
         }
-      ]
+      ],
+      "fields": {
+        "Destination": {
+          "type": "search"
+        },
+        "Check_In": {
+          "type": "date"
+        },
+        "Check_Out": {
+          "type": "date"
+        },
+        "Number_of_Rooms": {
+          "type": "number"
+        },
+        "Adults": {
+          "type": "number"
+        },
+        "Children": {
+          "type": "number"
+        }
+      }
     },
     "Hotels_Listing_Page": {
       "type": "page",
       "components": {
+        "Filters_Sidebar": {
+          "type": "filter_sidebar",
+          "collapsible": true,
+          "updates_results_dynamically": true,
+          "filters": [
+            {
+              "filter_name": "Price Range",
+              "collapsible": true,
+              "fields": {
+                "Min_Price": {
+                  "type": "number"
+                },
+                "Max_Price": {
+                  "type": "number"
+                }
+              }
+            },
+            {
+              "filter_name": "Star Rating",
+              "collapsible": true,
+              "fields": {
+                "Star_Rating": {
+                  "type": "checkbox"
+                }
+              }
+            },
+            {
+              "filter_name": "Facilities / Amenities",
+              "collapsible": true,
+              "fields": {
+                "Facilities": {
+                  "type": "checkbox"
+                }
+              }
+            },
+            {
+              "filter_name": "Hotel Type",
+              "collapsible": true,
+              "fields": {
+                "Hotel_Type": {
+                  "type": "checkbox"
+                }
+              }
+            },
+            {
+              "filter_name": "Board Basis",
+              "collapsible": true,
+              "fields": {
+                "Board_Basis": {
+                  "type": "checkbox"
+                }
+              }
+            }
+          ]
+        },
+        "Active_Filters_Summary": {
+          "type": "repeating_group",
+          "description": "Shows currently active filters with individual remove actions",
+          "item_fields": {
+            "Filter_Label": {
+              "type": "unspecified"
+            }
+          },
+          "item_actions": [
+            {
+              "action_name": "Remove Filter",
+              "on_success": "removes this filter and updates results"
+            }
+          ],
+          "controls": [
+            {
+              "element_name": "Reset all",
+              "type": "button",
+              "on_success": "clears all filters and updates results"
+            }
+          ]
+        },
         "Sort_Control": {
           "type": "dropdown",
-          "required": false,
+          "element_name": "Sort by",
           "options": [
             "Price: Low to High",
             "Price: High to Low",
             "Star Rating",
             "Guest Rating"
-          ],
-          "on_change": "updates results dynamically"
+          ]
         },
-        "Active_Filters_Summary": {
-          "type": "repeating_group",
-          "item_fields": {
-            "Active_Filter_Tag": {
-              "type": "unspecified"
-            },
-            "Remove_Filter": {
+        "Hotels_Card_List": {
+          "type": "card_list",
+          "note": "Each card displays hotel details (non-interactive display fields omitted from AST)",
+          "item_actions": [
+            {
+              "action_name": "Book Now",
               "type": "button",
-              "element_name": "Remove",
-              "on_success": "removes filter and updates results dynamically"
+              "on_success": "initiates booking flow for selected hotel"
             }
-          },
-          "controls": {
-            "Reset_All": {
-              "type": "button",
-              "element_name": "Reset all",
-              "on_success": "clears all filters and updates results dynamically"
-            }
-          }
-        },
-        "Filters_Sidebar": {
-          "type": "filter_panel",
-          "fields": {
-            "Price_Range": {
-              "type": "unspecified",
-              "collapsible": true,
-              "on_change": "updates results dynamically"
-            },
-            "Star_Rating": {
-              "type": "unspecified",
-              "collapsible": true,
-              "on_change": "updates results dynamically"
-            },
-            "Facilities_Amenities": {
-              "type": "unspecified",
-              "collapsible": true,
-              "on_change": "updates results dynamically"
-            },
-            "Hotel_Type": {
-              "type": "unspecified",
-              "collapsible": true,
-              "on_change": "updates results dynamically"
-            },
-            "Board_Basis": {
-              "type": "unspecified",
-              "collapsible": true,
-              "on_change": "updates results dynamically"
-            }
-          }
-        },
-        "Hotel_Results": {
-          "type": "repeating_group",
-          "item_label": "Hotel_Card",
-          "item_fields": {
-            "Book_Now": {
-              "type": "button",
-              "element_name": "Book Now"
-            }
-          }
+          ]
         }
       }
     }
@@ -344,10 +390,21 @@ The hotels search form collects destination, check-in/check-out dates, number of
 
 </description>
 
+<workflows>
+WF-001 | Search hotels using search form | actor: <role> | branch: none | terminal: Search | on_success: redirects to Hotels_Listing page
+WF-002 | Sort results by Price: Low to High | actor: <role> | branch: Sort_Control.selected == Price: Low to High | terminal: Sort by | on_success: results updated and sorted by Price: Low to High
+WF-003 | Sort results by Price: High to Low | actor: <role> | branch: Sort_Control.selected == Price: High to Low | terminal: Sort by | on_success: results updated and sorted by Price: High to Low
+WF-004 | Sort results by Star Rating | actor: <role> | branch: Sort_Control.selected == Star Rating | terminal: Sort by | on_success: results updated and sorted by Star Rating
+WF-005 | Sort results by Guest Rating | actor: <role> | branch: Sort_Control.selected == Guest Rating | terminal: Sort by | on_success: results updated and sorted by Guest Rating
+WF-006 | Remove an active filter from summary | actor: <role> | branch: Active_Filters_Summary.item_count > 0 | terminal: Remove Filter | on_success: removes this filter and updates results
+WF-007 | Reset all active filters | actor: <role> | branch: Active_Filters_Summary.item_count > 0 | terminal: Reset all | on_success: clears all filters and updates results
+WF-008 | Initiate booking from a hotel card | actor: <role> | branch: none | terminal: Book Now | on_success: initiates booking flow for selected hotel
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[22:54:58] Test-Negative - LLM RESPONSE
+[14:52:17] Test-Negative - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Hotels Search & Listing",
@@ -355,41 +412,84 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "N-001",
-      "test_case": "Invalid date format in Check_In blocks search",
+      "wf_ref": null,
+      "test_case": "Search form: Number field rejects non-numeric input (representative for number fields)",
       "preconditions": [
-        "User is on the Hotels Search form/page"
+        "User is on the Hotels Search form"
+      ],
+      "steps": [
+        "1. Enter <non-numeric input> in the Number_of_Rooms field",
+        "2. Click the Search button"
+      ],
+      "expected_result": "Number_of_Rooms field displays an inline validation error indicating a numeric value is required (e.g. 'Please enter a number'); the form does not submit; user is not redirected to the Hotels_Listing page",
+      "priority": "high"
+    },
+    {
+      "tc_id": "N-002",
+      "wf_ref": null,
+      "test_case": "Search form: Date field rejects invalid/impossible date",
+      "preconditions": [
+        "User is on the Hotels Search form"
       ],
       "steps": [
         "1. Enter <invalid/impossible date> in the Check_In field",
         "2. Click the Search button"
       ],
-      "expected_result": "An inline validation error appears on the Check_In field indicating the date is invalid (e.g. 'Enter a valid date'); the form does not submit; the user is not redirected to the Listing page and no search results are shown.",
+      "expected_result": "Check_In field displays an inline validation error indicating an invalid date (e.g. 'Enter a valid date'); the form does not submit; user is not redirected to the Hotels_Listing page",
+      "priority": "high"
+    },
+    {
+      "tc_id": "N-003",
+      "wf_ref": null,
+      "test_case": "Filters sidebar: Min_Price rejects non-numeric input and does not apply filter",
+      "preconditions": [
+        "User is on the Hotels_Listing page with search results displayed"
+      ],
+      "steps": [
+        "1. Enter <non-numeric input> in the Min_Price field in the Price Range filter"
+      ],
+      "expected_result": "Min_Price field displays an inline validation error indicating a numeric value is required (e.g. 'Please enter a number'); the Price Range filter is not applied and results do not update dynamically while the field contains invalid input",
       "priority": "medium"
     },
     {
-      "tc_id": "N-002",
-      "test_case": "Non-numeric input in Adults field is rejected",
+      "tc_id": "N-004",
+      "wf_ref": "WF-006",
+      "test_case": "Active Filters Summary: Remove Filter action not available when there are no active filters",
       "preconditions": [
-        "User is on the Hotels Search form/page"
+        "User is on the Hotels_Listing page",
+        "There are no active filters (Active_Filters_Summary.item_count == 0)"
       ],
       "steps": [
-        "1. Enter <non-numeric input> in the Adults field",
-        "2. Click the Search button"
+        "1. Attempt to click a Remove Filter action in the Active_Filters_Summary"
       ],
-      "expected_result": "An inline validation error appears on the Adults field indicating a numeric value is required (e.g. 'Must be a number'); the form does not submit; the user is not redirected to the Listing page and no search results are shown.",
-      "priority": "medium"
+      "expected_result": "Active_Filters_Summary shows no filter items and no 'Remove Filter' action is visible for any item; attempting to click a Remove Filter is not possible; results remain unchanged",
+      "priority": "high"
+    },
+    {
+      "tc_id": "N-005",
+      "wf_ref": "WF-007",
+      "test_case": "Reset all control is not actionable when there are no active filters",
+      "preconditions": [
+        "User is on the Hotels_Listing page",
+        "There are no active filters (Active_Filters_Summary.item_count == 0)"
+      ],
+      "steps": [
+        "1. Attempt to locate and click the 'Reset all' control in the Active_Filters_Summary"
+      ],
+      "expected_result": "'Reset all' control is not visible or is disabled when there are no active filters; clicking is not possible; results remain unchanged",
+      "priority": "high"
     }
   ],
   "summary": {
-    "total": 2,
-    "high_priority": 0,
-    "medium_priority": 2,
+    "total": 5,
+    "high_priority": 4,
+    "medium_priority": 1,
     "low_priority": 0
   }
 }
 
 ------------------------------------------------------------
-[22:54:58] Test-Negative - PARSED JSON
+[14:52:17] Test-Negative - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Hotels Search & Listing",
@@ -397,35 +497,78 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "N-001",
-      "test_case": "Invalid date format in Check_In blocks search",
+      "wf_ref": null,
+      "test_case": "Search form: Number field rejects non-numeric input (representative for number fields)",
       "preconditions": [
-        "User is on the Hotels Search form/page"
+        "User is on the Hotels Search form"
+      ],
+      "steps": [
+        "1. Enter <non-numeric input> in the Number_of_Rooms field",
+        "2. Click the Search button"
+      ],
+      "expected_result": "Number_of_Rooms field displays an inline validation error indicating a numeric value is required (e.g. 'Please enter a number'); the form does not submit; user is not redirected to the Hotels_Listing page",
+      "priority": "high"
+    },
+    {
+      "tc_id": "N-002",
+      "wf_ref": null,
+      "test_case": "Search form: Date field rejects invalid/impossible date",
+      "preconditions": [
+        "User is on the Hotels Search form"
       ],
       "steps": [
         "1. Enter <invalid/impossible date> in the Check_In field",
         "2. Click the Search button"
       ],
-      "expected_result": "An inline validation error appears on the Check_In field indicating the date is invalid (e.g. 'Enter a valid date'); the form does not submit; the user is not redirected to the Listing page and no search results are shown.",
+      "expected_result": "Check_In field displays an inline validation error indicating an invalid date (e.g. 'Enter a valid date'); the form does not submit; user is not redirected to the Hotels_Listing page",
+      "priority": "high"
+    },
+    {
+      "tc_id": "N-003",
+      "wf_ref": null,
+      "test_case": "Filters sidebar: Min_Price rejects non-numeric input and does not apply filter",
+      "preconditions": [
+        "User is on the Hotels_Listing page with search results displayed"
+      ],
+      "steps": [
+        "1. Enter <non-numeric input> in the Min_Price field in the Price Range filter"
+      ],
+      "expected_result": "Min_Price field displays an inline validation error indicating a numeric value is required (e.g. 'Please enter a number'); the Price Range filter is not applied and results do not update dynamically while the field contains invalid input",
       "priority": "medium"
     },
     {
-      "tc_id": "N-002",
-      "test_case": "Non-numeric input in Adults field is rejected",
+      "tc_id": "N-004",
+      "wf_ref": "WF-006",
+      "test_case": "Active Filters Summary: Remove Filter action not available when there are no active filters",
       "preconditions": [
-        "User is on the Hotels Search form/page"
+        "User is on the Hotels_Listing page",
+        "There are no active filters (Active_Filters_Summary.item_count == 0)"
       ],
       "steps": [
-        "1. Enter <non-numeric input> in the Adults field",
-        "2. Click the Search button"
+        "1. Attempt to click a Remove Filter action in the Active_Filters_Summary"
       ],
-      "expected_result": "An inline validation error appears on the Adults field indicating a numeric value is required (e.g. 'Must be a number'); the form does not submit; the user is not redirected to the Listing page and no search results are shown.",
-      "priority": "medium"
+      "expected_result": "Active_Filters_Summary shows no filter items and no 'Remove Filter' action is visible for any item; attempting to click a Remove Filter is not possible; results remain unchanged",
+      "priority": "high"
+    },
+    {
+      "tc_id": "N-005",
+      "wf_ref": "WF-007",
+      "test_case": "Reset all control is not actionable when there are no active filters",
+      "preconditions": [
+        "User is on the Hotels_Listing page",
+        "There are no active filters (Active_Filters_Summary.item_count == 0)"
+      ],
+      "steps": [
+        "1. Attempt to locate and click the 'Reset all' control in the Active_Filters_Summary"
+      ],
+      "expected_result": "'Reset all' control is not visible or is disabled when there are no active filters; clicking is not possible; results remain unchanged",
+      "priority": "high"
     }
   ],
   "summary": {
-    "total": 2,
-    "high_priority": 0,
-    "medium_priority": 2,
+    "total": 5,
+    "high_priority": 4,
+    "medium_priority": 1,
     "low_priority": 0
   }
 }

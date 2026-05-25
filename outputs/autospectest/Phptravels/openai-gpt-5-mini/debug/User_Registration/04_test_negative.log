@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-21T22:54:00.234527
+DEBUG SESSION STARTED: 2026-05-25T14:51:20.234180
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[22:54:00] Test-Negative - SYSTEM PROMPT
+[14:51:20] Test-Negative - SYSTEM PROMPT
 ------------------------------------------------------------
 You are a Negative Test Case Generator. You receive (1) a UI-AST JSON for one module and (2) the original functional description. Your job is to produce ONLY negative test cases — tests where invalid input is provided or business rules are violated, and the system correctly rejects or blocks the action.
 
@@ -22,6 +22,10 @@ You are a Negative Test Case Generator. You receive (1) a UI-AST JSON for one mo
 <description>
 {Original functional description text for this module}
 </description>
+
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
 
 ---
 
@@ -111,6 +115,9 @@ Group required fields by type: `text/unspecified`, `email`, `password`, `number`
 
 Do NOT generate a separate blank-field test for every required field. If 5 text fields are all required, one representative covers them all.
 
+**Action dialog required fields — NOT subject to cross-form deduplication:**
+If a `state_bound_action_bar` action opens a dialog with its own required `fields{}` (e.g., Activate requires Activation Date, Reject requires a Reason, Withdraw requires a Reason, Close requires a Closure Reason), each such dialog is its own testing scope. Generate ONE "leave the required dialog field blank and submit" test per distinct action dialog. These are HIGH priority — they block state transitions and are common defect sites. Do not suppress them because the main wizard already has a blank-field test.
+
 **2. Format violations:**
 
 For fields with type-specific format rules (from AST type or description):
@@ -143,6 +150,10 @@ For each unique `constraints[]` entry in the AST, and for cross-field rules desc
 
 One test per unique constraint. Do not duplicate the same mechanism.
 
+**Constraint timing tests:** If the spec states an action is blocked by a pre-existing system state (e.g., "cannot close with active accounts", "cannot transfer to the same office"), generate TWO tests:
+1. The standard constraint violation test (user opens the dialog, fills required fields, submits → blocked).
+2. A constraint-timing test: user opens the dialog WITHOUT filling required fields → assert whether the block is shown immediately on dialog open (before the user fills anything) OR only on submit. This distinguishes whether the UI enforces the constraint eagerly or lazily. Steps: open the dialog, observe the state → assert what is visible before any interaction. If the spec is silent on timing, generate only the first test.
+
 **5. Precondition violations (auth, role, and state):**
 
 For each `preconditions[]` entry on any action — and for auth/role rules described in the spec:
@@ -154,18 +165,18 @@ For each `preconditions[]` entry on any action — and for auth/role rules descr
 **6. State-machine violations:**
 
 From `state_bound_action_bar` nodes:
-- For each state where an action is NOT listed in `available_actions`, generate one test attempting that action from that state. Example: attempting "Approve" on an entity already in "Active" state.
+- **Every defined state must have at least one wrong-state test.** For each state, identify at least one action that is NOT in its `available_actions` list and generate a test attempting that action from that state.
 - If a state has an empty `available_actions` array, generate one test verifying no action buttons are visible in that state.
-
-One test per unique wrong-state scenario — do not enumerate every action × every invalid state.
+- **Do not stop after 1–2 representative examples** when the module defines 4+ distinct states. The states Active, Pending, Closed, Rejected, and Withdrawn each have different action sets — each must be independently verified.
+- One test per state is sufficient — pick the most distinct unavailable action for that state. Do not enumerate every action × every state (that would be exponential).
 
 ---
 
 **DEDUPLICATION GATE (run before outputting):**
 
-1. **Required field dedup:** Multiple required text fields → ONE representative test, not one per field.
+1. **Required field dedup:** Multiple required text fields in the **same form or dialog** → ONE representative test, not one per field.
 2. **Sub-rule dedup:** A field with multiple validation sub-rules (e.g., password: length + uppercase + lowercase + number + special char) → ONE representative violation test, not one per sub-rule.
-3. **Cross-form dedup:** If two forms in the same module share the same validation mechanism (e.g., both have a required text field) → test it on the primary form only.
+3. **Cross-form dedup:** If two **main forms** in the same module share the same validation mechanism → test it on the primary form only. **Exception: action dialogs are never suppressed by cross-form dedup** — each action dialog with a required field gets its own blank-field test regardless.
 4. **Uniqueness check:** Before outputting, ask for each TC: "Does this test catch a bug that NO other test in this module would catch?" If no → remove it.
 
 ---
@@ -174,9 +185,11 @@ One test per unique wrong-state scenario — do not enumerate every action × ev
 
 - Simple module (login, single form, display page): **2–4 tests**
 - Medium module (standard CRUD form, form with constraints): **4–8 tests**
-- Complex module (state machine, multi-form, wizard with many constraints): **8–12 tests**
+- Complex module (state machine, multi-form, wizard with many constraints): **10–16 tests**
 
-If you exceed these ranges, you are generating redundant tests. Apply the deduplication gate again before outputting.
+For modules with a `state_bound_action_bar` defining 4+ states, the state-machine violation tests alone will produce 4–5 tests. This is expected and correct — do not suppress them to hit a lower target.
+
+If you exceed the upper range, apply the deduplication gate again before outputting.
 
 ---
 
@@ -184,6 +197,17 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
 
 - **High:** State precondition violations, constraint violations that could corrupt data, unauthenticated access, required field representatives
 - **Medium:** Format violations, cross-field validation, numeric bounds, wrong-role access, wrong-state action attempts
+
+---
+
+**WORKFLOW-AWARE FAILURE INJECTION (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- For each workflow that contains a form interaction (terminal action is a submit/save/create/approve button):
+  - Identify the most **critical blocking failure** for that workflow's `conditional_branch`.
+  - If that failure mode is NOT already covered by another workflow's negative test, generate one negative TC for it.
+- **Do NOT generate one negative TC per workflow mechanically.** Apply the existing deduplication gate first — only add a TC if it catches a bug that no other test would catch.
+- Add `"wf_ref": "WF-NNN"` to each TC that maps to a workflow. Set `"wf_ref": null` for generic validation tests.
 
 ---
 
@@ -195,6 +219,7 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
   "test_cases": [
     {
       "tc_id": "N-001",
+      "wf_ref": null,
       "test_case": "Short descriptive name",
       "preconditions": ["precondition 1"],
       "steps": ["1. Step one", "2. Step two"],
@@ -212,7 +237,7 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
 
 
 ------------------------------------------------------------
-[22:54:00] Test-Negative - USER PROMPT
+[14:51:20] Test-Negative - USER PROMPT
 ------------------------------------------------------------
 <module_name>User Registration</module_name>
 
@@ -225,73 +250,61 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
       "fields": {
         "First_Name": {
           "type": "unspecified",
-          "required": true,
-          "constraints": []
+          "required": true
         },
         "Last_Name": {
           "type": "unspecified",
-          "required": true,
-          "constraints": []
+          "required": true
         },
         "Email": {
           "type": "email",
           "required": true,
           "constraints": [
             "must be valid email format",
-            "must be unique (email uniqueness validated on submit)"
+            "must be unique"
           ]
         },
         "Password": {
           "type": "password",
-          "required": true,
-          "constraints": []
+          "required": true
         },
         "Confirm_Password": {
           "type": "password",
-          "required": true,
-          "constraints": [
-            "must match Password"
-          ]
+          "required": true
         },
-        "Country_Code": {
+        "Mobile_Country_Code": {
           "type": "dropdown",
-          "required": true,
-          "constraints": []
+          "required": false
         },
         "Mobile_Number": {
-          "type": "number",
-          "required": true,
-          "constraints": []
+          "type": "unspecified",
+          "required": false
         },
         "Address": {
           "type": "unspecified",
-          "required": false,
-          "constraints": []
+          "required": false
         },
         "Country": {
           "type": "dropdown",
-          "required": true,
-          "constraints": []
+          "required": false
         },
         "Terms_and_Conditions": {
           "type": "checkbox",
           "required": true,
           "constraints": [
-            "must be accepted"
+            "must be checked"
           ]
         }
       },
+      "constraints": [
+        "Password must match Confirm_Password"
+      ],
       "submit_actions": [
         {
           "element_name": "Register",
-          "constraints": [
-            "required fields must be present",
-            "Email must be unique",
-            "Password and Confirm_Password must match",
-            "Email must be valid format"
-          ],
-          "on_failure": "field-level errors appear inline for the fields that fail validation",
-          "on_success": "creates account; either automatically logs the user in and redirects to dashboard, or prompts user to verify their email before gaining access"
+          "type": "button",
+          "on_failure": "field-level errors appear inline",
+          "on_success": "creates account; either automatically logs in and redirects to dashboard, or prompts user to verify email before gaining access"
         }
       ]
     }
@@ -307,121 +320,15 @@ The registration form collects First Name, Last Name, Email, Password, Confirm P
 
 
 </description>
+
+<workflows>
+WF-001 | Register new user (standard form submission) | actor: <role> | branch: none | terminal: Register | on_success: creates account; either automatically logs in and redirects to dashboard, or prompts user to verify email before gaining access
+</workflows>
 
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[22:55:00] Test-Negative - LLM RESPONSE
-------------------------------------------------------------
-
-
-------------------------------------------------------------
-[22:55:00] Test-Negative - JSON PARSE ERROR
-------------------------------------------------------------
-Failed to parse LLM response as JSON (attempt 1/3): Expecting value: line 1 column 1 (char 0)
-Response: ...
-
-------------------------------------------------------------
-[22:55:00] Test-Negative - USER PROMPT
-------------------------------------------------------------
-<module_name>User Registration</module_name>
-
-<ast>
-{
-  "module_name": "User Registration",
-  "components": {
-    "Registration_Form": {
-      "type": "form",
-      "fields": {
-        "First_Name": {
-          "type": "unspecified",
-          "required": true,
-          "constraints": []
-        },
-        "Last_Name": {
-          "type": "unspecified",
-          "required": true,
-          "constraints": []
-        },
-        "Email": {
-          "type": "email",
-          "required": true,
-          "constraints": [
-            "must be valid email format",
-            "must be unique (email uniqueness validated on submit)"
-          ]
-        },
-        "Password": {
-          "type": "password",
-          "required": true,
-          "constraints": []
-        },
-        "Confirm_Password": {
-          "type": "password",
-          "required": true,
-          "constraints": [
-            "must match Password"
-          ]
-        },
-        "Country_Code": {
-          "type": "dropdown",
-          "required": true,
-          "constraints": []
-        },
-        "Mobile_Number": {
-          "type": "number",
-          "required": true,
-          "constraints": []
-        },
-        "Address": {
-          "type": "unspecified",
-          "required": false,
-          "constraints": []
-        },
-        "Country": {
-          "type": "dropdown",
-          "required": true,
-          "constraints": []
-        },
-        "Terms_and_Conditions": {
-          "type": "checkbox",
-          "required": true,
-          "constraints": [
-            "must be accepted"
-          ]
-        }
-      },
-      "submit_actions": [
-        {
-          "element_name": "Register",
-          "constraints": [
-            "required fields must be present",
-            "Email must be unique",
-            "Password and Confirm_Password must match",
-            "Email must be valid format"
-          ],
-          "on_failure": "field-level errors appear inline for the fields that fail validation",
-          "on_success": "creates account; either automatically logs the user in and redirects to dashboard, or prompts user to verify their email before gaining access"
-        }
-      ]
-    }
-  }
-}
-</ast>
-
-<description>
-
-The registration form collects First Name, Last Name, Email, Password, Confirm Password, Mobile Number (with country code dropdown), Address, Country, and a Terms and Conditions checkbox. On submission, the system validates required fields, password match, valid email format, and email uniqueness. Field-level errors appear inline on failure. On success, an account is created and the user is either automatically logged in and redirected to their dashboard, or prompted to verify their email before gaining access.
-
----
-
-
-</description>
-
-IMPORTANT: Return ONLY valid JSON. Ensure all strings are properly quoted and escaped. No markdown formatting.
-
-------------------------------------------------------------
-[22:59:18] Test-Negative - LLM RESPONSE
+[14:51:56] Test-Negative - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "User Registration",
@@ -429,98 +336,133 @@ IMPORTANT: Return ONLY valid JSON. Ensure all strings are properly quoted and es
   "test_cases": [
     {
       "tc_id": "N-001",
-      "test_case": "Submit with all required fields empty",
-      "preconditions": ["User is on the Registration page (not logged in)"],
+      "wf_ref": null,
+      "test_case": "Leave required text field (First Name) blank and submit",
+      "preconditions": ["User is on the Registration page"],
       "steps": [
-        "1. Ensure all form fields are empty and the Terms and Conditions checkbox is unchecked",
-        "2. Click the Register button"
+        "1. Leave the First_Name field blank",
+        "2. Enter <valid last name> into Last_Name",
+        "3. Enter <valid unique email> into Email",
+        "4. Enter <valid password> into Password",
+        "5. Enter the same <valid password> into Confirm_Password",
+        "6. Check the Terms_and_Conditions checkbox",
+        "7. Click the Register button"
       ],
-      "expected_result": "Inline validation errors appear on all required fields: First Name, Last Name, Email, Password, Confirm Password, Country Code, Mobile Number, Country, and the Terms and Conditions checkbox indicating each is required; the form does not submit and no account is created.",
+      "expected_result": "Inline validation error appears on the First_Name field indicating it is required; the form does not submit and no account is created",
       "priority": "high"
     },
     {
       "tc_id": "N-002",
-      "test_case": "Leave required text field (First Name) blank and submit",
+      "wf_ref": null,
+      "test_case": "Leave required email field blank and submit",
       "preconditions": ["User is on the Registration page"],
       "steps": [
-        "1. Leave the First Name field blank",
-        "2. Fill all other required fields with valid values: Last Name: <valid last name>, Email: <valid unique email>, Password: <valid password>, Confirm Password: <same as Password>, Country Code: <valid country code>, Mobile Number: <valid numeric mobile>, Country: <valid country>, accept Terms and Conditions",
-        "3. Click the Register button"
+        "1. Leave the Email field blank",
+        "2. Enter <valid first name> into First_Name",
+        "3. Enter <valid last name> into Last_Name",
+        "4. Enter <valid password> into Password",
+        "5. Enter the same <valid password> into Confirm_Password",
+        "6. Check the Terms_and_Conditions checkbox",
+        "7. Click the Register button"
       ],
-      "expected_result": "Inline validation error appears on the First Name field indicating it is required; the form does not submit and no account is created.",
+      "expected_result": "Inline validation error appears on the Email field indicating it is required; the form does not submit and no account is created",
       "priority": "high"
     },
     {
       "tc_id": "N-003",
-      "test_case": "Leave required Email field blank and submit",
+      "wf_ref": null,
+      "test_case": "Leave required password field blank and submit",
       "preconditions": ["User is on the Registration page"],
       "steps": [
-        "1. Leave the Email field blank",
-        "2. Fill all other required fields with valid values: First Name: <valid first name>, Last Name: <valid last name>, Password: <valid password>, Confirm Password: <same as Password>, Country Code: <valid country code>, Mobile Number: <valid numeric mobile>, Country: <valid country>, accept Terms and Conditions",
-        "3. Click the Register button"
+        "1. Leave the Password field blank",
+        "2. Enter <valid first name> into First_Name",
+        "3. Enter <valid last name> into Last_Name",
+        "4. Enter <valid unique email> into Email",
+        "5. Enter <valid password> into Confirm_Password",
+        "6. Check the Terms_and_Conditions checkbox",
+        "7. Click the Register button"
       ],
-      "expected_result": "Inline validation error appears on the Email field indicating it is required; the form does not submit and no account is created.",
+      "expected_result": "Inline validation error appears on the Password field indicating it is required; the form does not submit and no account is created",
       "priority": "high"
     },
     {
       "tc_id": "N-004",
-      "test_case": "Password and Confirm Password mismatch",
+      "wf_ref": null,
+      "test_case": "Submit without checking Terms and Conditions checkbox",
       "preconditions": ["User is on the Registration page"],
       "steps": [
-        "1. Enter a value in the Password field: <valid password>",
-        "2. Enter a different value in the Confirm Password field: <different password>",
-        "3. Fill all other required fields with valid values: First Name: <valid first name>, Last Name: <valid last name>, Email: <valid unique email>, Country Code: <valid country code>, Mobile Number: <valid numeric mobile>, Country: <valid country>, accept Terms and Conditions",
-        "4. Click the Register button"
+        "1. Enter <valid first name> into First_Name",
+        "2. Enter <valid last name> into Last_Name",
+        "3. Enter <valid unique email> into Email",
+        "4. Enter <valid password> into Password",
+        "5. Enter the same <valid password> into Confirm_Password",
+        "6. Ensure the Terms_and_Conditions checkbox is unchecked",
+        "7. Click the Register button"
       ],
-      "expected_result": "Confirm Password field displays an inline validation error: 'must match Password'; the form does not submit and no account is created.",
+      "expected_result": "Inline validation error appears on the Terms_and_Conditions control indicating it must be checked; the form does not submit and no account is created",
       "priority": "high"
     },
     {
       "tc_id": "N-005",
-      "test_case": "Terms and Conditions checkbox not accepted",
+      "wf_ref": "WF-001",
+      "test_case": "Submit with ALL required fields empty",
       "preconditions": ["User is on the Registration page"],
       "steps": [
-        "1. Ensure the Terms and Conditions checkbox is unchecked",
-        "2. Fill all other required fields with valid values: First Name: <valid first name>, Last Name: <valid last name>, Email: <valid unique email>, Password: <valid password>, Confirm Password: <same as Password>, Country Code: <valid country code>, Mobile Number: <valid numeric mobile>, Country: <valid country>",
-        "3. Click the Register button"
+        "1. Ensure First_Name, Last_Name, Email, Password and Confirm_Password are left blank and Terms_and_Conditions is unchecked",
+        "2. Click the Register button"
       ],
-      "expected_result": "Inline validation error appears on the Terms and Conditions checkbox indicating it must be accepted; the form does not submit and no account is created.",
+      "expected_result": "Inline validation errors appear on First_Name, Last_Name, Email, Password, Confirm_Password and Terms_and_Conditions indicating they are required; the form does not submit and no account is created",
       "priority": "high"
     },
     {
       "tc_id": "N-006",
-      "test_case": "Leave required numeric field (Mobile Number) blank and submit",
+      "wf_ref": null,
+      "test_case": "Enter an invalid email format and submit",
       "preconditions": ["User is on the Registration page"],
       "steps": [
-        "1. Leave the Mobile Number field blank",
-        "2. Fill all other required fields with valid values: First Name: <valid first name>, Last Name: <valid last name>, Email: <valid unique email>, Password: <valid password>, Confirm Password: <same as Password>, Country Code: <valid country code>, Country: <valid country>, accept Terms and Conditions",
-        "3. Click the Register button"
+        "1. Enter <invalid email format> into Email",
+        "2. Enter <valid first name> into First_Name",
+        "3. Enter <valid last name> into Last_Name",
+        "4. Enter <valid password> into Password",
+        "5. Enter the same <valid password> into Confirm_Password",
+        "6. Check the Terms_and_Conditions checkbox",
+        "7. Click the Register button"
       ],
-      "expected_result": "Inline validation error appears on the Mobile Number field indicating it is required; the form does not submit and no account is created.",
-      "priority": "high"
-    },
-    {
-      "tc_id": "N-007",
-      "test_case": "Email field contains invalid format",
-      "preconditions": ["User is on the Registration page"],
-      "steps": [
-        "1. Enter <invalid email format> in the Email field",
-        "2. Fill all other required fields with valid values: First Name: <valid first name>, Last Name: <valid last name>, Password: <valid password>, Confirm Password: <same as Password>, Country Code: <valid country code>, Mobile Number: <valid numeric mobile>, Country: <valid country>, accept Terms and Conditions",
-        "3. Click the Register button"
-      ],
-      "expected_result": "Inline validation error appears on the Email field indicating it 'must be valid email format'; the form does not submit and no account is created.",
+      "expected_result": "Inline validation error appears on the Email field indicating the email format is invalid; the form does not submit and no account is created",
       "priority": "medium"
     },
     {
-      "tc_id": "N-008",
-      "test_case": "Register with an email that already exists (email uniqueness violation)",
-      "preconditions": ["There is an existing account with the given email"],
+      "tc_id": "N-007",
+      "wf_ref": null,
+      "test_case": "Submit with an email that is already registered (uniqueness violation)",
+      "preconditions": ["User is on the Registration page", "An account already exists with <email already registered>"],
       "steps": [
-        "1. Enter <email already in system> in the Email field",
-        "2. Fill all other required fields with valid values: First Name: <valid first name>, Last Name: <valid last name>, Password: <valid password>, Confirm Password: <same as Password>, Country Code: <valid country code>, Mobile Number: <valid numeric mobile>, Country: <valid country>, accept Terms and Conditions",
-        "3. Click the Register button"
+        "1. Enter <email already registered> into Email",
+        "2. Enter <valid first name> into First_Name",
+        "3. Enter <valid last name> into Last_Name",
+        "4. Enter <valid password> into Password",
+        "5. Enter the same <valid password> into Confirm_Password",
+        "6. Check the Terms_and_Conditions checkbox",
+        "7. Click the Register button"
       ],
-      "expected_result": "Inline validation error appears on the Email field indicating 'Email must be unique'; the form does not submit and no account is created.",
+      "expected_result": "Inline validation error appears on the Email field indicating the email must be unique / is already registered; the form does not submit and no new account is created",
+      "priority": "high"
+    },
+    {
+      "tc_id": "N-008",
+      "wf_ref": null,
+      "test_case": "Password and Confirm Password do not match",
+      "preconditions": ["User is on the Registration page"],
+      "steps": [
+        "1. Enter <valid password> into Password",
+        "2. Enter a different <different password> into Confirm_Password",
+        "3. Enter <valid first name> into First_Name",
+        "4. Enter <valid last name> into Last_Name",
+        "5. Enter <valid unique email> into Email",
+        "6. Check the Terms_and_Conditions checkbox",
+        "7. Click the Register button"
+      ],
+      "expected_result": "Inline validation error appears on Confirm_Password (or both Password/Confirm_Password) indicating passwords must match; the form does not submit and no account is created",
       "priority": "high"
     }
   ],
@@ -533,7 +475,7 @@ IMPORTANT: Return ONLY valid JSON. Ensure all strings are properly quoted and es
 }
 
 ------------------------------------------------------------
-[22:59:18] Test-Negative - PARSED JSON
+[14:51:56] Test-Negative - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "User Registration",
@@ -541,114 +483,150 @@ IMPORTANT: Return ONLY valid JSON. Ensure all strings are properly quoted and es
   "test_cases": [
     {
       "tc_id": "N-001",
-      "test_case": "Submit with all required fields empty",
-      "preconditions": [
-        "User is on the Registration page (not logged in)"
-      ],
-      "steps": [
-        "1. Ensure all form fields are empty and the Terms and Conditions checkbox is unchecked",
-        "2. Click the Register button"
-      ],
-      "expected_result": "Inline validation errors appear on all required fields: First Name, Last Name, Email, Password, Confirm Password, Country Code, Mobile Number, Country, and the Terms and Conditions checkbox indicating each is required; the form does not submit and no account is created.",
-      "priority": "high"
-    },
-    {
-      "tc_id": "N-002",
+      "wf_ref": null,
       "test_case": "Leave required text field (First Name) blank and submit",
       "preconditions": [
         "User is on the Registration page"
       ],
       "steps": [
-        "1. Leave the First Name field blank",
-        "2. Fill all other required fields with valid values: Last Name: <valid last name>, Email: <valid unique email>, Password: <valid password>, Confirm Password: <same as Password>, Country Code: <valid country code>, Mobile Number: <valid numeric mobile>, Country: <valid country>, accept Terms and Conditions",
-        "3. Click the Register button"
+        "1. Leave the First_Name field blank",
+        "2. Enter <valid last name> into Last_Name",
+        "3. Enter <valid unique email> into Email",
+        "4. Enter <valid password> into Password",
+        "5. Enter the same <valid password> into Confirm_Password",
+        "6. Check the Terms_and_Conditions checkbox",
+        "7. Click the Register button"
       ],
-      "expected_result": "Inline validation error appears on the First Name field indicating it is required; the form does not submit and no account is created.",
+      "expected_result": "Inline validation error appears on the First_Name field indicating it is required; the form does not submit and no account is created",
       "priority": "high"
     },
     {
-      "tc_id": "N-003",
-      "test_case": "Leave required Email field blank and submit",
+      "tc_id": "N-002",
+      "wf_ref": null,
+      "test_case": "Leave required email field blank and submit",
       "preconditions": [
         "User is on the Registration page"
       ],
       "steps": [
         "1. Leave the Email field blank",
-        "2. Fill all other required fields with valid values: First Name: <valid first name>, Last Name: <valid last name>, Password: <valid password>, Confirm Password: <same as Password>, Country Code: <valid country code>, Mobile Number: <valid numeric mobile>, Country: <valid country>, accept Terms and Conditions",
-        "3. Click the Register button"
+        "2. Enter <valid first name> into First_Name",
+        "3. Enter <valid last name> into Last_Name",
+        "4. Enter <valid password> into Password",
+        "5. Enter the same <valid password> into Confirm_Password",
+        "6. Check the Terms_and_Conditions checkbox",
+        "7. Click the Register button"
       ],
-      "expected_result": "Inline validation error appears on the Email field indicating it is required; the form does not submit and no account is created.",
+      "expected_result": "Inline validation error appears on the Email field indicating it is required; the form does not submit and no account is created",
+      "priority": "high"
+    },
+    {
+      "tc_id": "N-003",
+      "wf_ref": null,
+      "test_case": "Leave required password field blank and submit",
+      "preconditions": [
+        "User is on the Registration page"
+      ],
+      "steps": [
+        "1. Leave the Password field blank",
+        "2. Enter <valid first name> into First_Name",
+        "3. Enter <valid last name> into Last_Name",
+        "4. Enter <valid unique email> into Email",
+        "5. Enter <valid password> into Confirm_Password",
+        "6. Check the Terms_and_Conditions checkbox",
+        "7. Click the Register button"
+      ],
+      "expected_result": "Inline validation error appears on the Password field indicating it is required; the form does not submit and no account is created",
       "priority": "high"
     },
     {
       "tc_id": "N-004",
-      "test_case": "Password and Confirm Password mismatch",
+      "wf_ref": null,
+      "test_case": "Submit without checking Terms and Conditions checkbox",
       "preconditions": [
         "User is on the Registration page"
       ],
       "steps": [
-        "1. Enter a value in the Password field: <valid password>",
-        "2. Enter a different value in the Confirm Password field: <different password>",
-        "3. Fill all other required fields with valid values: First Name: <valid first name>, Last Name: <valid last name>, Email: <valid unique email>, Country Code: <valid country code>, Mobile Number: <valid numeric mobile>, Country: <valid country>, accept Terms and Conditions",
-        "4. Click the Register button"
+        "1. Enter <valid first name> into First_Name",
+        "2. Enter <valid last name> into Last_Name",
+        "3. Enter <valid unique email> into Email",
+        "4. Enter <valid password> into Password",
+        "5. Enter the same <valid password> into Confirm_Password",
+        "6. Ensure the Terms_and_Conditions checkbox is unchecked",
+        "7. Click the Register button"
       ],
-      "expected_result": "Confirm Password field displays an inline validation error: 'must match Password'; the form does not submit and no account is created.",
+      "expected_result": "Inline validation error appears on the Terms_and_Conditions control indicating it must be checked; the form does not submit and no account is created",
       "priority": "high"
     },
     {
       "tc_id": "N-005",
-      "test_case": "Terms and Conditions checkbox not accepted",
+      "wf_ref": "WF-001",
+      "test_case": "Submit with ALL required fields empty",
       "preconditions": [
         "User is on the Registration page"
       ],
       "steps": [
-        "1. Ensure the Terms and Conditions checkbox is unchecked",
-        "2. Fill all other required fields with valid values: First Name: <valid first name>, Last Name: <valid last name>, Email: <valid unique email>, Password: <valid password>, Confirm Password: <same as Password>, Country Code: <valid country code>, Mobile Number: <valid numeric mobile>, Country: <valid country>",
-        "3. Click the Register button"
+        "1. Ensure First_Name, Last_Name, Email, Password and Confirm_Password are left blank and Terms_and_Conditions is unchecked",
+        "2. Click the Register button"
       ],
-      "expected_result": "Inline validation error appears on the Terms and Conditions checkbox indicating it must be accepted; the form does not submit and no account is created.",
+      "expected_result": "Inline validation errors appear on First_Name, Last_Name, Email, Password, Confirm_Password and Terms_and_Conditions indicating they are required; the form does not submit and no account is created",
       "priority": "high"
     },
     {
       "tc_id": "N-006",
-      "test_case": "Leave required numeric field (Mobile Number) blank and submit",
+      "wf_ref": null,
+      "test_case": "Enter an invalid email format and submit",
       "preconditions": [
         "User is on the Registration page"
       ],
       "steps": [
-        "1. Leave the Mobile Number field blank",
-        "2. Fill all other required fields with valid values: First Name: <valid first name>, Last Name: <valid last name>, Email: <valid unique email>, Password: <valid password>, Confirm Password: <same as Password>, Country Code: <valid country code>, Country: <valid country>, accept Terms and Conditions",
-        "3. Click the Register button"
+        "1. Enter <invalid email format> into Email",
+        "2. Enter <valid first name> into First_Name",
+        "3. Enter <valid last name> into Last_Name",
+        "4. Enter <valid password> into Password",
+        "5. Enter the same <valid password> into Confirm_Password",
+        "6. Check the Terms_and_Conditions checkbox",
+        "7. Click the Register button"
       ],
-      "expected_result": "Inline validation error appears on the Mobile Number field indicating it is required; the form does not submit and no account is created.",
-      "priority": "high"
-    },
-    {
-      "tc_id": "N-007",
-      "test_case": "Email field contains invalid format",
-      "preconditions": [
-        "User is on the Registration page"
-      ],
-      "steps": [
-        "1. Enter <invalid email format> in the Email field",
-        "2. Fill all other required fields with valid values: First Name: <valid first name>, Last Name: <valid last name>, Password: <valid password>, Confirm Password: <same as Password>, Country Code: <valid country code>, Mobile Number: <valid numeric mobile>, Country: <valid country>, accept Terms and Conditions",
-        "3. Click the Register button"
-      ],
-      "expected_result": "Inline validation error appears on the Email field indicating it 'must be valid email format'; the form does not submit and no account is created.",
+      "expected_result": "Inline validation error appears on the Email field indicating the email format is invalid; the form does not submit and no account is created",
       "priority": "medium"
     },
     {
-      "tc_id": "N-008",
-      "test_case": "Register with an email that already exists (email uniqueness violation)",
+      "tc_id": "N-007",
+      "wf_ref": null,
+      "test_case": "Submit with an email that is already registered (uniqueness violation)",
       "preconditions": [
-        "There is an existing account with the given email"
+        "User is on the Registration page",
+        "An account already exists with <email already registered>"
       ],
       "steps": [
-        "1. Enter <email already in system> in the Email field",
-        "2. Fill all other required fields with valid values: First Name: <valid first name>, Last Name: <valid last name>, Password: <valid password>, Confirm Password: <same as Password>, Country Code: <valid country code>, Mobile Number: <valid numeric mobile>, Country: <valid country>, accept Terms and Conditions",
-        "3. Click the Register button"
+        "1. Enter <email already registered> into Email",
+        "2. Enter <valid first name> into First_Name",
+        "3. Enter <valid last name> into Last_Name",
+        "4. Enter <valid password> into Password",
+        "5. Enter the same <valid password> into Confirm_Password",
+        "6. Check the Terms_and_Conditions checkbox",
+        "7. Click the Register button"
       ],
-      "expected_result": "Inline validation error appears on the Email field indicating 'Email must be unique'; the form does not submit and no account is created.",
+      "expected_result": "Inline validation error appears on the Email field indicating the email must be unique / is already registered; the form does not submit and no new account is created",
+      "priority": "high"
+    },
+    {
+      "tc_id": "N-008",
+      "wf_ref": null,
+      "test_case": "Password and Confirm Password do not match",
+      "preconditions": [
+        "User is on the Registration page"
+      ],
+      "steps": [
+        "1. Enter <valid password> into Password",
+        "2. Enter a different <different password> into Confirm_Password",
+        "3. Enter <valid first name> into First_Name",
+        "4. Enter <valid last name> into Last_Name",
+        "5. Enter <valid unique email> into Email",
+        "6. Check the Terms_and_Conditions checkbox",
+        "7. Click the Register button"
+      ],
+      "expected_result": "Inline validation error appears on Confirm_Password (or both Password/Confirm_Password) indicating passwords must match; the form does not submit and no account is created",
       "priority": "high"
     }
   ],

@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-21T22:29:06.546465
+DEBUG SESSION STARTED: 2026-05-25T14:24:50.737954
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[22:29:06] Test-Positive - SYSTEM PROMPT
+[14:24:50] Test-Positive - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Expert UI Test Case Generator. You receive (1) a UI-AST JSON for one specific module and (2) the original functional description for that module.
 
@@ -24,6 +24,10 @@ Your job is to produce ONLY positive/functional UI test cases — tests where va
 <description>
 {Original functional description text for this module}
 </description>
+
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
 
 ---
 
@@ -146,6 +150,13 @@ Because you are testing a module in isolation, establish the required entry stat
 **1. Forms & Wizards (`form`, `wizard`):**
 - Generate ONE happy path per distinct success outcome.
 - *Conditional UI Check:* If a toggle/dropdown reveals new mandatory fields (`visible_when`), generate a separate test for that conditional branch.
+- **Wizard step coverage (CRITICAL):** If a wizard has multiple steps and any step beyond Step 1 contains its own named field group (e.g., "Address Details", "Family Members", "Identifiers"), generate ONE dedicated positive TC per such step. The TC must:
+  - Navigate to that specific step (include the preceding steps as preconditions or brief navigation steps)
+  - Fill the fields described for that step (not just pass through)
+  - Assert the step's content is visible/saved on the detail page after final submission
+  - **Do NOT collapse all wizard steps into one happy-path TC** — if Steps 2, 3, and 4 each have their own named section in the spec, they each need their own TC.
+- **Wizard in-step identifiers/duplicates:** If a wizard step allows adding identifiers, documents, or similar entries that have a uniqueness constraint, include a TC for that wizard step that also verifies the constraint (e.g., attempting to add a duplicate Document Type+Key pair inside the wizard). This is a different code path from adding the same post-creation on the detail page.
+- **Action dialogs:** If a `state_bound_action_bar` action opens a dialog with its own `fields{}` (e.g., Activate requires Activation Date, Reject requires Reason), generate ONE positive TC per such action-dialog — distinct from the state-transition TC. The TC fills the dialog field and completes the action.
 
 **2. State Machines (`state_bound_action_bar`):**
 - For each unique action available in a specific state, generate ONE test performing that action.
@@ -200,6 +211,19 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 
 ---
 
+**WORKFLOW COVERAGE OBLIGATION (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- Your test cases must **collectively cover every workflow** listed.
+- For each `wf_id`, at least one TC must:
+  - Activate the `conditional_branch` (if not null) — i.e. the test must set up the condition described.
+  - Assert the `on_success` as its `expected_result` (verbatim or as the primary basis for the expected result).
+- Add `"wf_ref": "WF-NNN"` to each TC to identify which workflow it covers.
+- If one TC naturally covers multiple workflows (e.g., the base path overlaps), pick the most specific `wf_ref`.
+- If a TC does not map to any workflow (e.g., a navigation-only test), set `"wf_ref": null`.
+
+---
+
 **OUTPUT — JSON only, no prose, no markdown fencing:**
 
 {
@@ -208,6 +232,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
   "test_cases": [
     {
       "tc_id": "P-001",
+      "wf_ref": "WF-001",
       "test_case": "Short descriptive name",
       "preconditions": ["User logged in as <Role>", "<Prerequisite state>"],
       "steps": ["1. Step one", "2. Step two"],
@@ -224,7 +249,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 }
 
 ------------------------------------------------------------
-[22:29:06] Test-Positive - USER PROMPT
+[14:24:50] Test-Positive - USER PROMPT
 ------------------------------------------------------------
 <module_name>Provisioning</module_name>
 
@@ -235,20 +260,20 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
     "Provisioning_Criteria_Table": {
       "type": "data_table",
       "columns": [
-        {
-          "name": "Criteria Name",
-          "type": "link",
-          "clickable": true
-        },
-        {
-          "name": "Created Date",
-          "type": "date"
-        }
+        "Criteria Name",
+        "Created Date"
       ],
-      "top_actions": [
+      "page_actions": [
         {
           "element_name": "+ Create",
-          "action_name": "Open Create Provisioning Criteria Form",
+          "action_name": "Open Create Criteria Form",
+          "opens": "Provisioning_Criteria_Form"
+        }
+      ],
+      "row_actions": [
+        {
+          "action_name": "Open Criteria",
+          "triggered_by": "Criteria Name link",
           "opens": "Provisioning_Criteria_Form"
         }
       ]
@@ -256,15 +281,14 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
     "Provisioning_Criteria_Form": {
       "type": "form",
       "fields": {
-        "Criteria Name": {
+        "Criteria_Name": {
           "type": "unspecified",
           "required": true
         },
         "Definitions": {
           "type": "repeating_group",
-          "add_row_action": true,
           "item_fields": {
-            "Loan Product": {
+            "Loan_Product": {
               "type": "unspecified"
             },
             "Category": {
@@ -276,103 +300,63 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
                 "LOSS"
               ]
             },
-            "Minimum Age (overdue days)": {
+            "Minimum_Age": {
               "type": "number",
-              "constraints": [
-                "represents overdue days (minimum of the overdue range)"
-              ]
+              "description": "overdue days"
             },
-            "Maximum Age (overdue days)": {
+            "Maximum_Age": {
               "type": "number",
-              "constraints": [
-                "represents overdue days (maximum of the overdue range)"
-              ]
+              "description": "overdue days"
             },
-            "Provisioning Percentage": {
+            "Provisioning_Percentage": {
               "type": "number",
-              "constraints": [
-                "percentage of outstanding principal"
-              ]
+              "description": "percentage of outstanding principal"
             },
-            "Liability Account": {
+            "Liability_Account": {
               "type": "dropdown",
-              "constraints": [
-                "select GL liability account"
-              ]
+              "description": "GL account dropdown"
             },
-            "Expense Account": {
+            "Expense_Account": {
               "type": "dropdown",
-              "constraints": [
-                "select GL expense account"
-              ]
+              "description": "GL account dropdown"
             }
-          }
+          },
+          "constraints": [
+            "Minimum_Age must be <= Maximum_Age"
+          ]
         }
       },
       "submit_actions": [
         {
-          "element_name": "Save",
-          "action_name": "Create Provisioning Criteria",
-          "on_success": "creates a new provisioning criteria and closes the form"
+          "element_name": "Create",
+          "on_success": "creates provisioning criteria"
         }
       ]
     },
     "Provisioning_Entries_Table": {
       "type": "data_table",
       "columns": [
-        {
-          "name": "Entry Date",
-          "type": "date"
-        },
-        {
-          "name": "Journal Entry Created",
-          "type": "date"
-        },
-        {
-          "name": "Created By",
-          "type": "unspecified"
-        }
+        "Entry Date",
+        "Journal Entry Created",
+        "Created By"
       ],
-      "top_actions": [
+      "page_actions": [
         {
           "element_name": "+ Create Provisioning Entry",
           "action_name": "Generate Provisioning Entries",
-          "on_success": "calculates required provision amount for each loan category and creates corresponding journal entries"
+          "on_success": "generates provisioning journal entries by calculating required provision amount for each loan category and creating corresponding journal entries based on current loan portfolio and configured criteria"
         }
       ],
       "row_actions": [
         {
           "action_name": "Review",
-          "action_description": "opens Provisioning_Entry_Detail for the selected entry",
-          "opens": "Provisioning_Entry_Detail"
+          "on_success": "opens entry detail showing detailed breakdown by loan product and category"
         },
         {
           "action_name": "Recreate",
-          "action_description": "recreates provisioning journal entry based on current loan portfolio status and configured criteria",
-          "on_success": "recreates journal entry"
+          "on_success": "recreates provisioning entry based on current loan portfolio and configured criteria"
         }
       ]
-    },
-    "Provisioning_Entry_Detail": {
-      "type": "data_table",
-      "description": "detailed breakdown by loan product and category",
-      "columns": [
-        {
-          "name": "Loan Product",
-          "type": "unspecified"
-        },
-        {
-          "name": "Category",
-          "type": "dropdown",
-          "options": [
-            "STANDARD",
-            "SUB-STANDARD",
-            "DOUBTFUL",
-            "LOSS"
-          ]
-        }
-      ],
-      "row_actions": []
     }
   }
 }
@@ -389,10 +373,19 @@ The Provisioning Entries page lists all generated provisioning journal entries w
 
 </description>
 
+<workflows>
+WF-001 | Open Create Criteria form from Criteria table | actor: <role> | branch: none | terminal: Open Create Criteria Form | on_success: opens Provisioning_Criteria_Form
+WF-002 | Open existing Criteria via Criteria Name link | actor: <role> | branch: none | terminal: Open Criteria | on_success: opens Provisioning_Criteria_Form for the selected criteria
+WF-003 | Create provisioning criteria (submit form) | actor: <role> | branch: none | terminal: Create | on_success: creates provisioning criteria
+WF-004 | Generate provisioning entries (create journal entries) | actor: <role> | branch: none | terminal: Generate Provisioning Entries | on_success: generates provisioning journal entries by calculating required provision amount for each loan category and creating corresponding journal entries based on current loan portfolio and configured criteria
+WF-005 | Review provisioning entry | actor: <role> | branch: none | terminal: Review | on_success: opens entry detail showing detailed breakdown by loan product and category
+WF-006 | Recreate provisioning entry | actor: <role> | branch: none | terminal: Recreate | on_success: recreates provisioning entry based on current loan portfolio and configured criteria
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[22:34:13] Test-Positive - LLM RESPONSE
+[14:30:32] Test-Positive - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Provisioning",
@@ -400,96 +393,114 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Create Provisioning Criteria with one Definition row",
+      "wf_ref": "WF-001",
+      "test_case": "Open Create Criteria form from Criteria table using + Create",
       "preconditions": [
-        "User logged in as <User with provisioning management role>",
-        "Provisioning > Criteria page is open"
+        "User logged in as <role>"
       ],
       "steps": [
-        "1. Click the '+ Create' button in the Provisioning Criteria table",
-        "2. Enter <valid criteria name> in the Criteria Name field",
-        "3. Click 'Add Row' in the Definitions section",
-        "4. In the new Definitions row select <loan product> in Loan Product",
-        "5. Select 'STANDARD' from the Category dropdown",
-        "6. Enter <minimum overdue days> in Minimum Age (overdue days)",
-        "7. Enter <maximum overdue days> in Maximum Age (overdue days)",
-        "8. Enter <provisioning percentage> in Provisioning Percentage",
-        "9. Select <liability GL account> from Liability Account",
-        "10. Select <expense GL account> from Expense Account",
-        "11. Click the 'Save' button"
+        "1. Navigate to Provisioning > Criteria page",
+        "2. Click the '+ Create' page action on the Provisioning Criteria table"
       ],
-      "expected_result": "The Provisioning Criteria form closes and the Provisioning Criteria table displays a new row with the entered Criteria Name; the Created Date column is populated for that row",
-      "priority": "high"
+      "expected_result": "Provisioning_Criteria_Form is displayed; the Criteria Name field (required) and the Definitions repeating table (with Add Row control) are visible",
+      "priority": "medium"
     },
     {
       "tc_id": "P-002",
-      "test_case": "Open Provisioning Criteria detail by clicking Criteria Name link",
+      "wf_ref": "WF-002",
+      "test_case": "Open an existing provisioning criteria by clicking its Criteria Name link",
       "preconditions": [
-        "User logged in as <User with provisioning management role>",
-        "A provisioning criteria named <existing criteria> exists and appears in the Provisioning Criteria table",
-        "Provisioning > Criteria page is open"
+        "User logged in as <role>",
+        "A provisioning criteria exists named <existing criteria>"
       ],
       "steps": [
-        "1. Click the Criteria Name link for the row with name <existing criteria>"
+        "1. Navigate to Provisioning > Criteria page",
+        "2. Click the <existing criteria> link in the Criteria Name column of the Provisioning Criteria table"
       ],
-      "expected_result": "Provisioning Criteria detail view opens showing the Criteria Name '<existing criteria>' and the Definitions table with its definition rows visible",
+      "expected_result": "Provisioning_Criteria_Form opens populated for the selected criteria; the Criteria Name field shows the selected criteria name and the Definitions repeating rows for that criteria are visible",
       "priority": "medium"
     },
     {
       "tc_id": "P-003",
-      "test_case": "Generate Provisioning Entries (Create Provisioning Entry)",
+      "wf_ref": "WF-003",
+      "test_case": "Create a new provisioning criteria with one Definitions row and submit",
       "preconditions": [
-        "User logged in as <User with provisioning management role>",
-        "Configured provisioning criteria exist",
-        "A loan portfolio with balances that will trigger provisioning entries exists",
-        "Provisioning > Entries page is open"
+        "User logged in as <role>",
+        "Provisioning Criteria page is open"
       ],
       "steps": [
-        "1. Click the '+ Create Provisioning Entry' button in the Provisioning Entries table"
+        "1. Click the '+ Create' page action on the Provisioning Criteria table to open the Provisioning_Criteria_Form",
+        "2. Enter <criteria name> in the Criteria Name field",
+        "3. Click Add Row in the Definitions repeating table",
+        "4. Enter <loan product> in the new Definitions row's Loan Product field",
+        "5. Select 'STANDARD' from the Category dropdown in the new row",
+        "6. Enter <minimum overdue days> in Minimum_Age and enter <maximum overdue days> in Maximum_Age where <minimum overdue days> is less than or equal to <maximum overdue days>",
+        "7. Enter <provision percentage> in Provisioning_Percentage",
+        "8. Select <liability account> from the Liability_Account dropdown and select <expense account> from the Expense_Account dropdown",
+        "9. Click the 'Create' submit button on the form"
       ],
-      "expected_result": "One or more new rows appear in the Provisioning Entries table for the generated provisioning run: the Entry Date column shows <current date> and the Journal Entry Created column is populated; the Created By column shows <current user> for the new rows",
+      "expected_result": "New row appears in the Provisioning Criteria table with the entered Criteria Name and a Created Date visible",
       "priority": "high"
     },
     {
       "tc_id": "P-004",
-      "test_case": "Review a Provisioning Entry shows detailed breakdown by loan product and category",
+      "wf_ref": "WF-004",
+      "test_case": "Generate provisioning entries using + Create Provisioning Entry",
       "preconditions": [
-        "User logged in as <User with provisioning management role>",
-        "A provisioning entry <existing provisioning entry> exists in the Provisioning Entries table",
-        "Provisioning > Entries page is open"
+        "User logged in as <role>",
+        "Provisioning Entries page is open",
+        "At least one provisioning criteria exists and the system has current loan portfolio data"
       ],
       "steps": [
-        "1. Click 'Review' for the row representing <existing provisioning entry>"
+        "1. Navigate to Provisioning > Entries page",
+        "2. Click the '+ Create Provisioning Entry' page action"
       ],
-      "expected_result": "Provisioning Entry Detail opens and displays a detailed breakdown table with columns 'Loan Product' and 'Category' and one or more breakdown rows visible",
-      "priority": "medium"
+      "expected_result": "A new row appears in the Provisioning Entries table for the generated provisioning; the row shows an Entry Date and the 'Journal Entry Created' column indicates a created journal entry",
+      "priority": "high"
     },
     {
       "tc_id": "P-005",
-      "test_case": "Recreate a Provisioning Entry updates the Journal Entry Created date",
+      "wf_ref": "WF-005",
+      "test_case": "Review a provisioning entry to view detailed breakdown by loan product and category",
       "preconditions": [
-        "User logged in as <User with provisioning management role>",
-        "A provisioning entry <existing provisioning entry> exists in the Provisioning Entries table",
-        "Provisioning > Entries page is open"
+        "User logged in as <role>",
+        "Provisioning Entries page is open",
+        "A provisioning entry exists in the table"
       ],
       "steps": [
-        "1. Click 'Recreate' for the row representing <existing provisioning entry>",
-        "2. If a confirmation dialog appears, click Confirm on the Recreate dialog"
+        "1. Navigate to Provisioning > Entries page",
+        "2. Click the 'Review' row action for an existing provisioning entry"
       ],
-      "expected_result": "The Journal Entry Created date for <existing provisioning entry> is updated to <current date> in the Provisioning Entries table",
+      "expected_result": "Entry detail view opens showing a detailed breakdown by loan product and category with amounts per product and category visible",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-006",
+      "wf_ref": "WF-006",
+      "test_case": "Recreate an existing provisioning entry using the Recreate action",
+      "preconditions": [
+        "User logged in as <role>",
+        "Provisioning Entries page is open",
+        "A provisioning entry exists in the table"
+      ],
+      "steps": [
+        "1. Navigate to Provisioning > Entries page",
+        "2. Click the 'Recreate' row action for the existing provisioning entry"
+      ],
+      "expected_result": "A new row appears in the Provisioning Entries table for the recreated provisioning entry; the new row shows an Entry Date and the 'Journal Entry Created' column indicates a created journal entry",
       "priority": "medium"
     }
   ],
   "summary": {
-    "total": 5,
+    "total": 6,
     "high_priority": 2,
-    "medium_priority": 3,
+    "medium_priority": 4,
     "low_priority": 0
   }
 }
 
 ------------------------------------------------------------
-[22:34:13] Test-Positive - PARSED JSON
+[14:30:32] Test-Positive - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Provisioning",
@@ -497,90 +508,108 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Create Provisioning Criteria with one Definition row",
+      "wf_ref": "WF-001",
+      "test_case": "Open Create Criteria form from Criteria table using + Create",
       "preconditions": [
-        "User logged in as <User with provisioning management role>",
-        "Provisioning > Criteria page is open"
+        "User logged in as <role>"
       ],
       "steps": [
-        "1. Click the '+ Create' button in the Provisioning Criteria table",
-        "2. Enter <valid criteria name> in the Criteria Name field",
-        "3. Click 'Add Row' in the Definitions section",
-        "4. In the new Definitions row select <loan product> in Loan Product",
-        "5. Select 'STANDARD' from the Category dropdown",
-        "6. Enter <minimum overdue days> in Minimum Age (overdue days)",
-        "7. Enter <maximum overdue days> in Maximum Age (overdue days)",
-        "8. Enter <provisioning percentage> in Provisioning Percentage",
-        "9. Select <liability GL account> from Liability Account",
-        "10. Select <expense GL account> from Expense Account",
-        "11. Click the 'Save' button"
+        "1. Navigate to Provisioning > Criteria page",
+        "2. Click the '+ Create' page action on the Provisioning Criteria table"
       ],
-      "expected_result": "The Provisioning Criteria form closes and the Provisioning Criteria table displays a new row with the entered Criteria Name; the Created Date column is populated for that row",
-      "priority": "high"
+      "expected_result": "Provisioning_Criteria_Form is displayed; the Criteria Name field (required) and the Definitions repeating table (with Add Row control) are visible",
+      "priority": "medium"
     },
     {
       "tc_id": "P-002",
-      "test_case": "Open Provisioning Criteria detail by clicking Criteria Name link",
+      "wf_ref": "WF-002",
+      "test_case": "Open an existing provisioning criteria by clicking its Criteria Name link",
       "preconditions": [
-        "User logged in as <User with provisioning management role>",
-        "A provisioning criteria named <existing criteria> exists and appears in the Provisioning Criteria table",
-        "Provisioning > Criteria page is open"
+        "User logged in as <role>",
+        "A provisioning criteria exists named <existing criteria>"
       ],
       "steps": [
-        "1. Click the Criteria Name link for the row with name <existing criteria>"
+        "1. Navigate to Provisioning > Criteria page",
+        "2. Click the <existing criteria> link in the Criteria Name column of the Provisioning Criteria table"
       ],
-      "expected_result": "Provisioning Criteria detail view opens showing the Criteria Name '<existing criteria>' and the Definitions table with its definition rows visible",
+      "expected_result": "Provisioning_Criteria_Form opens populated for the selected criteria; the Criteria Name field shows the selected criteria name and the Definitions repeating rows for that criteria are visible",
       "priority": "medium"
     },
     {
       "tc_id": "P-003",
-      "test_case": "Generate Provisioning Entries (Create Provisioning Entry)",
+      "wf_ref": "WF-003",
+      "test_case": "Create a new provisioning criteria with one Definitions row and submit",
       "preconditions": [
-        "User logged in as <User with provisioning management role>",
-        "Configured provisioning criteria exist",
-        "A loan portfolio with balances that will trigger provisioning entries exists",
-        "Provisioning > Entries page is open"
+        "User logged in as <role>",
+        "Provisioning Criteria page is open"
       ],
       "steps": [
-        "1. Click the '+ Create Provisioning Entry' button in the Provisioning Entries table"
+        "1. Click the '+ Create' page action on the Provisioning Criteria table to open the Provisioning_Criteria_Form",
+        "2. Enter <criteria name> in the Criteria Name field",
+        "3. Click Add Row in the Definitions repeating table",
+        "4. Enter <loan product> in the new Definitions row's Loan Product field",
+        "5. Select 'STANDARD' from the Category dropdown in the new row",
+        "6. Enter <minimum overdue days> in Minimum_Age and enter <maximum overdue days> in Maximum_Age where <minimum overdue days> is less than or equal to <maximum overdue days>",
+        "7. Enter <provision percentage> in Provisioning_Percentage",
+        "8. Select <liability account> from the Liability_Account dropdown and select <expense account> from the Expense_Account dropdown",
+        "9. Click the 'Create' submit button on the form"
       ],
-      "expected_result": "One or more new rows appear in the Provisioning Entries table for the generated provisioning run: the Entry Date column shows <current date> and the Journal Entry Created column is populated; the Created By column shows <current user> for the new rows",
+      "expected_result": "New row appears in the Provisioning Criteria table with the entered Criteria Name and a Created Date visible",
       "priority": "high"
     },
     {
       "tc_id": "P-004",
-      "test_case": "Review a Provisioning Entry shows detailed breakdown by loan product and category",
+      "wf_ref": "WF-004",
+      "test_case": "Generate provisioning entries using + Create Provisioning Entry",
       "preconditions": [
-        "User logged in as <User with provisioning management role>",
-        "A provisioning entry <existing provisioning entry> exists in the Provisioning Entries table",
-        "Provisioning > Entries page is open"
+        "User logged in as <role>",
+        "Provisioning Entries page is open",
+        "At least one provisioning criteria exists and the system has current loan portfolio data"
       ],
       "steps": [
-        "1. Click 'Review' for the row representing <existing provisioning entry>"
+        "1. Navigate to Provisioning > Entries page",
+        "2. Click the '+ Create Provisioning Entry' page action"
       ],
-      "expected_result": "Provisioning Entry Detail opens and displays a detailed breakdown table with columns 'Loan Product' and 'Category' and one or more breakdown rows visible",
-      "priority": "medium"
+      "expected_result": "A new row appears in the Provisioning Entries table for the generated provisioning; the row shows an Entry Date and the 'Journal Entry Created' column indicates a created journal entry",
+      "priority": "high"
     },
     {
       "tc_id": "P-005",
-      "test_case": "Recreate a Provisioning Entry updates the Journal Entry Created date",
+      "wf_ref": "WF-005",
+      "test_case": "Review a provisioning entry to view detailed breakdown by loan product and category",
       "preconditions": [
-        "User logged in as <User with provisioning management role>",
-        "A provisioning entry <existing provisioning entry> exists in the Provisioning Entries table",
-        "Provisioning > Entries page is open"
+        "User logged in as <role>",
+        "Provisioning Entries page is open",
+        "A provisioning entry exists in the table"
       ],
       "steps": [
-        "1. Click 'Recreate' for the row representing <existing provisioning entry>",
-        "2. If a confirmation dialog appears, click Confirm on the Recreate dialog"
+        "1. Navigate to Provisioning > Entries page",
+        "2. Click the 'Review' row action for an existing provisioning entry"
       ],
-      "expected_result": "The Journal Entry Created date for <existing provisioning entry> is updated to <current date> in the Provisioning Entries table",
+      "expected_result": "Entry detail view opens showing a detailed breakdown by loan product and category with amounts per product and category visible",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-006",
+      "wf_ref": "WF-006",
+      "test_case": "Recreate an existing provisioning entry using the Recreate action",
+      "preconditions": [
+        "User logged in as <role>",
+        "Provisioning Entries page is open",
+        "A provisioning entry exists in the table"
+      ],
+      "steps": [
+        "1. Navigate to Provisioning > Entries page",
+        "2. Click the 'Recreate' row action for the existing provisioning entry"
+      ],
+      "expected_result": "A new row appears in the Provisioning Entries table for the recreated provisioning entry; the new row shows an Entry Date and the 'Journal Entry Created' column indicates a created journal entry",
       "priority": "medium"
     }
   ],
   "summary": {
-    "total": 5,
+    "total": 6,
     "high_priority": 2,
-    "medium_priority": 3,
+    "medium_priority": 4,
     "low_priority": 0
   }
 }

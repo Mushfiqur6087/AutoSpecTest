@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-21T22:29:06.539744
+DEBUG SESSION STARTED: 2026-05-25T14:24:50.732273
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[22:29:06] Test-Negative - SYSTEM PROMPT
+[14:24:50] Test-Negative - SYSTEM PROMPT
 ------------------------------------------------------------
 You are a Negative Test Case Generator. You receive (1) a UI-AST JSON for one module and (2) the original functional description. Your job is to produce ONLY negative test cases — tests where invalid input is provided or business rules are violated, and the system correctly rejects or blocks the action.
 
@@ -22,6 +22,10 @@ You are a Negative Test Case Generator. You receive (1) a UI-AST JSON for one mo
 <description>
 {Original functional description text for this module}
 </description>
+
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
 
 ---
 
@@ -111,6 +115,9 @@ Group required fields by type: `text/unspecified`, `email`, `password`, `number`
 
 Do NOT generate a separate blank-field test for every required field. If 5 text fields are all required, one representative covers them all.
 
+**Action dialog required fields — NOT subject to cross-form deduplication:**
+If a `state_bound_action_bar` action opens a dialog with its own required `fields{}` (e.g., Activate requires Activation Date, Reject requires a Reason, Withdraw requires a Reason, Close requires a Closure Reason), each such dialog is its own testing scope. Generate ONE "leave the required dialog field blank and submit" test per distinct action dialog. These are HIGH priority — they block state transitions and are common defect sites. Do not suppress them because the main wizard already has a blank-field test.
+
 **2. Format violations:**
 
 For fields with type-specific format rules (from AST type or description):
@@ -143,6 +150,10 @@ For each unique `constraints[]` entry in the AST, and for cross-field rules desc
 
 One test per unique constraint. Do not duplicate the same mechanism.
 
+**Constraint timing tests:** If the spec states an action is blocked by a pre-existing system state (e.g., "cannot close with active accounts", "cannot transfer to the same office"), generate TWO tests:
+1. The standard constraint violation test (user opens the dialog, fills required fields, submits → blocked).
+2. A constraint-timing test: user opens the dialog WITHOUT filling required fields → assert whether the block is shown immediately on dialog open (before the user fills anything) OR only on submit. This distinguishes whether the UI enforces the constraint eagerly or lazily. Steps: open the dialog, observe the state → assert what is visible before any interaction. If the spec is silent on timing, generate only the first test.
+
 **5. Precondition violations (auth, role, and state):**
 
 For each `preconditions[]` entry on any action — and for auth/role rules described in the spec:
@@ -154,18 +165,18 @@ For each `preconditions[]` entry on any action — and for auth/role rules descr
 **6. State-machine violations:**
 
 From `state_bound_action_bar` nodes:
-- For each state where an action is NOT listed in `available_actions`, generate one test attempting that action from that state. Example: attempting "Approve" on an entity already in "Active" state.
+- **Every defined state must have at least one wrong-state test.** For each state, identify at least one action that is NOT in its `available_actions` list and generate a test attempting that action from that state.
 - If a state has an empty `available_actions` array, generate one test verifying no action buttons are visible in that state.
-
-One test per unique wrong-state scenario — do not enumerate every action × every invalid state.
+- **Do not stop after 1–2 representative examples** when the module defines 4+ distinct states. The states Active, Pending, Closed, Rejected, and Withdrawn each have different action sets — each must be independently verified.
+- One test per state is sufficient — pick the most distinct unavailable action for that state. Do not enumerate every action × every state (that would be exponential).
 
 ---
 
 **DEDUPLICATION GATE (run before outputting):**
 
-1. **Required field dedup:** Multiple required text fields → ONE representative test, not one per field.
+1. **Required field dedup:** Multiple required text fields in the **same form or dialog** → ONE representative test, not one per field.
 2. **Sub-rule dedup:** A field with multiple validation sub-rules (e.g., password: length + uppercase + lowercase + number + special char) → ONE representative violation test, not one per sub-rule.
-3. **Cross-form dedup:** If two forms in the same module share the same validation mechanism (e.g., both have a required text field) → test it on the primary form only.
+3. **Cross-form dedup:** If two **main forms** in the same module share the same validation mechanism → test it on the primary form only. **Exception: action dialogs are never suppressed by cross-form dedup** — each action dialog with a required field gets its own blank-field test regardless.
 4. **Uniqueness check:** Before outputting, ask for each TC: "Does this test catch a bug that NO other test in this module would catch?" If no → remove it.
 
 ---
@@ -174,9 +185,11 @@ One test per unique wrong-state scenario — do not enumerate every action × ev
 
 - Simple module (login, single form, display page): **2–4 tests**
 - Medium module (standard CRUD form, form with constraints): **4–8 tests**
-- Complex module (state machine, multi-form, wizard with many constraints): **8–12 tests**
+- Complex module (state machine, multi-form, wizard with many constraints): **10–16 tests**
 
-If you exceed these ranges, you are generating redundant tests. Apply the deduplication gate again before outputting.
+For modules with a `state_bound_action_bar` defining 4+ states, the state-machine violation tests alone will produce 4–5 tests. This is expected and correct — do not suppress them to hit a lower target.
+
+If you exceed the upper range, apply the deduplication gate again before outputting.
 
 ---
 
@@ -184,6 +197,17 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
 
 - **High:** State precondition violations, constraint violations that could corrupt data, unauthenticated access, required field representatives
 - **Medium:** Format violations, cross-field validation, numeric bounds, wrong-role access, wrong-state action attempts
+
+---
+
+**WORKFLOW-AWARE FAILURE INJECTION (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- For each workflow that contains a form interaction (terminal action is a submit/save/create/approve button):
+  - Identify the most **critical blocking failure** for that workflow's `conditional_branch`.
+  - If that failure mode is NOT already covered by another workflow's negative test, generate one negative TC for it.
+- **Do NOT generate one negative TC per workflow mechanically.** Apply the existing deduplication gate first — only add a TC if it catches a bug that no other test would catch.
+- Add `"wf_ref": "WF-NNN"` to each TC that maps to a workflow. Set `"wf_ref": null` for generic validation tests.
 
 ---
 
@@ -195,6 +219,7 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
   "test_cases": [
     {
       "tc_id": "N-001",
+      "wf_ref": null,
       "test_case": "Short descriptive name",
       "preconditions": ["precondition 1"],
       "steps": ["1. Step one", "2. Step two"],
@@ -212,7 +237,7 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
 
 
 ------------------------------------------------------------
-[22:29:06] Test-Negative - USER PROMPT
+[14:24:50] Test-Negative - USER PROMPT
 ------------------------------------------------------------
 <module_name>Savings Account</module_name>
 
@@ -220,60 +245,50 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
 {
   "module_name": "Savings Account",
   "components": {
-    "Savings_Account_Creation_Form": {
+    "Create_Savings_Account_Form": {
       "type": "form",
       "fields": {
         "Product_Name": {
           "type": "dropdown",
           "required": false,
-          "on_change": "auto-populates product default values"
+          "on_change": "auto-populates Nominal Annual Interest Rate, Interest Compounding Period, Interest Posting Period, Interest Calculated Using, Days in Year, and Charges from selected product"
         },
         "Field_Officer": {
-          "type": "unspecified",
-          "required": false
+          "type": "unspecified"
         },
         "Submitted_On": {
-          "type": "date",
-          "required": false
+          "type": "date"
         },
         "Nominal_Annual_Interest_Rate": {
-          "type": "dropdown",
-          "required": false
+          "type": "dropdown"
         },
         "Interest_Compounding_Period": {
-          "type": "dropdown",
-          "required": false
+          "type": "dropdown"
         },
         "Interest_Posting_Period": {
-          "type": "dropdown",
-          "required": false
+          "type": "dropdown"
         },
         "Interest_Calculated_Using": {
-          "type": "dropdown",
-          "required": false
+          "type": "dropdown"
         },
         "Days_in_Year": {
-          "type": "dropdown",
-          "required": false
+          "type": "dropdown"
         },
         "Minimum_Opening_Balance": {
-          "type": "number",
-          "required": false
+          "type": "number"
         },
         "Lock_in_Period": {
-          "type": "unspecified",
-          "required": false
+          "type": "unspecified"
         },
         "Allow_Overdraft": {
-          "type": "checkbox",
-          "required": false
+          "type": "checkbox"
         },
         "Charges": {
           "type": "repeating_group",
-          "item_fields": {},
-          "add_action": {
-            "element_name": "Add Charge",
-            "item_template": "unspecified"
+          "item_fields": {
+            "Charge": {
+              "type": "unspecified"
+            }
           }
         }
       },
@@ -281,6 +296,37 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
         {
           "element_name": "Submit",
           "on_success": "creates account in Submitted and Pending Approval status"
+        }
+      ]
+    },
+    "Savings_Account_Detail_Tabs": {
+      "type": "tab_container",
+      "tabs": [
+        {
+          "tab_name": "Summary",
+          "fields": {}
+        },
+        {
+          "tab_name": "Transactions",
+          "fields": {
+            "Transactions_Table": {
+              "type": "data_table",
+              "columns": [
+                "Date",
+                "Type",
+                "Amount",
+                "Running Balance"
+              ]
+            }
+          }
+        },
+        {
+          "tab_name": "Charges",
+          "fields": {}
+        },
+        {
+          "tab_name": "Documents",
+          "fields": {}
         }
       ]
     },
@@ -295,7 +341,7 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
             },
             {
               "action_name": "Reject",
-              "on_success": "marks application as Rejected"
+              "on_success": "rejects the application"
             },
             {
               "action_name": "Withdraw Application",
@@ -311,7 +357,7 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
             },
             {
               "action_name": "Undo Approval",
-              "on_success": "reverts status to Submitted and Pending Approval"
+              "on_success": "reverts to Submitted and Pending Approval status"
             }
           ]
         },
@@ -334,7 +380,10 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
                     "Mobile Money"
                   ]
                 },
-                "Payment_Details": {
+                "Check_Details": {
+                  "type": "unspecified"
+                },
+                "Mobile_Money_Details": {
                   "type": "unspecified"
                 }
               },
@@ -357,39 +406,38 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
                     "Mobile Money"
                   ]
                 },
-                "Payment_Details": {
+                "Check_Details": {
+                  "type": "unspecified"
+                },
+                "Mobile_Money_Details": {
                   "type": "unspecified"
                 }
               },
               "constraints": [
-                "withdrawal must not exceed available balance unless overdraft is enabled",
-                "if minimum balance enforcement is enabled, withdrawal that would breach minimum balance results in an error"
+                "system validates withdrawal does not exceed available balance unless overdraft is enabled",
+                "if minimum balance is enforced and the withdrawal would breach it, an error is shown"
               ],
               "on_success": "debits the account"
             },
             {
               "action_name": "Post Interest",
-              "on_success": "posts interest to account"
+              "on_success": "posts calculated interest to account"
             },
             {
               "action_name": "Calculate Interest",
-              "on_success": "calculates interest (no posting)"
+              "on_success": "calculates interest for the account"
             },
             {
-              "action_name": "Close",
-              "on_success": "changes status to Closed"
+              "action_name": "Close"
             },
             {
-              "action_name": "Block Account",
-              "on_success": "sets account to Blocked"
+              "action_name": "Block Account"
             },
             {
-              "action_name": "Block Debit",
-              "on_success": "blocks debit transactions on the account"
+              "action_name": "Block Debit"
             },
             {
-              "action_name": "Block Credit",
-              "on_success": "blocks credit transactions on the account"
+              "action_name": "Block Credit"
             }
           ]
         },
@@ -403,39 +451,6 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
           "available_actions": []
         }
       }
-    },
-    "Savings_Account_Detail_Tabs": {
-      "type": "tab_container",
-      "tabs": [
-        {
-          "tab_name": "Summary",
-          "fields": {}
-        },
-        {
-          "tab_name": "Transactions",
-          "fields": {
-            "Transactions_Table": {
-              "type": "data_table",
-              "columns": [
-                "Date",
-                "Type",
-                "Amount",
-                "Running Balance"
-              ],
-              "row_actions": [],
-              "bulk_actions": []
-            }
-          }
-        },
-        {
-          "tab_name": "Charges",
-          "fields": {}
-        },
-        {
-          "tab_name": "Documents",
-          "fields": {}
-        }
-      ]
     }
   }
 }
@@ -452,10 +467,27 @@ The Savings Account Detail page displays the account number, product name, clien
 
 </description>
 
+<workflows>
+WF-001 | Create savings account — Submit | actor: <role> | branch: none | terminal: Submit | on_success: creates account in Submitted and Pending Approval status
+WF-002 | Approve application (Submitted and Pending Approval) | actor: <role> | branch: entity_state == Submitted and Pending Approval | terminal: Approve | on_success: changes status to Approved
+WF-003 | Reject application (Submitted and Pending Approval) | actor: <role> | branch: entity_state == Submitted and Pending Approval | terminal: Reject | on_success: rejects the application
+WF-004 | Withdraw application (Submitted and Pending Approval) | actor: <role> | branch: entity_state == Submitted and Pending Approval | terminal: Withdraw Application | on_success: withdraws the application
+WF-005 | Activate approved account (Approved) | actor: <role> | branch: entity_state == Approved | terminal: Activate | on_success: changes status to Active
+WF-006 | Undo approval (Approved) | actor: <role> | branch: entity_state == Approved | terminal: Undo Approval | on_success: reverts to Submitted and Pending Approval status
+WF-007 | Deposit into active account (Active) | actor: <role> | branch: entity_state == Active | terminal: Deposit | on_success: credits the account
+WF-008 | Withdraw from active account (Active) | actor: <role> | branch: entity_state == Active | terminal: Withdraw | on_success: debits the account
+WF-009 | Post interest (Active) | actor: <role> | branch: entity_state == Active | terminal: Post Interest | on_success: posts calculated interest to account
+WF-010 | Calculate interest (Active) | actor: <role> | branch: entity_state == Active | terminal: Calculate Interest | on_success: calculates interest for the account
+WF-011 | Close account (Active) | actor: <role> | branch: entity_state == Active | terminal: Close | on_success: changes status to Closed
+WF-012 | Block account (Active) | actor: <role> | branch: entity_state == Active | terminal: Block Account | on_success: changes status to Blocked
+WF-013 | Block debit (Active) | actor: <role> | branch: entity_state == Active | terminal: Block Debit | on_success: blocks debit transactions on the account
+WF-014 | Block credit (Active) | actor: <role> | branch: entity_state == Active | terminal: Block Credit | on_success: blocks credit transactions on the account
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[22:32:56] Test-Negative - LLM RESPONSE
+[14:29:05] Test-Negative - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Savings Account",
@@ -463,127 +495,278 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "N-001",
-      "test_case": "Withdraw amount exceeding available balance when overdraft is disabled",
+      "wf_ref": "WF-008",
+      "test_case": "Withdraw amount exceeding available balance is rejected when overdraft is disabled",
       "preconditions": [
-        "Account is in Active status",
-        "Allow Overdraft is disabled on the account",
-        "Account has an available balance of <available balance>"
+        "User is logged in",
+        "Account is in Active state",
+        "Overdraft is disabled on the account",
+        "Account available balance is <available balance>"
       ],
       "steps": [
-        "1. Open the Savings Account detail page for the Active account",
-        "2. Click the 'Withdraw' action button",
-        "3. Enter <valid Transaction_Date> into the Transaction_Date field",
-        "4. Enter <amount exceeding available balance> into the Transaction_Amount field",
-        "5. Select <Payment Type> in the Payment_Type dropdown",
-        "6. Enter necessary text into Payment_Details (if required)",
-        "7. Click the Withdraw / Submit button on the Withdraw form"
+        "1. Open the Savings Account Detail page for the Active account",
+        "2. Click the 'Withdraw' action",
+        "3. Enter <valid transaction date> in the Transaction_Date field",
+        "4. Enter <amount exceeding available balance> in the Transaction_Amount field",
+        "5. Select 'Cash' in the Payment_Type dropdown",
+        "6. Click Submit"
       ],
-      "expected_result": "Transaction_Amount field displays an inline validation error indicating the withdrawal amount exceeds the available balance; the withdrawal is blocked; the account balance and status remain unchanged.",
+      "expected_result": "Transaction_Amount field displays an inline error: 'Withdrawal amount exceeds available balance' (or equivalent); the withdraw dialog does not submit; no debit transaction is created; account balance and available balance remain unchanged",
       "priority": "high"
     },
     {
       "tc_id": "N-002",
-      "test_case": "Withdraw that would breach enforced minimum balance is blocked",
+      "wf_ref": "WF-008",
+      "test_case": "Withdraw that would breach enforced minimum balance is rejected",
       "preconditions": [
-        "Account is in Active status",
-        "Minimum balance enforcement is enabled for the product",
-        "Account has an available balance of <available balance> and a minimum required balance of <minimum balance>"
+        "User is logged in",
+        "Account is in Active state",
+        "Account has a minimum balance enforcement enabled",
+        "Account balance is <current balance> and minimum required balance is <minimum balance>"
       ],
       "steps": [
-        "1. Open the Savings Account detail page for the Active account",
-        "2. Click the 'Withdraw' action button",
-        "3. Enter <valid Transaction_Date> into the Transaction_Date field",
-        "4. Enter <amount that would reduce balance below minimum> into the Transaction_Amount field",
-        "5. Select <Payment Type> in the Payment_Type dropdown",
-        "6. Click the Withdraw / Submit button on the Withdraw form"
+        "1. Open the Savings Account Detail page for the Active account",
+        "2. Click the 'Withdraw' action",
+        "3. Enter <valid transaction date> in the Transaction_Date field",
+        "4. Enter <amount that would cause balance to fall below minimum> in the Transaction_Amount field",
+        "5. Select 'Cash' in the Payment_Type dropdown",
+        "6. Click Submit"
       ],
-      "expected_result": "Transaction_Amount field displays an inline validation error indicating the withdrawal would breach the enforced minimum balance; the withdrawal is blocked; the account balance and status remain unchanged.",
+      "expected_result": "Transaction_Amount field displays an inline error: 'Withdrawal would breach minimum required balance' (or equivalent); the withdraw dialog does not submit; no debit transaction is created; account balance and available balance remain unchanged",
       "priority": "high"
     },
     {
       "tc_id": "N-003",
-      "test_case": "Transaction amount field rejects non-numeric input",
+      "wf_ref": "WF-008",
+      "test_case": "Withdraw rejects non-numeric Transaction_Amount",
       "preconditions": [
-        "Account is in Active status"
+        "User is logged in",
+        "Account is in Active state"
       ],
       "steps": [
-        "1. Open the Savings Account detail page for the Active account",
-        "2. Click the 'Deposit' (or 'Withdraw') action button to open the transaction form",
-        "3. Enter <invalid non-numeric input> into the Transaction_Amount field",
-        "4. Enter <valid Transaction_Date> into the Transaction_Date field",
-        "5. Select <Payment Type> in the Payment_Type dropdown",
-        "6. Click the Submit button on the transaction form"
+        "1. Open the Savings Account Detail page for the Active account",
+        "2. Click the 'Withdraw' action",
+        "3. Enter <valid transaction date> in the Transaction_Date field",
+        "4. Enter <non-numeric input> in the Transaction_Amount field",
+        "5. Select 'Cash' in the Payment_Type dropdown",
+        "6. Click Submit"
       ],
-      "expected_result": "Transaction_Amount field displays an inline validation error indicating a numeric value is required; the transaction is not submitted; account balance remains unchanged.",
+      "expected_result": "Transaction_Amount field displays an inline format error: 'Must be a number' (or equivalent); the withdraw dialog does not submit; no debit transaction is created",
       "priority": "medium"
     },
     {
       "tc_id": "N-004",
-      "test_case": "Transaction date field rejects invalid or impossible date",
+      "wf_ref": "WF-008",
+      "test_case": "Withdraw rejects invalid Transaction_Date",
       "preconditions": [
-        "Account is in Active status"
+        "User is logged in",
+        "Account is in Active state"
       ],
       "steps": [
-        "1. Open the Savings Account detail page for the Active account",
-        "2. Click the 'Deposit' (or 'Withdraw') action button to open the transaction form",
-        "3. Enter <invalid or impossible date> into the Transaction_Date field",
-        "4. Enter <valid numeric amount> into the Transaction_Amount field",
-        "5. Select <Payment Type> in the Payment_Type dropdown",
-        "6. Click the Submit button on the transaction form"
+        "1. Open the Savings Account Detail page for the Active account",
+        "2. Click the 'Withdraw' action",
+        "3. Enter <invalid or impossible date> in the Transaction_Date field",
+        "4. Enter <valid amount within balance> in the Transaction_Amount field",
+        "5. Select 'Cash' in the Payment_Type dropdown",
+        "6. Click Submit"
       ],
-      "expected_result": "Transaction_Date field displays an inline validation error indicating the date is invalid; the transaction is not submitted; account balance remains unchanged.",
+      "expected_result": "Transaction_Date field displays an inline error: 'Enter a valid date' (or equivalent); the withdraw dialog does not submit; no debit transaction is created",
       "priority": "medium"
     },
     {
       "tc_id": "N-005",
-      "test_case": "Withdraw action is not available when account status is Approved (wrong-state action attempt)",
+      "wf_ref": "WF-007",
+      "test_case": "Deposit rejects non-numeric Transaction_Amount",
       "preconditions": [
-        "Account is in Approved status (not Active)"
+        "User is logged in",
+        "Account is in Active state"
       ],
       "steps": [
-        "1. Open the Savings Account detail page for the account in Approved status",
-        "2. Observe the action buttons shown in the state action bar"
+        "1. Open the Savings Account Detail page for the Active account",
+        "2. Click the 'Deposit' action",
+        "3. Enter <valid transaction date> in the Transaction_Date field",
+        "4. Enter <non-numeric input> in the Transaction_Amount field",
+        "5. Select 'Cash' in the Payment_Type dropdown",
+        "6. Click Submit"
       ],
-      "expected_result": "Withdraw action/button is not visible in the action bar when status is Approved; attempting to initiate a withdrawal is not possible; account status remains 'Approved'.",
-      "priority": "high"
+      "expected_result": "Transaction_Amount field displays an inline format error: 'Must be a number' (or equivalent); the deposit dialog does not submit; no credit transaction is created; account balance unchanged",
+      "priority": "medium"
     },
     {
       "tc_id": "N-006",
-      "test_case": "Approve action is not available when account status is Active (wrong-state action attempt)",
+      "wf_ref": "WF-007",
+      "test_case": "Deposit dialog blocks submission when required Transaction_Amount is left blank",
       "preconditions": [
-        "Account is in Active status"
+        "User is logged in",
+        "Account is in Active state"
       ],
       "steps": [
-        "1. Open the Savings Account detail page for the account in Active status",
-        "2. Observe the action buttons shown in the state action bar"
+        "1. Open the Savings Account Detail page for the Active account",
+        "2. Click the 'Deposit' action",
+        "3. Leave the Transaction_Amount field blank",
+        "4. Enter <valid transaction date> in the Transaction_Date field",
+        "5. Select 'Cash' in the Payment_Type dropdown",
+        "6. Click Submit"
       ],
-      "expected_result": "Approve action/button is not visible in the action bar when status is Active; attempting to approve is not possible; account status remains 'Active'.",
+      "expected_result": "Transaction_Amount field displays an inline validation error indicating it is required; the deposit dialog does not submit; no credit transaction is created; account balance unchanged",
       "priority": "high"
     },
     {
       "tc_id": "N-007",
-      "test_case": "No actions are available in Dormant state (empty available_actions)",
+      "wf_ref": "WF-008",
+      "test_case": "Withdraw dialog blocks submission when required Transaction_Amount is left blank",
       "preconditions": [
-        "Account is in Dormant status"
+        "User is logged in",
+        "Account is in Active state"
       ],
       "steps": [
-        "1. Open the Savings Account detail page for the account in Dormant status",
-        "2. Observe the action bar and available action buttons"
+        "1. Open the Savings Account Detail page for the Active account",
+        "2. Click the 'Withdraw' action",
+        "3. Leave the Transaction_Amount field blank",
+        "4. Enter <valid transaction date> in the Transaction_Date field",
+        "5. Select 'Cash' in the Payment_Type dropdown",
+        "6. Click Submit"
       ],
-      "expected_result": "No state-change action buttons are visible in the action bar for a Dormant account (available_actions is empty); no actions can be performed from the UI; account status remains 'Dormant'.",
+      "expected_result": "Transaction_Amount field displays an inline validation error indicating it is required; the withdraw dialog does not submit; no debit transaction is created; account balance unchanged",
+      "priority": "high"
+    },
+    {
+      "tc_id": "N-008",
+      "wf_ref": "WF-005",
+      "test_case": "Cannot Activate account from 'Submitted and Pending Approval' state (Activate button not available)",
+      "preconditions": [
+        "User is logged in",
+        "Account is in 'Submitted and Pending Approval' state"
+      ],
+      "steps": [
+        "1. Open the Savings Account Detail page for the account in 'Submitted and Pending Approval' state",
+        "2. Look for an 'Activate' action button in the action bar"
+      ],
+      "expected_result": "No 'Activate' button is visible/available in the action bar for this state; account status remains 'Submitted and Pending Approval' and no state transition occurs",
+      "priority": "high"
+    },
+    {
+      "tc_id": "N-009",
+      "wf_ref": "WF-007",
+      "test_case": "Cannot perform Deposit when account is in Approved state (Deposit button not available)",
+      "preconditions": [
+        "User is logged in",
+        "Account is in Approved state"
+      ],
+      "steps": [
+        "1. Open the Savings Account Detail page for the account in Approved state",
+        "2. Look for a 'Deposit' action button in the action bar"
+      ],
+      "expected_result": "No 'Deposit' button is visible/available in the action bar for Approved state; account status remains Approved and no deposit can be initiated",
+      "priority": "high"
+    },
+    {
+      "tc_id": "N-010",
+      "wf_ref": "WF-002",
+      "test_case": "Cannot Approve an account that is already Active (Approve button not available)",
+      "preconditions": [
+        "User is logged in",
+        "Account is in Active state"
+      ],
+      "steps": [
+        "1. Open the Savings Account Detail page for the Active account",
+        "2. Look for an 'Approve' action button in the action bar"
+      ],
+      "expected_result": "No 'Approve' button is visible/available in the action bar for Active state; account status remains Active and no approval action can be performed",
+      "priority": "high"
+    },
+    {
+      "tc_id": "N-011",
+      "wf_ref": null,
+      "test_case": "Dormant state shows no available actions",
+      "preconditions": [
+        "User is logged in",
+        "Account is in Dormant state"
+      ],
+      "steps": [
+        "1. Open the Savings Account Detail page for the Dormant account",
+        "2. Inspect the action bar"
+      ],
+      "expected_result": "Action bar displays no action buttons for Dormant state (available_actions is empty); user cannot initiate any state-changing actions; account status remains Dormant",
+      "priority": "high"
+    },
+    {
+      "tc_id": "N-012",
+      "wf_ref": null,
+      "test_case": "Closed state shows no available actions",
+      "preconditions": [
+        "User is logged in",
+        "Account is in Closed state"
+      ],
+      "steps": [
+        "1. Open the Savings Account Detail page for the Closed account",
+        "2. Inspect the action bar"
+      ],
+      "expected_result": "Action bar displays no action buttons for Closed state (available_actions is empty); user cannot initiate any state-changing actions; account status remains Closed",
+      "priority": "high"
+    },
+    {
+      "tc_id": "N-013",
+      "wf_ref": null,
+      "test_case": "Blocked state shows no available actions",
+      "preconditions": [
+        "User is logged in",
+        "Account is in Blocked state"
+      ],
+      "steps": [
+        "1. Open the Savings Account Detail page for the Blocked account",
+        "2. Inspect the action bar"
+      ],
+      "expected_result": "Action bar displays no action buttons for Blocked state (available_actions is empty); user cannot initiate any state-changing actions; account status remains Blocked",
+      "priority": "high"
+    },
+    {
+      "tc_id": "N-014",
+      "wf_ref": "WF-001",
+      "test_case": "Create Savings Account rejects non-numeric Minimum Opening Balance",
+      "preconditions": [
+        "User is logged in",
+        "On Client Detail page with Create Savings Account form available"
+      ],
+      "steps": [
+        "1. Open the Create Savings Account form from the Client Detail page",
+        "2. Fill Product_Name with <valid product selection>",
+        "3. Leave other fields as pre-populated or fill valid values except Minimum_Opening_Balance",
+        "4. Enter <non-numeric input> in the Minimum_Opening_Balance field",
+        "5. Click Submit"
+      ],
+      "expected_result": "Minimum_Opening_Balance field displays an inline format error: 'Must be a number' (or equivalent); the form does not submit; no account is created in 'Submitted and Pending Approval' status",
+      "priority": "high"
+    },
+    {
+      "tc_id": "N-015",
+      "wf_ref": "WF-001",
+      "test_case": "Create Savings Account rejects invalid Submitted_On date",
+      "preconditions": [
+        "User is logged in",
+        "On Client Detail page with Create Savings Account form available"
+      ],
+      "steps": [
+        "1. Open the Create Savings Account form from the Client Detail page",
+        "2. Fill Product_Name with <valid product selection>",
+        "3. Enter <invalid or impossible date> in the Submitted_On field",
+        "4. Fill other required fields with valid values",
+        "5. Click Submit"
+      ],
+      "expected_result": "Submitted_On field displays an inline error: 'Enter a valid date' (or equivalent); the form does not submit; no account is created in 'Submitted and Pending Approval' status",
       "priority": "medium"
     }
   ],
   "summary": {
-    "total": 7,
-    "high_priority": 4,
-    "medium_priority": 3,
+    "total": 15,
+    "high_priority": 11,
+    "medium_priority": 4,
     "low_priority": 0
   }
 }
 
 ------------------------------------------------------------
-[22:32:56] Test-Negative - PARSED JSON
+[14:29:05] Test-Negative - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Savings Account",
@@ -591,121 +774,272 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "N-001",
-      "test_case": "Withdraw amount exceeding available balance when overdraft is disabled",
+      "wf_ref": "WF-008",
+      "test_case": "Withdraw amount exceeding available balance is rejected when overdraft is disabled",
       "preconditions": [
-        "Account is in Active status",
-        "Allow Overdraft is disabled on the account",
-        "Account has an available balance of <available balance>"
+        "User is logged in",
+        "Account is in Active state",
+        "Overdraft is disabled on the account",
+        "Account available balance is <available balance>"
       ],
       "steps": [
-        "1. Open the Savings Account detail page for the Active account",
-        "2. Click the 'Withdraw' action button",
-        "3. Enter <valid Transaction_Date> into the Transaction_Date field",
-        "4. Enter <amount exceeding available balance> into the Transaction_Amount field",
-        "5. Select <Payment Type> in the Payment_Type dropdown",
-        "6. Enter necessary text into Payment_Details (if required)",
-        "7. Click the Withdraw / Submit button on the Withdraw form"
+        "1. Open the Savings Account Detail page for the Active account",
+        "2. Click the 'Withdraw' action",
+        "3. Enter <valid transaction date> in the Transaction_Date field",
+        "4. Enter <amount exceeding available balance> in the Transaction_Amount field",
+        "5. Select 'Cash' in the Payment_Type dropdown",
+        "6. Click Submit"
       ],
-      "expected_result": "Transaction_Amount field displays an inline validation error indicating the withdrawal amount exceeds the available balance; the withdrawal is blocked; the account balance and status remain unchanged.",
+      "expected_result": "Transaction_Amount field displays an inline error: 'Withdrawal amount exceeds available balance' (or equivalent); the withdraw dialog does not submit; no debit transaction is created; account balance and available balance remain unchanged",
       "priority": "high"
     },
     {
       "tc_id": "N-002",
-      "test_case": "Withdraw that would breach enforced minimum balance is blocked",
+      "wf_ref": "WF-008",
+      "test_case": "Withdraw that would breach enforced minimum balance is rejected",
       "preconditions": [
-        "Account is in Active status",
-        "Minimum balance enforcement is enabled for the product",
-        "Account has an available balance of <available balance> and a minimum required balance of <minimum balance>"
+        "User is logged in",
+        "Account is in Active state",
+        "Account has a minimum balance enforcement enabled",
+        "Account balance is <current balance> and minimum required balance is <minimum balance>"
       ],
       "steps": [
-        "1. Open the Savings Account detail page for the Active account",
-        "2. Click the 'Withdraw' action button",
-        "3. Enter <valid Transaction_Date> into the Transaction_Date field",
-        "4. Enter <amount that would reduce balance below minimum> into the Transaction_Amount field",
-        "5. Select <Payment Type> in the Payment_Type dropdown",
-        "6. Click the Withdraw / Submit button on the Withdraw form"
+        "1. Open the Savings Account Detail page for the Active account",
+        "2. Click the 'Withdraw' action",
+        "3. Enter <valid transaction date> in the Transaction_Date field",
+        "4. Enter <amount that would cause balance to fall below minimum> in the Transaction_Amount field",
+        "5. Select 'Cash' in the Payment_Type dropdown",
+        "6. Click Submit"
       ],
-      "expected_result": "Transaction_Amount field displays an inline validation error indicating the withdrawal would breach the enforced minimum balance; the withdrawal is blocked; the account balance and status remain unchanged.",
+      "expected_result": "Transaction_Amount field displays an inline error: 'Withdrawal would breach minimum required balance' (or equivalent); the withdraw dialog does not submit; no debit transaction is created; account balance and available balance remain unchanged",
       "priority": "high"
     },
     {
       "tc_id": "N-003",
-      "test_case": "Transaction amount field rejects non-numeric input",
+      "wf_ref": "WF-008",
+      "test_case": "Withdraw rejects non-numeric Transaction_Amount",
       "preconditions": [
-        "Account is in Active status"
+        "User is logged in",
+        "Account is in Active state"
       ],
       "steps": [
-        "1. Open the Savings Account detail page for the Active account",
-        "2. Click the 'Deposit' (or 'Withdraw') action button to open the transaction form",
-        "3. Enter <invalid non-numeric input> into the Transaction_Amount field",
-        "4. Enter <valid Transaction_Date> into the Transaction_Date field",
-        "5. Select <Payment Type> in the Payment_Type dropdown",
-        "6. Click the Submit button on the transaction form"
+        "1. Open the Savings Account Detail page for the Active account",
+        "2. Click the 'Withdraw' action",
+        "3. Enter <valid transaction date> in the Transaction_Date field",
+        "4. Enter <non-numeric input> in the Transaction_Amount field",
+        "5. Select 'Cash' in the Payment_Type dropdown",
+        "6. Click Submit"
       ],
-      "expected_result": "Transaction_Amount field displays an inline validation error indicating a numeric value is required; the transaction is not submitted; account balance remains unchanged.",
+      "expected_result": "Transaction_Amount field displays an inline format error: 'Must be a number' (or equivalent); the withdraw dialog does not submit; no debit transaction is created",
       "priority": "medium"
     },
     {
       "tc_id": "N-004",
-      "test_case": "Transaction date field rejects invalid or impossible date",
+      "wf_ref": "WF-008",
+      "test_case": "Withdraw rejects invalid Transaction_Date",
       "preconditions": [
-        "Account is in Active status"
+        "User is logged in",
+        "Account is in Active state"
       ],
       "steps": [
-        "1. Open the Savings Account detail page for the Active account",
-        "2. Click the 'Deposit' (or 'Withdraw') action button to open the transaction form",
-        "3. Enter <invalid or impossible date> into the Transaction_Date field",
-        "4. Enter <valid numeric amount> into the Transaction_Amount field",
-        "5. Select <Payment Type> in the Payment_Type dropdown",
-        "6. Click the Submit button on the transaction form"
+        "1. Open the Savings Account Detail page for the Active account",
+        "2. Click the 'Withdraw' action",
+        "3. Enter <invalid or impossible date> in the Transaction_Date field",
+        "4. Enter <valid amount within balance> in the Transaction_Amount field",
+        "5. Select 'Cash' in the Payment_Type dropdown",
+        "6. Click Submit"
       ],
-      "expected_result": "Transaction_Date field displays an inline validation error indicating the date is invalid; the transaction is not submitted; account balance remains unchanged.",
+      "expected_result": "Transaction_Date field displays an inline error: 'Enter a valid date' (or equivalent); the withdraw dialog does not submit; no debit transaction is created",
       "priority": "medium"
     },
     {
       "tc_id": "N-005",
-      "test_case": "Withdraw action is not available when account status is Approved (wrong-state action attempt)",
+      "wf_ref": "WF-007",
+      "test_case": "Deposit rejects non-numeric Transaction_Amount",
       "preconditions": [
-        "Account is in Approved status (not Active)"
+        "User is logged in",
+        "Account is in Active state"
       ],
       "steps": [
-        "1. Open the Savings Account detail page for the account in Approved status",
-        "2. Observe the action buttons shown in the state action bar"
+        "1. Open the Savings Account Detail page for the Active account",
+        "2. Click the 'Deposit' action",
+        "3. Enter <valid transaction date> in the Transaction_Date field",
+        "4. Enter <non-numeric input> in the Transaction_Amount field",
+        "5. Select 'Cash' in the Payment_Type dropdown",
+        "6. Click Submit"
       ],
-      "expected_result": "Withdraw action/button is not visible in the action bar when status is Approved; attempting to initiate a withdrawal is not possible; account status remains 'Approved'.",
-      "priority": "high"
+      "expected_result": "Transaction_Amount field displays an inline format error: 'Must be a number' (or equivalent); the deposit dialog does not submit; no credit transaction is created; account balance unchanged",
+      "priority": "medium"
     },
     {
       "tc_id": "N-006",
-      "test_case": "Approve action is not available when account status is Active (wrong-state action attempt)",
+      "wf_ref": "WF-007",
+      "test_case": "Deposit dialog blocks submission when required Transaction_Amount is left blank",
       "preconditions": [
-        "Account is in Active status"
+        "User is logged in",
+        "Account is in Active state"
       ],
       "steps": [
-        "1. Open the Savings Account detail page for the account in Active status",
-        "2. Observe the action buttons shown in the state action bar"
+        "1. Open the Savings Account Detail page for the Active account",
+        "2. Click the 'Deposit' action",
+        "3. Leave the Transaction_Amount field blank",
+        "4. Enter <valid transaction date> in the Transaction_Date field",
+        "5. Select 'Cash' in the Payment_Type dropdown",
+        "6. Click Submit"
       ],
-      "expected_result": "Approve action/button is not visible in the action bar when status is Active; attempting to approve is not possible; account status remains 'Active'.",
+      "expected_result": "Transaction_Amount field displays an inline validation error indicating it is required; the deposit dialog does not submit; no credit transaction is created; account balance unchanged",
       "priority": "high"
     },
     {
       "tc_id": "N-007",
-      "test_case": "No actions are available in Dormant state (empty available_actions)",
+      "wf_ref": "WF-008",
+      "test_case": "Withdraw dialog blocks submission when required Transaction_Amount is left blank",
       "preconditions": [
-        "Account is in Dormant status"
+        "User is logged in",
+        "Account is in Active state"
       ],
       "steps": [
-        "1. Open the Savings Account detail page for the account in Dormant status",
-        "2. Observe the action bar and available action buttons"
+        "1. Open the Savings Account Detail page for the Active account",
+        "2. Click the 'Withdraw' action",
+        "3. Leave the Transaction_Amount field blank",
+        "4. Enter <valid transaction date> in the Transaction_Date field",
+        "5. Select 'Cash' in the Payment_Type dropdown",
+        "6. Click Submit"
       ],
-      "expected_result": "No state-change action buttons are visible in the action bar for a Dormant account (available_actions is empty); no actions can be performed from the UI; account status remains 'Dormant'.",
+      "expected_result": "Transaction_Amount field displays an inline validation error indicating it is required; the withdraw dialog does not submit; no debit transaction is created; account balance unchanged",
+      "priority": "high"
+    },
+    {
+      "tc_id": "N-008",
+      "wf_ref": "WF-005",
+      "test_case": "Cannot Activate account from 'Submitted and Pending Approval' state (Activate button not available)",
+      "preconditions": [
+        "User is logged in",
+        "Account is in 'Submitted and Pending Approval' state"
+      ],
+      "steps": [
+        "1. Open the Savings Account Detail page for the account in 'Submitted and Pending Approval' state",
+        "2. Look for an 'Activate' action button in the action bar"
+      ],
+      "expected_result": "No 'Activate' button is visible/available in the action bar for this state; account status remains 'Submitted and Pending Approval' and no state transition occurs",
+      "priority": "high"
+    },
+    {
+      "tc_id": "N-009",
+      "wf_ref": "WF-007",
+      "test_case": "Cannot perform Deposit when account is in Approved state (Deposit button not available)",
+      "preconditions": [
+        "User is logged in",
+        "Account is in Approved state"
+      ],
+      "steps": [
+        "1. Open the Savings Account Detail page for the account in Approved state",
+        "2. Look for a 'Deposit' action button in the action bar"
+      ],
+      "expected_result": "No 'Deposit' button is visible/available in the action bar for Approved state; account status remains Approved and no deposit can be initiated",
+      "priority": "high"
+    },
+    {
+      "tc_id": "N-010",
+      "wf_ref": "WF-002",
+      "test_case": "Cannot Approve an account that is already Active (Approve button not available)",
+      "preconditions": [
+        "User is logged in",
+        "Account is in Active state"
+      ],
+      "steps": [
+        "1. Open the Savings Account Detail page for the Active account",
+        "2. Look for an 'Approve' action button in the action bar"
+      ],
+      "expected_result": "No 'Approve' button is visible/available in the action bar for Active state; account status remains Active and no approval action can be performed",
+      "priority": "high"
+    },
+    {
+      "tc_id": "N-011",
+      "wf_ref": null,
+      "test_case": "Dormant state shows no available actions",
+      "preconditions": [
+        "User is logged in",
+        "Account is in Dormant state"
+      ],
+      "steps": [
+        "1. Open the Savings Account Detail page for the Dormant account",
+        "2. Inspect the action bar"
+      ],
+      "expected_result": "Action bar displays no action buttons for Dormant state (available_actions is empty); user cannot initiate any state-changing actions; account status remains Dormant",
+      "priority": "high"
+    },
+    {
+      "tc_id": "N-012",
+      "wf_ref": null,
+      "test_case": "Closed state shows no available actions",
+      "preconditions": [
+        "User is logged in",
+        "Account is in Closed state"
+      ],
+      "steps": [
+        "1. Open the Savings Account Detail page for the Closed account",
+        "2. Inspect the action bar"
+      ],
+      "expected_result": "Action bar displays no action buttons for Closed state (available_actions is empty); user cannot initiate any state-changing actions; account status remains Closed",
+      "priority": "high"
+    },
+    {
+      "tc_id": "N-013",
+      "wf_ref": null,
+      "test_case": "Blocked state shows no available actions",
+      "preconditions": [
+        "User is logged in",
+        "Account is in Blocked state"
+      ],
+      "steps": [
+        "1. Open the Savings Account Detail page for the Blocked account",
+        "2. Inspect the action bar"
+      ],
+      "expected_result": "Action bar displays no action buttons for Blocked state (available_actions is empty); user cannot initiate any state-changing actions; account status remains Blocked",
+      "priority": "high"
+    },
+    {
+      "tc_id": "N-014",
+      "wf_ref": "WF-001",
+      "test_case": "Create Savings Account rejects non-numeric Minimum Opening Balance",
+      "preconditions": [
+        "User is logged in",
+        "On Client Detail page with Create Savings Account form available"
+      ],
+      "steps": [
+        "1. Open the Create Savings Account form from the Client Detail page",
+        "2. Fill Product_Name with <valid product selection>",
+        "3. Leave other fields as pre-populated or fill valid values except Minimum_Opening_Balance",
+        "4. Enter <non-numeric input> in the Minimum_Opening_Balance field",
+        "5. Click Submit"
+      ],
+      "expected_result": "Minimum_Opening_Balance field displays an inline format error: 'Must be a number' (or equivalent); the form does not submit; no account is created in 'Submitted and Pending Approval' status",
+      "priority": "high"
+    },
+    {
+      "tc_id": "N-015",
+      "wf_ref": "WF-001",
+      "test_case": "Create Savings Account rejects invalid Submitted_On date",
+      "preconditions": [
+        "User is logged in",
+        "On Client Detail page with Create Savings Account form available"
+      ],
+      "steps": [
+        "1. Open the Create Savings Account form from the Client Detail page",
+        "2. Fill Product_Name with <valid product selection>",
+        "3. Enter <invalid or impossible date> in the Submitted_On field",
+        "4. Fill other required fields with valid values",
+        "5. Click Submit"
+      ],
+      "expected_result": "Submitted_On field displays an inline error: 'Enter a valid date' (or equivalent); the form does not submit; no account is created in 'Submitted and Pending Approval' status",
       "priority": "medium"
     }
   ],
   "summary": {
-    "total": 7,
-    "high_priority": 4,
-    "medium_priority": 3,
+    "total": 15,
+    "high_priority": 11,
+    "medium_priority": 4,
     "low_priority": 0
   }
 }

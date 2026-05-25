@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-22T21:31:44.631422
+DEBUG SESSION STARTED: 2026-05-25T15:41:24.136889
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[21:31:44] Test-Negative - SYSTEM PROMPT
+[15:41:24] Test-Negative - SYSTEM PROMPT
 ------------------------------------------------------------
 You are a Negative Test Case Generator. You receive (1) a UI-AST JSON for one module and (2) the original functional description. Your job is to produce ONLY negative test cases — tests where invalid input is provided or business rules are violated, and the system correctly rejects or blocks the action.
 
@@ -22,6 +22,10 @@ You are a Negative Test Case Generator. You receive (1) a UI-AST JSON for one mo
 <description>
 {Original functional description text for this module}
 </description>
+
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
 
 ---
 
@@ -111,6 +115,9 @@ Group required fields by type: `text/unspecified`, `email`, `password`, `number`
 
 Do NOT generate a separate blank-field test for every required field. If 5 text fields are all required, one representative covers them all.
 
+**Action dialog required fields — NOT subject to cross-form deduplication:**
+If a `state_bound_action_bar` action opens a dialog with its own required `fields{}` (e.g., Activate requires Activation Date, Reject requires a Reason, Withdraw requires a Reason, Close requires a Closure Reason), each such dialog is its own testing scope. Generate ONE "leave the required dialog field blank and submit" test per distinct action dialog. These are HIGH priority — they block state transitions and are common defect sites. Do not suppress them because the main wizard already has a blank-field test.
+
 **2. Format violations:**
 
 For fields with type-specific format rules (from AST type or description):
@@ -143,6 +150,10 @@ For each unique `constraints[]` entry in the AST, and for cross-field rules desc
 
 One test per unique constraint. Do not duplicate the same mechanism.
 
+**Constraint timing tests:** If the spec states an action is blocked by a pre-existing system state (e.g., "cannot close with active accounts", "cannot transfer to the same office"), generate TWO tests:
+1. The standard constraint violation test (user opens the dialog, fills required fields, submits → blocked).
+2. A constraint-timing test: user opens the dialog WITHOUT filling required fields → assert whether the block is shown immediately on dialog open (before the user fills anything) OR only on submit. This distinguishes whether the UI enforces the constraint eagerly or lazily. Steps: open the dialog, observe the state → assert what is visible before any interaction. If the spec is silent on timing, generate only the first test.
+
 **5. Precondition violations (auth, role, and state):**
 
 For each `preconditions[]` entry on any action — and for auth/role rules described in the spec:
@@ -154,18 +165,18 @@ For each `preconditions[]` entry on any action — and for auth/role rules descr
 **6. State-machine violations:**
 
 From `state_bound_action_bar` nodes:
-- For each state where an action is NOT listed in `available_actions`, generate one test attempting that action from that state. Example: attempting "Approve" on an entity already in "Active" state.
+- **Every defined state must have at least one wrong-state test.** For each state, identify at least one action that is NOT in its `available_actions` list and generate a test attempting that action from that state.
 - If a state has an empty `available_actions` array, generate one test verifying no action buttons are visible in that state.
-
-One test per unique wrong-state scenario — do not enumerate every action × every invalid state.
+- **Do not stop after 1–2 representative examples** when the module defines 4+ distinct states. The states Active, Pending, Closed, Rejected, and Withdrawn each have different action sets — each must be independently verified.
+- One test per state is sufficient — pick the most distinct unavailable action for that state. Do not enumerate every action × every state (that would be exponential).
 
 ---
 
 **DEDUPLICATION GATE (run before outputting):**
 
-1. **Required field dedup:** Multiple required text fields → ONE representative test, not one per field.
+1. **Required field dedup:** Multiple required text fields in the **same form or dialog** → ONE representative test, not one per field.
 2. **Sub-rule dedup:** A field with multiple validation sub-rules (e.g., password: length + uppercase + lowercase + number + special char) → ONE representative violation test, not one per sub-rule.
-3. **Cross-form dedup:** If two forms in the same module share the same validation mechanism (e.g., both have a required text field) → test it on the primary form only.
+3. **Cross-form dedup:** If two **main forms** in the same module share the same validation mechanism → test it on the primary form only. **Exception: action dialogs are never suppressed by cross-form dedup** — each action dialog with a required field gets its own blank-field test regardless.
 4. **Uniqueness check:** Before outputting, ask for each TC: "Does this test catch a bug that NO other test in this module would catch?" If no → remove it.
 
 ---
@@ -174,9 +185,11 @@ One test per unique wrong-state scenario — do not enumerate every action × ev
 
 - Simple module (login, single form, display page): **2–4 tests**
 - Medium module (standard CRUD form, form with constraints): **4–8 tests**
-- Complex module (state machine, multi-form, wizard with many constraints): **8–12 tests**
+- Complex module (state machine, multi-form, wizard with many constraints): **10–16 tests**
 
-If you exceed these ranges, you are generating redundant tests. Apply the deduplication gate again before outputting.
+For modules with a `state_bound_action_bar` defining 4+ states, the state-machine violation tests alone will produce 4–5 tests. This is expected and correct — do not suppress them to hit a lower target.
+
+If you exceed the upper range, apply the deduplication gate again before outputting.
 
 ---
 
@@ -184,6 +197,17 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
 
 - **High:** State precondition violations, constraint violations that could corrupt data, unauthenticated access, required field representatives
 - **Medium:** Format violations, cross-field validation, numeric bounds, wrong-role access, wrong-state action attempts
+
+---
+
+**WORKFLOW-AWARE FAILURE INJECTION (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- For each workflow that contains a form interaction (terminal action is a submit/save/create/approve button):
+  - Identify the most **critical blocking failure** for that workflow's `conditional_branch`.
+  - If that failure mode is NOT already covered by another workflow's negative test, generate one negative TC for it.
+- **Do NOT generate one negative TC per workflow mechanically.** Apply the existing deduplication gate first — only add a TC if it catches a bug that no other test would catch.
+- Add `"wf_ref": "WF-NNN"` to each TC that maps to a workflow. Set `"wf_ref": null` for generic validation tests.
 
 ---
 
@@ -195,6 +219,7 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
   "test_cases": [
     {
       "tc_id": "N-001",
+      "wf_ref": null,
       "test_case": "Short descriptive name",
       "preconditions": ["precondition 1"],
       "steps": ["1. Step one", "2. Step two"],
@@ -212,7 +237,7 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
 
 
 ------------------------------------------------------------
-[21:31:44] Test-Negative - USER PROMPT
+[15:41:24] Test-Negative - USER PROMPT
 ------------------------------------------------------------
 <module_name>Security Settings</module_name>
 
@@ -220,7 +245,7 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
 {
   "module_name": "Security Settings",
   "components": {
-    "Change_Password_Panel": {
+    "Security_Panel": {
       "type": "collapsible_panel",
       "fields": {
         "Change_Password_Form": {
@@ -230,14 +255,14 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
               "type": "password",
               "required": true,
               "constraints": [
-                "will be verified by the system on submit"
+                "will be verified against existing credentials"
               ]
             },
             "New_Password": {
               "type": "password",
               "required": true,
               "constraints": [
-                "must comply with strong-password policy"
+                "must meet strong-password policy"
               ]
             },
             "Confirm_New_Password": {
@@ -251,14 +276,12 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
           "submit_actions": [
             {
               "element_name": "Change Password",
+              "type": "button",
               "preconditions": [
-                "Current_Password must be correct"
+                "Current_Password must be verified"
               ],
-              "constraints": [
-                "updates credentials on success"
-              ],
-              "on_success": "Password changed successfully.",
-              "on_validation_error": "highlights the appropriate fields and returns field-level validation messages"
+              "on_success": "updates credentials and returns \"Password changed successfully.\"",
+              "on_validation_error": "highlights invalid fields"
             }
           ]
         }
@@ -274,10 +297,14 @@ The Security Settings page contains a single form under a collapsible panel.The 
 
 </description>
 
+<workflows>
+WF-001 | Change Password | actor: <role> | branch: none | terminal: Change Password | on_success: updates credentials and returns "Password changed successfully."
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[21:33:49] Test-Negative - LLM RESPONSE
+[15:44:03] Test-Negative - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Security Settings",
@@ -285,67 +312,89 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "N-001",
-      "test_case": "Representative password field left blank (New_Password)",
-      "preconditions": ["User is on the Security Settings page and the Change Password form is visible"],
+      "wf_ref": "WF-001",
+      "test_case": "Leave required password field blank (password-type representative)",
+      "preconditions": [
+        "User is logged in",
+        "User is on the Security Settings page and the Change Password panel is expanded"
+      ],
       "steps": [
-        "1. Leave the New_Password field blank",
-        "2. Enter <correct current password> in the Current_Password field",
-        "3. Enter <matching new password> in the Confirm_New_Password field",
+        "1. Leave the Current Password field blank",
+        "2. Enter <new password meeting strong-password policy> into the New Password field",
+        "3. Enter the same <new password meeting strong-password policy> into the Confirm New Password field",
         "4. Click the Change Password button"
       ],
-      "expected_result": "New_Password field displays an inline validation error indicating it is required; the form does not submit; credentials are not updated and the page does not display 'Password changed successfully.'",
+      "expected_result": "Inline validation error appears on the Current Password field indicating it is required; the form does not submit; credentials are not updated; the Current Password field is highlighted",
       "priority": "high"
     },
     {
       "tc_id": "N-002",
-      "test_case": "Submit with all required password fields empty",
-      "preconditions": ["User is on the Security Settings page and the Change Password form is visible"],
+      "wf_ref": "WF-001",
+      "test_case": "Submit with ALL required fields empty",
+      "preconditions": [
+        "User is logged in",
+        "User is on the Security Settings page and the Change Password panel is expanded"
+      ],
       "steps": [
-        "1. Leave the Current_Password field blank",
-        "2. Leave the New_Password field blank",
-        "3. Leave the Confirm_New_Password field blank",
+        "1. Leave Current Password blank",
+        "2. Leave New Password blank",
+        "3. Leave Confirm New Password blank",
         "4. Click the Change Password button"
       ],
-      "expected_result": "Inline validation errors appear on Current_Password, New_Password, and Confirm_New_Password fields indicating they are required; the form does not submit; credentials are not updated and the page does not display 'Password changed successfully.'",
+      "expected_result": "Inline validation errors appear on Current Password, New Password, and Confirm New Password fields indicating they are required; the form does not submit; credentials are not updated; all three fields are highlighted",
       "priority": "high"
     },
     {
       "tc_id": "N-003",
-      "test_case": "New password violates strong-password policy",
-      "preconditions": ["User is on the Security Settings page and the Change Password form is visible"],
+      "wf_ref": "WF-001",
+      "test_case": "New Password violates strong-password policy",
+      "preconditions": [
+        "User is logged in",
+        "User is on the Security Settings page and the Change Password panel is expanded",
+        "User knows their correct current password"
+      ],
       "steps": [
-        "1. Enter <correct current password> in the Current_Password field",
-        "2. Enter <password that violates strong-password policy> in the New_Password field",
-        "3. Enter the same <password that violates strong-password policy> in the Confirm_New_Password field",
+        "1. Enter <correct current password> into the Current Password field",
+        "2. Enter <password failing strong policy> into the New Password field",
+        "3. Enter the same <password failing strong policy> into the Confirm New Password field",
         "4. Click the Change Password button"
       ],
-      "expected_result": "New_Password field displays an inline validation error indicating it must comply with the strong-password policy; the form does not submit; credentials are not updated and the page does not display 'Password changed successfully.'",
+      "expected_result": "Inline validation error appears on the New Password field indicating it does not meet the strong-password policy; the form does not submit; credentials are not updated; the New Password field is highlighted",
       "priority": "medium"
     },
     {
       "tc_id": "N-004",
-      "test_case": "Confirm_New_Password does not match New_Password",
-      "preconditions": ["User is on the Security Settings page and the Change Password form is visible"],
+      "wf_ref": "WF-001",
+      "test_case": "Confirm New Password does not match New Password",
+      "preconditions": [
+        "User is logged in",
+        "User is on the Security Settings page and the Change Password panel is expanded",
+        "User knows their correct current password"
+      ],
       "steps": [
-        "1. Enter <correct current password> in the Current_Password field",
-        "2. Enter <valid new password meeting policy> in the New_Password field",
-        "3. Enter <different value> in the Confirm_New_Password field",
+        "1. Enter <correct current password> into the Current Password field",
+        "2. Enter <new password meeting strong-password policy> into the New Password field",
+        "3. Enter <different password not matching New Password> into the Confirm New Password field",
         "4. Click the Change Password button"
       ],
-      "expected_result": "Confirm_New_Password field displays an inline validation error indicating it must match New_Password; the form does not submit; credentials are not updated and the page does not display 'Password changed successfully.'",
+      "expected_result": "Inline validation error appears on the Confirm New Password field indicating it must match the New Password; the form does not submit; credentials are not updated; the Confirm New Password field is highlighted",
       "priority": "high"
     },
     {
       "tc_id": "N-005",
-      "test_case": "Submit with incorrect Current_Password (precondition failure)",
-      "preconditions": ["User is on the Security Settings page and the Change Password form is visible"],
+      "wf_ref": "WF-001",
+      "test_case": "Current Password verification fails (precondition not met)",
+      "preconditions": [
+        "User is logged in",
+        "User is on the Security Settings page and the Change Password panel is expanded"
+      ],
       "steps": [
-        "1. Enter <incorrect current password> in the Current_Password field",
-        "2. Enter <valid new password meeting policy> in the New_Password field",
-        "3. Enter the same <valid new password meeting policy> in the Confirm_New_Password field",
+        "1. Enter <incorrect current password> into the Current Password field",
+        "2. Enter <new password meeting strong-password policy> into the New Password field",
+        "3. Enter the same <new password meeting strong-password policy> into the Confirm New Password field",
         "4. Click the Change Password button"
       ],
-      "expected_result": "Current_Password field displays an inline error indicating the current password is incorrect; the form does not submit; credentials are not updated and the page does not display 'Password changed successfully.'",
+      "expected_result": "Inline validation error appears on the Current Password field indicating verification failed (current password incorrect); the Change Password action is blocked; credentials are not updated; the Current Password field is highlighted",
       "priority": "high"
     }
   ],
@@ -358,7 +407,7 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
 }
 
 ------------------------------------------------------------
-[21:33:49] Test-Negative - PARSED JSON
+[15:44:03] Test-Negative - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Security Settings",
@@ -366,77 +415,89 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "N-001",
-      "test_case": "Representative password field left blank (New_Password)",
+      "wf_ref": "WF-001",
+      "test_case": "Leave required password field blank (password-type representative)",
       "preconditions": [
-        "User is on the Security Settings page and the Change Password form is visible"
+        "User is logged in",
+        "User is on the Security Settings page and the Change Password panel is expanded"
       ],
       "steps": [
-        "1. Leave the New_Password field blank",
-        "2. Enter <correct current password> in the Current_Password field",
-        "3. Enter <matching new password> in the Confirm_New_Password field",
+        "1. Leave the Current Password field blank",
+        "2. Enter <new password meeting strong-password policy> into the New Password field",
+        "3. Enter the same <new password meeting strong-password policy> into the Confirm New Password field",
         "4. Click the Change Password button"
       ],
-      "expected_result": "New_Password field displays an inline validation error indicating it is required; the form does not submit; credentials are not updated and the page does not display 'Password changed successfully.'",
+      "expected_result": "Inline validation error appears on the Current Password field indicating it is required; the form does not submit; credentials are not updated; the Current Password field is highlighted",
       "priority": "high"
     },
     {
       "tc_id": "N-002",
-      "test_case": "Submit with all required password fields empty",
+      "wf_ref": "WF-001",
+      "test_case": "Submit with ALL required fields empty",
       "preconditions": [
-        "User is on the Security Settings page and the Change Password form is visible"
+        "User is logged in",
+        "User is on the Security Settings page and the Change Password panel is expanded"
       ],
       "steps": [
-        "1. Leave the Current_Password field blank",
-        "2. Leave the New_Password field blank",
-        "3. Leave the Confirm_New_Password field blank",
+        "1. Leave Current Password blank",
+        "2. Leave New Password blank",
+        "3. Leave Confirm New Password blank",
         "4. Click the Change Password button"
       ],
-      "expected_result": "Inline validation errors appear on Current_Password, New_Password, and Confirm_New_Password fields indicating they are required; the form does not submit; credentials are not updated and the page does not display 'Password changed successfully.'",
+      "expected_result": "Inline validation errors appear on Current Password, New Password, and Confirm New Password fields indicating they are required; the form does not submit; credentials are not updated; all three fields are highlighted",
       "priority": "high"
     },
     {
       "tc_id": "N-003",
-      "test_case": "New password violates strong-password policy",
+      "wf_ref": "WF-001",
+      "test_case": "New Password violates strong-password policy",
       "preconditions": [
-        "User is on the Security Settings page and the Change Password form is visible"
+        "User is logged in",
+        "User is on the Security Settings page and the Change Password panel is expanded",
+        "User knows their correct current password"
       ],
       "steps": [
-        "1. Enter <correct current password> in the Current_Password field",
-        "2. Enter <password that violates strong-password policy> in the New_Password field",
-        "3. Enter the same <password that violates strong-password policy> in the Confirm_New_Password field",
+        "1. Enter <correct current password> into the Current Password field",
+        "2. Enter <password failing strong policy> into the New Password field",
+        "3. Enter the same <password failing strong policy> into the Confirm New Password field",
         "4. Click the Change Password button"
       ],
-      "expected_result": "New_Password field displays an inline validation error indicating it must comply with the strong-password policy; the form does not submit; credentials are not updated and the page does not display 'Password changed successfully.'",
+      "expected_result": "Inline validation error appears on the New Password field indicating it does not meet the strong-password policy; the form does not submit; credentials are not updated; the New Password field is highlighted",
       "priority": "medium"
     },
     {
       "tc_id": "N-004",
-      "test_case": "Confirm_New_Password does not match New_Password",
+      "wf_ref": "WF-001",
+      "test_case": "Confirm New Password does not match New Password",
       "preconditions": [
-        "User is on the Security Settings page and the Change Password form is visible"
+        "User is logged in",
+        "User is on the Security Settings page and the Change Password panel is expanded",
+        "User knows their correct current password"
       ],
       "steps": [
-        "1. Enter <correct current password> in the Current_Password field",
-        "2. Enter <valid new password meeting policy> in the New_Password field",
-        "3. Enter <different value> in the Confirm_New_Password field",
+        "1. Enter <correct current password> into the Current Password field",
+        "2. Enter <new password meeting strong-password policy> into the New Password field",
+        "3. Enter <different password not matching New Password> into the Confirm New Password field",
         "4. Click the Change Password button"
       ],
-      "expected_result": "Confirm_New_Password field displays an inline validation error indicating it must match New_Password; the form does not submit; credentials are not updated and the page does not display 'Password changed successfully.'",
+      "expected_result": "Inline validation error appears on the Confirm New Password field indicating it must match the New Password; the form does not submit; credentials are not updated; the Confirm New Password field is highlighted",
       "priority": "high"
     },
     {
       "tc_id": "N-005",
-      "test_case": "Submit with incorrect Current_Password (precondition failure)",
+      "wf_ref": "WF-001",
+      "test_case": "Current Password verification fails (precondition not met)",
       "preconditions": [
-        "User is on the Security Settings page and the Change Password form is visible"
+        "User is logged in",
+        "User is on the Security Settings page and the Change Password panel is expanded"
       ],
       "steps": [
-        "1. Enter <incorrect current password> in the Current_Password field",
-        "2. Enter <valid new password meeting policy> in the New_Password field",
-        "3. Enter the same <valid new password meeting policy> in the Confirm_New_Password field",
+        "1. Enter <incorrect current password> into the Current Password field",
+        "2. Enter <new password meeting strong-password policy> into the New Password field",
+        "3. Enter the same <new password meeting strong-password policy> into the Confirm New Password field",
         "4. Click the Change Password button"
       ],
-      "expected_result": "Current_Password field displays an inline error indicating the current password is incorrect; the form does not submit; credentials are not updated and the page does not display 'Password changed successfully.'",
+      "expected_result": "Inline validation error appears on the Current Password field indicating verification failed (current password incorrect); the Change Password action is blocked; credentials are not updated; the Current Password field is highlighted",
       "priority": "high"
     }
   ],

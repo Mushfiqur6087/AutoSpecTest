@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-22T21:41:13.085995
+DEBUG SESSION STARTED: 2026-05-25T15:09:37.494158
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[21:41:13] Test-Edge - SYSTEM PROMPT
+[15:09:37] Test-Edge - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Edge Case and Boundary Test Generator. You receive (1) a UI-AST JSON for one module and (2) the original functional description. Your job is to produce ONLY boundary and edge case tests — scenarios at the limits of valid/invalid input and unusual-but-plausible user behaviors.
 
@@ -24,6 +24,10 @@ You are NOT producing happy paths (positive prompt) or standard validation failu
 <description>
 {Original functional description text for this module}
 </description>
+
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
 
 ---
 
@@ -176,6 +180,15 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 
 ---
 
+**WORKFLOW-AWARE BOUNDARY SCOPING (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- For each workflow where `conditional_branch` activates a numeric or date field, check if that field has a boundary (a numeric/date threshold in the AST `constraints` or description).
+- If yes, that workflow's branch is a **candidate for a boundary edge test** — add or confirm a boundary TC exists for it.
+- Add `"wf_ref": "WF-NNN"` to each TC that maps to a specific workflow's boundary. Set `"wf_ref": null` for generic input/interaction edge tests.
+
+---
+
 **OUTPUT — JSON only, no prose, no markdown fencing:**
 
 {
@@ -184,6 +197,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": null,
       "subcategory": "boundary | input_edge | interaction_edge | state_edge | data_edge",
       "test_case": "Short descriptive name",
       "preconditions": ["precondition 1"],
@@ -206,7 +220,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 
 
 ------------------------------------------------------------
-[21:41:13] Test-Edge - USER PROMPT
+[15:09:37] Test-Edge - USER PROMPT
 ------------------------------------------------------------
 <module_name>Assignment</module_name>
 
@@ -214,73 +228,69 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 {
   "module_name": "Assignment",
   "components": {
-    "Assignment_Page": {
-      "type": "page",
-      "fields": {}
+    "Add_Submission_Button": {
+      "type": "button",
+      "element_name": "Add submission",
+      "on_success": "opens Submission_Form"
     },
     "Submission_Form": {
       "type": "form",
-      "description": "Used for Add submission and Edit submission (prefilled when editing). Visible when opened by an action.",
       "fields": {
         "Online_Text_Editor": {
           "type": "unspecified",
-          "visible_when": "Assignment.allows_online_text == true",
-          "required": false
+          "visible_when": "assignment_allows_online_text == true"
         },
         "File_Upload_Area": {
           "type": "file_upload",
-          "visible_when": "Assignment.allows_file_upload == true",
-          "required": false
+          "visible_when": "assignment_allows_file_upload == true"
         }
       },
       "submit_actions": [
         {
           "element_name": "Submit",
-          "on_success": "creates submission with Submission status == Submitted for grading"
-        },
-        {
-          "element_name": "Cancel",
-          "on_success": "closes submission form without saving"
+          "on_success": "creates submission and sets status to Submitted for grading"
         }
       ]
     },
-    "Submission_State_Action_Bar": {
+    "Submission_State_Actions": {
       "type": "state_bound_action_bar",
       "states": {
-        "No submissions have been made yet": {
+        "No_Submission": {
           "available_actions": [
             {
               "action_name": "Add submission",
-              "opens_form": "Submission_Form",
-              "on_success": "creates submission with Submission status == Submitted for grading"
+              "on_success": "opens Submission_Form"
             }
           ]
         },
-        "Submitted for grading": {
+        "Submitted_for_grading": {
           "available_actions": [
             {
               "action_name": "View submission",
-              "type": "link",
-              "on_success": "opens read-only view of the submitted content"
+              "on_success": "displays student's submission"
             },
             {
               "action_name": "Edit submission",
-              "opens_form": "Submission_Form",
               "preconditions": [
-                "due date not passed",
-                "teacher permits resubmission",
-                "grading status == Not graded"
+                "due date has not passed",
+                "teacher permits resubmission"
               ],
-              "on_success": "updates existing submission (keeps Submission status == Submitted for grading)"
+              "on_success": "opens Submission_Form prefilled with student's submission"
             }
           ]
         },
         "Graded": {
           "available_actions": [
             {
+              "action_name": "View feedback",
+              "preconditions": [
+                "status must be Graded"
+              ],
+              "on_success": "displays earned grade and written feedback"
+            },
+            {
               "action_name": "View submission",
-              "type": "link",
-              "on_success": "opens read-only view including earned grade and written feedback"
+              "on_success": "displays student's submission and associated grade/feedback"
             }
           ]
         }
@@ -299,10 +309,23 @@ The Assignment page displays the assignment's Opened date, Due date, and full De
 
 </description>
 
+<workflows>
+WF-001 | Open submission form via Add submission button | actor: <role> | branch: none | terminal: Add submission | on_success: opens Submission_Form
+WF-002 | Submit with both Online Text and File Upload available | actor: <role> | branch: assignment_allows_online_text == true AND assignment_allows_file_upload == true | terminal: Submit | on_success: creates submission and sets status to Submitted for grading
+WF-003 | Submit with only Online Text available | actor: <role> | branch: assignment_allows_online_text == true AND assignment_allows_file_upload == false | terminal: Submit | on_success: creates submission and sets status to Submitted for grading
+WF-004 | Submit with only File Upload available | actor: <role> | branch: assignment_allows_online_text == false AND assignment_allows_file_upload == true | terminal: Submit | on_success: creates submission and sets status to Submitted for grading
+WF-005 | Submit when no input areas are enabled | actor: <role> | branch: assignment_allows_online_text == false AND assignment_allows_file_upload == false | terminal: Submit | on_success: creates submission and sets status to Submitted for grading
+WF-006 | Add submission action from No_Submission state | actor: <role> | branch: entity_state == No_Submission | terminal: Add submission | on_success: opens Submission_Form
+WF-007 | View submission from Submitted_for_grading state | actor: <role> | branch: entity_state == Submitted_for_grading | terminal: View submission | on_success: displays student's submission
+WF-008 | Edit submission from Submitted_for_grading state | actor: <role> | branch: entity_state == Submitted_for_grading | terminal: Edit submission | on_success: opens Submission_Form prefilled with student's submission
+WF-009 | View feedback from Graded state | actor: <role> | branch: entity_state == Graded | terminal: View feedback | on_success: displays earned grade and written feedback
+WF-010 | View submission from Graded state | actor: <role> | branch: entity_state == Graded | terminal: View submission | on_success: displays student's submission and associated grade/feedback
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[21:42:36] Test-Edge - LLM RESPONSE
+[15:11:44] Test-Edge - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Assignment",
@@ -310,151 +333,145 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": "WF-008",
       "subcategory": "boundary",
-      "test_case": "Edit allowed when due date equals today (same-day boundary)",
+      "test_case": "Edit submission allowed when due date equals today and teacher permits resubmission",
       "preconditions": [
-        "An existing submission exists with Submission status == Submitted for grading",
-        "Grading status == Not graded",
-        "Teacher permits resubmission == true",
-        "Assignment due date == <today>",
-        "Assignment.allows_online_text == true"
+        "entity_state == Submitted_for_grading",
+        "due_date = <today>",
+        "teacher_permits_resubmission = true",
+        "student has an existing submission"
       ],
       "steps": [
-        "1. Open the Assignment page for the assignment with the above preconditions",
-        "2. Click the 'Edit submission' action in the Submission State Action Bar",
-        "3. Verify the Submission_Form opens",
-        "4. In the Online_Text_Editor, enter a small edit to the existing text",
-        "5. Click the 'Submit' button on the Submission_Form"
+        "1. Open the Assignment page showing the student's submission summary",
+        "2. Click the 'Edit submission' action in the Submission status section"
       ],
-      "expected_result": "Clicking 'Edit submission' opens the Submission_Form and submitting the form succeeds; the existing submission is updated (Submission status remains 'Submitted for grading') and the 'Last modified' timestamp on the Assignment page updates to reflect the edit.",
+      "expected_result": "Action succeeds: Submission_Form opens prefilled with the student's previous submission. The Online Text Editor contains the previous text and any previously uploaded file is listed in the File Upload area (visible). The UI shows the form rather than an error.",
       "priority": "medium"
     },
     {
       "tc_id": "E-002",
+      "wf_ref": "WF-008",
       "subcategory": "boundary",
-      "test_case": "Edit blocked when due date has just passed (one-day past boundary)",
+      "test_case": "Edit submission blocked when due date has just passed (one day before today) even if teacher permits resubmission",
       "preconditions": [
-        "An existing submission exists with Submission status == Submitted for grading",
-        "Grading status == Not graded",
-        "Teacher permits resubmission == true",
-        "Assignment due date == <yesterday>"
+        "entity_state == Submitted_for_grading",
+        "due_date = <one day before today> (i.e., due date has passed)",
+        "teacher_permits_resubmission = true",
+        "student has an existing submission"
       ],
       "steps": [
-        "1. Open the Assignment page for the assignment with the above preconditions",
-        "2. Attempt to click the 'Edit submission' action in the Submission State Action Bar (if visible)"
+        "1. Open the Assignment page showing the student's submission summary",
+        "2. Click the 'Edit submission' action in the Submission status section"
       ],
-      "expected_result": "The 'Edit submission' action is not available or clicking it is blocked; an inline message or disabled control indicates the action is unavailable because the due date has passed — the attempt to open the Submission_Form is blocked / error shown.",
+      "expected_result": "Action is blocked / error shown: The Edit submission action does not open the form. A visible inline error or toast appears indicating that editing is not permitted because the due date has passed (the Edit submission action is blocked).",
       "priority": "medium"
     },
     {
       "tc_id": "E-003",
-      "subcategory": "boundary",
-      "test_case": "Edit blocked when teacher disallows resubmission (permission boundary)",
+      "wf_ref": "WF-005",
+      "subcategory": "interaction_edge",
+      "test_case": "Submit when neither Online Text nor File Upload areas are enabled (no input areas)",
       "preconditions": [
-        "An existing submission exists with Submission status == Submitted for grading",
-        "Grading status == Not graded",
-        "Teacher permits resubmission == false",
-        "Assignment due date == <in the future>"
+        "assignment_allows_online_text = false",
+        "assignment_allows_file_upload = false",
+        "student is on the Assignment page in No_Submission state"
       ],
       "steps": [
-        "1. Open the Assignment page for the assignment with the above preconditions",
-        "2. Attempt to click the 'Edit submission' action in the Submission State Action Bar (if visible)"
+        "1. Click the 'Add submission' button",
+        "2. On the Submission_Form (which displays no input areas), click the 'Submit' button"
       ],
-      "expected_result": "The 'Edit submission' action is not available or clicking it is blocked; an inline message or disabled control indicates resubmissions are not permitted — the attempt to open the Submission_Form is blocked / error shown.",
+      "expected_result": "Submit succeeds: a submission is created and the Submission status summary table updates to show 'Submitted for grading'. The submission detail shows no online text and no attached files. The UI presents the 'Submitted for grading' state.",
       "priority": "medium"
     },
     {
       "tc_id": "E-004",
-      "subcategory": "interaction_edge",
-      "test_case": "Immediate edit after Add submission updates the same submission (no duplicate) when done rapidly",
+      "wf_ref": "WF-003",
+      "subcategory": "input_edge",
+      "test_case": "Very long online text (200+ characters) when only Online Text is enabled",
       "preconditions": [
-        "No prior submission exists",
-        "Assignment.allows_online_text == true",
-        "Assignment.allows_file_upload == true",
-        "Assignment due date == <in the future>",
-        "Teacher permits resubmission == true"
+        "assignment_allows_online_text = true",
+        "assignment_allows_file_upload = false",
+        "student is creating a new submission"
       ],
       "steps": [
-        "1. Open the Assignment page for the assignment with the above preconditions",
-        "2. Click 'Add submission' in the Submission State Action Bar",
-        "3. In the Submission_Form, enter text in the Online_Text_Editor",
-        "4. Click the 'Submit' button",
-        "5. After the success transition completes and the page shows the new submission state, immediately click 'Edit submission'",
-        "6. In the Submission_Form, change the online text",
-        "7. Click the 'Submit' button again"
+        "1. Click the 'Add submission' button",
+        "2. Enter <very long string (200+ characters)> into the Online_Text_Editor",
+        "3. Click the 'Submit' button"
       ],
-      "expected_result": "The first submit succeeds and creates the submission; the immediate second submit (edit) also succeeds and updates the existing submission (no duplicate submission is created). The Submission status remains 'Submitted for grading', the Submission summary shows a single submission row, and 'Last modified' updates to the time of the edit.",
+      "expected_result": "Submit succeeds: a submission is created and the submission detail displays the saved Online Text. If the UI truncates the text, the displayed content equals the truncated value (the saved detail matches what the UI displays) and no silent data loss occurs.",
       "priority": "medium"
     },
     {
       "tc_id": "E-005",
+      "wf_ref": "WF-002",
       "subcategory": "input_edge",
-      "test_case": "Very long online text (>200 characters) entered in Online_Text_Editor is saved and displayed",
+      "test_case": "Online text with leading and trailing whitespace is trimmed on save",
       "preconditions": [
-        "Assignment.allows_online_text == true",
-        "Assignment due date == <in the future>",
-        "Teacher permits resubmission == true"
+        "assignment_allows_online_text = true",
+        "assignment_allows_file_upload = true",
+        "student is creating a new submission"
       ],
       "steps": [
-        "1. Open the Assignment page and click 'Add submission'",
-        "2. In the Online_Text_Editor, paste a very long text string (200+ characters)",
-        "3. Click the 'Submit' button on the Submission_Form",
-        "4. Open the read-only submission view (or view the submission detail on the Assignment page)"
+        "1. Click the 'Add submission' button",
+        "2. Enter '  <text with leading and trailing spaces>  ' into the Online_Text_Editor (include leading and trailing spaces)",
+        "3. Click the 'Submit' button"
       ],
-      "expected_result": "The form submits successfully; the submission detail view displays the full entered text (no truncation) — the long content is visible in the submission detail.",
+      "expected_result": "Submit succeeds: a submission is created and the submission detail displays the Online Text with leading and trailing whitespace removed (trimmed). The detail page shows the trimmed value (no leading/trailing spaces).",
       "priority": "low"
     },
     {
       "tc_id": "E-006",
+      "wf_ref": "WF-004",
       "subcategory": "input_edge",
-      "test_case": "Leading and trailing whitespace in Online_Text_Editor is trimmed when saved",
+      "test_case": "Upload a file whose filename contains special characters/emoji when only File Upload is enabled",
       "preconditions": [
-        "Assignment.allows_online_text == true",
-        "Assignment due date == <in the future>",
-        "Teacher permits resubmission == true"
+        "assignment_allows_online_text = false",
+        "assignment_allows_file_upload = true",
+        "student is creating a new submission"
       ],
       "steps": [
-        "1. Open the Assignment page and click 'Add submission'",
-        "2. In the Online_Text_Editor, enter text with leading and trailing spaces (e.g., spaces before and after the substantive text)",
-        "3. Click the 'Submit' button on the Submission_Form",
-        "4. Open the read-only submission view (or view the submission detail on the Assignment page)"
+        "1. Click the 'Add submission' button",
+        "2. Use the File_Upload_Area to select a file whose filename contains special characters and/or emoji (e.g., filename includes unicode symbols)",
+        "3. Click the 'Submit' button"
       ],
-      "expected_result": "The form submits successfully; the saved submission text shown in the detail view has leading and trailing whitespace removed (leading/trailing whitespace is trimmed).",
+      "expected_result": "Submit succeeds: a submission is created and the submission detail lists the uploaded file. The displayed filename preserves the special characters/emoji as shown in the UI and a download link for the file is present.",
       "priority": "low"
     },
     {
       "tc_id": "E-007",
-      "subcategory": "input_edge",
-      "test_case": "File upload with Unicode/emoji characters in filename is accepted and filename preserved",
+      "wf_ref": null,
+      "subcategory": "interaction_edge",
+      "test_case": "Rapid re-submission after redirect: prevent duplicate submissions when using browser back",
       "preconditions": [
-        "Assignment.allows_file_upload == true",
-        "Assignment due date == <in the future>",
-        "Teacher permits resubmission == true"
+        "assignment_allows_online_text = true OR assignment_allows_file_upload = true",
+        "student is starting a new submission"
       ],
       "steps": [
-        "1. Open the Assignment page and click 'Add submission'",
-        "2. In the File_Upload_Area, attach a file whose filename includes Unicode characters or emoji",
-        "3. Click the 'Submit' button on the Submission_Form",
-        "4. Open the submission detail view on the Assignment page"
+        "1. Click the 'Add submission' button",
+        "2. Fill at least one enabled input (Online_Text_Editor or File_Upload_Area) with valid content",
+        "3. Click the 'Submit' button and wait for the submission success redirect/detail page",
+        "4. Use the browser Back button to return to the Submission_Form",
+        "5. Click the 'Submit' button again without changing input"
       ],
-      "expected_result": "The submit action succeeds; the submission detail shows the uploaded file with the filename preserved (Unicode/emoji characters are displayed as uploaded).",
-      "priority": "low"
+      "expected_result": "Second submission attempt is blocked / error shown: the system does not create a duplicate submission. The submission list or summary shows only the original single submission and the UI displays a visible message preventing duplicate submission (e.g., an inline error or toast indicating the submission is already made).",
+      "priority": "medium"
     }
   ],
   "summary": {
     "total": 7,
-    "boundary": 3,
-    "input_edge": 4,
-    "interaction_edge": 1,
+    "boundary": 2,
+    "input_edge": 3,
+    "interaction_edge": 2,
     "state_edge": 0,
     "data_edge": 0,
-    "medium_priority": 4,
-    "low_priority": 3
+    "medium_priority": 5,
+    "low_priority": 2
   }
 }
 
 ------------------------------------------------------------
-[21:42:36] Test-Edge - PARSED JSON
+[15:11:44] Test-Edge - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Assignment",
@@ -462,145 +479,139 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": "WF-008",
       "subcategory": "boundary",
-      "test_case": "Edit allowed when due date equals today (same-day boundary)",
+      "test_case": "Edit submission allowed when due date equals today and teacher permits resubmission",
       "preconditions": [
-        "An existing submission exists with Submission status == Submitted for grading",
-        "Grading status == Not graded",
-        "Teacher permits resubmission == true",
-        "Assignment due date == <today>",
-        "Assignment.allows_online_text == true"
+        "entity_state == Submitted_for_grading",
+        "due_date = <today>",
+        "teacher_permits_resubmission = true",
+        "student has an existing submission"
       ],
       "steps": [
-        "1. Open the Assignment page for the assignment with the above preconditions",
-        "2. Click the 'Edit submission' action in the Submission State Action Bar",
-        "3. Verify the Submission_Form opens",
-        "4. In the Online_Text_Editor, enter a small edit to the existing text",
-        "5. Click the 'Submit' button on the Submission_Form"
+        "1. Open the Assignment page showing the student's submission summary",
+        "2. Click the 'Edit submission' action in the Submission status section"
       ],
-      "expected_result": "Clicking 'Edit submission' opens the Submission_Form and submitting the form succeeds; the existing submission is updated (Submission status remains 'Submitted for grading') and the 'Last modified' timestamp on the Assignment page updates to reflect the edit.",
+      "expected_result": "Action succeeds: Submission_Form opens prefilled with the student's previous submission. The Online Text Editor contains the previous text and any previously uploaded file is listed in the File Upload area (visible). The UI shows the form rather than an error.",
       "priority": "medium"
     },
     {
       "tc_id": "E-002",
+      "wf_ref": "WF-008",
       "subcategory": "boundary",
-      "test_case": "Edit blocked when due date has just passed (one-day past boundary)",
+      "test_case": "Edit submission blocked when due date has just passed (one day before today) even if teacher permits resubmission",
       "preconditions": [
-        "An existing submission exists with Submission status == Submitted for grading",
-        "Grading status == Not graded",
-        "Teacher permits resubmission == true",
-        "Assignment due date == <yesterday>"
+        "entity_state == Submitted_for_grading",
+        "due_date = <one day before today> (i.e., due date has passed)",
+        "teacher_permits_resubmission = true",
+        "student has an existing submission"
       ],
       "steps": [
-        "1. Open the Assignment page for the assignment with the above preconditions",
-        "2. Attempt to click the 'Edit submission' action in the Submission State Action Bar (if visible)"
+        "1. Open the Assignment page showing the student's submission summary",
+        "2. Click the 'Edit submission' action in the Submission status section"
       ],
-      "expected_result": "The 'Edit submission' action is not available or clicking it is blocked; an inline message or disabled control indicates the action is unavailable because the due date has passed \u2014 the attempt to open the Submission_Form is blocked / error shown.",
+      "expected_result": "Action is blocked / error shown: The Edit submission action does not open the form. A visible inline error or toast appears indicating that editing is not permitted because the due date has passed (the Edit submission action is blocked).",
       "priority": "medium"
     },
     {
       "tc_id": "E-003",
-      "subcategory": "boundary",
-      "test_case": "Edit blocked when teacher disallows resubmission (permission boundary)",
+      "wf_ref": "WF-005",
+      "subcategory": "interaction_edge",
+      "test_case": "Submit when neither Online Text nor File Upload areas are enabled (no input areas)",
       "preconditions": [
-        "An existing submission exists with Submission status == Submitted for grading",
-        "Grading status == Not graded",
-        "Teacher permits resubmission == false",
-        "Assignment due date == <in the future>"
+        "assignment_allows_online_text = false",
+        "assignment_allows_file_upload = false",
+        "student is on the Assignment page in No_Submission state"
       ],
       "steps": [
-        "1. Open the Assignment page for the assignment with the above preconditions",
-        "2. Attempt to click the 'Edit submission' action in the Submission State Action Bar (if visible)"
+        "1. Click the 'Add submission' button",
+        "2. On the Submission_Form (which displays no input areas), click the 'Submit' button"
       ],
-      "expected_result": "The 'Edit submission' action is not available or clicking it is blocked; an inline message or disabled control indicates resubmissions are not permitted \u2014 the attempt to open the Submission_Form is blocked / error shown.",
+      "expected_result": "Submit succeeds: a submission is created and the Submission status summary table updates to show 'Submitted for grading'. The submission detail shows no online text and no attached files. The UI presents the 'Submitted for grading' state.",
       "priority": "medium"
     },
     {
       "tc_id": "E-004",
-      "subcategory": "interaction_edge",
-      "test_case": "Immediate edit after Add submission updates the same submission (no duplicate) when done rapidly",
+      "wf_ref": "WF-003",
+      "subcategory": "input_edge",
+      "test_case": "Very long online text (200+ characters) when only Online Text is enabled",
       "preconditions": [
-        "No prior submission exists",
-        "Assignment.allows_online_text == true",
-        "Assignment.allows_file_upload == true",
-        "Assignment due date == <in the future>",
-        "Teacher permits resubmission == true"
+        "assignment_allows_online_text = true",
+        "assignment_allows_file_upload = false",
+        "student is creating a new submission"
       ],
       "steps": [
-        "1. Open the Assignment page for the assignment with the above preconditions",
-        "2. Click 'Add submission' in the Submission State Action Bar",
-        "3. In the Submission_Form, enter text in the Online_Text_Editor",
-        "4. Click the 'Submit' button",
-        "5. After the success transition completes and the page shows the new submission state, immediately click 'Edit submission'",
-        "6. In the Submission_Form, change the online text",
-        "7. Click the 'Submit' button again"
+        "1. Click the 'Add submission' button",
+        "2. Enter <very long string (200+ characters)> into the Online_Text_Editor",
+        "3. Click the 'Submit' button"
       ],
-      "expected_result": "The first submit succeeds and creates the submission; the immediate second submit (edit) also succeeds and updates the existing submission (no duplicate submission is created). The Submission status remains 'Submitted for grading', the Submission summary shows a single submission row, and 'Last modified' updates to the time of the edit.",
+      "expected_result": "Submit succeeds: a submission is created and the submission detail displays the saved Online Text. If the UI truncates the text, the displayed content equals the truncated value (the saved detail matches what the UI displays) and no silent data loss occurs.",
       "priority": "medium"
     },
     {
       "tc_id": "E-005",
+      "wf_ref": "WF-002",
       "subcategory": "input_edge",
-      "test_case": "Very long online text (>200 characters) entered in Online_Text_Editor is saved and displayed",
+      "test_case": "Online text with leading and trailing whitespace is trimmed on save",
       "preconditions": [
-        "Assignment.allows_online_text == true",
-        "Assignment due date == <in the future>",
-        "Teacher permits resubmission == true"
+        "assignment_allows_online_text = true",
+        "assignment_allows_file_upload = true",
+        "student is creating a new submission"
       ],
       "steps": [
-        "1. Open the Assignment page and click 'Add submission'",
-        "2. In the Online_Text_Editor, paste a very long text string (200+ characters)",
-        "3. Click the 'Submit' button on the Submission_Form",
-        "4. Open the read-only submission view (or view the submission detail on the Assignment page)"
+        "1. Click the 'Add submission' button",
+        "2. Enter '  <text with leading and trailing spaces>  ' into the Online_Text_Editor (include leading and trailing spaces)",
+        "3. Click the 'Submit' button"
       ],
-      "expected_result": "The form submits successfully; the submission detail view displays the full entered text (no truncation) \u2014 the long content is visible in the submission detail.",
+      "expected_result": "Submit succeeds: a submission is created and the submission detail displays the Online Text with leading and trailing whitespace removed (trimmed). The detail page shows the trimmed value (no leading/trailing spaces).",
       "priority": "low"
     },
     {
       "tc_id": "E-006",
+      "wf_ref": "WF-004",
       "subcategory": "input_edge",
-      "test_case": "Leading and trailing whitespace in Online_Text_Editor is trimmed when saved",
+      "test_case": "Upload a file whose filename contains special characters/emoji when only File Upload is enabled",
       "preconditions": [
-        "Assignment.allows_online_text == true",
-        "Assignment due date == <in the future>",
-        "Teacher permits resubmission == true"
+        "assignment_allows_online_text = false",
+        "assignment_allows_file_upload = true",
+        "student is creating a new submission"
       ],
       "steps": [
-        "1. Open the Assignment page and click 'Add submission'",
-        "2. In the Online_Text_Editor, enter text with leading and trailing spaces (e.g., spaces before and after the substantive text)",
-        "3. Click the 'Submit' button on the Submission_Form",
-        "4. Open the read-only submission view (or view the submission detail on the Assignment page)"
+        "1. Click the 'Add submission' button",
+        "2. Use the File_Upload_Area to select a file whose filename contains special characters and/or emoji (e.g., filename includes unicode symbols)",
+        "3. Click the 'Submit' button"
       ],
-      "expected_result": "The form submits successfully; the saved submission text shown in the detail view has leading and trailing whitespace removed (leading/trailing whitespace is trimmed).",
+      "expected_result": "Submit succeeds: a submission is created and the submission detail lists the uploaded file. The displayed filename preserves the special characters/emoji as shown in the UI and a download link for the file is present.",
       "priority": "low"
     },
     {
       "tc_id": "E-007",
-      "subcategory": "input_edge",
-      "test_case": "File upload with Unicode/emoji characters in filename is accepted and filename preserved",
+      "wf_ref": null,
+      "subcategory": "interaction_edge",
+      "test_case": "Rapid re-submission after redirect: prevent duplicate submissions when using browser back",
       "preconditions": [
-        "Assignment.allows_file_upload == true",
-        "Assignment due date == <in the future>",
-        "Teacher permits resubmission == true"
+        "assignment_allows_online_text = true OR assignment_allows_file_upload = true",
+        "student is starting a new submission"
       ],
       "steps": [
-        "1. Open the Assignment page and click 'Add submission'",
-        "2. In the File_Upload_Area, attach a file whose filename includes Unicode characters or emoji",
-        "3. Click the 'Submit' button on the Submission_Form",
-        "4. Open the submission detail view on the Assignment page"
+        "1. Click the 'Add submission' button",
+        "2. Fill at least one enabled input (Online_Text_Editor or File_Upload_Area) with valid content",
+        "3. Click the 'Submit' button and wait for the submission success redirect/detail page",
+        "4. Use the browser Back button to return to the Submission_Form",
+        "5. Click the 'Submit' button again without changing input"
       ],
-      "expected_result": "The submit action succeeds; the submission detail shows the uploaded file with the filename preserved (Unicode/emoji characters are displayed as uploaded).",
-      "priority": "low"
+      "expected_result": "Second submission attempt is blocked / error shown: the system does not create a duplicate submission. The submission list or summary shows only the original single submission and the UI displays a visible message preventing duplicate submission (e.g., an inline error or toast indicating the submission is already made).",
+      "priority": "medium"
     }
   ],
   "summary": {
     "total": 7,
-    "boundary": 3,
-    "input_edge": 4,
-    "interaction_edge": 1,
+    "boundary": 2,
+    "input_edge": 3,
+    "interaction_edge": 2,
     "state_edge": 0,
     "data_edge": 0,
-    "medium_priority": 4,
-    "low_priority": 3
+    "medium_priority": 5,
+    "low_priority": 2
   }
 }

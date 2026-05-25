@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-22T21:31:44.632002
+DEBUG SESSION STARTED: 2026-05-25T15:41:24.137235
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[21:31:44] Test-Positive - SYSTEM PROMPT
+[15:41:24] Test-Positive - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Expert UI Test Case Generator. You receive (1) a UI-AST JSON for one specific module and (2) the original functional description for that module.
 
@@ -24,6 +24,10 @@ Your job is to produce ONLY positive/functional UI test cases — tests where va
 <description>
 {Original functional description text for this module}
 </description>
+
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
 
 ---
 
@@ -146,6 +150,13 @@ Because you are testing a module in isolation, establish the required entry stat
 **1. Forms & Wizards (`form`, `wizard`):**
 - Generate ONE happy path per distinct success outcome.
 - *Conditional UI Check:* If a toggle/dropdown reveals new mandatory fields (`visible_when`), generate a separate test for that conditional branch.
+- **Wizard step coverage (CRITICAL):** If a wizard has multiple steps and any step beyond Step 1 contains its own named field group (e.g., "Address Details", "Family Members", "Identifiers"), generate ONE dedicated positive TC per such step. The TC must:
+  - Navigate to that specific step (include the preceding steps as preconditions or brief navigation steps)
+  - Fill the fields described for that step (not just pass through)
+  - Assert the step's content is visible/saved on the detail page after final submission
+  - **Do NOT collapse all wizard steps into one happy-path TC** — if Steps 2, 3, and 4 each have their own named section in the spec, they each need their own TC.
+- **Wizard in-step identifiers/duplicates:** If a wizard step allows adding identifiers, documents, or similar entries that have a uniqueness constraint, include a TC for that wizard step that also verifies the constraint (e.g., attempting to add a duplicate Document Type+Key pair inside the wizard). This is a different code path from adding the same post-creation on the detail page.
+- **Action dialogs:** If a `state_bound_action_bar` action opens a dialog with its own `fields{}` (e.g., Activate requires Activation Date, Reject requires Reason), generate ONE positive TC per such action-dialog — distinct from the state-transition TC. The TC fills the dialog field and completes the action.
 
 **2. State Machines (`state_bound_action_bar`):**
 - For each unique action available in a specific state, generate ONE test performing that action.
@@ -200,6 +211,19 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 
 ---
 
+**WORKFLOW COVERAGE OBLIGATION (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- Your test cases must **collectively cover every workflow** listed.
+- For each `wf_id`, at least one TC must:
+  - Activate the `conditional_branch` (if not null) — i.e. the test must set up the condition described.
+  - Assert the `on_success` as its `expected_result` (verbatim or as the primary basis for the expected result).
+- Add `"wf_ref": "WF-NNN"` to each TC to identify which workflow it covers.
+- If one TC naturally covers multiple workflows (e.g., the base path overlaps), pick the most specific `wf_ref`.
+- If a TC does not map to any workflow (e.g., a navigation-only test), set `"wf_ref": null`.
+
+---
+
 **OUTPUT — JSON only, no prose, no markdown fencing:**
 
 {
@@ -208,6 +232,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
   "test_cases": [
     {
       "tc_id": "P-001",
+      "wf_ref": "WF-001",
       "test_case": "Short descriptive name",
       "preconditions": ["User logged in as <Role>", "<Prerequisite state>"],
       "steps": ["1. Step one", "2. Step two"],
@@ -224,7 +249,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 }
 
 ------------------------------------------------------------
-[21:31:44] Test-Positive - USER PROMPT
+[15:41:24] Test-Positive - USER PROMPT
 ------------------------------------------------------------
 <module_name>Support Center</module_name>
 
@@ -239,7 +264,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
           "type": "text",
           "required": false,
           "constraints": [
-            "checks subject length"
+            "subject length must meet system limits (validated on submit)"
           ]
         },
         "Category": {
@@ -263,15 +288,20 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
           "type": "file_upload",
           "required": false,
           "constraints": [
-            "validates attachment types"
+            "attachment type must be one of allowed types (validated on upload)"
           ]
         }
       },
       "submit_actions": [
         {
           "element_name": "Send Message",
-          "on_success": "Message sent successfully. returns ticket ID",
-          "on_failure": "displays inline guidance"
+          "on_success": "Message sent successfully. Returns ticket ID.",
+          "on_failure": "validation errors are shown inline",
+          "constraints": [
+            "system checks subject length",
+            "ensures message body is present",
+            "validates attachment types"
+          ]
         }
       ]
     },
@@ -280,33 +310,37 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
       "fields": {
         "Reason_for_Call": {
           "type": "dropdown",
-          "required": false
+          "required": true
         },
         "Preferred_Date": {
           "type": "date",
-          "required": false,
+          "required": true,
           "constraints": [
             "date must be at least the next business day"
           ]
         },
         "Preferred_Time_Window": {
-          "type": "unspecified",
-          "required": false
+          "type": "time_window",
+          "required": true
         },
         "Phone_Number": {
-          "type": "tel",
-          "required": false,
+          "type": "unspecified",
+          "required": true,
           "prefilled": true,
           "constraints": [
-            "validates phone number format"
+            "must match valid phone number format (validated on submit)"
           ]
         }
       },
       "submit_actions": [
         {
           "element_name": "Request Callback",
-          "on_success": "Callback request submitted. sends email confirmation",
-          "on_failure": "validation errors shown inline"
+          "on_success": "Callback request submitted. Sends email confirmation.",
+          "on_failure": "validation errors are shown inline",
+          "constraints": [
+            "date must be at least the next business day",
+            "validates phone number format"
+          ]
         }
       ]
     }
@@ -320,10 +354,15 @@ The Support Center page integrates two communication forms.The secure message fo
 
 </description>
 
+<workflows>
+WF-001 | Send Secure Message | actor: <role> | branch: none | terminal: Send Message | on_success: Message sent successfully. Returns ticket ID.
+WF-002 | Request Callback | actor: <role> | branch: none | terminal: Request Callback | on_success: Callback request submitted. Sends email confirmation.
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[21:34:02] Test-Positive - LLM RESPONSE
+[15:44:03] Test-Positive - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Support Center",
@@ -331,84 +370,70 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Send secure message with only required Message Body",
+      "wf_ref": "WF-001",
+      "test_case": "Send secure message (basic) with required message body",
       "preconditions": [
-        "User logged in as <User>",
-        "Support Center page is open"
+        "User logged in as <role>"
       ],
       "steps": [
-        "1. Focus the Secure Message form",
-        "2. Enter <valid message body> in the Message_Body field",
-        "3. Click the Send Message button"
+        "1. Navigate to the Support Center page",
+        "2. In the Secure Message form, enter <optional subject> in the Subject field",
+        "3. Select <Category> from the Category dropdown",
+        "4. Enter <valid message body> in the Message Body rich text editor",
+        "5. (Optional) Leave Attachment empty",
+        "6. Click the 'Send Message' button"
       ],
-      "expected_result": "A success notification displays \"Message sent successfully. returns ticket ID\" and a ticket ID is visible in the notification",
+      "expected_result": "A success notification displays: \"Message sent successfully. Returns ticket ID.\" and the notification shows a visible ticket ID",
       "priority": "high"
     },
     {
       "tc_id": "P-002",
-      "test_case": "Send secure message with Subject, Category and a valid attachment",
+      "wf_ref": "WF-001",
+      "test_case": "Send secure message with a valid attachment",
       "preconditions": [
-        "User logged in as <User>",
-        "Support Center page is open"
+        "User logged in as <role>"
       ],
       "steps": [
-        "1. Focus the Secure Message form",
-        "2. Enter <valid subject within allowed length> in the Subject field",
+        "1. Navigate to the Support Center page",
+        "2. In the Secure Message form, enter <optional subject> in the Subject field",
         "3. Select <Category> from the Category dropdown",
-        "4. Enter <valid message body> in the Message_Body field",
-        "5. Click Upload on the Attachment control and select a <valid attachment file>",
-        "6. Click the Send Message button"
+        "4. Enter <valid message body> in the Message Body rich text editor",
+        "5. Click 'Upload' on the Attachment control and select <valid allowed file> from the OS file dialog",
+        "6. Confirm the attachment appears in the form upload list",
+        "7. Click the 'Send Message' button"
       ],
-      "expected_result": "A success notification displays \"Message sent successfully. returns ticket ID\" and a ticket ID is visible in the notification",
+      "expected_result": "A success notification displays: \"Message sent successfully. Returns ticket ID.\" and the support message list shows a new message row with the entered Subject and a visible attachment name",
       "priority": "medium"
     },
     {
       "tc_id": "P-003",
-      "test_case": "Request callback using the prefilled phone number and a valid preferred date/time",
+      "wf_ref": "WF-002",
+      "test_case": "Request callback with valid next-business-day date, time window and editable phone number",
       "preconditions": [
-        "User logged in as <User>",
-        "Support Center page is open"
+        "User logged in as <role>"
       ],
       "steps": [
-        "1. Focus the Schedule Callback form",
-        "2. Select <Reason for Call> from the Reason_for_Call dropdown",
-        "3. Choose <valid date at least the next business day> in Preferred_Date",
-        "4. Select <Preferred Time Window> in Preferred_Time_Window",
-        "5. Verify the Phone_Number field shows a prefilled value",
-        "6. Click the Request Callback button"
+        "1. Navigate to the Support Center page",
+        "2. In the Schedule Callback form, select <Reason for Call> from the Reason for Call dropdown",
+        "3. Select <valid date at least next business day> in the Preferred Date field",
+        "4. Select <Preferred Time Window> in the Preferred Time Window control",
+        "5. Verify Phone Number is pre-filled, edit it to <valid phone number> if needed",
+        "6. Click the 'Request Callback' button"
       ],
-      "expected_result": "A confirmation notification displays \"Callback request submitted. sends email confirmation\"",
+      "expected_result": "A confirmation banner displays: \"Callback request submitted. Sends email confirmation.\" and the confirmation panel shows the selected Preferred Date, Preferred Time Window and the Phone Number used for the request",
       "priority": "high"
-    },
-    {
-      "tc_id": "P-004",
-      "test_case": "Request callback after editing the prefilled phone number to a different valid number",
-      "preconditions": [
-        "User logged in as <User>",
-        "Support Center page is open"
-      ],
-      "steps": [
-        "1. Focus the Schedule Callback form",
-        "2. Edit the Phone_Number field to enter <valid phone number>",
-        "3. Select <Reason for Call> from the Reason_for_Call dropdown",
-        "4. Choose <valid date at least the next business day> in Preferred_Date",
-        "5. Select <Preferred Time Window> in Preferred_Time_Window",
-        "6. Click the Request Callback button"
-      ],
-      "expected_result": "A confirmation notification displays \"Callback request submitted. sends email confirmation\"",
-      "priority": "medium"
     }
   ],
   "summary": {
-    "total": 4,
+    "total": 3,
     "high_priority": 2,
-    "medium_priority": 2,
+    "medium_priority": 1,
     "low_priority": 0
   }
 }
 
 ------------------------------------------------------------
-[21:34:02] Test-Positive - PARSED JSON
+[15:44:03] Test-Positive - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Support Center",
@@ -416,78 +441,64 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Send secure message with only required Message Body",
+      "wf_ref": "WF-001",
+      "test_case": "Send secure message (basic) with required message body",
       "preconditions": [
-        "User logged in as <User>",
-        "Support Center page is open"
+        "User logged in as <role>"
       ],
       "steps": [
-        "1. Focus the Secure Message form",
-        "2. Enter <valid message body> in the Message_Body field",
-        "3. Click the Send Message button"
+        "1. Navigate to the Support Center page",
+        "2. In the Secure Message form, enter <optional subject> in the Subject field",
+        "3. Select <Category> from the Category dropdown",
+        "4. Enter <valid message body> in the Message Body rich text editor",
+        "5. (Optional) Leave Attachment empty",
+        "6. Click the 'Send Message' button"
       ],
-      "expected_result": "A success notification displays \"Message sent successfully. returns ticket ID\" and a ticket ID is visible in the notification",
+      "expected_result": "A success notification displays: \"Message sent successfully. Returns ticket ID.\" and the notification shows a visible ticket ID",
       "priority": "high"
     },
     {
       "tc_id": "P-002",
-      "test_case": "Send secure message with Subject, Category and a valid attachment",
+      "wf_ref": "WF-001",
+      "test_case": "Send secure message with a valid attachment",
       "preconditions": [
-        "User logged in as <User>",
-        "Support Center page is open"
+        "User logged in as <role>"
       ],
       "steps": [
-        "1. Focus the Secure Message form",
-        "2. Enter <valid subject within allowed length> in the Subject field",
+        "1. Navigate to the Support Center page",
+        "2. In the Secure Message form, enter <optional subject> in the Subject field",
         "3. Select <Category> from the Category dropdown",
-        "4. Enter <valid message body> in the Message_Body field",
-        "5. Click Upload on the Attachment control and select a <valid attachment file>",
-        "6. Click the Send Message button"
+        "4. Enter <valid message body> in the Message Body rich text editor",
+        "5. Click 'Upload' on the Attachment control and select <valid allowed file> from the OS file dialog",
+        "6. Confirm the attachment appears in the form upload list",
+        "7. Click the 'Send Message' button"
       ],
-      "expected_result": "A success notification displays \"Message sent successfully. returns ticket ID\" and a ticket ID is visible in the notification",
+      "expected_result": "A success notification displays: \"Message sent successfully. Returns ticket ID.\" and the support message list shows a new message row with the entered Subject and a visible attachment name",
       "priority": "medium"
     },
     {
       "tc_id": "P-003",
-      "test_case": "Request callback using the prefilled phone number and a valid preferred date/time",
+      "wf_ref": "WF-002",
+      "test_case": "Request callback with valid next-business-day date, time window and editable phone number",
       "preconditions": [
-        "User logged in as <User>",
-        "Support Center page is open"
+        "User logged in as <role>"
       ],
       "steps": [
-        "1. Focus the Schedule Callback form",
-        "2. Select <Reason for Call> from the Reason_for_Call dropdown",
-        "3. Choose <valid date at least the next business day> in Preferred_Date",
-        "4. Select <Preferred Time Window> in Preferred_Time_Window",
-        "5. Verify the Phone_Number field shows a prefilled value",
-        "6. Click the Request Callback button"
+        "1. Navigate to the Support Center page",
+        "2. In the Schedule Callback form, select <Reason for Call> from the Reason for Call dropdown",
+        "3. Select <valid date at least next business day> in the Preferred Date field",
+        "4. Select <Preferred Time Window> in the Preferred Time Window control",
+        "5. Verify Phone Number is pre-filled, edit it to <valid phone number> if needed",
+        "6. Click the 'Request Callback' button"
       ],
-      "expected_result": "A confirmation notification displays \"Callback request submitted. sends email confirmation\"",
+      "expected_result": "A confirmation banner displays: \"Callback request submitted. Sends email confirmation.\" and the confirmation panel shows the selected Preferred Date, Preferred Time Window and the Phone Number used for the request",
       "priority": "high"
-    },
-    {
-      "tc_id": "P-004",
-      "test_case": "Request callback after editing the prefilled phone number to a different valid number",
-      "preconditions": [
-        "User logged in as <User>",
-        "Support Center page is open"
-      ],
-      "steps": [
-        "1. Focus the Schedule Callback form",
-        "2. Edit the Phone_Number field to enter <valid phone number>",
-        "3. Select <Reason for Call> from the Reason_for_Call dropdown",
-        "4. Choose <valid date at least the next business day> in Preferred_Date",
-        "5. Select <Preferred Time Window> in Preferred_Time_Window",
-        "6. Click the Request Callback button"
-      ],
-      "expected_result": "A confirmation notification displays \"Callback request submitted. sends email confirmation\"",
-      "priority": "medium"
     }
   ],
   "summary": {
-    "total": 4,
+    "total": 3,
     "high_priority": 2,
-    "medium_priority": 2,
+    "medium_priority": 1,
     "low_priority": 0
   }
 }

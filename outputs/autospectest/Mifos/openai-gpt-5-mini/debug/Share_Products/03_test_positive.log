@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-21T22:29:06.530406
+DEBUG SESSION STARTED: 2026-05-25T14:24:50.725961
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[22:29:06] Test-Positive - SYSTEM PROMPT
+[14:24:50] Test-Positive - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Expert UI Test Case Generator. You receive (1) a UI-AST JSON for one specific module and (2) the original functional description for that module.
 
@@ -24,6 +24,10 @@ Your job is to produce ONLY positive/functional UI test cases — tests where va
 <description>
 {Original functional description text for this module}
 </description>
+
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
 
 ---
 
@@ -146,6 +150,13 @@ Because you are testing a module in isolation, establish the required entry stat
 **1. Forms & Wizards (`form`, `wizard`):**
 - Generate ONE happy path per distinct success outcome.
 - *Conditional UI Check:* If a toggle/dropdown reveals new mandatory fields (`visible_when`), generate a separate test for that conditional branch.
+- **Wizard step coverage (CRITICAL):** If a wizard has multiple steps and any step beyond Step 1 contains its own named field group (e.g., "Address Details", "Family Members", "Identifiers"), generate ONE dedicated positive TC per such step. The TC must:
+  - Navigate to that specific step (include the preceding steps as preconditions or brief navigation steps)
+  - Fill the fields described for that step (not just pass through)
+  - Assert the step's content is visible/saved on the detail page after final submission
+  - **Do NOT collapse all wizard steps into one happy-path TC** — if Steps 2, 3, and 4 each have their own named section in the spec, they each need their own TC.
+- **Wizard in-step identifiers/duplicates:** If a wizard step allows adding identifiers, documents, or similar entries that have a uniqueness constraint, include a TC for that wizard step that also verifies the constraint (e.g., attempting to add a duplicate Document Type+Key pair inside the wizard). This is a different code path from adding the same post-creation on the detail page.
+- **Action dialogs:** If a `state_bound_action_bar` action opens a dialog with its own `fields{}` (e.g., Activate requires Activation Date, Reject requires Reason), generate ONE positive TC per such action-dialog — distinct from the state-transition TC. The TC fills the dialog field and completes the action.
 
 **2. State Machines (`state_bound_action_bar`):**
 - For each unique action available in a specific state, generate ONE test performing that action.
@@ -200,6 +211,19 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 
 ---
 
+**WORKFLOW COVERAGE OBLIGATION (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- Your test cases must **collectively cover every workflow** listed.
+- For each `wf_id`, at least one TC must:
+  - Activate the `conditional_branch` (if not null) — i.e. the test must set up the condition described.
+  - Assert the `on_success` as its `expected_result` (verbatim or as the primary basis for the expected result).
+- Add `"wf_ref": "WF-NNN"` to each TC to identify which workflow it covers.
+- If one TC naturally covers multiple workflows (e.g., the base path overlaps), pick the most specific `wf_ref`.
+- If a TC does not map to any workflow (e.g., a navigation-only test), set `"wf_ref": null`.
+
+---
+
 **OUTPUT — JSON only, no prose, no markdown fencing:**
 
 {
@@ -208,6 +232,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
   "test_cases": [
     {
       "tc_id": "P-001",
+      "wf_ref": "WF-001",
       "test_case": "Short descriptive name",
       "preconditions": ["User logged in as <Role>", "<Prerequisite state>"],
       "steps": ["1. Step one", "2. Step two"],
@@ -224,7 +249,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 }
 
 ------------------------------------------------------------
-[22:29:06] Test-Positive - USER PROMPT
+[14:24:50] Test-Positive - USER PROMPT
 ------------------------------------------------------------
 <module_name>Share Products</module_name>
 
@@ -235,27 +260,51 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
     "Share_Products_Table": {
       "type": "data_table",
       "columns": [
-        "Product Name",
-        "Short Name",
-        "Total Shares"
+        {
+          "name": "Product Name",
+          "type": "link",
+          "interaction": {
+            "action_name": "Open Product Details",
+            "on_click": "opens product detail view"
+          }
+        },
+        {
+          "name": "Short Name",
+          "type": "unspecified"
+        },
+        {
+          "name": "Total Shares",
+          "type": "number"
+        }
       ],
       "row_actions": [
         {
-          "action_name": "Open Product",
-          "trigger": "click Product Name link",
-          "target": "Product_Detail_View"
-        }
-      ],
-      "top_actions": [
+          "action_name": "Edit",
+          "on_click": "opens product in edit mode"
+        },
         {
-          "element_name": "+ Create Share Product",
-          "type": "button",
-          "opens": "Create_Share_Product_Wizard"
+          "action_name": "Delete",
+          "on_click": "deletes this product"
         }
+      ]
+    },
+    "Create_Share_Product_Button": {
+      "type": "button",
+      "element_name": "+ Create Share Product",
+      "on_click": "opens Create Share Product wizard",
+      "triggers": [
+        "Create_Share_Product_Wizard"
       ]
     },
     "Create_Share_Product_Wizard": {
       "type": "wizard",
+      "triggered_by": "Create_Share_Product_Button",
+      "submit_actions": [
+        {
+          "element_name": "Create Share Product",
+          "on_success": "creates share product"
+        }
+      ],
       "steps": [
         {
           "step_index": 1,
@@ -263,15 +312,21 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
           "fields": {
             "Product_Name": {
               "type": "unspecified",
-              "required": true
+              "constraints": [
+                "required"
+              ]
             },
             "Short_Name": {
               "type": "unspecified",
-              "required": true
+              "constraints": [
+                "required"
+              ]
             },
             "Description": {
               "type": "unspecified",
-              "required": true
+              "constraints": [
+                "required"
+              ]
             }
           }
         },
@@ -296,19 +351,18 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
           "fields": {
             "Total_Number_of_Shares": {
               "type": "number",
-              "required": true
+              "constraints": [
+                "required"
+              ]
             },
             "Shares_to_be_Issued": {
               "type": "number"
             },
             "Nominal_Unit_Price": {
               "type": "number",
-              "required": true
-            },
-            "Capital_Value": {
-              "type": "unspecified",
-              "visible_when": null,
-              "note": "auto-calculated (display-only)"
+              "constraints": [
+                "required"
+              ]
             }
           }
         },
@@ -340,16 +394,23 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
           "step_index": 5,
           "step_name": "Market Price",
           "fields": {
-            "Market_Prices": {
+            "Market_Price_Rows": {
               "type": "repeating_group",
-              "min": 0,
               "item_fields": {
                 "From_Date": {
                   "type": "date"
                 },
                 "Share_Value": {
                   "type": "number"
+                },
+                "remove_action": {
+                  "action_name": "Remove Row",
+                  "type": "button"
                 }
+              },
+              "add_action": {
+                "action_name": "Add Row",
+                "type": "button"
               }
             }
           }
@@ -358,15 +419,22 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
           "step_index": 6,
           "step_name": "Charges",
           "fields": {
-            "Charges": {
+            "Charges_Search": {
               "type": "search",
-              "description": "search-and-add interface for charges",
-              "selected_items": {
-                "type": "repeating_group",
-                "item_fields": {
-                  "Charge": {
-                    "type": "unspecified"
-                  }
+              "add_action": {
+                "action_name": "Add Charge",
+                "type": "button"
+              }
+            },
+            "Selected_Charges": {
+              "type": "repeating_group",
+              "item_fields": {
+                "Charge": {
+                  "type": "unspecified"
+                },
+                "remove_action": {
+                  "action_name": "Remove Charge",
+                  "type": "button"
                 }
               }
             }
@@ -384,37 +452,39 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
               ]
             },
             "GL_Share_Reference": {
-              "type": "unspecified",
+              "type": "dropdown",
               "visible_when": "Accounting_Method == Cash-based"
             },
             "GL_Share_Suspense": {
-              "type": "unspecified",
+              "type": "dropdown",
               "visible_when": "Accounting_Method == Cash-based"
             },
             "GL_Equity_in_Shares": {
-              "type": "unspecified",
+              "type": "dropdown",
               "visible_when": "Accounting_Method == Cash-based"
             },
             "GL_Income_from_Fees": {
-              "type": "unspecified",
+              "type": "dropdown",
               "visible_when": "Accounting_Method == Cash-based"
             },
             "GL_Share_Equity": {
-              "type": "unspecified",
+              "type": "dropdown",
               "visible_when": "Accounting_Method == Cash-based"
             }
           }
         }
       ]
     },
-    "Product_Detail_View": {
+    "Share_Product_Detail": {
       "type": "detail_view",
       "actions": [
         {
-          "action_name": "Edit"
+          "action_name": "Edit",
+          "on_click": "opens product in edit mode"
         },
         {
-          "action_name": "Delete"
+          "action_name": "Delete",
+          "on_click": "deletes this product"
         }
       ]
     }
@@ -431,10 +501,20 @@ The Share Products page displays a data table with columns for Product Name (cli
 
 </description>
 
+<workflows>
+WF-001 | Open product detail from table (Product Name link) | actor: <role> | branch: none | terminal: Open Product Details | on_success: opens product detail view
+WF-002 | Edit product from table row | actor: <role> | branch: none | terminal: Edit | on_success: opens product in edit mode
+WF-003 | Delete product from table row | actor: <role> | branch: none | terminal: Delete | on_success: deletes this product
+WF-004 | Edit product from detail view | actor: <role> | branch: none | terminal: Edit | on_success: opens product in edit mode
+WF-005 | Delete product from detail view | actor: <role> | branch: none | terminal: Delete | on_success: deletes this product
+WF-006 | Create Share Product — Accounting Method == None (GL fields hidden) | actor: <role> | branch: Accounting_Method == None | terminal: Create Share Product | on_success: creates share product
+WF-007 | Create Share Product — Accounting Method == Cash-based (GL fields visible) | actor: <role> | branch: Accounting_Method == Cash-based | terminal: Create Share Product | on_success: creates share product
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[22:31:54] Test-Positive - LLM RESPONSE
+[14:28:07] Test-Positive - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Share Products",
@@ -442,176 +522,209 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Open existing product detail from table",
+      "wf_ref": "WF-001",
+      "test_case": "Open product detail from table via Product Name link",
       "preconditions": [
-        "User logged in as <Product Manager>",
-        "Share Products page is open",
-        "A share product exists with Product Name <existing product>"
+        "User logged in as <role>",
+        "A share product with name <target product> exists in the Share Products table"
       ],
       "steps": [
-        "1. Click the <existing product> Product Name link in the Share Products table"
+        "1. On the Share Products page, click the <Product Name> link for <target product>"
       ],
-      "expected_result": "Product Detail view is displayed showing Product Name <existing product> and the actions 'Edit' and 'Delete' are visible",
-      "priority": "medium"
+      "expected_result": "Product detail view is displayed for <target product>; the detail view shows Edit and Delete actions.",
+      "priority": "high"
     },
     {
       "tc_id": "P-002",
-      "test_case": "Open Create Share Product wizard",
+      "wf_ref": "WF-002",
+      "test_case": "Open edit form for a product from the table row action",
       "preconditions": [
-        "User logged in as <Product Manager>",
-        "Share Products page is open"
+        "User logged in as <role>",
+        "A share product with name <target product> exists in the Share Products table"
       ],
       "steps": [
-        "1. Click the '+ Create Share Product' button in the Share Products page"
+        "1. In the Share Products table, click the 'Edit' row action for <target product>"
       ],
-      "expected_result": "Create Share Product wizard opens on the 'Details' step and the fields Product Name, Short Name, and Description are visible",
-      "priority": "medium"
+      "expected_result": "Edit form for <target product> is displayed with editable fields: Product Name, Short Name, and Description.",
+      "priority": "high"
     },
     {
       "tc_id": "P-003",
-      "test_case": "Complete full Create Share Product wizard (Accounting Method = None) and see product in list",
+      "wf_ref": "WF-003",
+      "test_case": "Delete a product using the table row Delete action",
       "preconditions": [
-        "User logged in as <Product Manager>",
-        "Share Products page is open"
+        "User logged in as <role>",
+        "A share product with name <target product> exists in the Share Products table"
       ],
       "steps": [
-        "1. Click the '+ Create Share Product' button",
-        "2. On 'Details' step enter <Product Name>, enter <Short Name>, enter <Description>, then click Next",
-        "3. On 'Currency' step select <Currency>, enter <Decimal Places>, enter <Currency In Multiples Of>, then click Next",
-        "4. On 'Terms' step enter <Total Number of Shares>, enter <Shares to be Issued>, enter <Nominal/Unit Price>, then click Next",
-        "5. On 'Settings' step configure <Allow Dividends for Inactive Clients> and other optional settings as needed, then click Next",
-        "6. On 'Market Price' step do not add any rows, click Next",
-        "7. On 'Charges' step do not add any charges, click Next",
-        "8. On 'Accounting' step select 'None' for Accounting Method, then click Save/Finish"
+        "1. In the Share Products table, click the 'Delete' row action for <target product>"
       ],
-      "expected_result": "A success notification is displayed and a new row appears in the Share Products table with the entered Product Name and the entered Short Name",
+      "expected_result": "The row for <target product> is no longer visible in the Share Products table.",
       "priority": "high"
     },
     {
       "tc_id": "P-004",
-      "test_case": "Selecting 'Cash-based' reveals GL account mapping fields in Accounting step",
+      "wf_ref": "WF-004",
+      "test_case": "Edit a product from its detail view",
       "preconditions": [
-        "User logged in as <Product Manager>",
-        "Share Products page is open"
+        "User logged in as <role>",
+        "A share product with name <target product> exists in the Share Products table"
       ],
       "steps": [
-        "1. Click the '+ Create Share Product' button",
-        "2. Navigate to the 'Accounting' step of the wizard",
-        "3. Select 'Cash-based' for Accounting Method"
+        "1. Click the <Product Name> link for <target product> to open the product detail view",
+        "2. On the product detail view, click the 'Edit' action"
       ],
-      "expected_result": "The GL account mapping fields GL_Share_Reference, GL_Share_Suspense, GL_Equity_in_Shares, GL_Income_from_Fees, and GL_Share_Equity are visible on the Accounting step",
-      "priority": "medium"
+      "expected_result": "Edit form for <target product> is displayed with editable fields: Product Name, Short Name, and Description.",
+      "priority": "high"
     },
     {
       "tc_id": "P-005",
-      "test_case": "Capital Value auto-calculates on Terms step when totals and unit price entered",
+      "wf_ref": "WF-005",
+      "test_case": "Delete a product from its detail view",
       "preconditions": [
-        "User logged in as <Product Manager>",
-        "Share Products page is open"
+        "User logged in as <role>",
+        "A share product with name <target product> exists in the Share Products table"
       ],
       "steps": [
-        "1. Click the '+ Create Share Product' button",
-        "2. Navigate to the 'Terms' step",
-        "3. Enter <Total Number of Shares> in the Total Number of Shares field",
-        "4. Enter <Nominal/Unit Price> in the Nominal/Unit Price field"
+        "1. Click the <Product Name> link for <target product> to open the product detail view",
+        "2. On the product detail view, click the 'Delete' action"
       ],
-      "expected_result": "The Capital Value display-only field updates to reflect Total Number of Shares × Nominal/Unit Price",
-      "priority": "medium"
+      "expected_result": "The Share Products table no longer shows <target product>.",
+      "priority": "high"
     },
     {
       "tc_id": "P-006",
-      "test_case": "Add a Market Price row and enter From Date and Share Value",
+      "wf_ref": "WF-006",
+      "test_case": "Create Share Product with Accounting Method == None (GL fields hidden)",
       "preconditions": [
-        "User logged in as <Product Manager>",
-        "Share Products page is open"
+        "User logged in as <role>",
+        "No prerequisite share product is required"
       ],
       "steps": [
-        "1. Click the '+ Create Share Product' button",
-        "2. Navigate to the 'Market Price' step",
-        "3. Click 'Add Row' to add a new market price entry",
-        "4. Enter <valid date> in the From Date field for the new row",
-        "5. Enter <share value> in the Share Value field for the new row"
+        "1. Click '+ Create Share Product' to open the Create Share Product wizard",
+        "2. On Details (Step 1), enter <Product Name> in Product Name, <Short Name> in Short Name, <Description> in Description and click Next",
+        "3. On Currency (Step 2), optionally select <Currency> and enter <Decimal Places> and <Currency In Multiples Of>, then click Next",
+        "4. On Terms (Step 3), enter <Total Number of Shares> and <Nominal/Unit Price>; observe the Capital Value field update, then click Next",
+        "5. On Settings (Step 4), optionally set <Minimum_Shares_per_Client> and other settings, then click Next",
+        "6. On Market Price (Step 5), optionally click 'Add Row', enter <valid date> in From Date and <share value> in Share Value, then click Next",
+        "7. On Charges (Step 6), optionally search for <charge search term> and add a charge, then click Next",
+        "8. On Accounting (Step 7), select 'None' for Accounting Method (ensure GL mapping fields are not visible), then click 'Create Share Product'"
       ],
-      "expected_result": "A new row appears in the Market Prices list with the entered From Date and the entered Share Value",
-      "priority": "low"
+      "expected_result": "creates share product: New row appears in the Share Products table with the entered Product Name and Short Name; on the created product detail the Accounting Method is shown as 'None' and no GL mapping fields are visible. The Terms section shows Capital Value calculated as Total Number of Shares × Nominal Unit Price.",
+      "priority": "high"
     },
     {
       "tc_id": "P-007",
-      "test_case": "Search-and-add a Charge in Charges step",
+      "wf_ref": "WF-007",
+      "test_case": "Create Share Product with Accounting Method == Cash-based (GL fields visible and filled)",
       "preconditions": [
-        "User logged in as <Product Manager>",
-        "Share Products page is open"
+        "User logged in as <role>",
+        "No prerequisite share product is required"
       ],
       "steps": [
-        "1. Click the '+ Create Share Product' button",
-        "2. Navigate to the 'Charges' step",
-        "3. Enter <search term> in the charge search field",
-        "4. Select <matching charge> from the search results to add it"
+        "1. Click '+ Create Share Product' to open the Create Share Product wizard",
+        "2. On Details (Step 1), enter <Product Name> in Product Name, <Short Name> in Short Name, <Description> in Description and click Next",
+        "3. On Currency (Step 2), optionally select <Currency>, then click Next",
+        "4. On Terms (Step 3), enter <Total Number of Shares> and <Nominal/Unit Price>, then click Next",
+        "5. On Settings (Step 4) and Market Price (Step 5) and Charges (Step 6) provide valid optional inputs or skip to Next as needed",
+        "6. On Accounting (Step 7), select 'Cash-based' for Accounting Method; when GL fields appear, select <GL account> for GL Share Reference, <GL account> for GL Share Suspense, <GL account> for GL Equity in Shares, <GL account> for GL Income from Fees, and <GL account> for GL Share Equity",
+        "7. Click 'Create Share Product'"
       ],
-      "expected_result": "The selected charge appears in the Charges list within the wizard as a new line item",
-      "priority": "medium"
+      "expected_result": "creates share product: New row appears in the Share Products table with the entered Product Name and Short Name; the created product detail shows Accounting Method 'Cash-based' and the GL mapping fields (GL Share Reference, GL Share Suspense, GL Equity in Shares, GL Income from Fees, GL Share Equity) displaying the selected accounts.",
+      "priority": "high"
     },
     {
       "tc_id": "P-008",
-      "test_case": "Navigate sequentially through all wizard steps 1 to 7",
+      "wf_ref": null,
+      "test_case": "Wizard Step 2 (Currency) saved to product detail after creation",
       "preconditions": [
-        "User logged in as <Product Manager>",
-        "Share Products page is open"
+        "User logged in as <role>"
       ],
       "steps": [
-        "1. Click the '+ Create Share Product' button",
-        "2. On the 'Details' step click Next",
-        "3. On the 'Currency' step click Next",
-        "4. On the 'Terms' step click Next",
-        "5. On the 'Settings' step click Next",
-        "6. On the 'Market Price' step click Next",
-        "7. On the 'Charges' step click Next"
+        "1. Click '+ Create Share Product' to open the Create Share Product wizard",
+        "2. On Details (Step 1), enter <Product Name>, <Short Name>, <Description> and click Next",
+        "3. On Currency (Step 2), select <Currency>, enter <Decimal Places> and <Currency In Multiples Of>, then click Next",
+        "4. On subsequent steps provide required Terms values (enter <Total Number of Shares> and <Nominal/Unit Price>) and progress to Create",
+        "5. Click 'Create Share Product'"
       ],
-      "expected_result": "The wizard navigates through steps 1 to 7 in order and the 'Accounting' step (step 7) title and its fields are displayed at the end of the sequence",
+      "expected_result": "The created product's detail page displays Currency set to <Currency> as entered on the Currency step.",
       "priority": "medium"
     },
     {
       "tc_id": "P-009",
-      "test_case": "Open Edit from Product Detail",
+      "wf_ref": null,
+      "test_case": "Wizard Step 3 (Terms) shows Capital Value auto-calculation and persists after creation",
       "preconditions": [
-        "User logged in as <Product Manager>",
-        "Share Products page is open",
-        "A share product exists with Product Name <existing product>"
+        "User logged in as <role>"
       ],
       "steps": [
-        "1. Click the <existing product> Product Name link in the Share Products table to open Product Detail",
-        "2. Click the 'Edit' action on the Product Detail view"
+        "1. Click '+ Create Share Product' to open the Create Share Product wizard",
+        "2. On Details (Step 1), enter <Product Name>, <Short Name>, <Description> and click Next",
+        "3. Navigate to Terms (Step 3), enter <Total Number of Shares> and <Nominal/Unit Price> and observe the Capital Value field",
+        "4. Confirm the Capital Value displays a calculated result based on the entered Total Number of Shares and Nominal/Unit Price, then complete remaining required fields and click 'Create Share Product'"
       ],
-      "expected_result": "An edit form/view is displayed for the product showing editable fields such as Product Name and Short Name and a Save control is visible",
+      "expected_result": "On the Terms step the Capital Value field displays a calculated value equal to Total Number of Shares × Nominal Unit Price; after creation the product detail page shows the same Capital Value in the Terms section.",
       "priority": "medium"
     },
     {
       "tc_id": "P-010",
-      "test_case": "Delete a product from its Detail view and confirm removal from table",
+      "wf_ref": null,
+      "test_case": "Wizard Step 4 (Settings) values persist and appear on product detail",
       "preconditions": [
-        "User logged in as <Product Manager>",
-        "Share Products page is open",
-        "A share product exists with Product Name <existing product>"
+        "User logged in as <role>"
       ],
       "steps": [
-        "1. Click the <existing product> Product Name link in the Share Products table to open Product Detail",
-        "2. Click the 'Delete' action on the Product Detail view",
-        "3. Click Confirm on the Delete confirmation dialog"
+        "1. Click '+ Create Share Product' to open the Create Share Product wizard",
+        "2. On Details (Step 1), enter <Product Name>, <Short Name>, <Description> and click Next",
+        "3. Provide required entries up to Settings, then on Settings (Step 4) check 'Allow Dividends for Inactive Clients' and enter <Minimum_Shares_per_Client> and <Maximum_Shares_per_Client>, then click Next",
+        "4. Complete remaining steps as required and click 'Create Share Product'"
       ],
-      "expected_result": "The Product Detail view closes and the Share Products table no longer shows a row with Product Name <existing product>; a success notification is displayed",
+      "expected_result": "On the created product's detail page the Settings section shows 'Allow Dividends for Inactive Clients' checked and displays the entered Minimum and Maximum Shares per Client values.",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-011",
+      "wf_ref": null,
+      "test_case": "Wizard Step 5 (Market Price) supports adding multiple rows and they persist after creation",
+      "preconditions": [
+        "User logged in as <role>"
+      ],
+      "steps": [
+        "1. Click '+ Create Share Product' to open the Create Share Product wizard",
+        "2. On Details (Step 1), enter <Product Name>, <Short Name>, <Description> and click Next",
+        "3. Navigate to Market Price (Step 5), click 'Add Row' to add a row, enter <valid date> in From Date and <share value> in Share Value; optionally add another row and enter <valid date> and <share value>",
+        "4. Click Next to finish the wizard and click 'Create Share Product'"
+      ],
+      "expected_result": "On the created product's detail page the Market Price table lists rows showing the entered From Date and Share Value entries.",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-012",
+      "wf_ref": null,
+      "test_case": "Wizard Step 6 (Charges) allows searching and adding a charge which is then shown on product detail",
+      "preconditions": [
+        "User logged in as <role>"
+      ],
+      "steps": [
+        "1. Click '+ Create Share Product' to open the Create Share Product wizard",
+        "2. On Details (Step 1), enter <Product Name>, <Short Name>, <Description> and click Next",
+        "3. Navigate to Charges (Step 6), enter <charge search term> in the Charges search, select a matching result, and click 'Add Charge' so the charge appears in Selected Charges",
+        "4. Click Next and complete the wizard, then click 'Create Share Product'"
+      ],
+      "expected_result": "On the created product's detail page the Charges section lists the added charge(s) matching <charge search term>.",
       "priority": "medium"
     }
   ],
   "summary": {
-    "total": 10,
-    "high_priority": 1,
-    "medium_priority": 8,
-    "low_priority": 1
+    "total": 12,
+    "high_priority": 7,
+    "medium_priority": 5,
+    "low_priority": 0
   }
 }
 
 ------------------------------------------------------------
-[22:31:54] Test-Positive - PARSED JSON
+[14:28:07] Test-Positive - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Share Products",
@@ -619,170 +732,203 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Open existing product detail from table",
+      "wf_ref": "WF-001",
+      "test_case": "Open product detail from table via Product Name link",
       "preconditions": [
-        "User logged in as <Product Manager>",
-        "Share Products page is open",
-        "A share product exists with Product Name <existing product>"
+        "User logged in as <role>",
+        "A share product with name <target product> exists in the Share Products table"
       ],
       "steps": [
-        "1. Click the <existing product> Product Name link in the Share Products table"
+        "1. On the Share Products page, click the <Product Name> link for <target product>"
       ],
-      "expected_result": "Product Detail view is displayed showing Product Name <existing product> and the actions 'Edit' and 'Delete' are visible",
-      "priority": "medium"
+      "expected_result": "Product detail view is displayed for <target product>; the detail view shows Edit and Delete actions.",
+      "priority": "high"
     },
     {
       "tc_id": "P-002",
-      "test_case": "Open Create Share Product wizard",
+      "wf_ref": "WF-002",
+      "test_case": "Open edit form for a product from the table row action",
       "preconditions": [
-        "User logged in as <Product Manager>",
-        "Share Products page is open"
+        "User logged in as <role>",
+        "A share product with name <target product> exists in the Share Products table"
       ],
       "steps": [
-        "1. Click the '+ Create Share Product' button in the Share Products page"
+        "1. In the Share Products table, click the 'Edit' row action for <target product>"
       ],
-      "expected_result": "Create Share Product wizard opens on the 'Details' step and the fields Product Name, Short Name, and Description are visible",
-      "priority": "medium"
+      "expected_result": "Edit form for <target product> is displayed with editable fields: Product Name, Short Name, and Description.",
+      "priority": "high"
     },
     {
       "tc_id": "P-003",
-      "test_case": "Complete full Create Share Product wizard (Accounting Method = None) and see product in list",
+      "wf_ref": "WF-003",
+      "test_case": "Delete a product using the table row Delete action",
       "preconditions": [
-        "User logged in as <Product Manager>",
-        "Share Products page is open"
+        "User logged in as <role>",
+        "A share product with name <target product> exists in the Share Products table"
       ],
       "steps": [
-        "1. Click the '+ Create Share Product' button",
-        "2. On 'Details' step enter <Product Name>, enter <Short Name>, enter <Description>, then click Next",
-        "3. On 'Currency' step select <Currency>, enter <Decimal Places>, enter <Currency In Multiples Of>, then click Next",
-        "4. On 'Terms' step enter <Total Number of Shares>, enter <Shares to be Issued>, enter <Nominal/Unit Price>, then click Next",
-        "5. On 'Settings' step configure <Allow Dividends for Inactive Clients> and other optional settings as needed, then click Next",
-        "6. On 'Market Price' step do not add any rows, click Next",
-        "7. On 'Charges' step do not add any charges, click Next",
-        "8. On 'Accounting' step select 'None' for Accounting Method, then click Save/Finish"
+        "1. In the Share Products table, click the 'Delete' row action for <target product>"
       ],
-      "expected_result": "A success notification is displayed and a new row appears in the Share Products table with the entered Product Name and the entered Short Name",
+      "expected_result": "The row for <target product> is no longer visible in the Share Products table.",
       "priority": "high"
     },
     {
       "tc_id": "P-004",
-      "test_case": "Selecting 'Cash-based' reveals GL account mapping fields in Accounting step",
+      "wf_ref": "WF-004",
+      "test_case": "Edit a product from its detail view",
       "preconditions": [
-        "User logged in as <Product Manager>",
-        "Share Products page is open"
+        "User logged in as <role>",
+        "A share product with name <target product> exists in the Share Products table"
       ],
       "steps": [
-        "1. Click the '+ Create Share Product' button",
-        "2. Navigate to the 'Accounting' step of the wizard",
-        "3. Select 'Cash-based' for Accounting Method"
+        "1. Click the <Product Name> link for <target product> to open the product detail view",
+        "2. On the product detail view, click the 'Edit' action"
       ],
-      "expected_result": "The GL account mapping fields GL_Share_Reference, GL_Share_Suspense, GL_Equity_in_Shares, GL_Income_from_Fees, and GL_Share_Equity are visible on the Accounting step",
-      "priority": "medium"
+      "expected_result": "Edit form for <target product> is displayed with editable fields: Product Name, Short Name, and Description.",
+      "priority": "high"
     },
     {
       "tc_id": "P-005",
-      "test_case": "Capital Value auto-calculates on Terms step when totals and unit price entered",
+      "wf_ref": "WF-005",
+      "test_case": "Delete a product from its detail view",
       "preconditions": [
-        "User logged in as <Product Manager>",
-        "Share Products page is open"
+        "User logged in as <role>",
+        "A share product with name <target product> exists in the Share Products table"
       ],
       "steps": [
-        "1. Click the '+ Create Share Product' button",
-        "2. Navigate to the 'Terms' step",
-        "3. Enter <Total Number of Shares> in the Total Number of Shares field",
-        "4. Enter <Nominal/Unit Price> in the Nominal/Unit Price field"
+        "1. Click the <Product Name> link for <target product> to open the product detail view",
+        "2. On the product detail view, click the 'Delete' action"
       ],
-      "expected_result": "The Capital Value display-only field updates to reflect Total Number of Shares \u00d7 Nominal/Unit Price",
-      "priority": "medium"
+      "expected_result": "The Share Products table no longer shows <target product>.",
+      "priority": "high"
     },
     {
       "tc_id": "P-006",
-      "test_case": "Add a Market Price row and enter From Date and Share Value",
+      "wf_ref": "WF-006",
+      "test_case": "Create Share Product with Accounting Method == None (GL fields hidden)",
       "preconditions": [
-        "User logged in as <Product Manager>",
-        "Share Products page is open"
+        "User logged in as <role>",
+        "No prerequisite share product is required"
       ],
       "steps": [
-        "1. Click the '+ Create Share Product' button",
-        "2. Navigate to the 'Market Price' step",
-        "3. Click 'Add Row' to add a new market price entry",
-        "4. Enter <valid date> in the From Date field for the new row",
-        "5. Enter <share value> in the Share Value field for the new row"
+        "1. Click '+ Create Share Product' to open the Create Share Product wizard",
+        "2. On Details (Step 1), enter <Product Name> in Product Name, <Short Name> in Short Name, <Description> in Description and click Next",
+        "3. On Currency (Step 2), optionally select <Currency> and enter <Decimal Places> and <Currency In Multiples Of>, then click Next",
+        "4. On Terms (Step 3), enter <Total Number of Shares> and <Nominal/Unit Price>; observe the Capital Value field update, then click Next",
+        "5. On Settings (Step 4), optionally set <Minimum_Shares_per_Client> and other settings, then click Next",
+        "6. On Market Price (Step 5), optionally click 'Add Row', enter <valid date> in From Date and <share value> in Share Value, then click Next",
+        "7. On Charges (Step 6), optionally search for <charge search term> and add a charge, then click Next",
+        "8. On Accounting (Step 7), select 'None' for Accounting Method (ensure GL mapping fields are not visible), then click 'Create Share Product'"
       ],
-      "expected_result": "A new row appears in the Market Prices list with the entered From Date and the entered Share Value",
-      "priority": "low"
+      "expected_result": "creates share product: New row appears in the Share Products table with the entered Product Name and Short Name; on the created product detail the Accounting Method is shown as 'None' and no GL mapping fields are visible. The Terms section shows Capital Value calculated as Total Number of Shares \u00d7 Nominal Unit Price.",
+      "priority": "high"
     },
     {
       "tc_id": "P-007",
-      "test_case": "Search-and-add a Charge in Charges step",
+      "wf_ref": "WF-007",
+      "test_case": "Create Share Product with Accounting Method == Cash-based (GL fields visible and filled)",
       "preconditions": [
-        "User logged in as <Product Manager>",
-        "Share Products page is open"
+        "User logged in as <role>",
+        "No prerequisite share product is required"
       ],
       "steps": [
-        "1. Click the '+ Create Share Product' button",
-        "2. Navigate to the 'Charges' step",
-        "3. Enter <search term> in the charge search field",
-        "4. Select <matching charge> from the search results to add it"
+        "1. Click '+ Create Share Product' to open the Create Share Product wizard",
+        "2. On Details (Step 1), enter <Product Name> in Product Name, <Short Name> in Short Name, <Description> in Description and click Next",
+        "3. On Currency (Step 2), optionally select <Currency>, then click Next",
+        "4. On Terms (Step 3), enter <Total Number of Shares> and <Nominal/Unit Price>, then click Next",
+        "5. On Settings (Step 4) and Market Price (Step 5) and Charges (Step 6) provide valid optional inputs or skip to Next as needed",
+        "6. On Accounting (Step 7), select 'Cash-based' for Accounting Method; when GL fields appear, select <GL account> for GL Share Reference, <GL account> for GL Share Suspense, <GL account> for GL Equity in Shares, <GL account> for GL Income from Fees, and <GL account> for GL Share Equity",
+        "7. Click 'Create Share Product'"
       ],
-      "expected_result": "The selected charge appears in the Charges list within the wizard as a new line item",
-      "priority": "medium"
+      "expected_result": "creates share product: New row appears in the Share Products table with the entered Product Name and Short Name; the created product detail shows Accounting Method 'Cash-based' and the GL mapping fields (GL Share Reference, GL Share Suspense, GL Equity in Shares, GL Income from Fees, GL Share Equity) displaying the selected accounts.",
+      "priority": "high"
     },
     {
       "tc_id": "P-008",
-      "test_case": "Navigate sequentially through all wizard steps 1 to 7",
+      "wf_ref": null,
+      "test_case": "Wizard Step 2 (Currency) saved to product detail after creation",
       "preconditions": [
-        "User logged in as <Product Manager>",
-        "Share Products page is open"
+        "User logged in as <role>"
       ],
       "steps": [
-        "1. Click the '+ Create Share Product' button",
-        "2. On the 'Details' step click Next",
-        "3. On the 'Currency' step click Next",
-        "4. On the 'Terms' step click Next",
-        "5. On the 'Settings' step click Next",
-        "6. On the 'Market Price' step click Next",
-        "7. On the 'Charges' step click Next"
+        "1. Click '+ Create Share Product' to open the Create Share Product wizard",
+        "2. On Details (Step 1), enter <Product Name>, <Short Name>, <Description> and click Next",
+        "3. On Currency (Step 2), select <Currency>, enter <Decimal Places> and <Currency In Multiples Of>, then click Next",
+        "4. On subsequent steps provide required Terms values (enter <Total Number of Shares> and <Nominal/Unit Price>) and progress to Create",
+        "5. Click 'Create Share Product'"
       ],
-      "expected_result": "The wizard navigates through steps 1 to 7 in order and the 'Accounting' step (step 7) title and its fields are displayed at the end of the sequence",
+      "expected_result": "The created product's detail page displays Currency set to <Currency> as entered on the Currency step.",
       "priority": "medium"
     },
     {
       "tc_id": "P-009",
-      "test_case": "Open Edit from Product Detail",
+      "wf_ref": null,
+      "test_case": "Wizard Step 3 (Terms) shows Capital Value auto-calculation and persists after creation",
       "preconditions": [
-        "User logged in as <Product Manager>",
-        "Share Products page is open",
-        "A share product exists with Product Name <existing product>"
+        "User logged in as <role>"
       ],
       "steps": [
-        "1. Click the <existing product> Product Name link in the Share Products table to open Product Detail",
-        "2. Click the 'Edit' action on the Product Detail view"
+        "1. Click '+ Create Share Product' to open the Create Share Product wizard",
+        "2. On Details (Step 1), enter <Product Name>, <Short Name>, <Description> and click Next",
+        "3. Navigate to Terms (Step 3), enter <Total Number of Shares> and <Nominal/Unit Price> and observe the Capital Value field",
+        "4. Confirm the Capital Value displays a calculated result based on the entered Total Number of Shares and Nominal/Unit Price, then complete remaining required fields and click 'Create Share Product'"
       ],
-      "expected_result": "An edit form/view is displayed for the product showing editable fields such as Product Name and Short Name and a Save control is visible",
+      "expected_result": "On the Terms step the Capital Value field displays a calculated value equal to Total Number of Shares \u00d7 Nominal Unit Price; after creation the product detail page shows the same Capital Value in the Terms section.",
       "priority": "medium"
     },
     {
       "tc_id": "P-010",
-      "test_case": "Delete a product from its Detail view and confirm removal from table",
+      "wf_ref": null,
+      "test_case": "Wizard Step 4 (Settings) values persist and appear on product detail",
       "preconditions": [
-        "User logged in as <Product Manager>",
-        "Share Products page is open",
-        "A share product exists with Product Name <existing product>"
+        "User logged in as <role>"
       ],
       "steps": [
-        "1. Click the <existing product> Product Name link in the Share Products table to open Product Detail",
-        "2. Click the 'Delete' action on the Product Detail view",
-        "3. Click Confirm on the Delete confirmation dialog"
+        "1. Click '+ Create Share Product' to open the Create Share Product wizard",
+        "2. On Details (Step 1), enter <Product Name>, <Short Name>, <Description> and click Next",
+        "3. Provide required entries up to Settings, then on Settings (Step 4) check 'Allow Dividends for Inactive Clients' and enter <Minimum_Shares_per_Client> and <Maximum_Shares_per_Client>, then click Next",
+        "4. Complete remaining steps as required and click 'Create Share Product'"
       ],
-      "expected_result": "The Product Detail view closes and the Share Products table no longer shows a row with Product Name <existing product>; a success notification is displayed",
+      "expected_result": "On the created product's detail page the Settings section shows 'Allow Dividends for Inactive Clients' checked and displays the entered Minimum and Maximum Shares per Client values.",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-011",
+      "wf_ref": null,
+      "test_case": "Wizard Step 5 (Market Price) supports adding multiple rows and they persist after creation",
+      "preconditions": [
+        "User logged in as <role>"
+      ],
+      "steps": [
+        "1. Click '+ Create Share Product' to open the Create Share Product wizard",
+        "2. On Details (Step 1), enter <Product Name>, <Short Name>, <Description> and click Next",
+        "3. Navigate to Market Price (Step 5), click 'Add Row' to add a row, enter <valid date> in From Date and <share value> in Share Value; optionally add another row and enter <valid date> and <share value>",
+        "4. Click Next to finish the wizard and click 'Create Share Product'"
+      ],
+      "expected_result": "On the created product's detail page the Market Price table lists rows showing the entered From Date and Share Value entries.",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-012",
+      "wf_ref": null,
+      "test_case": "Wizard Step 6 (Charges) allows searching and adding a charge which is then shown on product detail",
+      "preconditions": [
+        "User logged in as <role>"
+      ],
+      "steps": [
+        "1. Click '+ Create Share Product' to open the Create Share Product wizard",
+        "2. On Details (Step 1), enter <Product Name>, <Short Name>, <Description> and click Next",
+        "3. Navigate to Charges (Step 6), enter <charge search term> in the Charges search, select a matching result, and click 'Add Charge' so the charge appears in Selected Charges",
+        "4. Click Next and complete the wizard, then click 'Create Share Product'"
+      ],
+      "expected_result": "On the created product's detail page the Charges section lists the added charge(s) matching <charge search term>.",
       "priority": "medium"
     }
   ],
   "summary": {
-    "total": 10,
-    "high_priority": 1,
-    "medium_priority": 8,
-    "low_priority": 1
+    "total": 12,
+    "high_priority": 7,
+    "medium_priority": 5,
+    "low_priority": 0
   }
 }

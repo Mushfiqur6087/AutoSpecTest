@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-22T21:31:44.629139
+DEBUG SESSION STARTED: 2026-05-25T15:41:24.134900
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[21:31:44] Test-Negative - SYSTEM PROMPT
+[15:41:24] Test-Negative - SYSTEM PROMPT
 ------------------------------------------------------------
 You are a Negative Test Case Generator. You receive (1) a UI-AST JSON for one module and (2) the original functional description. Your job is to produce ONLY negative test cases — tests where invalid input is provided or business rules are violated, and the system correctly rejects or blocks the action.
 
@@ -22,6 +22,10 @@ You are a Negative Test Case Generator. You receive (1) a UI-AST JSON for one mo
 <description>
 {Original functional description text for this module}
 </description>
+
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
 
 ---
 
@@ -111,6 +115,9 @@ Group required fields by type: `text/unspecified`, `email`, `password`, `number`
 
 Do NOT generate a separate blank-field test for every required field. If 5 text fields are all required, one representative covers them all.
 
+**Action dialog required fields — NOT subject to cross-form deduplication:**
+If a `state_bound_action_bar` action opens a dialog with its own required `fields{}` (e.g., Activate requires Activation Date, Reject requires a Reason, Withdraw requires a Reason, Close requires a Closure Reason), each such dialog is its own testing scope. Generate ONE "leave the required dialog field blank and submit" test per distinct action dialog. These are HIGH priority — they block state transitions and are common defect sites. Do not suppress them because the main wizard already has a blank-field test.
+
 **2. Format violations:**
 
 For fields with type-specific format rules (from AST type or description):
@@ -143,6 +150,10 @@ For each unique `constraints[]` entry in the AST, and for cross-field rules desc
 
 One test per unique constraint. Do not duplicate the same mechanism.
 
+**Constraint timing tests:** If the spec states an action is blocked by a pre-existing system state (e.g., "cannot close with active accounts", "cannot transfer to the same office"), generate TWO tests:
+1. The standard constraint violation test (user opens the dialog, fills required fields, submits → blocked).
+2. A constraint-timing test: user opens the dialog WITHOUT filling required fields → assert whether the block is shown immediately on dialog open (before the user fills anything) OR only on submit. This distinguishes whether the UI enforces the constraint eagerly or lazily. Steps: open the dialog, observe the state → assert what is visible before any interaction. If the spec is silent on timing, generate only the first test.
+
 **5. Precondition violations (auth, role, and state):**
 
 For each `preconditions[]` entry on any action — and for auth/role rules described in the spec:
@@ -154,18 +165,18 @@ For each `preconditions[]` entry on any action — and for auth/role rules descr
 **6. State-machine violations:**
 
 From `state_bound_action_bar` nodes:
-- For each state where an action is NOT listed in `available_actions`, generate one test attempting that action from that state. Example: attempting "Approve" on an entity already in "Active" state.
+- **Every defined state must have at least one wrong-state test.** For each state, identify at least one action that is NOT in its `available_actions` list and generate a test attempting that action from that state.
 - If a state has an empty `available_actions` array, generate one test verifying no action buttons are visible in that state.
-
-One test per unique wrong-state scenario — do not enumerate every action × every invalid state.
+- **Do not stop after 1–2 representative examples** when the module defines 4+ distinct states. The states Active, Pending, Closed, Rejected, and Withdrawn each have different action sets — each must be independently verified.
+- One test per state is sufficient — pick the most distinct unavailable action for that state. Do not enumerate every action × every state (that would be exponential).
 
 ---
 
 **DEDUPLICATION GATE (run before outputting):**
 
-1. **Required field dedup:** Multiple required text fields → ONE representative test, not one per field.
+1. **Required field dedup:** Multiple required text fields in the **same form or dialog** → ONE representative test, not one per field.
 2. **Sub-rule dedup:** A field with multiple validation sub-rules (e.g., password: length + uppercase + lowercase + number + special char) → ONE representative violation test, not one per sub-rule.
-3. **Cross-form dedup:** If two forms in the same module share the same validation mechanism (e.g., both have a required text field) → test it on the primary form only.
+3. **Cross-form dedup:** If two **main forms** in the same module share the same validation mechanism → test it on the primary form only. **Exception: action dialogs are never suppressed by cross-form dedup** — each action dialog with a required field gets its own blank-field test regardless.
 4. **Uniqueness check:** Before outputting, ask for each TC: "Does this test catch a bug that NO other test in this module would catch?" If no → remove it.
 
 ---
@@ -174,9 +185,11 @@ One test per unique wrong-state scenario — do not enumerate every action × ev
 
 - Simple module (login, single form, display page): **2–4 tests**
 - Medium module (standard CRUD form, form with constraints): **4–8 tests**
-- Complex module (state machine, multi-form, wizard with many constraints): **8–12 tests**
+- Complex module (state machine, multi-form, wizard with many constraints): **10–16 tests**
 
-If you exceed these ranges, you are generating redundant tests. Apply the deduplication gate again before outputting.
+For modules with a `state_bound_action_bar` defining 4+ states, the state-machine violation tests alone will produce 4–5 tests. This is expected and correct — do not suppress them to hit a lower target.
+
+If you exceed the upper range, apply the deduplication gate again before outputting.
 
 ---
 
@@ -184,6 +197,17 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
 
 - **High:** State precondition violations, constraint violations that could corrupt data, unauthenticated access, required field representatives
 - **Medium:** Format violations, cross-field validation, numeric bounds, wrong-role access, wrong-state action attempts
+
+---
+
+**WORKFLOW-AWARE FAILURE INJECTION (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- For each workflow that contains a form interaction (terminal action is a submit/save/create/approve button):
+  - Identify the most **critical blocking failure** for that workflow's `conditional_branch`.
+  - If that failure mode is NOT already covered by another workflow's negative test, generate one negative TC for it.
+- **Do NOT generate one negative TC per workflow mechanically.** Apply the existing deduplication gate first — only add a TC if it catches a bug that no other test would catch.
+- Add `"wf_ref": "WF-NNN"` to each TC that maps to a workflow. Set `"wf_ref": null` for generic validation tests.
 
 ---
 
@@ -195,6 +219,7 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
   "test_cases": [
     {
       "tc_id": "N-001",
+      "wf_ref": null,
       "test_case": "Short descriptive name",
       "preconditions": ["precondition 1"],
       "steps": ["1. Step one", "2. Step two"],
@@ -212,7 +237,7 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
 
 
 ------------------------------------------------------------
-[21:31:44] Test-Negative - USER PROMPT
+[15:41:24] Test-Negative - USER PROMPT
 ------------------------------------------------------------
 <module_name>Manage Cards</module_name>
 
@@ -225,7 +250,7 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
       "fields": {
         "Card_Type": {
           "type": "dropdown",
-          "required": true,
+          "required": false,
           "options": [
             "Debit",
             "Credit"
@@ -233,24 +258,24 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
         },
         "Account_to_Link": {
           "type": "dropdown",
-          "required": true
+          "required": false
         },
         "Shipping_Address": {
           "type": "unspecified",
-          "required": true,
+          "required": false,
           "constraints": [
-            "address must be complete"
+            "must be complete"
           ]
         }
       },
       "submit_actions": [
         {
           "element_name": "Request Card",
+          "on_success": "opens card-request ticket and shows \"Card request submitted successfully.\" with tracking ID",
+          "on_failure": "displays validation errors inline and form remains editable",
           "constraints": [
-            "address must be complete",
-            "selected account must be in good standing"
-          ],
-          "on_success": "opens a card-request ticket and shows \"Card request submitted successfully.\" with a tracking ID"
+            "verifies selected account is in good standing before creating ticket"
+          ]
         }
       ]
     },
@@ -259,18 +284,18 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
       "fields": {
         "Select_Existing_Card": {
           "type": "dropdown",
-          "required": true
+          "required": false
         },
         "New_Spending_Limit": {
           "type": "number",
           "required": false,
           "constraints": [
             "must be numeric",
-            "must not exceed policy maximum"
+            "must not exceed policy limit"
           ]
         },
         "Travel_Notice": {
-          "type": "repeating_group",
+          "type": "group",
           "required": false,
           "item_fields": {
             "Start_Date": {
@@ -281,35 +306,43 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
               "type": "date",
               "required": false
             },
-            "Destination": {
-              "type": "unspecified",
-              "required": false
+            "Destinations": {
+              "type": "repeating_group",
+              "required": false,
+              "item_fields": {
+                "Destination": {
+                  "type": "unspecified",
+                  "required": false
+                }
+              }
             }
           },
           "constraints": [
-            "Start_Date <= End_Date when both provided"
+            "Start_Date must be on or before End_Date"
           ]
         },
         "Card_Status": {
           "type": "dropdown",
-          "required": true,
+          "required": false,
           "options": [
             "Active",
             "Frozen"
+          ],
+          "constraints": [
+            "status change must be an allowable card-status transition"
           ]
         }
       },
       "submit_actions": [
         {
           "element_name": "Update Controls",
-          "constraints": [
-            "existing card must be selected",
-            "numeric limits must be within allowed policy",
-            "date ranges must be valid (Start_Date <= End_Date)",
-            "card-status transitions must be allowable by policy"
-          ],
           "on_success": "Card controls updated successfully.",
-          "on_failure": "validation failures appear inline and the form remains editable"
+          "on_failure": "validation failures appear inline and the form remains editable",
+          "constraints": [
+            "validates numeric limits for New_Spending_Limit",
+            "validates date ranges for Travel_Notice",
+            "validates allowable card-status transitions"
+          ]
         }
       ]
     }
@@ -323,10 +356,15 @@ The Manage Cards page contains two separate forms presented in stacked cards.The
 
 </description>
 
+<workflows>
+WF-001 | Request a new card | actor: <role> | branch: none | terminal: Request Card | on_success: opens card-request ticket and shows "Card request submitted successfully." with tracking ID
+WF-002 | Update existing card controls | actor: <role> | branch: none | terminal: Update Controls | on_success: Card controls updated successfully.
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[21:33:34] Test-Negative - LLM RESPONSE
+[15:43:27] Test-Negative - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Manage Cards",
@@ -334,143 +372,113 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "N-001",
-      "test_case": "Request Card — Shipping Address left blank (required text/unspecified field)",
+      "wf_ref": "WF-001",
+      "test_case": "Request Card with incomplete Shipping_Address is rejected",
       "preconditions": [
         "User is authenticated and on the Manage Cards page",
-        "User has at least one eligible account to select"
+        "Card Request form is visible"
       ],
       "steps": [
-        "1. Leave the Shipping Address field blank",
-        "2. Select <Card Type> in the Card Type dropdown",
-        "3. Select <account in good standing> in the Account to Link dropdown",
-        "4. Click the 'Request Card' button"
+        "1. In the Card Request form, enter <incomplete shipping address> into the Shipping_Address field",
+        "2. (Optional) Select <Card Type> and <Account to Link>",
+        "3. Click the 'Request Card' button"
       ],
-      "expected_result": "Shipping Address field displays an inline validation error indicating it is required; the Request Card action does not submit; no card-request ticket is created.",
+      "expected_result": "Form does not submit; Shipping_Address field displays an inline validation error: 'Shipping address must be complete'; the Card Request form remains editable; no card-request ticket is created and no success message or tracking ID is shown",
       "priority": "high"
     },
     {
       "tc_id": "N-002",
-      "test_case": "Update Controls — Select Existing Card left blank (required dropdown)",
+      "wf_ref": "WF-001",
+      "test_case": "Request Card blocked when selected account is not in good standing",
       "preconditions": [
-        "User is authenticated and on the Manage Cards page"
+        "User is authenticated and on the Manage Cards page",
+        "An account exists that is not in good standing: <account not in good standing>"
       ],
       "steps": [
-        "1. Leave the Select Existing Card dropdown blank",
-        "2. (Optional) Enter <valid numeric value within policy> in New Spending Limit",
-        "3. (Optional) Set Card Status to <desired status>",
-        "4. Click the 'Update Controls' button"
+        "1. In the Card Request form, select <account not in good standing> in the Account_to_Link dropdown",
+        "2. Fill other fields with valid values (e.g., <complete shipping address>, <Card Type>)",
+        "3. Click the 'Request Card' button"
       ],
-      "expected_result": "Select Existing Card field displays an inline validation error indicating it is required; the Update Controls action does not submit; no card controls are updated and the form remains editable.",
+      "expected_result": "Form does not submit; Account_to_Link field displays an inline error: 'Selected account is not in good standing' (or equivalent); the Card Request form remains editable; no card-request ticket is created and no success message or tracking ID is shown",
       "priority": "high"
     },
     {
       "tc_id": "N-003",
-      "test_case": "Submit with ALL required fields empty across both forms",
+      "wf_ref": "WF-002",
+      "test_case": "Update Controls rejects non-numeric New_Spending_Limit",
       "preconditions": [
-        "User is authenticated and on the Manage Cards page"
+        "User is authenticated and on the Manage Cards page",
+        "An existing card is selected in the Card Controls form"
       ],
       "steps": [
-        "1. Leave Card Type blank in the Card Request form",
-        "2. Leave Account to Link blank in the Card Request form",
-        "3. Leave Shipping Address blank in the Card Request form",
-        "4. Leave Select Existing Card blank in the Card Controls form",
-        "5. Leave Card Status blank in the Card Controls form",
-        "6. Click the 'Request Card' button",
-        "7. Click the 'Update Controls' button"
+        "1. In the Card Controls form, select an existing card in Select_Existing_Card",
+        "2. Enter <non-numeric value> into the New_Spending_Limit field",
+        "3. Click the 'Update Controls' button"
       ],
-      "expected_result": "Card Request form: Card Type, Account to Link, and Shipping Address fields each display inline validation errors indicating they are required; Request Card does not submit and no ticket is created. Card Controls form: Select Existing Card and Card Status fields each display inline validation errors indicating they are required; Update Controls does not submit and no changes are applied.",
-      "priority": "high"
+      "expected_result": "Form does not submit; New_Spending_Limit field displays an inline validation error: 'Must be a numeric value'; the Card Controls form remains editable; no 'Card controls updated successfully.' message is shown and no changes are applied",
+      "priority": "medium"
     },
     {
       "tc_id": "N-004",
-      "test_case": "Request Card — Shipping Address provided but incomplete (address completeness constraint)",
+      "wf_ref": "WF-002",
+      "test_case": "Update Controls rejects New_Spending_Limit exceeding policy limit",
       "preconditions": [
         "User is authenticated and on the Manage Cards page",
-        "User has at least one account in good standing"
+        "An existing card is selected in the Card Controls form",
+        "There exists a policy limit for spending limit: <policy limit amount>"
       ],
       "steps": [
-        "1. Select <Card Type> in the Card Type dropdown",
-        "2. Select <account in good standing> in the Account to Link dropdown",
-        "3. Enter <incomplete address> in the Shipping Address field",
-        "4. Click the 'Request Card' button"
+        "1. In the Card Controls form, select an existing card in Select_Existing_Card",
+        "2. Enter <amount exceeding policy limit> into the New_Spending_Limit field",
+        "3. Click the 'Update Controls' button"
       ],
-      "expected_result": "Shipping Address field displays an inline validation error: 'address must be complete'; the Request Card action does not submit; no card-request ticket is created.",
+      "expected_result": "Form does not submit; New_Spending_Limit field displays an inline validation error: 'Amount exceeds policy limit' (or equivalent); the Card Controls form remains editable; no 'Card controls updated successfully.' message is shown and the spending limit remains unchanged",
       "priority": "high"
     },
     {
       "tc_id": "N-005",
-      "test_case": "Request Card — Selected account is not in good standing",
+      "wf_ref": "WF-002",
+      "test_case": "Update Controls rejects Travel_Notice when Start_Date is after End_Date",
       "preconditions": [
         "User is authenticated and on the Manage Cards page",
-        "There exists an account that is not in good standing that the user can select"
+        "An existing card is selected in the Card Controls form"
       ],
       "steps": [
-        "1. Select <Card Type> in the Card Type dropdown",
-        "2. Select <account not in good standing> in the Account to Link dropdown",
-        "3. Enter <complete address> in the Shipping Address field",
-        "4. Click the 'Request Card' button"
+        "1. In the Card Controls form, open the Travel_Notice group",
+        "2. Enter <date A> into Start_Date and enter <date B earlier than date A> into End_Date",
+        "3. Click the 'Update Controls' button"
       ],
-      "expected_result": "An inline or form-level validation error appears indicating 'selected account must be in good standing'; the Request Card action does not submit; no card-request ticket is created.",
-      "priority": "high"
+      "expected_result": "Form does not submit; Start_Date (or Travel_Notice group) displays an inline validation error: 'Start Date must be on or before End Date'; the Card Controls form remains editable; no 'Card controls updated successfully.' message is shown and the travel notice is not saved",
+      "priority": "medium"
     },
     {
       "tc_id": "N-006",
-      "test_case": "Update Controls — New Spending Limit exceeds policy maximum",
+      "wf_ref": "WF-002",
+      "test_case": "Update Controls blocks disallowed Card_Status transition",
       "preconditions": [
         "User is authenticated and on the Manage Cards page",
-        "There is an existing card available to select"
+        "An existing card is selected in the Card Controls form",
+        "The selected card is in a state where the requested status change is not permitted: <card in a state where requested status change is not allowed>"
       ],
       "steps": [
-        "1. Select <existing card> in the Select Existing Card dropdown",
-        "2. Enter <amount exceeding policy maximum> in the New Spending Limit field",
+        "1. In the Card Controls form, select the existing card in Select_Existing_Card",
+        "2. Change Card_Status to <requested disallowed status>",
         "3. Click the 'Update Controls' button"
       ],
-      "expected_result": "New Spending Limit field displays an inline validation error: 'must not exceed policy maximum'; the Update Controls action does not submit; the spending limit is not updated and the form remains editable.",
-      "priority": "medium"
-    },
-    {
-      "tc_id": "N-007",
-      "test_case": "Update Controls — Travel Notice with Start_Date after End_Date",
-      "preconditions": [
-        "User is authenticated and on the Manage Cards page",
-        "There is an existing card available to select"
-      ],
-      "steps": [
-        "1. Select <existing card> in the Select Existing Card dropdown",
-        "2. Add a Travel Notice item",
-        "3. Enter <Start_Date later than End_Date> in the Start_Date field of the Travel Notice item",
-        "4. Enter <End_Date earlier than Start_Date> in the End_Date field of the Travel Notice item",
-        "5. Click the 'Update Controls' button"
-      ],
-      "expected_result": "Travel Notice dates display an inline validation error: 'Start_Date <= End_Date when both provided'; the Update Controls action does not submit; the travel notice is not saved and the form remains editable.",
-      "priority": "medium"
-    },
-    {
-      "tc_id": "N-008",
-      "test_case": "Update Controls — Attempt a card-status transition disallowed by policy",
-      "preconditions": [
-        "User is authenticated and on the Manage Cards page",
-        "There exists an existing card whose current status is <current status that disallows the requested transition>"
-      ],
-      "steps": [
-        "1. Select <existing card> in the Select Existing Card dropdown (whose current status is <current status that disallows the requested transition>)",
-        "2. Change Card Status to <prohibited target status>",
-        "3. Click the 'Update Controls' button"
-      ],
-      "expected_result": "Card Status field displays an inline validation error: 'card-status transitions must be allowable by policy'; the Update Controls action does not submit; the card status remains <current status that disallows the requested transition>.",
+      "expected_result": "Form does not submit; Card_Status field displays an inline validation error: 'Requested status change is not allowed' (or equivalent); the Card Controls form remains editable; the card status remains unchanged and no success message is shown",
       "priority": "high"
     }
   ],
   "summary": {
-    "total": 8,
-    "high_priority": 6,
+    "total": 6,
+    "high_priority": 4,
     "medium_priority": 2,
     "low_priority": 0
   }
 }
 
 ------------------------------------------------------------
-[21:33:34] Test-Negative - PARSED JSON
+[15:43:27] Test-Negative - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Manage Cards",
@@ -478,136 +486,106 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "N-001",
-      "test_case": "Request Card \u2014 Shipping Address left blank (required text/unspecified field)",
+      "wf_ref": "WF-001",
+      "test_case": "Request Card with incomplete Shipping_Address is rejected",
       "preconditions": [
         "User is authenticated and on the Manage Cards page",
-        "User has at least one eligible account to select"
+        "Card Request form is visible"
       ],
       "steps": [
-        "1. Leave the Shipping Address field blank",
-        "2. Select <Card Type> in the Card Type dropdown",
-        "3. Select <account in good standing> in the Account to Link dropdown",
-        "4. Click the 'Request Card' button"
+        "1. In the Card Request form, enter <incomplete shipping address> into the Shipping_Address field",
+        "2. (Optional) Select <Card Type> and <Account to Link>",
+        "3. Click the 'Request Card' button"
       ],
-      "expected_result": "Shipping Address field displays an inline validation error indicating it is required; the Request Card action does not submit; no card-request ticket is created.",
+      "expected_result": "Form does not submit; Shipping_Address field displays an inline validation error: 'Shipping address must be complete'; the Card Request form remains editable; no card-request ticket is created and no success message or tracking ID is shown",
       "priority": "high"
     },
     {
       "tc_id": "N-002",
-      "test_case": "Update Controls \u2014 Select Existing Card left blank (required dropdown)",
+      "wf_ref": "WF-001",
+      "test_case": "Request Card blocked when selected account is not in good standing",
       "preconditions": [
-        "User is authenticated and on the Manage Cards page"
+        "User is authenticated and on the Manage Cards page",
+        "An account exists that is not in good standing: <account not in good standing>"
       ],
       "steps": [
-        "1. Leave the Select Existing Card dropdown blank",
-        "2. (Optional) Enter <valid numeric value within policy> in New Spending Limit",
-        "3. (Optional) Set Card Status to <desired status>",
-        "4. Click the 'Update Controls' button"
+        "1. In the Card Request form, select <account not in good standing> in the Account_to_Link dropdown",
+        "2. Fill other fields with valid values (e.g., <complete shipping address>, <Card Type>)",
+        "3. Click the 'Request Card' button"
       ],
-      "expected_result": "Select Existing Card field displays an inline validation error indicating it is required; the Update Controls action does not submit; no card controls are updated and the form remains editable.",
+      "expected_result": "Form does not submit; Account_to_Link field displays an inline error: 'Selected account is not in good standing' (or equivalent); the Card Request form remains editable; no card-request ticket is created and no success message or tracking ID is shown",
       "priority": "high"
     },
     {
       "tc_id": "N-003",
-      "test_case": "Submit with ALL required fields empty across both forms",
+      "wf_ref": "WF-002",
+      "test_case": "Update Controls rejects non-numeric New_Spending_Limit",
       "preconditions": [
-        "User is authenticated and on the Manage Cards page"
+        "User is authenticated and on the Manage Cards page",
+        "An existing card is selected in the Card Controls form"
       ],
       "steps": [
-        "1. Leave Card Type blank in the Card Request form",
-        "2. Leave Account to Link blank in the Card Request form",
-        "3. Leave Shipping Address blank in the Card Request form",
-        "4. Leave Select Existing Card blank in the Card Controls form",
-        "5. Leave Card Status blank in the Card Controls form",
-        "6. Click the 'Request Card' button",
-        "7. Click the 'Update Controls' button"
+        "1. In the Card Controls form, select an existing card in Select_Existing_Card",
+        "2. Enter <non-numeric value> into the New_Spending_Limit field",
+        "3. Click the 'Update Controls' button"
       ],
-      "expected_result": "Card Request form: Card Type, Account to Link, and Shipping Address fields each display inline validation errors indicating they are required; Request Card does not submit and no ticket is created. Card Controls form: Select Existing Card and Card Status fields each display inline validation errors indicating they are required; Update Controls does not submit and no changes are applied.",
-      "priority": "high"
+      "expected_result": "Form does not submit; New_Spending_Limit field displays an inline validation error: 'Must be a numeric value'; the Card Controls form remains editable; no 'Card controls updated successfully.' message is shown and no changes are applied",
+      "priority": "medium"
     },
     {
       "tc_id": "N-004",
-      "test_case": "Request Card \u2014 Shipping Address provided but incomplete (address completeness constraint)",
+      "wf_ref": "WF-002",
+      "test_case": "Update Controls rejects New_Spending_Limit exceeding policy limit",
       "preconditions": [
         "User is authenticated and on the Manage Cards page",
-        "User has at least one account in good standing"
+        "An existing card is selected in the Card Controls form",
+        "There exists a policy limit for spending limit: <policy limit amount>"
       ],
       "steps": [
-        "1. Select <Card Type> in the Card Type dropdown",
-        "2. Select <account in good standing> in the Account to Link dropdown",
-        "3. Enter <incomplete address> in the Shipping Address field",
-        "4. Click the 'Request Card' button"
+        "1. In the Card Controls form, select an existing card in Select_Existing_Card",
+        "2. Enter <amount exceeding policy limit> into the New_Spending_Limit field",
+        "3. Click the 'Update Controls' button"
       ],
-      "expected_result": "Shipping Address field displays an inline validation error: 'address must be complete'; the Request Card action does not submit; no card-request ticket is created.",
+      "expected_result": "Form does not submit; New_Spending_Limit field displays an inline validation error: 'Amount exceeds policy limit' (or equivalent); the Card Controls form remains editable; no 'Card controls updated successfully.' message is shown and the spending limit remains unchanged",
       "priority": "high"
     },
     {
       "tc_id": "N-005",
-      "test_case": "Request Card \u2014 Selected account is not in good standing",
+      "wf_ref": "WF-002",
+      "test_case": "Update Controls rejects Travel_Notice when Start_Date is after End_Date",
       "preconditions": [
         "User is authenticated and on the Manage Cards page",
-        "There exists an account that is not in good standing that the user can select"
+        "An existing card is selected in the Card Controls form"
       ],
       "steps": [
-        "1. Select <Card Type> in the Card Type dropdown",
-        "2. Select <account not in good standing> in the Account to Link dropdown",
-        "3. Enter <complete address> in the Shipping Address field",
-        "4. Click the 'Request Card' button"
+        "1. In the Card Controls form, open the Travel_Notice group",
+        "2. Enter <date A> into Start_Date and enter <date B earlier than date A> into End_Date",
+        "3. Click the 'Update Controls' button"
       ],
-      "expected_result": "An inline or form-level validation error appears indicating 'selected account must be in good standing'; the Request Card action does not submit; no card-request ticket is created.",
-      "priority": "high"
+      "expected_result": "Form does not submit; Start_Date (or Travel_Notice group) displays an inline validation error: 'Start Date must be on or before End Date'; the Card Controls form remains editable; no 'Card controls updated successfully.' message is shown and the travel notice is not saved",
+      "priority": "medium"
     },
     {
       "tc_id": "N-006",
-      "test_case": "Update Controls \u2014 New Spending Limit exceeds policy maximum",
+      "wf_ref": "WF-002",
+      "test_case": "Update Controls blocks disallowed Card_Status transition",
       "preconditions": [
         "User is authenticated and on the Manage Cards page",
-        "There is an existing card available to select"
+        "An existing card is selected in the Card Controls form",
+        "The selected card is in a state where the requested status change is not permitted: <card in a state where requested status change is not allowed>"
       ],
       "steps": [
-        "1. Select <existing card> in the Select Existing Card dropdown",
-        "2. Enter <amount exceeding policy maximum> in the New Spending Limit field",
+        "1. In the Card Controls form, select the existing card in Select_Existing_Card",
+        "2. Change Card_Status to <requested disallowed status>",
         "3. Click the 'Update Controls' button"
       ],
-      "expected_result": "New Spending Limit field displays an inline validation error: 'must not exceed policy maximum'; the Update Controls action does not submit; the spending limit is not updated and the form remains editable.",
-      "priority": "medium"
-    },
-    {
-      "tc_id": "N-007",
-      "test_case": "Update Controls \u2014 Travel Notice with Start_Date after End_Date",
-      "preconditions": [
-        "User is authenticated and on the Manage Cards page",
-        "There is an existing card available to select"
-      ],
-      "steps": [
-        "1. Select <existing card> in the Select Existing Card dropdown",
-        "2. Add a Travel Notice item",
-        "3. Enter <Start_Date later than End_Date> in the Start_Date field of the Travel Notice item",
-        "4. Enter <End_Date earlier than Start_Date> in the End_Date field of the Travel Notice item",
-        "5. Click the 'Update Controls' button"
-      ],
-      "expected_result": "Travel Notice dates display an inline validation error: 'Start_Date <= End_Date when both provided'; the Update Controls action does not submit; the travel notice is not saved and the form remains editable.",
-      "priority": "medium"
-    },
-    {
-      "tc_id": "N-008",
-      "test_case": "Update Controls \u2014 Attempt a card-status transition disallowed by policy",
-      "preconditions": [
-        "User is authenticated and on the Manage Cards page",
-        "There exists an existing card whose current status is <current status that disallows the requested transition>"
-      ],
-      "steps": [
-        "1. Select <existing card> in the Select Existing Card dropdown (whose current status is <current status that disallows the requested transition>)",
-        "2. Change Card Status to <prohibited target status>",
-        "3. Click the 'Update Controls' button"
-      ],
-      "expected_result": "Card Status field displays an inline validation error: 'card-status transitions must be allowable by policy'; the Update Controls action does not submit; the card status remains <current status that disallows the requested transition>.",
+      "expected_result": "Form does not submit; Card_Status field displays an inline validation error: 'Requested status change is not allowed' (or equivalent); the Card Controls form remains editable; the card status remains unchanged and no success message is shown",
       "priority": "high"
     }
   ],
   "summary": {
-    "total": 8,
-    "high_priority": 6,
+    "total": 6,
+    "high_priority": 4,
     "medium_priority": 2,
     "low_priority": 0
   }

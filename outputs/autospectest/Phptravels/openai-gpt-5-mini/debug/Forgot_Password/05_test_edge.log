@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-21T22:54:00.257846
+DEBUG SESSION STARTED: 2026-05-25T14:51:20.247902
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[22:54:00] Test-Edge - SYSTEM PROMPT
+[14:51:20] Test-Edge - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Edge Case and Boundary Test Generator. You receive (1) a UI-AST JSON for one module and (2) the original functional description. Your job is to produce ONLY boundary and edge case tests — scenarios at the limits of valid/invalid input and unusual-but-plausible user behaviors.
 
@@ -25,6 +25,10 @@ You are NOT producing happy paths (positive prompt) or standard validation failu
 {Original functional description text for this module}
 </description>
 
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
+
 ---
 
 **UI-AST REFERENCE — How to Read the AST for Edge Testing:**
@@ -35,7 +39,7 @@ You are NOT producing happy paths (positive prompt) or standard validation failu
 | `repeating_group` with `max` | Test adding exactly `max` entries (should succeed) then one more (should block) |
 | `visible_when` / `required_when` | Edge: trigger condition, fill revealed field with boundary value |
 | `state_bound_action_bar` | State edges: rapid consecutive state transitions, transition from a boundary state |
-| `submit_actions[]` with multiple buttons | Interaction edge: double-click a submit button rapidly |
+
 | `type: "date"` fields | Data edges: today, yesterday, far future, Feb 29 leap year |
 | `type: "file_upload"` | Edge: file exactly at size limit, file at 1 byte over limit |
 
@@ -132,7 +136,6 @@ Pick only the ones that apply to field types present in this module's AST:
 
 Pick only the ones that match component types in this module's AST:
 
-- **Double-click submit** (any form/wizard with a submit button): rapidly double-click the submit button → assert only one record is created; no duplicate row appears in the listing table
 - **Rapid re-submission after redirect** (any form that redirects to a detail page on success): after a successful submit, press the browser back button → assert the creation form is shown blank (not pre-filled) OR the user is redirected to the detail page without a second entity being created
 - **Wizard step skip — enforced navigation** (wizard where steps must be completed sequentially): attempt to click a later step tab directly without completing earlier steps → assert navigation is blocked and the earlier step remains active
 - **Wizard step skip — free navigation** (wizard that allows free tab navigation): navigate to a later step without filling earlier steps → assert the later step displays and returning to the earlier step shows fields blank (no data was lost from the later step)
@@ -173,7 +176,16 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 
 - **High:** None — edge tests are secondary to core functionality
 - **Medium:** Boundary tests at thresholds (financial amounts, date ordering, count limits, file size limits)
-- **Low:** Input edge cases (long text, special chars, whitespace, decimal precision), interaction edge cases (double-click, browser back, wizard skip)
+- **Low:** Input edge cases (long text, special chars, whitespace, decimal precision), interaction edge cases (browser back, wizard skip)
+
+---
+
+**WORKFLOW-AWARE BOUNDARY SCOPING (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- For each workflow where `conditional_branch` activates a numeric or date field, check if that field has a boundary (a numeric/date threshold in the AST `constraints` or description).
+- If yes, that workflow's branch is a **candidate for a boundary edge test** — add or confirm a boundary TC exists for it.
+- Add `"wf_ref": "WF-NNN"` to each TC that maps to a specific workflow's boundary. Set `"wf_ref": null` for generic input/interaction edge tests.
 
 ---
 
@@ -185,6 +197,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": null,
       "subcategory": "boundary | input_edge | interaction_edge | state_edge | data_edge",
       "test_case": "Short descriptive name",
       "preconditions": ["precondition 1"],
@@ -207,7 +220,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 
 
 ------------------------------------------------------------
-[22:54:00] Test-Edge - USER PROMPT
+[14:51:20] Test-Edge - USER PROMPT
 ------------------------------------------------------------
 <module_name>Forgot Password</module_name>
 
@@ -226,24 +239,12 @@ If the module has any numeric/date/count threshold in the AST or description, pr
       "submit_actions": [
         {
           "element_name": "Reset Password",
-          "type": "button",
-          "on_success": "sends reset link to provided email and shows confirmation message",
+          "on_success": "sends reset link to that address and shows confirmation message",
           "constraints": [
             "reset link expires after 24 hours"
           ],
-          "on_failure": "shows error 'email not found' and leaves form editable"
+          "on_failure": "shows error and form remains editable"
         }
-      ]
-    },
-    "Password_Reset_Link": {
-      "type": "link",
-      "element_name": "Password Reset Link",
-      "preconditions": [
-        "link must be valid (not expired)"
-      ],
-      "on_success": "navigates to Password_Reset_Page",
-      "constraints": [
-        "expires after 24 hours"
       ]
     },
     "Password_Reset_Page": {
@@ -264,12 +265,15 @@ If the module has any numeric/date/count threshold in the AST or description, pr
       "submit_actions": [
         {
           "element_name": "Change Password",
-          "type": "button",
           "preconditions": [
-            "reset link must be valid (not expired)"
+            "reset link must be valid",
+            "reset link must not be expired"
           ],
-          "on_success": "changes password and redirects to login page with success message",
-          "on_failure": "shows error and allows retry"
+          "constraints": [
+            "reset link expires after 24 hours"
+          ],
+          "on_success": "updates password and redirects to login page with success message",
+          "on_failure": "shows error and keeps password fields editable"
         }
       ]
     }
@@ -286,10 +290,15 @@ The page presents an Email field and a Reset Password button. If the email exist
 
 </description>
 
+<workflows>
+WF-001 | Request password reset (Reset Password button) | actor: <role> | branch: none | terminal: Reset Password | on_success: sends reset link to that address and shows confirmation message
+WF-002 | Complete password reset (Change Password button) | actor: <role> | branch: none | terminal: Change Password | on_success: updates password and redirects to login page with success message
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[22:55:10] Test-Edge - LLM RESPONSE
+[14:52:10] Test-Edge - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Forgot Password",
@@ -297,134 +306,139 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": "WF-002",
       "subcategory": "boundary",
-      "test_case": "Use password reset link at exactly 24 hours after issuance",
+      "test_case": "Use reset link exactly at 24 hours after issuance (boundary allowed)",
       "preconditions": [
-        "A password reset link was issued to <existing account email> at time T (link URL available)"
+        "A password reset link was generated for an existing account and delivered to a test-accessible inbox at issuance time T0",
+        "The reset link has not been used previously"
       ],
       "steps": [
-        "1. Open the password reset link URL at time = T + 24 hours (exactly 24 hours after issuance)",
-        "2. Observe whether the app navigates to Password_Reset_Page or shows an error"
+        "1. Wait until current time = issuance time T0 + 24 hours",
+        "2. Open the reset link that was delivered to the test inbox",
+        "3. Enter <new password> in the New_Password field",
+        "4. Enter the identical <new password> in the Confirm_Password field",
+        "5. Click the Change Password button"
       ],
-      "expected_result": "Clicking the Password Reset Link is blocked; the UI displays a visible error indicating the link has expired (link does not navigate to Password_Reset_Page) — is blocked / error shown",
+      "expected_result": "Change Password submission succeeds: the form submits successfully; user is redirected to the login page with the success message indicating password was updated",
       "priority": "medium"
     },
     {
       "tc_id": "E-002",
+      "wf_ref": "WF-002",
       "subcategory": "boundary",
-      "test_case": "Use password reset link just under the 24-hour expiration boundary",
+      "test_case": "Use reset link just past 24-hour expiry (one unit after boundary) — attempt should be blocked",
       "preconditions": [
-        "A password reset link was issued to <existing account email> at time T (link URL available)"
+        "A password reset link was generated for an existing account and delivered to a test-accessible inbox at issuance time T0",
+        "The reset link has not been used previously"
       ],
       "steps": [
-        "1. Open the password reset link URL at time = T + (24 hours minus 1 second)",
-        "2. Observe whether the app navigates to Password_Reset_Page"
+        "1. Wait until current time > issuance time T0 + 24 hours (e.g., T0 + 24 hours + small delta)",
+        "2. Open the reset link that was delivered to the test inbox",
+        "3. Enter <new password> in the New_Password field",
+        "4. Enter the identical <new password> in the Confirm_Password field",
+        "5. Click the Change Password button"
       ],
-      "expected_result": "Clicking the Password Reset Link succeeds; the app navigates to Password_Reset_Page and displays the New_Password and Confirm_Password fields — succeeds",
+      "expected_result": "Change Password attempt is blocked; error shown indicating the reset link has expired or is no longer valid and the password fields remain editable",
       "priority": "medium"
     },
     {
       "tc_id": "E-003",
+      "wf_ref": "WF-002",
       "subcategory": "boundary",
-      "test_case": "Change password when Confirm_Password exactly matches New_Password",
+      "test_case": "Confirm_Password exactly matches New_Password (exact-match boundary) — should succeed",
       "preconditions": [
-        "User is on Password_Reset_Page reached via a valid (not expired) reset link"
+        "A valid, unexpired reset link (age < 24 hours) is opened and the Change Password page is displayed"
       ],
       "steps": [
-        "1. Enter <New_Password> in the New_Password field",
-        "2. Enter the exact same <New_Password> value in the Confirm_Password field",
+        "1. Enter <new password> in the New_Password field",
+        "2. Enter the identical <new password> in the Confirm_Password field",
         "3. Click the Change Password button"
       ],
-      "expected_result": "Form submits successfully; password is changed and the user is redirected to the login page with a success message — succeeds",
+      "expected_result": "Change Password submission succeeds: form submits successfully; user is redirected to the login page with success message",
       "priority": "medium"
     },
     {
       "tc_id": "E-004",
+      "wf_ref": "WF-002",
       "subcategory": "boundary",
-      "test_case": "Change password when Confirm_Password differs by one character from New_Password",
+      "test_case": "Confirm_Password differs from New_Password by one character (just past exact-match boundary) — should be blocked",
       "preconditions": [
-        "User is on Password_Reset_Page reached via a valid (not expired) reset link"
+        "A valid, unexpired reset link (age < 24 hours) is opened and the Change Password page is displayed"
       ],
       "steps": [
-        "1. Enter <New_Password> in the New_Password field",
-        "2. Enter a value in Confirm_Password that differs by one character from New_Password",
+        "1. Enter <new password> in the New_Password field",
+        "2. Enter a value in Confirm_Password that is identical except for one character (one-unit difference)",
         "3. Click the Change Password button"
       ],
-      "expected_result": "Confirm_Password displays an inline validation error indicating it 'must match New_Password' and the password change is blocked — is blocked / error shown",
+      "expected_result": "Change Password submission is blocked; Confirm_Password displays an inline validation error indicating it 'must match New_Password' and the form remains editable",
       "priority": "medium"
     },
     {
       "tc_id": "E-005",
+      "wf_ref": "WF-002",
       "subcategory": "input_edge",
-      "test_case": "Submit Reset Password with Email containing leading and trailing whitespace (existing account)",
+      "test_case": "Very long password input (200+ characters) in New_Password/Confirm_Password",
       "preconditions": [
-        "There exists an account for <existing account email>"
+        "A valid, unexpired reset link (age < 24 hours) is opened and the Change Password page is displayed"
       ],
       "steps": [
-        "1. Enter the existing account email with leading and trailing spaces around it in the Email field (e.g., ' <existing account email> ' )",
-        "2. Click the Reset Password button"
+        "1. Enter a very long password (200+ characters) in the New_Password field",
+        "2. Enter the identical very long password in the Confirm_Password field",
+        "3. Click the Change Password button"
       ],
-      "expected_result": "Form trims leading/trailing whitespace and submits successfully; confirmation message is shown indicating a reset link was sent to the email — succeeds (trimmed and link sent)",
+      "expected_result": "Change Password submission succeeds: form submits successfully; user is redirected to the login page with success message (if the UI truncates or rejects such input, a visible inline error or rejection message appears instead)",
       "priority": "low"
     },
     {
       "tc_id": "E-006",
+      "wf_ref": "WF-001",
       "subcategory": "input_edge",
-      "test_case": "Enter a very long value in the Email field (200+ characters) and attempt reset",
+      "test_case": "Email input with leading and trailing whitespace on Forgot Password form",
       "preconditions": [
-        "Forgot Password form is displayed"
+        "A registered account exists for the email address used in the test inbox"
       ],
       "steps": [
-        "1. Enter a very long string (> 200 characters) in the Email field",
-        "2. Click the Reset Password button"
+        "1. Navigate to the Forgot Password form",
+        "2. Enter the registered email address with leading and trailing whitespace in the Email field",
+        "3. Click the Reset Password button"
       ],
-      "expected_result": "Email field displays an inline validation error indicating the value is too long or invalid and the form is not submitted; no confirmation message is shown — is blocked / error shown",
+      "expected_result": "Reset Password submission succeeds: the system trims leading/trailing whitespace and sends a reset link to the trimmed address; a confirmation message is shown (if the system treats the input as invalid, an inline error is shown instead)",
       "priority": "low"
     },
     {
       "tc_id": "E-007",
+      "wf_ref": "WF-002",
       "subcategory": "interaction_edge",
-      "test_case": "Double-click the Reset Password button rapidly",
+      "test_case": "After successful password change, use browser Back and attempt to reuse the same reset link (reuse attempt blocked)",
       "preconditions": [
-        "Forgot Password form is displayed and Email contains a valid/recognized address"
+        "A password reset link was generated and used to successfully change the password less than 24 hours after issuance",
+        "User is on the login page after successful password change"
       ],
       "steps": [
-        "1. Enter <existing account email> in the Email field",
-        "2. Rapidly double-click the Reset Password button (two clicks in quick succession)"
+        "1. From the login page shown after a successful password change, click the browser Back button",
+        "2. If the Change Password page displays, enter a new value in New_Password",
+        "3. Enter the identical value in Confirm_Password",
+        "4. Click the Change Password button"
       ],
-      "expected_result": "Second submission attempt is blocked by the UI; only one confirmation message is shown and the form does not trigger duplicate visible confirmations — second submission is blocked / single confirmation visible",
-      "priority": "low"
-    },
-    {
-      "tc_id": "E-008",
-      "subcategory": "interaction_edge",
-      "test_case": "Double-click the Change Password button on Password_Reset_Page",
-      "preconditions": [
-        "User is on Password_Reset_Page reached via a valid (not expired) reset link",
-        "New_Password and Confirm_Password have been entered and match"
-      ],
-      "steps": [
-        "1. Rapidly double-click the Change Password button (two clicks in quick succession)",
-        "2. Observe resulting navigation and messages"
-      ],
-      "expected_result": "Only a single password-change action completes; user is redirected once to the login page with one success message and duplicate redirects or duplicate success messages do not appear — second submission is blocked / single redirect and message visible",
+      "expected_result": "Second Change Password submission is blocked; error shown indicating the reset link is no longer valid or has expired (reset link must be valid and not expired) and no additional password change occurs",
       "priority": "low"
     }
   ],
   "summary": {
-    "total": 8,
+    "total": 7,
     "boundary": 4,
     "input_edge": 2,
-    "interaction_edge": 2,
+    "interaction_edge": 1,
     "state_edge": 0,
     "data_edge": 0,
     "medium_priority": 4,
-    "low_priority": 4
+    "low_priority": 3
   }
 }
 
 ------------------------------------------------------------
-[22:55:10] Test-Edge - PARSED JSON
+[14:52:10] Test-Edge - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Forgot Password",
@@ -432,128 +446,133 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": "WF-002",
       "subcategory": "boundary",
-      "test_case": "Use password reset link at exactly 24 hours after issuance",
+      "test_case": "Use reset link exactly at 24 hours after issuance (boundary allowed)",
       "preconditions": [
-        "A password reset link was issued to <existing account email> at time T (link URL available)"
+        "A password reset link was generated for an existing account and delivered to a test-accessible inbox at issuance time T0",
+        "The reset link has not been used previously"
       ],
       "steps": [
-        "1. Open the password reset link URL at time = T + 24 hours (exactly 24 hours after issuance)",
-        "2. Observe whether the app navigates to Password_Reset_Page or shows an error"
+        "1. Wait until current time = issuance time T0 + 24 hours",
+        "2. Open the reset link that was delivered to the test inbox",
+        "3. Enter <new password> in the New_Password field",
+        "4. Enter the identical <new password> in the Confirm_Password field",
+        "5. Click the Change Password button"
       ],
-      "expected_result": "Clicking the Password Reset Link is blocked; the UI displays a visible error indicating the link has expired (link does not navigate to Password_Reset_Page) \u2014 is blocked / error shown",
+      "expected_result": "Change Password submission succeeds: the form submits successfully; user is redirected to the login page with the success message indicating password was updated",
       "priority": "medium"
     },
     {
       "tc_id": "E-002",
+      "wf_ref": "WF-002",
       "subcategory": "boundary",
-      "test_case": "Use password reset link just under the 24-hour expiration boundary",
+      "test_case": "Use reset link just past 24-hour expiry (one unit after boundary) \u2014 attempt should be blocked",
       "preconditions": [
-        "A password reset link was issued to <existing account email> at time T (link URL available)"
+        "A password reset link was generated for an existing account and delivered to a test-accessible inbox at issuance time T0",
+        "The reset link has not been used previously"
       ],
       "steps": [
-        "1. Open the password reset link URL at time = T + (24 hours minus 1 second)",
-        "2. Observe whether the app navigates to Password_Reset_Page"
+        "1. Wait until current time > issuance time T0 + 24 hours (e.g., T0 + 24 hours + small delta)",
+        "2. Open the reset link that was delivered to the test inbox",
+        "3. Enter <new password> in the New_Password field",
+        "4. Enter the identical <new password> in the Confirm_Password field",
+        "5. Click the Change Password button"
       ],
-      "expected_result": "Clicking the Password Reset Link succeeds; the app navigates to Password_Reset_Page and displays the New_Password and Confirm_Password fields \u2014 succeeds",
+      "expected_result": "Change Password attempt is blocked; error shown indicating the reset link has expired or is no longer valid and the password fields remain editable",
       "priority": "medium"
     },
     {
       "tc_id": "E-003",
+      "wf_ref": "WF-002",
       "subcategory": "boundary",
-      "test_case": "Change password when Confirm_Password exactly matches New_Password",
+      "test_case": "Confirm_Password exactly matches New_Password (exact-match boundary) \u2014 should succeed",
       "preconditions": [
-        "User is on Password_Reset_Page reached via a valid (not expired) reset link"
+        "A valid, unexpired reset link (age < 24 hours) is opened and the Change Password page is displayed"
       ],
       "steps": [
-        "1. Enter <New_Password> in the New_Password field",
-        "2. Enter the exact same <New_Password> value in the Confirm_Password field",
+        "1. Enter <new password> in the New_Password field",
+        "2. Enter the identical <new password> in the Confirm_Password field",
         "3. Click the Change Password button"
       ],
-      "expected_result": "Form submits successfully; password is changed and the user is redirected to the login page with a success message \u2014 succeeds",
+      "expected_result": "Change Password submission succeeds: form submits successfully; user is redirected to the login page with success message",
       "priority": "medium"
     },
     {
       "tc_id": "E-004",
+      "wf_ref": "WF-002",
       "subcategory": "boundary",
-      "test_case": "Change password when Confirm_Password differs by one character from New_Password",
+      "test_case": "Confirm_Password differs from New_Password by one character (just past exact-match boundary) \u2014 should be blocked",
       "preconditions": [
-        "User is on Password_Reset_Page reached via a valid (not expired) reset link"
+        "A valid, unexpired reset link (age < 24 hours) is opened and the Change Password page is displayed"
       ],
       "steps": [
-        "1. Enter <New_Password> in the New_Password field",
-        "2. Enter a value in Confirm_Password that differs by one character from New_Password",
+        "1. Enter <new password> in the New_Password field",
+        "2. Enter a value in Confirm_Password that is identical except for one character (one-unit difference)",
         "3. Click the Change Password button"
       ],
-      "expected_result": "Confirm_Password displays an inline validation error indicating it 'must match New_Password' and the password change is blocked \u2014 is blocked / error shown",
+      "expected_result": "Change Password submission is blocked; Confirm_Password displays an inline validation error indicating it 'must match New_Password' and the form remains editable",
       "priority": "medium"
     },
     {
       "tc_id": "E-005",
+      "wf_ref": "WF-002",
       "subcategory": "input_edge",
-      "test_case": "Submit Reset Password with Email containing leading and trailing whitespace (existing account)",
+      "test_case": "Very long password input (200+ characters) in New_Password/Confirm_Password",
       "preconditions": [
-        "There exists an account for <existing account email>"
+        "A valid, unexpired reset link (age < 24 hours) is opened and the Change Password page is displayed"
       ],
       "steps": [
-        "1. Enter the existing account email with leading and trailing spaces around it in the Email field (e.g., ' <existing account email> ' )",
-        "2. Click the Reset Password button"
+        "1. Enter a very long password (200+ characters) in the New_Password field",
+        "2. Enter the identical very long password in the Confirm_Password field",
+        "3. Click the Change Password button"
       ],
-      "expected_result": "Form trims leading/trailing whitespace and submits successfully; confirmation message is shown indicating a reset link was sent to the email \u2014 succeeds (trimmed and link sent)",
+      "expected_result": "Change Password submission succeeds: form submits successfully; user is redirected to the login page with success message (if the UI truncates or rejects such input, a visible inline error or rejection message appears instead)",
       "priority": "low"
     },
     {
       "tc_id": "E-006",
+      "wf_ref": "WF-001",
       "subcategory": "input_edge",
-      "test_case": "Enter a very long value in the Email field (200+ characters) and attempt reset",
+      "test_case": "Email input with leading and trailing whitespace on Forgot Password form",
       "preconditions": [
-        "Forgot Password form is displayed"
+        "A registered account exists for the email address used in the test inbox"
       ],
       "steps": [
-        "1. Enter a very long string (> 200 characters) in the Email field",
-        "2. Click the Reset Password button"
+        "1. Navigate to the Forgot Password form",
+        "2. Enter the registered email address with leading and trailing whitespace in the Email field",
+        "3. Click the Reset Password button"
       ],
-      "expected_result": "Email field displays an inline validation error indicating the value is too long or invalid and the form is not submitted; no confirmation message is shown \u2014 is blocked / error shown",
+      "expected_result": "Reset Password submission succeeds: the system trims leading/trailing whitespace and sends a reset link to the trimmed address; a confirmation message is shown (if the system treats the input as invalid, an inline error is shown instead)",
       "priority": "low"
     },
     {
       "tc_id": "E-007",
+      "wf_ref": "WF-002",
       "subcategory": "interaction_edge",
-      "test_case": "Double-click the Reset Password button rapidly",
+      "test_case": "After successful password change, use browser Back and attempt to reuse the same reset link (reuse attempt blocked)",
       "preconditions": [
-        "Forgot Password form is displayed and Email contains a valid/recognized address"
+        "A password reset link was generated and used to successfully change the password less than 24 hours after issuance",
+        "User is on the login page after successful password change"
       ],
       "steps": [
-        "1. Enter <existing account email> in the Email field",
-        "2. Rapidly double-click the Reset Password button (two clicks in quick succession)"
+        "1. From the login page shown after a successful password change, click the browser Back button",
+        "2. If the Change Password page displays, enter a new value in New_Password",
+        "3. Enter the identical value in Confirm_Password",
+        "4. Click the Change Password button"
       ],
-      "expected_result": "Second submission attempt is blocked by the UI; only one confirmation message is shown and the form does not trigger duplicate visible confirmations \u2014 second submission is blocked / single confirmation visible",
-      "priority": "low"
-    },
-    {
-      "tc_id": "E-008",
-      "subcategory": "interaction_edge",
-      "test_case": "Double-click the Change Password button on Password_Reset_Page",
-      "preconditions": [
-        "User is on Password_Reset_Page reached via a valid (not expired) reset link",
-        "New_Password and Confirm_Password have been entered and match"
-      ],
-      "steps": [
-        "1. Rapidly double-click the Change Password button (two clicks in quick succession)",
-        "2. Observe resulting navigation and messages"
-      ],
-      "expected_result": "Only a single password-change action completes; user is redirected once to the login page with one success message and duplicate redirects or duplicate success messages do not appear \u2014 second submission is blocked / single redirect and message visible",
+      "expected_result": "Second Change Password submission is blocked; error shown indicating the reset link is no longer valid or has expired (reset link must be valid and not expired) and no additional password change occurs",
       "priority": "low"
     }
   ],
   "summary": {
-    "total": 8,
+    "total": 7,
     "boundary": 4,
     "input_edge": 2,
-    "interaction_edge": 2,
+    "interaction_edge": 1,
     "state_edge": 0,
     "data_edge": 0,
     "medium_priority": 4,
-    "low_priority": 4
+    "low_priority": 3
   }
 }

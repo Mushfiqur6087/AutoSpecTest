@@ -23,7 +23,7 @@ class WorkflowCriticAgent(BaseAgent):
         return self.call_llm_json(
             self._build_prompt(description, ast, workflows),
             temperature=0.1,
-            max_tokens=2048,
+            max_tokens=4096,
             reasoning_effort="medium",
         )
 
@@ -31,7 +31,7 @@ class WorkflowCriticAgent(BaseAgent):
         return await self.acall_llm_json(
             self._build_prompt(description, ast, workflows),
             temperature=0.1,
-            max_tokens=2048,
+            max_tokens=4096,
             reasoning_effort="medium",
         )
 

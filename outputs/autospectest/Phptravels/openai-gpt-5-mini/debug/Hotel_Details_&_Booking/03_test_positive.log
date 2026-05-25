@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-21T22:54:00.261638
+DEBUG SESSION STARTED: 2026-05-25T14:51:20.250380
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[22:54:00] Test-Positive - SYSTEM PROMPT
+[14:51:20] Test-Positive - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Expert UI Test Case Generator. You receive (1) a UI-AST JSON for one specific module and (2) the original functional description for that module.
 
@@ -24,6 +24,10 @@ Your job is to produce ONLY positive/functional UI test cases — tests where va
 <description>
 {Original functional description text for this module}
 </description>
+
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
 
 ---
 
@@ -146,6 +150,13 @@ Because you are testing a module in isolation, establish the required entry stat
 **1. Forms & Wizards (`form`, `wizard`):**
 - Generate ONE happy path per distinct success outcome.
 - *Conditional UI Check:* If a toggle/dropdown reveals new mandatory fields (`visible_when`), generate a separate test for that conditional branch.
+- **Wizard step coverage (CRITICAL):** If a wizard has multiple steps and any step beyond Step 1 contains its own named field group (e.g., "Address Details", "Family Members", "Identifiers"), generate ONE dedicated positive TC per such step. The TC must:
+  - Navigate to that specific step (include the preceding steps as preconditions or brief navigation steps)
+  - Fill the fields described for that step (not just pass through)
+  - Assert the step's content is visible/saved on the detail page after final submission
+  - **Do NOT collapse all wizard steps into one happy-path TC** — if Steps 2, 3, and 4 each have their own named section in the spec, they each need their own TC.
+- **Wizard in-step identifiers/duplicates:** If a wizard step allows adding identifiers, documents, or similar entries that have a uniqueness constraint, include a TC for that wizard step that also verifies the constraint (e.g., attempting to add a duplicate Document Type+Key pair inside the wizard). This is a different code path from adding the same post-creation on the detail page.
+- **Action dialogs:** If a `state_bound_action_bar` action opens a dialog with its own `fields{}` (e.g., Activate requires Activation Date, Reject requires Reason), generate ONE positive TC per such action-dialog — distinct from the state-transition TC. The TC fills the dialog field and completes the action.
 
 **2. State Machines (`state_bound_action_bar`):**
 - For each unique action available in a specific state, generate ONE test performing that action.
@@ -200,6 +211,19 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 
 ---
 
+**WORKFLOW COVERAGE OBLIGATION (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- Your test cases must **collectively cover every workflow** listed.
+- For each `wf_id`, at least one TC must:
+  - Activate the `conditional_branch` (if not null) — i.e. the test must set up the condition described.
+  - Assert the `on_success` as its `expected_result` (verbatim or as the primary basis for the expected result).
+- Add `"wf_ref": "WF-NNN"` to each TC to identify which workflow it covers.
+- If one TC naturally covers multiple workflows (e.g., the base path overlaps), pick the most specific `wf_ref`.
+- If a TC does not map to any workflow (e.g., a navigation-only test), set `"wf_ref": null`.
+
+---
+
 **OUTPUT — JSON only, no prose, no markdown fencing:**
 
 {
@@ -208,6 +232,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
   "test_cases": [
     {
       "tc_id": "P-001",
+      "wf_ref": "WF-001",
       "test_case": "Short descriptive name",
       "preconditions": ["User logged in as <Role>", "<Prerequisite state>"],
       "steps": ["1. Step one", "2. Step two"],
@@ -224,7 +249,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 }
 
 ------------------------------------------------------------
-[22:54:00] Test-Positive - USER PROMPT
+[14:51:20] Test-Positive - USER PROMPT
 ------------------------------------------------------------
 <module_name>Hotel Details & Booking</module_name>
 
@@ -232,91 +257,70 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 {
   "module_name": "Hotel Details & Booking",
   "components": {
-    "Room_Types": {
-      "type": "repeating_group",
-      "description": "List of available room types for the hotel; each row offers a select action to begin booking that room",
-      "item_fields": {
-        "Room_Type_Name": {
-          "type": "text",
-          "required": false
-        },
-        "Price": {
-          "type": "number",
-          "required": false
-        },
-        "Max_Occupancy": {
-          "type": "number",
-          "required": false
+    "Hotel_Details_Page": {
+      "type": "page",
+      "components": {
+        "Room_Types": {
+          "type": "data_table",
+          "columns": [
+            "Room_Type",
+            "Price",
+            "Max_Occupancy"
+          ],
+          "row_actions": [
+            {
+              "action_name": "Select Room",
+              "on_success": "reveals booking form and populates Selected_Hotel and Selected_Room_Type"
+            }
+          ],
+          "bulk_actions": []
         }
-      },
-      "row_actions": [
-        {
-          "action_name": "Select Room",
-          "type": "button",
-          "on_success": "populates Booking_Form.fields.Selected_Hotel, Booking_Form.fields.Selected_Room_Type, Booking_Form.fields.Room_Rate, Booking_Form.fields.Taxes, Booking_Form.fields.Fees, Booking_Form.fields.Total and opens Booking_Form",
-          "preconditions": []
-        }
-      ]
+      }
     },
     "Booking_Form": {
       "type": "form",
+      "visible_when": "Selected_Room_Type != ''",
       "fields": {
         "Selected_Hotel": {
           "type": "text",
-          "required": true,
-          "read_only": true,
-          "description": "Populated when a room is selected"
+          "required": false
         },
         "Selected_Room_Type": {
           "type": "text",
-          "required": true,
-          "read_only": true,
-          "description": "Populated when a room is selected"
+          "required": false
         },
-        "Check_In": {
+        "Check_in_Date": {
           "type": "date",
           "required": true
         },
-        "Check_Out": {
+        "Check_out_Date": {
           "type": "date",
           "required": true
         },
         "Guest_Count": {
           "type": "number",
-          "required": true,
-          "constraints": []
+          "required": true
         },
-        "Room_Rate": {
-          "type": "number",
-          "required": true,
-          "read_only": true,
-          "constraints": [
-            "currency"
-          ]
-        },
-        "Taxes": {
-          "type": "number",
-          "required": true,
-          "read_only": true,
-          "constraints": [
-            "currency"
-          ]
-        },
-        "Fees": {
-          "type": "number",
-          "required": true,
-          "read_only": true,
-          "constraints": [
-            "currency"
-          ]
-        },
-        "Total": {
-          "type": "number",
-          "required": true,
-          "read_only": true,
-          "constraints": [
-            "currency"
-          ]
+        "Price_Breakdown": {
+          "type": "object",
+          "fields": {
+            "Room_Rate": {
+              "type": "number",
+              "required": false
+            },
+            "Taxes": {
+              "type": "number",
+              "required": false
+            },
+            "Fees": {
+              "type": "number",
+              "required": false
+            },
+            "Total": {
+              "type": "number",
+              "required": false
+            }
+          }
         },
         "First_Name": {
           "type": "text",
@@ -328,26 +332,24 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
         },
         "Email": {
           "type": "email",
-          "required": true,
-          "constraints": []
+          "required": true
         },
         "Phone_Number": {
           "type": "tel",
           "required": true
         },
         "Special_Requests": {
-          "type": "textarea",
+          "type": "text",
           "required": false
         }
       },
       "submit_actions": [
         {
           "element_name": "Book Now",
-          "type": "button",
           "preconditions": [
             "user must be logged in"
           ],
-          "on_success": "redirects to Payment page"
+          "on_success": "proceeds to payment page"
         }
       ]
     }
@@ -364,10 +366,15 @@ The hotel details page displays a photo gallery, full property description, loca
 
 </description>
 
+<workflows>
+WF-001 | Select Room (row action) reveals booking form | actor: <role> | branch: none | terminal: Select Room | on_success: reveals booking form and populates Selected_Hotel and Selected_Room_Type
+WF-002 | Book Now with Selected_Room_Type visible (requires user logged in) | actor: <role> | branch: Selected_Room_Type != '' | terminal: Book Now | on_success: proceeds to payment page
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[22:55:08] Test-Positive - LLM RESPONSE
+[14:52:08] Test-Positive - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Hotel Details & Booking",
@@ -375,65 +382,74 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Select a room opens Booking Form and pre-populates price and selection fields",
+      "wf_ref": "WF-001",
+      "test_case": "Select a room from Room Types reveals the booking form and populates selections",
       "preconditions": [
-        "User on the Hotel Details page",
-        "Hotel has at least one available room type in the Room Types list"
+        "Hotel Details page is open with room types listed",
+        "User is on the Hotel Details page"
       ],
       "steps": [
-        "1. Click 'Select Room' on a room row in the Room Types list"
+        "1. In the Room Types table, click Select Room on a listed room type row"
       ],
-      "expected_result": "populates Booking_Form.fields.Selected_Hotel, Booking_Form.fields.Selected_Room_Type, Booking_Form.fields.Room_Rate, Booking_Form.fields.Taxes, Booking_Form.fields.Fees, Booking_Form.fields.Total and opens Booking_Form",
-      "priority": "medium"
-    },
-    {
-      "tc_id": "P-002",
-      "test_case": "Complete booking form with valid inputs (including Special Requests) and Book Now redirects to Payment page",
-      "preconditions": [
-        "User logged in as <Traveler>",
-        "Hotel Details page is open with at least one available room type"
-      ],
-      "steps": [
-        "1. Click 'Select Room' on a room row in the Room Types list to open the Booking Form",
-        "2. Enter <valid check-in date> in the Check_In field",
-        "3. Enter <valid check-out date> in the Check_Out field (after Check_In)",
-        "4. Enter <valid guest count> in the Guest_Count field",
-        "5. Verify Room_Rate, Taxes, Fees, and Total are populated on the form",
-        "6. Enter <First Name> in the First_Name field",
-        "7. Enter <Last Name> in the Last_Name field",
-        "8. Enter <valid email> in the Email field",
-        "9. Enter <valid phone number> in the Phone_Number field",
-        "10. Enter <optional special requests> in the Special_Requests field",
-        "11. Click the 'Book Now' button"
-      ],
-      "expected_result": "redirects to Payment page",
+      "expected_result": "reveals booking form and populates Selected_Hotel and Selected_Room_Type",
       "priority": "high"
     },
     {
-      "tc_id": "P-003",
-      "test_case": "Booking Form displays price breakdown fields with currency formatting after selecting a room",
+      "tc_id": "P-002",
+      "wf_ref": null,
+      "test_case": "Fill Booking form fields after selecting a room and verify Price Breakdown displays and updates",
       "preconditions": [
-        "User on the Hotel Details page",
-        "Hotel has at least one available room type"
+        "Hotel Details page is open with room types listed",
+        "User is not required to be logged in for selecting a room"
       ],
       "steps": [
-        "1. Click 'Select Room' on a room row in the Room Types list to open the Booking Form",
-        "2. Observe the Booking Form price fields"
+        "1. In the Room Types table, click Select Room on a listed room type row to open the Booking form",
+        "2. Enter <check-in date> in the Check_in_Date field",
+        "3. Enter <check-out date> in the Check_out_Date field",
+        "4. Enter <guest count> in the Guest_Count field",
+        "5. Enter <first name> in the First_Name field",
+        "6. Enter <last name> in the Last_Name field",
+        "7. Enter <email> in the Email field",
+        "8. Enter <phone number> in the Phone_Number field",
+        "9. Optionally enter <special requests> in the Special_Requests field",
+        "10. Observe the Price_Breakdown section"
       ],
-      "expected_result": "Booking Form displays Room_Rate, Taxes, Fees, and Total fields and each is shown with currency formatting",
+      "expected_result": "Price Breakdown panel displays Room Rate, Taxes, Fees, and Total; the Total updates to reflect Room_Rate * number_of_nights + Taxes + Fees based on the entered Check_in_Date and Check_out_Date and Guest_Count; Selected_Hotel and Selected_Room_Type remain populated on the Booking form",
       "priority": "medium"
+    },
+    {
+      "tc_id": "P-003",
+      "wf_ref": "WF-002",
+      "test_case": "Complete booking form as a logged-in user and click Book Now navigates to payment page",
+      "preconditions": [
+        "User logged in as <role>",
+        "Hotel Details page is open with room types listed"
+      ],
+      "steps": [
+        "1. In the Room Types table, click Select Room on a listed room type row to open the Booking form",
+        "2. Enter <check-in date> in the Check_in_Date field",
+        "3. Enter <check-out date> in the Check_out_Date field",
+        "4. Enter <guest count> in the Guest_Count field",
+        "5. Enter <first name> in the First_Name field",
+        "6. Enter <last name> in the Last_Name field",
+        "7. Enter <email> in the Email field",
+        "8. Enter <phone number> in the Phone_Number field",
+        "9. Click Book Now"
+      ],
+      "expected_result": "proceeds to payment page",
+      "priority": "high"
     }
   ],
   "summary": {
     "total": 3,
-    "high_priority": 1,
-    "medium_priority": 2,
+    "high_priority": 2,
+    "medium_priority": 1,
     "low_priority": 0
   }
 }
 
 ------------------------------------------------------------
-[22:55:08] Test-Positive - PARSED JSON
+[14:52:08] Test-Positive - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Hotel Details & Booking",
@@ -441,59 +457,68 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Select a room opens Booking Form and pre-populates price and selection fields",
+      "wf_ref": "WF-001",
+      "test_case": "Select a room from Room Types reveals the booking form and populates selections",
       "preconditions": [
-        "User on the Hotel Details page",
-        "Hotel has at least one available room type in the Room Types list"
+        "Hotel Details page is open with room types listed",
+        "User is on the Hotel Details page"
       ],
       "steps": [
-        "1. Click 'Select Room' on a room row in the Room Types list"
+        "1. In the Room Types table, click Select Room on a listed room type row"
       ],
-      "expected_result": "populates Booking_Form.fields.Selected_Hotel, Booking_Form.fields.Selected_Room_Type, Booking_Form.fields.Room_Rate, Booking_Form.fields.Taxes, Booking_Form.fields.Fees, Booking_Form.fields.Total and opens Booking_Form",
-      "priority": "medium"
-    },
-    {
-      "tc_id": "P-002",
-      "test_case": "Complete booking form with valid inputs (including Special Requests) and Book Now redirects to Payment page",
-      "preconditions": [
-        "User logged in as <Traveler>",
-        "Hotel Details page is open with at least one available room type"
-      ],
-      "steps": [
-        "1. Click 'Select Room' on a room row in the Room Types list to open the Booking Form",
-        "2. Enter <valid check-in date> in the Check_In field",
-        "3. Enter <valid check-out date> in the Check_Out field (after Check_In)",
-        "4. Enter <valid guest count> in the Guest_Count field",
-        "5. Verify Room_Rate, Taxes, Fees, and Total are populated on the form",
-        "6. Enter <First Name> in the First_Name field",
-        "7. Enter <Last Name> in the Last_Name field",
-        "8. Enter <valid email> in the Email field",
-        "9. Enter <valid phone number> in the Phone_Number field",
-        "10. Enter <optional special requests> in the Special_Requests field",
-        "11. Click the 'Book Now' button"
-      ],
-      "expected_result": "redirects to Payment page",
+      "expected_result": "reveals booking form and populates Selected_Hotel and Selected_Room_Type",
       "priority": "high"
     },
     {
-      "tc_id": "P-003",
-      "test_case": "Booking Form displays price breakdown fields with currency formatting after selecting a room",
+      "tc_id": "P-002",
+      "wf_ref": null,
+      "test_case": "Fill Booking form fields after selecting a room and verify Price Breakdown displays and updates",
       "preconditions": [
-        "User on the Hotel Details page",
-        "Hotel has at least one available room type"
+        "Hotel Details page is open with room types listed",
+        "User is not required to be logged in for selecting a room"
       ],
       "steps": [
-        "1. Click 'Select Room' on a room row in the Room Types list to open the Booking Form",
-        "2. Observe the Booking Form price fields"
+        "1. In the Room Types table, click Select Room on a listed room type row to open the Booking form",
+        "2. Enter <check-in date> in the Check_in_Date field",
+        "3. Enter <check-out date> in the Check_out_Date field",
+        "4. Enter <guest count> in the Guest_Count field",
+        "5. Enter <first name> in the First_Name field",
+        "6. Enter <last name> in the Last_Name field",
+        "7. Enter <email> in the Email field",
+        "8. Enter <phone number> in the Phone_Number field",
+        "9. Optionally enter <special requests> in the Special_Requests field",
+        "10. Observe the Price_Breakdown section"
       ],
-      "expected_result": "Booking Form displays Room_Rate, Taxes, Fees, and Total fields and each is shown with currency formatting",
+      "expected_result": "Price Breakdown panel displays Room Rate, Taxes, Fees, and Total; the Total updates to reflect Room_Rate * number_of_nights + Taxes + Fees based on the entered Check_in_Date and Check_out_Date and Guest_Count; Selected_Hotel and Selected_Room_Type remain populated on the Booking form",
       "priority": "medium"
+    },
+    {
+      "tc_id": "P-003",
+      "wf_ref": "WF-002",
+      "test_case": "Complete booking form as a logged-in user and click Book Now navigates to payment page",
+      "preconditions": [
+        "User logged in as <role>",
+        "Hotel Details page is open with room types listed"
+      ],
+      "steps": [
+        "1. In the Room Types table, click Select Room on a listed room type row to open the Booking form",
+        "2. Enter <check-in date> in the Check_in_Date field",
+        "3. Enter <check-out date> in the Check_out_Date field",
+        "4. Enter <guest count> in the Guest_Count field",
+        "5. Enter <first name> in the First_Name field",
+        "6. Enter <last name> in the Last_Name field",
+        "7. Enter <email> in the Email field",
+        "8. Enter <phone number> in the Phone_Number field",
+        "9. Click Book Now"
+      ],
+      "expected_result": "proceeds to payment page",
+      "priority": "high"
     }
   ],
   "summary": {
     "total": 3,
-    "high_priority": 1,
-    "medium_priority": 2,
+    "high_priority": 2,
+    "medium_priority": 1,
     "low_priority": 0
   }
 }

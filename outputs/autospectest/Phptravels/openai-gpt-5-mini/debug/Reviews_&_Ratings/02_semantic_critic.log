@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-21T22:50:10.015422
+DEBUG SESSION STARTED: 2026-05-25T14:45:09.074562
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[22:51:19] Semantic Critic - SYSTEM PROMPT
+[14:45:59] Semantic Critic - SYSTEM PROMPT
 ------------------------------------------------------------
 You are a UI-AST Semantic Critic. You receive (1) a raw functional description and (2) a generated UI-AST JSON.
 
@@ -106,7 +106,7 @@ Output ONLY the JSON object. No explanation, no markdown fencing, no preamble.
 
 
 ------------------------------------------------------------
-[22:51:19] Semantic Critic - USER PROMPT
+[14:45:59] Semantic Critic - USER PROMPT
 ------------------------------------------------------------
 <description>
 
@@ -121,19 +121,13 @@ Listing pages show an aggregate rating score and total review count for each ite
 {
   "module_name": "Reviews & Ratings",
   "components": {
-    "Listing_Page_Review_Filters": {
+    "Reviews_Filters_Form": {
       "type": "form",
       "fields": {
         "Rating": {
           "type": "dropdown",
           "required": false,
-          "options": [
-            "5",
-            "4",
-            "3",
-            "2",
-            "1"
-          ]
+          "constraints": []
         },
         "Date_Start": {
           "type": "date",
@@ -145,7 +139,8 @@ Listing pages show an aggregate rating score and total review count for each ite
         },
         "Traveler_Type": {
           "type": "dropdown",
-          "required": false
+          "required": false,
+          "constraints": []
         }
       },
       "submit_actions": [
@@ -155,77 +150,19 @@ Listing pages show an aggregate rating score and total review count for each ite
         },
         {
           "element_name": "Clear Filters",
-          "on_success": "clears filters and resets reviews list"
+          "on_success": "clears filter selections"
         }
       ]
     },
-    "Detail_Page_Reviews_Section": {
-      "type": "container",
-      "components": {
-        "Detail_Reviews_Filters": {
-          "type": "form",
-          "fields": {
-            "Rating": {
-              "type": "dropdown",
-              "required": false,
-              "options": [
-                "5",
-                "4",
-                "3",
-                "2",
-                "1"
-              ]
-            },
-            "Date_Start": {
-              "type": "date",
-              "required": false
-            },
-            "Date_End": {
-              "type": "date",
-              "required": false
-            },
-            "Traveler_Type": {
-              "type": "dropdown",
-              "required": false
-            }
-          },
-          "submit_actions": [
-            {
-              "element_name": "Apply Filters",
-              "on_success": "filters reviews in detail page"
-            },
-            {
-              "element_name": "Clear Filters",
-              "on_success": "clears filters on detail page"
-            }
-          ]
-        },
-        "Reviews_List": {
-          "type": "data_table",
-          "row_actions": [
-            {
-              "action_name": "View_Photos",
-              "visible_when": "Photos_Count > 0",
-              "on_success": "opens photo gallery for review"
-            }
-          ]
-        }
-      }
-    },
-    "Submit_Review_Form": {
+    "Review_Submission_Form": {
       "type": "form",
-      "entry_points": [
-        "dashboard",
-        "post_stay_email_prompt"
-      ],
       "fields": {
         "Overall_Rating": {
           "type": "number",
           "required": true,
           "constraints": [
-            "min 1",
-            "max 5",
-            "integer"
+            "integer",
+            "value between 1 and 5"
           ]
         },
         "Category_Ratings": {
@@ -235,20 +172,363 @@ Listing pages show an aggregate rating score and total review count for each ite
               "type": "unspecified",
               "required": true
             },
-            "Category_Rating": {
+            "Rating": {
               "type": "number",
               "required": true,
               "constraints": [
-                "min 1",
-                "max 5",
-                "integer"
+                "integer",
+                "value between 1 and 5"
               ]
             }
           }
         },
-        "Written_Comments": {
+        "Written_Feedback": {
+          "type": "unspecified",
+          "required": false
+        },
+        "Photos": {
+          "type": "file_upload",
+          "required": false,
+          "constraints": [
+            "allows multiple files"
+          ]
+        }
+      },
+      "submit_actions": [
+        {
+          "element_name": "Submit Review",
+          "preconditions": [
+            "user must be authenticated",
+            "user must have completed a booking for this item"
+          ],
+          "on_success": "submits review"
+        }
+      ]
+    },
+    "Dashboard_Leave_Review_Action": {
+      "type": "link",
+      "element_name": "Leave Review",
+      "preconditions": [
+        "user must be authenticated",
+        "user must have completed a booking for this item"
+      ],
+      "on_click": "opens Review_Submission_Form"
+    },
+    "Post_Stay_Email_Prompt": {
+      "type": "link",
+      "element_name": "Leave Review (email prompt)",
+      "preconditions": [
+        "recipient must correspond to a completed booking for this item"
+      ],
+      "on_click": "opens Review_Submission_Form"
+    }
+  }
+}
+</ast>
+
+IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
+
+------------------------------------------------------------
+[14:46:40] Semantic Critic - LLM RESPONSE
+------------------------------------------------------------
+{
+  "verdict": "retry",
+  "summary": "AST contains multiple inferred/extra elements (phantoms) not present in the description (date range, unnamed buttons, repeating-category structure, photo upload in submission) and should be regenerated with those corrected.",
+  "missing": [],
+  "phantoms": [
+    "Reviews_Filters_Form.fields.Date_Start (description only mentions filtering by date — no start/end range specified)",
+    "Reviews_Filters_Form.fields.Date_End (description only mentions filtering by date — no start/end range specified)",
+    "Reviews_Filters_Form.submit_actions[0] (Apply Filters button name not specified in description)",
+    "Reviews_Filters_Form.submit_actions[1] (Clear Filters button name not specified in description)",
+    "Review_Submission_Form.fields.Category_Ratings (repeating_group structure for categories is an inferred implementation; description names example categories rather than a dynamic list)",
+    "Review_Submission_Form.fields.Category_Ratings.item_fields.Category_Name.type (marked 'unspecified' — type invented)",
+    "Review_Submission_Form.fields.Photos (file upload on submission is not explicitly stated; the description only says reviews may show guest-uploaded photos)"
+  ],
+  "fixes": [
+    "Reviews_Filters_Form.fields.Date_Start & Reviews_Filters_Form.fields.Date_End → Replace with a single field at Reviews_Filters_Form.fields.Date (type: date) because the description only specifies filtering by date (no explicit start/end range).",
+    "Reviews_Filters_Form.submit_actions → Do not invent button names; either omit submit_actions entirely or include a single generic action 'Apply Filters' if the spec names it. Update path Reviews_Filters_Form.submit_actions accordingly.",
+    "Review_Submission_Form.fields.Category_Ratings → Replace the repeating_group with explicit category rating fields (e.g., Review_Submission_Form.fields.Cleanliness_Rating, Service_Rating, Location_Rating) or annotate that categories are configurable; do not assume a dynamic repeating group without textual anchor.",
+    "Review_Submission_Form.fields.Category_Ratings.item_fields.Category_Name.type → If keeping a dynamic structure, set a concrete type (e.g., 'string' or 'dropdown') and document allowed values; do not leave as 'unspecified'.",
+    "Review_Submission_Form.fields.Photos → Remove this field from the submission form unless the description explicitly states that users can upload photos when submitting a review; otherwise keep photo handling only as part of displayed reviews."
+  ]
+}
+
+------------------------------------------------------------
+[14:46:40] Semantic Critic - PARSED JSON
+------------------------------------------------------------
+{
+  "verdict": "retry",
+  "summary": "AST contains multiple inferred/extra elements (phantoms) not present in the description (date range, unnamed buttons, repeating-category structure, photo upload in submission) and should be regenerated with those corrected.",
+  "missing": [],
+  "phantoms": [
+    "Reviews_Filters_Form.fields.Date_Start (description only mentions filtering by date \u2014 no start/end range specified)",
+    "Reviews_Filters_Form.fields.Date_End (description only mentions filtering by date \u2014 no start/end range specified)",
+    "Reviews_Filters_Form.submit_actions[0] (Apply Filters button name not specified in description)",
+    "Reviews_Filters_Form.submit_actions[1] (Clear Filters button name not specified in description)",
+    "Review_Submission_Form.fields.Category_Ratings (repeating_group structure for categories is an inferred implementation; description names example categories rather than a dynamic list)",
+    "Review_Submission_Form.fields.Category_Ratings.item_fields.Category_Name.type (marked 'unspecified' \u2014 type invented)",
+    "Review_Submission_Form.fields.Photos (file upload on submission is not explicitly stated; the description only says reviews may show guest-uploaded photos)"
+  ],
+  "fixes": [
+    "Reviews_Filters_Form.fields.Date_Start & Reviews_Filters_Form.fields.Date_End \u2192 Replace with a single field at Reviews_Filters_Form.fields.Date (type: date) because the description only specifies filtering by date (no explicit start/end range).",
+    "Reviews_Filters_Form.submit_actions \u2192 Do not invent button names; either omit submit_actions entirely or include a single generic action 'Apply Filters' if the spec names it. Update path Reviews_Filters_Form.submit_actions accordingly.",
+    "Review_Submission_Form.fields.Category_Ratings \u2192 Replace the repeating_group with explicit category rating fields (e.g., Review_Submission_Form.fields.Cleanliness_Rating, Service_Rating, Location_Rating) or annotate that categories are configurable; do not assume a dynamic repeating group without textual anchor.",
+    "Review_Submission_Form.fields.Category_Ratings.item_fields.Category_Name.type \u2192 If keeping a dynamic structure, set a concrete type (e.g., 'string' or 'dropdown') and document allowed values; do not leave as 'unspecified'.",
+    "Review_Submission_Form.fields.Photos \u2192 Remove this field from the submission form unless the description explicitly states that users can upload photos when submitting a review; otherwise keep photo handling only as part of displayed reviews."
+  ]
+}
+
+------------------------------------------------------------
+[14:47:14] Semantic Critic - USER PROMPT
+------------------------------------------------------------
+<description>
+
+Listing pages show an aggregate rating score and total review count for each item. Detail pages include a dedicated Reviews section with individual reviews showing overall rating, category-specific ratings (e.g., Cleanliness, Service, Location for hotels), reviewer name and country, review date, stay date, written comments, and any guest-uploaded photos. Users can filter reviews by rating, date, or traveler type. Authenticated users who have completed a booking can submit a review through the dashboard or via a post-stay email prompt, providing star ratings for overall experience and individual categories, plus written feedback.
+
+---
+
+
+</description>
+
+<ast>
+{
+  "module_name": "Reviews & Ratings",
+  "components": {
+    "Reviews_Filters_Form": {
+      "type": "form",
+      "fields": {
+        "Date": {
+          "type": "date",
+          "required": false
+        },
+        "Rating": {
+          "type": "number",
+          "required": false,
+          "constraints": [
+            "integer between 1 and 5"
+          ]
+        },
+        "Traveler_Type": {
+          "type": "unspecified",
+          "required": false
+        }
+      },
+      "submit_actions": [
+        {
+          "element_name": "Apply Filters",
+          "on_success": "filters reviews"
+        }
+      ]
+    },
+    "Reviews_List_On_Detail": {
+      "type": "data_table",
+      "fields": {},
+      "notes": "Displays individual reviews (overall rating, category ratings, reviewer name/country, review date, stay date, comments, guest-uploaded photos). Filtering is performed via Reviews_Filters_Form."
+    },
+    "Review_Submission_Form": {
+      "type": "form",
+      "fields": {
+        "Overall_Rating": {
+          "type": "number",
+          "required": true,
+          "constraints": [
+            "integer between 1 and 5"
+          ]
+        },
+        "Cleanliness_Rating": {
+          "type": "number",
+          "required": true,
+          "constraints": [
+            "integer between 1 and 5"
+          ]
+        },
+        "Service_Rating": {
+          "type": "number",
+          "required": true,
+          "constraints": [
+            "integer between 1 and 5"
+          ]
+        },
+        "Location_Rating": {
+          "type": "number",
+          "required": true,
+          "constraints": [
+            "integer between 1 and 5"
+          ]
+        },
+        "Written_Feedback": {
           "type": "unspecified",
           "required": true
+        }
+      },
+      "submit_actions": [
+        {
+          "element_name": "Submit Review",
+          "preconditions": [
+            "user must be authenticated",
+            "user must have completed a booking"
+          ],
+          "on_success": "creates review"
+        }
+      ]
+    },
+    "Dashboard_Write_Review_Action": {
+      "type": "button",
+      "element_name": "Write Review",
+      "preconditions": [
+        "user must be authenticated",
+        "user must have completed a booking"
+      ],
+      "on_success": "opens Review_Submission_Form"
+    },
+    "Email_Post_Stay_Prompt_Action": {
+      "type": "link",
+      "element_name": "Submit Review via Email Prompt",
+      "preconditions": [
+        "user must be authenticated",
+        "user must have completed a booking"
+      ],
+      "on_success": "opens Review_Submission_Form"
+    }
+  }
+}
+</ast>
+
+IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
+
+------------------------------------------------------------
+[14:47:38] Semantic Critic - LLM RESPONSE
+------------------------------------------------------------
+{
+  "verdict": "retry",
+  "summary": "The AST invents multiple UI elements/labels and infers rating constraints that are not explicitly stated in the description (several phantoms); regenerate after removing or justifying these inferred elements.",
+  "missing": [],
+  "phantoms": [
+    "components.Reviews_Filters_Form.submit_actions[0] (Apply Filters button not specified in description)",
+    "components.Reviews_Filters_Form.fields.Rating.constraints (rating scale constraint 'integer between 1 and 5' not explicitly stated)",
+    "components.Review_Submission_Form.submit_actions[0].element_name (Submit Review button label not specified in description)",
+    "components.Review_Submission_Form.fields.Overall_Rating.constraints (rating scale constraint 'integer between 1 and 5' not explicitly stated)",
+    "components.Review_Submission_Form.fields.Cleanliness_Rating.constraints (rating scale constraint 'integer between 1 and 5' not explicitly stated)",
+    "components.Review_Submission_Form.fields.Service_Rating.constraints (rating scale constraint 'integer between 1 and 5' not explicitly stated)",
+    "components.Review_Submission_Form.fields.Location_Rating.constraints (rating scale constraint 'integer between 1 and 5' not explicitly stated)",
+    "components.Dashboard_Write_Review_Action.element_name (button label 'Write Review' not specified in description)",
+    "components.Email_Post_Stay_Prompt_Action.element_name (link label 'Submit Review via Email Prompt' not specified in description)"
+  ],
+  "fixes": [
+    "components.Reviews_Filters_Form.submit_actions[0] — remove this submit action (or update the description to explicitly state there is an 'Apply Filters' button).",
+    "components.Reviews_Filters_Form.fields.Rating.constraints — remove the explicit 'integer between 1 and 5' constraint (or update the description to specify the rating scale).",
+    "components.Review_Submission_Form.submit_actions[0].element_name — remove the explicit element_name or mark it unspecified (or update the description to provide the exact submit button label).",
+    "components.Review_Submission_Form.fields.Overall_Rating.constraints — remove the explicit 'integer between 1 and 5' constraint (or update the description to specify the rating scale).",
+    "components.Review_Submission_Form.fields.Cleanliness_Rating.constraints — remove the explicit 'integer between 1 and 5' constraint (or update the description to specify the rating scale).",
+    "components.Review_Submission_Form.fields.Service_Rating.constraints — remove the explicit 'integer between 1 and 5' constraint (or update the description to specify the rating scale).",
+    "components.Review_Submission_Form.fields.Location_Rating.constraints — remove the explicit 'integer between 1 and 5' constraint (or update the description to specify the rating scale).",
+    "components.Dashboard_Write_Review_Action.element_name — remove or set element_name to unspecified (or update the description to provide the exact dashboard action label).",
+    "components.Email_Post_Stay_Prompt_Action.element_name — remove or set element_name to unspecified (or update the description to provide the exact email prompt action label)."
+  ]
+}
+
+------------------------------------------------------------
+[14:47:38] Semantic Critic - PARSED JSON
+------------------------------------------------------------
+{
+  "verdict": "retry",
+  "summary": "The AST invents multiple UI elements/labels and infers rating constraints that are not explicitly stated in the description (several phantoms); regenerate after removing or justifying these inferred elements.",
+  "missing": [],
+  "phantoms": [
+    "components.Reviews_Filters_Form.submit_actions[0] (Apply Filters button not specified in description)",
+    "components.Reviews_Filters_Form.fields.Rating.constraints (rating scale constraint 'integer between 1 and 5' not explicitly stated)",
+    "components.Review_Submission_Form.submit_actions[0].element_name (Submit Review button label not specified in description)",
+    "components.Review_Submission_Form.fields.Overall_Rating.constraints (rating scale constraint 'integer between 1 and 5' not explicitly stated)",
+    "components.Review_Submission_Form.fields.Cleanliness_Rating.constraints (rating scale constraint 'integer between 1 and 5' not explicitly stated)",
+    "components.Review_Submission_Form.fields.Service_Rating.constraints (rating scale constraint 'integer between 1 and 5' not explicitly stated)",
+    "components.Review_Submission_Form.fields.Location_Rating.constraints (rating scale constraint 'integer between 1 and 5' not explicitly stated)",
+    "components.Dashboard_Write_Review_Action.element_name (button label 'Write Review' not specified in description)",
+    "components.Email_Post_Stay_Prompt_Action.element_name (link label 'Submit Review via Email Prompt' not specified in description)"
+  ],
+  "fixes": [
+    "components.Reviews_Filters_Form.submit_actions[0] \u2014 remove this submit action (or update the description to explicitly state there is an 'Apply Filters' button).",
+    "components.Reviews_Filters_Form.fields.Rating.constraints \u2014 remove the explicit 'integer between 1 and 5' constraint (or update the description to specify the rating scale).",
+    "components.Review_Submission_Form.submit_actions[0].element_name \u2014 remove the explicit element_name or mark it unspecified (or update the description to provide the exact submit button label).",
+    "components.Review_Submission_Form.fields.Overall_Rating.constraints \u2014 remove the explicit 'integer between 1 and 5' constraint (or update the description to specify the rating scale).",
+    "components.Review_Submission_Form.fields.Cleanliness_Rating.constraints \u2014 remove the explicit 'integer between 1 and 5' constraint (or update the description to specify the rating scale).",
+    "components.Review_Submission_Form.fields.Service_Rating.constraints \u2014 remove the explicit 'integer between 1 and 5' constraint (or update the description to specify the rating scale).",
+    "components.Review_Submission_Form.fields.Location_Rating.constraints \u2014 remove the explicit 'integer between 1 and 5' constraint (or update the description to specify the rating scale).",
+    "components.Dashboard_Write_Review_Action.element_name \u2014 remove or set element_name to unspecified (or update the description to provide the exact dashboard action label).",
+    "components.Email_Post_Stay_Prompt_Action.element_name \u2014 remove or set element_name to unspecified (or update the description to provide the exact email prompt action label)."
+  ]
+}
+
+------------------------------------------------------------
+[14:47:59] Semantic Critic - USER PROMPT
+------------------------------------------------------------
+<description>
+
+Listing pages show an aggregate rating score and total review count for each item. Detail pages include a dedicated Reviews section with individual reviews showing overall rating, category-specific ratings (e.g., Cleanliness, Service, Location for hotels), reviewer name and country, review date, stay date, written comments, and any guest-uploaded photos. Users can filter reviews by rating, date, or traveler type. Authenticated users who have completed a booking can submit a review through the dashboard or via a post-stay email prompt, providing star ratings for overall experience and individual categories, plus written feedback.
+
+---
+
+
+</description>
+
+<ast>
+{
+  "module_name": "Reviews & Ratings",
+  "components": {
+    "Reviews_Filters_Form": {
+      "type": "form",
+      "fields": {
+        "Rating": {
+          "type": "dropdown",
+          "required": false
+        },
+        "Date_Range": {
+          "type": "group",
+          "fields": {
+            "Start_Date": {
+              "type": "date",
+              "required": false
+            },
+            "End_Date": {
+              "type": "date",
+              "required": false
+            }
+          }
+        },
+        "Traveler_Type": {
+          "type": "dropdown",
+          "required": false
+        }
+      }
+    },
+    "Review_Submission_Form": {
+      "type": "form",
+      "preconditions": [
+        "user must be authenticated",
+        "user must have completed booking for the item being reviewed"
+      ],
+      "fields": {
+        "Overall_Rating": {
+          "type": "unspecified",
+          "required": true
+        },
+        "Cleanliness_Rating": {
+          "type": "unspecified",
+          "required": true,
+          "visible_when": "applicable_category_present"
+        },
+        "Service_Rating": {
+          "type": "unspecified",
+          "required": true,
+          "visible_when": "applicable_category_present"
+        },
+        "Location_Rating": {
+          "type": "unspecified",
+          "required": true,
+          "visible_when": "applicable_category_present"
+        },
+        "Written_Feedback": {
+          "type": "unspecified",
+          "required": false
         },
         "Photos": {
           "type": "file_upload",
@@ -257,14 +537,25 @@ Listing pages show an aggregate rating score and total review count for each ite
       },
       "submit_actions": [
         {
-          "element_name": "Submit Review",
-          "preconditions": [
-            "user must be authenticated",
-            "user must have completed booking for this item"
-          ],
-          "on_success": "creates review and updates aggregate rating"
+          "on_success": "creates review and associates it with the item"
         }
       ]
+    },
+    "Dashboard_Write_Review_Action": {
+      "type": "action",
+      "preconditions": [
+        "user must be authenticated",
+        "user must have completed booking for the item being reviewed"
+      ],
+      "on_success": "opens review submission form"
+    },
+    "Email_Post_Stay_Prompt_Action": {
+      "type": "action",
+      "preconditions": [
+        "recipient must have completed booking for the item being reviewed",
+        "recipient must be authenticated or be prompted to authenticate"
+      ],
+      "on_success": "opens review submission form"
     }
   }
 }
@@ -273,399 +564,73 @@ Listing pages show an aggregate rating score and total review count for each ite
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[22:52:00] Semantic Critic - LLM RESPONSE
+[14:48:25] Semantic Critic - LLM RESPONSE
 ------------------------------------------------------------
 {
   "verdict": "retry",
-  "summary": "AST contains several inferred/phantom elements and omits explicit category rating fields from the description (Cleanliness, Service, Location); please regenerate with corrections.",
+  "summary": "AST contains several inferred/phantom elements (photo upload, date-range, conditional visibility, extra email precondition) and missing explicit rating field types (should be star ratings); regenerate with those fixes.",
   "missing": [
-    "components.Submit_Review_Form.fields.Cleanliness_Rating",
-    "components.Submit_Review_Form.fields.Service_Rating",
-    "components.Submit_Review_Form.fields.Location_Rating"
+    "components.Review_Submission_Form.fields.Overall_Rating.type (should be 'star_rating' per description 'star ratings for overall experience')",
+    "components.Review_Submission_Form.fields.Cleanliness_Rating.type (should be 'star_rating' per description 'star ratings for individual categories')",
+    "components.Review_Submission_Form.fields.Service_Rating.type (should be 'star_rating' per description 'star ratings for individual categories')",
+    "components.Review_Submission_Form.fields.Location_Rating.type (should be 'star_rating' per description 'star ratings for individual categories')"
   ],
   "phantoms": [
-    "components.Listing_Page_Review_Filters (presence of listing-page filters is not explicitly stated in the description)",
-    "components.Listing_Page_Review_Filters.submit_actions[1] (Clear Filters button not specified in the description)",
-    "components.Detail_Page_Reviews_Section.components.Reviews_List.row_actions[0].visible_when (Photos_Count > 0) — visibility condition/conditional logic for photo action is not specified in the description"
+    "components.Review_Submission_Form.fields.Photos (file_upload not specified in description as part of submission UI)",
+    "components.Reviews_Filters_Form.fields.Date_Range (description only says 'filter by date' — creating a date range group is an unsupported inference)",
+    "components.Reviews_Filters_Form.fields.Date_Range.Start_Date (inferred by Date_Range creation)",
+    "components.Reviews_Filters_Form.fields.Date_Range.End_Date (inferred by Date_Range creation)",
+    "components.Review_Submission_Form.fields.Cleanliness_Rating.visible_when (no conditional visibility described)",
+    "components.Review_Submission_Form.fields.Service_Rating.visible_when (no conditional visibility described)",
+    "components.Review_Submission_Form.fields.Location_Rating.visible_when (no conditional visibility described)",
+    "components.Email_Post_Stay_Prompt_Action.preconditions[1] (\"recipient must be authenticated or be prompted to authenticate\" is an inferred constraint not stated in the description)"
   ],
   "fixes": [
-    "Remove or justify the Listing_Page_Review_Filters component at components.Listing_Page_Review_Filters: the description only states that users can filter reviews but does not explicitly place filters on listing pages; if filters are intended only on detail pages, delete this component.",
-    "Remove or justify the Clear Filters submit action at components.Listing_Page_Review_Filters.submit_actions[1] (and similarly any unjustified Clear Filters actions) — the description does not name these buttons; if present, name and behavior should be explicit.",
-    "Remove the inferred visibility condition at components.Detail_Page_Reviews_Section.components.Reviews_List.row_actions[0].visible_when or make it explicit in the description. If a photo-view action exists, model it without an inferred conditional, or add a description sentence that 'a View Photos action appears only when a review includes guest-uploaded photos'.",
-    "Replace the generic repeating_group at components.Submit_Review_Form.fields.Category_Ratings with explicit category rating fields per the description: add components.Submit_Review_Form.fields.Cleanliness_Rating (number, 1-5), components.Submit_Review_Form.fields.Service_Rating (number, 1-5), and components.Submit_Review_Form.fields.Location_Rating (number, 1-5). If categories are variable, explicitly state that in the description and keep a repeating group named Categories with a clear type for Category_Name and Category_Rating.",
-    "Specify concrete types for text fields currently marked 'unspecified': set components.Submit_Review_Form.fields.Written_Comments.type to 'text' or 'textarea' and components.Submit_Review_Form.fields.Category_Ratings.item_fields.Category_Name.type to 'string' if keeping the repeating group approach, so types are not left unspecified."
+    "components.Review_Submission_Form.fields.Overall_Rating.type: set to 'star_rating' (replace 'unspecified')",
+    "components.Review_Submission_Form.fields.Cleanliness_Rating.type: set to 'star_rating' (replace 'unspecified')",
+    "components.Review_Submission_Form.fields.Service_Rating.type: set to 'star_rating' (replace 'unspecified')",
+    "components.Review_Submission_Form.fields.Location_Rating.type: set to 'star_rating' (replace 'unspecified')",
+    "components.Review_Submission_Form.fields.Photos: remove this field unless the description explicitly states users can upload photos when submitting reviews (description only mentions guest-uploaded photos as displayable items)",
+    "components.Reviews_Filters_Form.fields.Date_Range: remove the Date_Range group and instead include a single 'Date' filter field (components.Reviews_Filters_Form.fields.Date) with type 'date', unless the source text explicitly requires a start/end range",
+    "components.Review_Submission_Form.fields.Cleanliness_Rating.visible_when: remove this property (do not add conditional visibility unless the description explicitly specifies a trigger)",
+    "components.Review_Submission_Form.fields.Service_Rating.visible_when: remove this property (do not add conditional visibility unless the description explicitly specifies a trigger)",
+    "components.Review_Submission_Form.fields.Location_Rating.visible_when: remove this property (do not add conditional visibility unless the description explicitly specifies a trigger)",
+    "components.Email_Post_Stay_Prompt_Action.preconditions: remove the inferred clause 'recipient must be authenticated or be prompted to authenticate' (keep only preconditions explicitly stated: e.g., recipient has completed booking)"
   ]
 }
 
 ------------------------------------------------------------
-[22:52:00] Semantic Critic - PARSED JSON
+[14:48:25] Semantic Critic - PARSED JSON
 ------------------------------------------------------------
 {
   "verdict": "retry",
-  "summary": "AST contains several inferred/phantom elements and omits explicit category rating fields from the description (Cleanliness, Service, Location); please regenerate with corrections.",
+  "summary": "AST contains several inferred/phantom elements (photo upload, date-range, conditional visibility, extra email precondition) and missing explicit rating field types (should be star ratings); regenerate with those fixes.",
   "missing": [
-    "components.Submit_Review_Form.fields.Cleanliness_Rating",
-    "components.Submit_Review_Form.fields.Service_Rating",
-    "components.Submit_Review_Form.fields.Location_Rating"
+    "components.Review_Submission_Form.fields.Overall_Rating.type (should be 'star_rating' per description 'star ratings for overall experience')",
+    "components.Review_Submission_Form.fields.Cleanliness_Rating.type (should be 'star_rating' per description 'star ratings for individual categories')",
+    "components.Review_Submission_Form.fields.Service_Rating.type (should be 'star_rating' per description 'star ratings for individual categories')",
+    "components.Review_Submission_Form.fields.Location_Rating.type (should be 'star_rating' per description 'star ratings for individual categories')"
   ],
   "phantoms": [
-    "components.Listing_Page_Review_Filters (presence of listing-page filters is not explicitly stated in the description)",
-    "components.Listing_Page_Review_Filters.submit_actions[1] (Clear Filters button not specified in the description)",
-    "components.Detail_Page_Reviews_Section.components.Reviews_List.row_actions[0].visible_when (Photos_Count > 0) \u2014 visibility condition/conditional logic for photo action is not specified in the description"
+    "components.Review_Submission_Form.fields.Photos (file_upload not specified in description as part of submission UI)",
+    "components.Reviews_Filters_Form.fields.Date_Range (description only says 'filter by date' \u2014 creating a date range group is an unsupported inference)",
+    "components.Reviews_Filters_Form.fields.Date_Range.Start_Date (inferred by Date_Range creation)",
+    "components.Reviews_Filters_Form.fields.Date_Range.End_Date (inferred by Date_Range creation)",
+    "components.Review_Submission_Form.fields.Cleanliness_Rating.visible_when (no conditional visibility described)",
+    "components.Review_Submission_Form.fields.Service_Rating.visible_when (no conditional visibility described)",
+    "components.Review_Submission_Form.fields.Location_Rating.visible_when (no conditional visibility described)",
+    "components.Email_Post_Stay_Prompt_Action.preconditions[1] (\"recipient must be authenticated or be prompted to authenticate\" is an inferred constraint not stated in the description)"
   ],
   "fixes": [
-    "Remove or justify the Listing_Page_Review_Filters component at components.Listing_Page_Review_Filters: the description only states that users can filter reviews but does not explicitly place filters on listing pages; if filters are intended only on detail pages, delete this component.",
-    "Remove or justify the Clear Filters submit action at components.Listing_Page_Review_Filters.submit_actions[1] (and similarly any unjustified Clear Filters actions) \u2014 the description does not name these buttons; if present, name and behavior should be explicit.",
-    "Remove the inferred visibility condition at components.Detail_Page_Reviews_Section.components.Reviews_List.row_actions[0].visible_when or make it explicit in the description. If a photo-view action exists, model it without an inferred conditional, or add a description sentence that 'a View Photos action appears only when a review includes guest-uploaded photos'.",
-    "Replace the generic repeating_group at components.Submit_Review_Form.fields.Category_Ratings with explicit category rating fields per the description: add components.Submit_Review_Form.fields.Cleanliness_Rating (number, 1-5), components.Submit_Review_Form.fields.Service_Rating (number, 1-5), and components.Submit_Review_Form.fields.Location_Rating (number, 1-5). If categories are variable, explicitly state that in the description and keep a repeating group named Categories with a clear type for Category_Name and Category_Rating.",
-    "Specify concrete types for text fields currently marked 'unspecified': set components.Submit_Review_Form.fields.Written_Comments.type to 'text' or 'textarea' and components.Submit_Review_Form.fields.Category_Ratings.item_fields.Category_Name.type to 'string' if keeping the repeating group approach, so types are not left unspecified."
-  ]
-}
-
-------------------------------------------------------------
-[22:52:37] Semantic Critic - USER PROMPT
-------------------------------------------------------------
-<description>
-
-Listing pages show an aggregate rating score and total review count for each item. Detail pages include a dedicated Reviews section with individual reviews showing overall rating, category-specific ratings (e.g., Cleanliness, Service, Location for hotels), reviewer name and country, review date, stay date, written comments, and any guest-uploaded photos. Users can filter reviews by rating, date, or traveler type. Authenticated users who have completed a booking can submit a review through the dashboard or via a post-stay email prompt, providing star ratings for overall experience and individual categories, plus written feedback.
-
----
-
-
-</description>
-
-<ast>
-{
-  "module_name": "Reviews & Ratings",
-  "components": {
-    "Detail_Page_Reviews_Section": {
-      "type": "section",
-      "components": {
-        "Reviews_Filters": {
-          "type": "form",
-          "fields": {
-            "Rating": {
-              "type": "dropdown",
-              "required": false,
-              "options": [
-                5,
-                4,
-                3,
-                2,
-                1
-              ]
-            },
-            "Date": {
-              "type": "date",
-              "required": false
-            },
-            "Traveler_Type": {
-              "type": "dropdown",
-              "required": false
-            }
-          }
-        },
-        "Reviews_List": {
-          "type": "data_table",
-          "row_actions": [
-            {
-              "action_name": "View Photos",
-              "on_success": "opens photo gallery for the review"
-            },
-            {
-              "action_name": "Read Full Review",
-              "on_success": "expands review details"
-            }
-          ]
-        }
-      }
-    },
-    "Submit_Review_Form": {
-      "type": "form",
-      "fields": {
-        "Overall_Rating": {
-          "type": "number",
-          "required": true,
-          "constraints": [
-            "min: 1",
-            "max: 5"
-          ]
-        },
-        "Cleanliness_Rating": {
-          "type": "number",
-          "required": true,
-          "constraints": [
-            "min: 1",
-            "max: 5"
-          ]
-        },
-        "Service_Rating": {
-          "type": "number",
-          "required": true,
-          "constraints": [
-            "min: 1",
-            "max: 5"
-          ]
-        },
-        "Location_Rating": {
-          "type": "number",
-          "required": true,
-          "constraints": [
-            "min: 1",
-            "max: 5"
-          ]
-        },
-        "Written_Comments": {
-          "type": "textarea",
-          "required": true
-        },
-        "Guest_Photos": {
-          "type": "file_upload",
-          "required": false
-        }
-      },
-      "submit_actions": [
-        {
-          "element_name": "Submit Review",
-          "on_success": "creates review",
-          "preconditions": [
-            "user must be authenticated",
-            "user must have completed a booking for this item"
-          ]
-        }
-      ]
-    },
-    "Dashboard_Submit_Review_Button": {
-      "type": "button",
-      "element_name": "Write Review",
-      "preconditions": [
-        "user must be authenticated",
-        "user must have completed a booking for this item"
-      ],
-      "on_success": "opens Submit_Review_Form"
-    },
-    "Post_Stay_Email_Prompt": {
-      "type": "link",
-      "element_name": "Write Review",
-      "preconditions": [
-        "recipient must have completed the stay",
-        "user must be authenticated or will be prompted to log in"
-      ],
-      "on_success": "opens Submit_Review_Form"
-    }
-  }
-}
-</ast>
-
-IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
-
-------------------------------------------------------------
-[22:53:06] Semantic Critic - LLM RESPONSE
-------------------------------------------------------------
-{
-  "verdict": "retry",
-  "summary": "AST contains several inferred/extra elements and constraints not specified in the description (phantoms); remove or align them and relax inferred constraints/requirements before reuse.",
-  "missing": [],
-  "phantoms": [
-    "components.Detail_Page_Reviews_Section.components.Reviews_List.row_actions[0] (View Photos action not specified in description)",
-    "components.Detail_Page_Reviews_Section.components.Reviews_List.row_actions[1] (Read Full Review action not specified in description)",
-    "components.Submit_Review_Form.fields.Overall_Rating.constraints (min/max 1-5 inferred, not explicitly stated)",
-    "components.Submit_Review_Form.fields.Cleanliness_Rating.constraints (min/max 1-5 inferred, not explicitly stated)",
-    "components.Submit_Review_Form.fields.Service_Rating.constraints (min/max 1-5 inferred, not explicitly stated)",
-    "components.Submit_Review_Form.fields.Location_Rating.constraints (min/max 1-5 inferred, not explicitly stated)",
-    "components.Submit_Review_Form.fields.Written_Comments.required (marked required; description does not state written feedback is mandatory)",
-    "components.Submit_Review_Form.fields.Guest_Photos (file upload on submit is inferred; description only explicitly states reviews may include guest-uploaded photos)",
-    "components.Post_Stay_Email_Prompt.preconditions[1] (\"user must be authenticated or will be prompted to log in\" is an inferred workflow detail not in description)",
-    "components.Detail_Page_Reviews_Section.components.Reviews_Filters.fields.Rating.options (explicit options [5,4,3,2,1] inferred, not listed in description)"
-  ],
-  "fixes": [
-    "components.Detail_Page_Reviews_Section.components.Reviews_List: remove the row_actions array or leave it empty unless the description explicitly requires actions such as 'View Photos' or 'Read Full Review'.",
-    "components.Submit_Review_Form.fields.Overall_Rating: remove the 'constraints' property (delete components.Submit_Review_Form.fields.Overall_Rating.constraints) unless the spec explicitly requires a 1–5 numeric constraint.",
-    "components.Submit_Review_Form.fields.Cleanliness_Rating: remove the 'constraints' property (delete components.Submit_Review_Form.fields.Cleanliness_Rating.constraints) unless the spec explicitly requires a 1–5 numeric constraint.",
-    "components.Submit_Review_Form.fields.Service_Rating: remove the 'constraints' property (delete components.Submit_Review_Form.fields.Service_Rating.constraints) unless the spec explicitly requires a 1–5 numeric constraint.",
-    "components.Submit_Review_Form.fields.Location_Rating: remove the 'constraints' property (delete components.Submit_Review_Form.fields.Location_Rating.constraints) unless the spec explicitly requires a 1–5 numeric constraint.",
-    "components.Submit_Review_Form.fields.Written_Comments: set 'required' to false or remove the 'required' property (delete components.Submit_Review_Form.fields.Written_Comments.required) because the description does not state written feedback is mandatory.",
-    "components.Submit_Review_Form.fields.Guest_Photos: remove this field (delete components.Submit_Review_Form.fields.Guest_Photos) unless the functional spec explicitly states users can upload photos when submitting a review.",
-    "components.Post_Stay_Email_Prompt.preconditions: remove or simplify the second precondition. Replace components.Post_Stay_Email_Prompt.preconditions with ['recipient must have completed a booking for this item'] (do not add inferred text about automatic login prompts).",
-    "components.Detail_Page_Reviews_Section.components.Reviews_Filters.fields.Rating: remove the explicit 'options' array (delete components.Detail_Page_Reviews_Section.components.Reviews_Filters.fields.Rating.options) unless the spec lists allowed values."
-  ]
-}
-
-------------------------------------------------------------
-[22:53:06] Semantic Critic - PARSED JSON
-------------------------------------------------------------
-{
-  "verdict": "retry",
-  "summary": "AST contains several inferred/extra elements and constraints not specified in the description (phantoms); remove or align them and relax inferred constraints/requirements before reuse.",
-  "missing": [],
-  "phantoms": [
-    "components.Detail_Page_Reviews_Section.components.Reviews_List.row_actions[0] (View Photos action not specified in description)",
-    "components.Detail_Page_Reviews_Section.components.Reviews_List.row_actions[1] (Read Full Review action not specified in description)",
-    "components.Submit_Review_Form.fields.Overall_Rating.constraints (min/max 1-5 inferred, not explicitly stated)",
-    "components.Submit_Review_Form.fields.Cleanliness_Rating.constraints (min/max 1-5 inferred, not explicitly stated)",
-    "components.Submit_Review_Form.fields.Service_Rating.constraints (min/max 1-5 inferred, not explicitly stated)",
-    "components.Submit_Review_Form.fields.Location_Rating.constraints (min/max 1-5 inferred, not explicitly stated)",
-    "components.Submit_Review_Form.fields.Written_Comments.required (marked required; description does not state written feedback is mandatory)",
-    "components.Submit_Review_Form.fields.Guest_Photos (file upload on submit is inferred; description only explicitly states reviews may include guest-uploaded photos)",
-    "components.Post_Stay_Email_Prompt.preconditions[1] (\"user must be authenticated or will be prompted to log in\" is an inferred workflow detail not in description)",
-    "components.Detail_Page_Reviews_Section.components.Reviews_Filters.fields.Rating.options (explicit options [5,4,3,2,1] inferred, not listed in description)"
-  ],
-  "fixes": [
-    "components.Detail_Page_Reviews_Section.components.Reviews_List: remove the row_actions array or leave it empty unless the description explicitly requires actions such as 'View Photos' or 'Read Full Review'.",
-    "components.Submit_Review_Form.fields.Overall_Rating: remove the 'constraints' property (delete components.Submit_Review_Form.fields.Overall_Rating.constraints) unless the spec explicitly requires a 1\u20135 numeric constraint.",
-    "components.Submit_Review_Form.fields.Cleanliness_Rating: remove the 'constraints' property (delete components.Submit_Review_Form.fields.Cleanliness_Rating.constraints) unless the spec explicitly requires a 1\u20135 numeric constraint.",
-    "components.Submit_Review_Form.fields.Service_Rating: remove the 'constraints' property (delete components.Submit_Review_Form.fields.Service_Rating.constraints) unless the spec explicitly requires a 1\u20135 numeric constraint.",
-    "components.Submit_Review_Form.fields.Location_Rating: remove the 'constraints' property (delete components.Submit_Review_Form.fields.Location_Rating.constraints) unless the spec explicitly requires a 1\u20135 numeric constraint.",
-    "components.Submit_Review_Form.fields.Written_Comments: set 'required' to false or remove the 'required' property (delete components.Submit_Review_Form.fields.Written_Comments.required) because the description does not state written feedback is mandatory.",
-    "components.Submit_Review_Form.fields.Guest_Photos: remove this field (delete components.Submit_Review_Form.fields.Guest_Photos) unless the functional spec explicitly states users can upload photos when submitting a review.",
-    "components.Post_Stay_Email_Prompt.preconditions: remove or simplify the second precondition. Replace components.Post_Stay_Email_Prompt.preconditions with ['recipient must have completed a booking for this item'] (do not add inferred text about automatic login prompts).",
-    "components.Detail_Page_Reviews_Section.components.Reviews_Filters.fields.Rating: remove the explicit 'options' array (delete components.Detail_Page_Reviews_Section.components.Reviews_Filters.fields.Rating.options) unless the spec lists allowed values."
-  ]
-}
-
-------------------------------------------------------------
-[22:53:28] Semantic Critic - USER PROMPT
-------------------------------------------------------------
-<description>
-
-Listing pages show an aggregate rating score and total review count for each item. Detail pages include a dedicated Reviews section with individual reviews showing overall rating, category-specific ratings (e.g., Cleanliness, Service, Location for hotels), reviewer name and country, review date, stay date, written comments, and any guest-uploaded photos. Users can filter reviews by rating, date, or traveler type. Authenticated users who have completed a booking can submit a review through the dashboard or via a post-stay email prompt, providing star ratings for overall experience and individual categories, plus written feedback.
-
----
-
-
-</description>
-
-<ast>
-{
-  "module_name": "Reviews & Ratings",
-  "components": {
-    "Detail_Page_Reviews_Section": {
-      "type": "section",
-      "components": {
-        "Reviews_Filters": {
-          "type": "form",
-          "fields": {
-            "Rating": {
-              "type": "dropdown"
-            },
-            "Date_From": {
-              "type": "date"
-            },
-            "Date_To": {
-              "type": "date"
-            },
-            "Traveler_Type": {
-              "type": "dropdown"
-            }
-          }
-        },
-        "Reviews_List": {
-          "type": "data_table",
-          "row_actions": [],
-          "bulk_actions": [],
-          "fields": {}
-        }
-      }
-    },
-    "Submit_Review_Form": {
-      "type": "form",
-      "preconditions": [
-        "user must be authenticated",
-        "user must have completed a booking for this item"
-      ],
-      "fields": {
-        "Overall_Rating": {
-          "type": "number"
-        },
-        "Cleanliness_Rating": {
-          "type": "number"
-        },
-        "Service_Rating": {
-          "type": "number"
-        },
-        "Location_Rating": {
-          "type": "number"
-        },
-        "Written_Comments": {
-          "type": "unspecified"
-        }
-      },
-      "submit_actions": [
-        {
-          "element_name": "Submit Review",
-          "on_success": "submits review"
-        }
-      ]
-    },
-    "Dashboard_Submit_Review_Button": {
-      "type": "button",
-      "element_name": "Write a Review",
-      "preconditions": [
-        "user must be authenticated",
-        "user must have completed a booking for this item"
-      ],
-      "opens": "Submit_Review_Form"
-    },
-    "Post_Stay_Email_Prompt": {
-      "type": "link",
-      "element_name": "Leave a Review",
-      "preconditions": [
-        "recipient must have completed a booking for this item"
-      ],
-      "opens": "Submit_Review_Form"
-    }
-  }
-}
-</ast>
-
-IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
-
-------------------------------------------------------------
-[22:53:48] Semantic Critic - LLM RESPONSE
-------------------------------------------------------------
-{
-  "verdict": "retry",
-  "summary": "The AST mostly covers filters and the submit flow but includes multiple invented element labels and a date-range inference while missing the required authentication precondition on the post-stay email prompt — regenerate after addressing these issues.",
-  "missing": [
-    "components.Post_Stay_Email_Prompt.preconditions (missing \"user must be authenticated\")"
-  ],
-  "phantoms": [
-    "components.Dashboard_Submit_Review_Button.element_name (\"Write a Review\" label not specified in description)",
-    "components.Submit_Review_Form.submit_actions[0].element_name (\"Submit Review\" label not specified in description)",
-    "components.Post_Stay_Email_Prompt.element_name (\"Leave a Review\" label not specified in description)",
-    "components.Review_Page_Reviews_Section.Reviews_Filters.fields.Date_From (date range inferred; description only says \"date\")",
-    "components.Review_Page_Reviews_Section.Reviews_Filters.fields.Date_To (date range inferred; description only says \"date\")"
-  ],
-  "fixes": [
-    "components.Post_Stay_Email_Prompt.preconditions — add the explicit authentication precondition: include \"user must be authenticated\" alongside existing booking-completed precondition.",
-    "components.Dashboard_Submit_Review_Button — remove the hard-coded element_name property (do not invent CTA labels not present in the description); if a label is required, leave it blank or mark as unspecified.",
-    "components.Submit_Review_Form.submit_actions[0] — remove the hard-coded element_name property (do not invent button labels); keep the submit action but omit the invented label.",
-    "components.Post_Stay_Email_Prompt — remove the hard-coded element_name property (do not invent CTA labels for the email prompt).",
-    "components.Detail_Page_Reviews_Section.Reviews_Filters — replace Date_From and Date_To with a single Date filter field (e.g., \"Date\" of type \"date\") unless the spec explicitly requires a date range; if the spec intends a range, update the description to say \"filter by date range\"."
-  ]
-}
-
-------------------------------------------------------------
-[22:53:48] Semantic Critic - PARSED JSON
-------------------------------------------------------------
-{
-  "verdict": "retry",
-  "summary": "The AST mostly covers filters and the submit flow but includes multiple invented element labels and a date-range inference while missing the required authentication precondition on the post-stay email prompt \u2014 regenerate after addressing these issues.",
-  "missing": [
-    "components.Post_Stay_Email_Prompt.preconditions (missing \"user must be authenticated\")"
-  ],
-  "phantoms": [
-    "components.Dashboard_Submit_Review_Button.element_name (\"Write a Review\" label not specified in description)",
-    "components.Submit_Review_Form.submit_actions[0].element_name (\"Submit Review\" label not specified in description)",
-    "components.Post_Stay_Email_Prompt.element_name (\"Leave a Review\" label not specified in description)",
-    "components.Review_Page_Reviews_Section.Reviews_Filters.fields.Date_From (date range inferred; description only says \"date\")",
-    "components.Review_Page_Reviews_Section.Reviews_Filters.fields.Date_To (date range inferred; description only says \"date\")"
-  ],
-  "fixes": [
-    "components.Post_Stay_Email_Prompt.preconditions \u2014 add the explicit authentication precondition: include \"user must be authenticated\" alongside existing booking-completed precondition.",
-    "components.Dashboard_Submit_Review_Button \u2014 remove the hard-coded element_name property (do not invent CTA labels not present in the description); if a label is required, leave it blank or mark as unspecified.",
-    "components.Submit_Review_Form.submit_actions[0] \u2014 remove the hard-coded element_name property (do not invent button labels); keep the submit action but omit the invented label.",
-    "components.Post_Stay_Email_Prompt \u2014 remove the hard-coded element_name property (do not invent CTA labels for the email prompt).",
-    "components.Detail_Page_Reviews_Section.Reviews_Filters \u2014 replace Date_From and Date_To with a single Date filter field (e.g., \"Date\" of type \"date\") unless the spec explicitly requires a date range; if the spec intends a range, update the description to say \"filter by date range\"."
+    "components.Review_Submission_Form.fields.Overall_Rating.type: set to 'star_rating' (replace 'unspecified')",
+    "components.Review_Submission_Form.fields.Cleanliness_Rating.type: set to 'star_rating' (replace 'unspecified')",
+    "components.Review_Submission_Form.fields.Service_Rating.type: set to 'star_rating' (replace 'unspecified')",
+    "components.Review_Submission_Form.fields.Location_Rating.type: set to 'star_rating' (replace 'unspecified')",
+    "components.Review_Submission_Form.fields.Photos: remove this field unless the description explicitly states users can upload photos when submitting reviews (description only mentions guest-uploaded photos as displayable items)",
+    "components.Reviews_Filters_Form.fields.Date_Range: remove the Date_Range group and instead include a single 'Date' filter field (components.Reviews_Filters_Form.fields.Date) with type 'date', unless the source text explicitly requires a start/end range",
+    "components.Review_Submission_Form.fields.Cleanliness_Rating.visible_when: remove this property (do not add conditional visibility unless the description explicitly specifies a trigger)",
+    "components.Review_Submission_Form.fields.Service_Rating.visible_when: remove this property (do not add conditional visibility unless the description explicitly specifies a trigger)",
+    "components.Review_Submission_Form.fields.Location_Rating.visible_when: remove this property (do not add conditional visibility unless the description explicitly specifies a trigger)",
+    "components.Email_Post_Stay_Prompt_Action.preconditions: remove the inferred clause 'recipient must be authenticated or be prompted to authenticate' (keep only preconditions explicitly stated: e.g., recipient has completed booking)"
   ]
 }

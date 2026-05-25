@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-22T21:31:44.628869
+DEBUG SESSION STARTED: 2026-05-25T15:41:24.134638
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[21:31:44] Test-Positive - SYSTEM PROMPT
+[15:41:24] Test-Positive - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Expert UI Test Case Generator. You receive (1) a UI-AST JSON for one specific module and (2) the original functional description for that module.
 
@@ -24,6 +24,10 @@ Your job is to produce ONLY positive/functional UI test cases — tests where va
 <description>
 {Original functional description text for this module}
 </description>
+
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
 
 ---
 
@@ -146,6 +150,13 @@ Because you are testing a module in isolation, establish the required entry stat
 **1. Forms & Wizards (`form`, `wizard`):**
 - Generate ONE happy path per distinct success outcome.
 - *Conditional UI Check:* If a toggle/dropdown reveals new mandatory fields (`visible_when`), generate a separate test for that conditional branch.
+- **Wizard step coverage (CRITICAL):** If a wizard has multiple steps and any step beyond Step 1 contains its own named field group (e.g., "Address Details", "Family Members", "Identifiers"), generate ONE dedicated positive TC per such step. The TC must:
+  - Navigate to that specific step (include the preceding steps as preconditions or brief navigation steps)
+  - Fill the fields described for that step (not just pass through)
+  - Assert the step's content is visible/saved on the detail page after final submission
+  - **Do NOT collapse all wizard steps into one happy-path TC** — if Steps 2, 3, and 4 each have their own named section in the spec, they each need their own TC.
+- **Wizard in-step identifiers/duplicates:** If a wizard step allows adding identifiers, documents, or similar entries that have a uniqueness constraint, include a TC for that wizard step that also verifies the constraint (e.g., attempting to add a duplicate Document Type+Key pair inside the wizard). This is a different code path from adding the same post-creation on the detail page.
+- **Action dialogs:** If a `state_bound_action_bar` action opens a dialog with its own `fields{}` (e.g., Activate requires Activation Date, Reject requires Reason), generate ONE positive TC per such action-dialog — distinct from the state-transition TC. The TC fills the dialog field and completes the action.
 
 **2. State Machines (`state_bound_action_bar`):**
 - For each unique action available in a specific state, generate ONE test performing that action.
@@ -200,6 +211,19 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 
 ---
 
+**WORKFLOW COVERAGE OBLIGATION (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- Your test cases must **collectively cover every workflow** listed.
+- For each `wf_id`, at least one TC must:
+  - Activate the `conditional_branch` (if not null) — i.e. the test must set up the condition described.
+  - Assert the `on_success` as its `expected_result` (verbatim or as the primary basis for the expected result).
+- Add `"wf_ref": "WF-NNN"` to each TC to identify which workflow it covers.
+- If one TC naturally covers multiple workflows (e.g., the base path overlaps), pick the most specific `wf_ref`.
+- If a TC does not map to any workflow (e.g., a navigation-only test), set `"wf_ref": null`.
+
+---
+
 **OUTPUT — JSON only, no prose, no markdown fencing:**
 
 {
@@ -208,6 +232,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
   "test_cases": [
     {
       "tc_id": "P-001",
+      "wf_ref": "WF-001",
       "test_case": "Short descriptive name",
       "preconditions": ["User logged in as <Role>", "<Prerequisite state>"],
       "steps": ["1. Step one", "2. Step two"],
@@ -224,7 +249,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 }
 
 ------------------------------------------------------------
-[21:31:44] Test-Positive - USER PROMPT
+[15:41:24] Test-Positive - USER PROMPT
 ------------------------------------------------------------
 <module_name>Manage Cards</module_name>
 
@@ -237,7 +262,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
       "fields": {
         "Card_Type": {
           "type": "dropdown",
-          "required": true,
+          "required": false,
           "options": [
             "Debit",
             "Credit"
@@ -245,24 +270,24 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
         },
         "Account_to_Link": {
           "type": "dropdown",
-          "required": true
+          "required": false
         },
         "Shipping_Address": {
           "type": "unspecified",
-          "required": true,
+          "required": false,
           "constraints": [
-            "address must be complete"
+            "must be complete"
           ]
         }
       },
       "submit_actions": [
         {
           "element_name": "Request Card",
+          "on_success": "opens card-request ticket and shows \"Card request submitted successfully.\" with tracking ID",
+          "on_failure": "displays validation errors inline and form remains editable",
           "constraints": [
-            "address must be complete",
-            "selected account must be in good standing"
-          ],
-          "on_success": "opens a card-request ticket and shows \"Card request submitted successfully.\" with a tracking ID"
+            "verifies selected account is in good standing before creating ticket"
+          ]
         }
       ]
     },
@@ -271,18 +296,18 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
       "fields": {
         "Select_Existing_Card": {
           "type": "dropdown",
-          "required": true
+          "required": false
         },
         "New_Spending_Limit": {
           "type": "number",
           "required": false,
           "constraints": [
             "must be numeric",
-            "must not exceed policy maximum"
+            "must not exceed policy limit"
           ]
         },
         "Travel_Notice": {
-          "type": "repeating_group",
+          "type": "group",
           "required": false,
           "item_fields": {
             "Start_Date": {
@@ -293,35 +318,43 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
               "type": "date",
               "required": false
             },
-            "Destination": {
-              "type": "unspecified",
-              "required": false
+            "Destinations": {
+              "type": "repeating_group",
+              "required": false,
+              "item_fields": {
+                "Destination": {
+                  "type": "unspecified",
+                  "required": false
+                }
+              }
             }
           },
           "constraints": [
-            "Start_Date <= End_Date when both provided"
+            "Start_Date must be on or before End_Date"
           ]
         },
         "Card_Status": {
           "type": "dropdown",
-          "required": true,
+          "required": false,
           "options": [
             "Active",
             "Frozen"
+          ],
+          "constraints": [
+            "status change must be an allowable card-status transition"
           ]
         }
       },
       "submit_actions": [
         {
           "element_name": "Update Controls",
-          "constraints": [
-            "existing card must be selected",
-            "numeric limits must be within allowed policy",
-            "date ranges must be valid (Start_Date <= End_Date)",
-            "card-status transitions must be allowable by policy"
-          ],
           "on_success": "Card controls updated successfully.",
-          "on_failure": "validation failures appear inline and the form remains editable"
+          "on_failure": "validation failures appear inline and the form remains editable",
+          "constraints": [
+            "validates numeric limits for New_Spending_Limit",
+            "validates date ranges for Travel_Notice",
+            "validates allowable card-status transitions"
+          ]
         }
       ]
     }
@@ -335,10 +368,15 @@ The Manage Cards page contains two separate forms presented in stacked cards.The
 
 </description>
 
+<workflows>
+WF-001 | Request a new card | actor: <role> | branch: none | terminal: Request Card | on_success: opens card-request ticket and shows "Card request submitted successfully." with tracking ID
+WF-002 | Update existing card controls | actor: <role> | branch: none | terminal: Update Controls | on_success: Card controls updated successfully.
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[21:33:09] Test-Positive - LLM RESPONSE
+[15:43:12] Test-Positive - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Manage Cards",
@@ -346,68 +384,98 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Submit Card Request with complete address and account in good standing",
+      "wf_ref": "WF-001",
+      "test_case": "Request a new card with complete address and account in good standing",
       "preconditions": [
-        "User logged in as <Customer>",
-        "Manage Cards page is open",
-        "Account to Link dropdown contains <an account in good standing>"
+        "User logged in as <Role>",
+        "<Account to Link> exists and is in good standing",
+        "Manage Cards page is reachable"
       ],
       "steps": [
-        "1. In the Card Request card, select <Card Type> from the Card Type dropdown",
-        "2. Select <an account in good standing> from the Account to Link dropdown",
-        "3. Enter a <complete shipping address> in the Shipping Address field",
-        "4. Click the Request Card button"
+        "1. Navigate to the Manage Cards page",
+        "2. In the Card Request card, select <Card Type> from the Card Type dropdown",
+        "3. Select <Account to Link> from the Account to Link dropdown",
+        "4. Enter a complete <Shipping_Address> in the Shipping Address fields",
+        "5. Click the 'Request Card' button"
       ],
-      "expected_result": "A success notification displays \"Card request submitted successfully.\" and a tracking ID is visible on the page",
+      "expected_result": "opens card-request ticket and shows \"Card request submitted successfully.\" with tracking ID",
       "priority": "high"
     },
     {
       "tc_id": "P-002",
-      "test_case": "Update spending limit and card status successfully for an existing card",
+      "wf_ref": "WF-002",
+      "test_case": "Update spending limit within policy and change card status (allowable transition)",
       "preconditions": [
-        "User logged in as <Customer>",
-        "Manage Cards page is open",
-        "Select Existing Card dropdown contains <an existing card>"
+        "User logged in as <Role>",
+        "An existing card <Selected Card> is present and currently in status <Active>",
+        "Policy limit for the account is known",
+        "Manage Cards page is reachable with Card Controls form visible"
       ],
       "steps": [
-        "1. In the Card Controls card, select <an existing card> from the Select Existing Card dropdown",
-        "2. Enter <a numeric spending limit within policy> in the New Spending Limit field",
-        "3. Select <Card Status> from the Card Status dropdown (ensure the transition is allowed by policy)",
-        "4. Click the Update Controls button"
+        "1. Navigate to the Manage Cards page",
+        "2. In the Card Controls card, select <Selected Card> from the Select Existing Card dropdown",
+        "3. Enter <valid spending limit within policy> in the New Spending Limit field",
+        "4. Select <Frozen> from the Card Status dropdown (an allowable transition from current status)",
+        "5. Click the 'Update Controls' button"
       ],
-      "expected_result": "A success notification displays \"Card controls updated successfully.\" and the selected card's details show the updated spending limit (<a numeric spending limit within policy>) and the Card Status displays '<Card Status>'",
+      "expected_result": "'Card controls updated successfully.' is displayed and the selected card shows Status 'Frozen' and the Spending Limit updated to the entered value in the Card Controls area",
       "priority": "high"
     },
     {
       "tc_id": "P-003",
-      "test_case": "Add a valid travel notice and save controls successfully",
+      "wf_ref": "WF-002",
+      "test_case": "Add a travel notice with valid date range and one destination",
       "preconditions": [
-        "User logged in as <Customer>",
-        "Manage Cards page is open",
-        "Select Existing Card dropdown contains <an existing card>"
+        "User logged in as <Role>",
+        "An existing card <Selected Card> is present",
+        "Manage Cards page is reachable with Card Controls form visible"
       ],
       "steps": [
-        "1. In the Card Controls card, select <an existing card> from the Select Existing Card dropdown",
-        "2. Click Add Row in the Travel Notice section",
-        "3. Enter <Start_Date> in the Start Date field for the new travel row",
-        "4. Enter <End_Date> in the End Date field for the new travel row (ensure <Start_Date> <= <End_Date>)",
-        "5. Enter <Destination> in the Destination field for the new travel row",
-        "6. Click the Update Controls button"
+        "1. Navigate to the Manage Cards page",
+        "2. In the Card Controls card, select <Selected Card> from the Select Existing Card dropdown",
+        "3. Expand the Travel Notice group",
+        "4. Enter <valid start date> in Start_Date and <valid end date> in End_Date (Start_Date on or before End_Date)",
+        "5. Click 'Add Destination' to add a destination row",
+        "6. Enter <destination A> in the new Destination row",
+        "7. Click the 'Update Controls' button"
       ],
-      "expected_result": "A success notification displays \"Card controls updated successfully.\" and the Travel Notice list for the selected card shows a new entry with Start Date = <Start_Date>, End Date = <End_Date>, Destination = <Destination>",
+      "expected_result": "'Card controls updated successfully.' is displayed and the Travel Notice summary for the selected card shows the dates <valid start date> – <valid end date> and includes <destination A> in its destinations list",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-004",
+      "wf_ref": "WF-002",
+      "test_case": "Add multiple travel destinations using repeating-group and update controls",
+      "preconditions": [
+        "User logged in as <Role>",
+        "An existing card <Selected Card> is present",
+        "Manage Cards page is reachable with Card Controls form visible"
+      ],
+      "steps": [
+        "1. Navigate to the Manage Cards page",
+        "2. In the Card Controls card, select <Selected Card> from the Select Existing Card dropdown",
+        "3. Expand the Travel Notice group",
+        "4. Enter <valid start date> in Start_Date and <valid end date> in End_Date (Start_Date on or before End_Date)",
+        "5. Click 'Add Destination' to add the first destination row",
+        "6. Enter <destination A> in the first Destination row",
+        "7. Click 'Add Destination' again to add a second destination row",
+        "8. Enter <destination B> in the second Destination row",
+        "9. Click the 'Update Controls' button"
+      ],
+      "expected_result": "'Card controls updated successfully.' is displayed and the Travel Notice summary for the selected card shows the dates <valid start date> – <valid end date> and lists <destination A> and <destination B> as destinations",
       "priority": "medium"
     }
   ],
   "summary": {
-    "total": 3,
+    "total": 4,
     "high_priority": 2,
-    "medium_priority": 1,
+    "medium_priority": 2,
     "low_priority": 0
   }
 }
 
 ------------------------------------------------------------
-[21:33:09] Test-Positive - PARSED JSON
+[15:43:12] Test-Positive - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Manage Cards",
@@ -415,62 +483,92 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Submit Card Request with complete address and account in good standing",
+      "wf_ref": "WF-001",
+      "test_case": "Request a new card with complete address and account in good standing",
       "preconditions": [
-        "User logged in as <Customer>",
-        "Manage Cards page is open",
-        "Account to Link dropdown contains <an account in good standing>"
+        "User logged in as <Role>",
+        "<Account to Link> exists and is in good standing",
+        "Manage Cards page is reachable"
       ],
       "steps": [
-        "1. In the Card Request card, select <Card Type> from the Card Type dropdown",
-        "2. Select <an account in good standing> from the Account to Link dropdown",
-        "3. Enter a <complete shipping address> in the Shipping Address field",
-        "4. Click the Request Card button"
+        "1. Navigate to the Manage Cards page",
+        "2. In the Card Request card, select <Card Type> from the Card Type dropdown",
+        "3. Select <Account to Link> from the Account to Link dropdown",
+        "4. Enter a complete <Shipping_Address> in the Shipping Address fields",
+        "5. Click the 'Request Card' button"
       ],
-      "expected_result": "A success notification displays \"Card request submitted successfully.\" and a tracking ID is visible on the page",
+      "expected_result": "opens card-request ticket and shows \"Card request submitted successfully.\" with tracking ID",
       "priority": "high"
     },
     {
       "tc_id": "P-002",
-      "test_case": "Update spending limit and card status successfully for an existing card",
+      "wf_ref": "WF-002",
+      "test_case": "Update spending limit within policy and change card status (allowable transition)",
       "preconditions": [
-        "User logged in as <Customer>",
-        "Manage Cards page is open",
-        "Select Existing Card dropdown contains <an existing card>"
+        "User logged in as <Role>",
+        "An existing card <Selected Card> is present and currently in status <Active>",
+        "Policy limit for the account is known",
+        "Manage Cards page is reachable with Card Controls form visible"
       ],
       "steps": [
-        "1. In the Card Controls card, select <an existing card> from the Select Existing Card dropdown",
-        "2. Enter <a numeric spending limit within policy> in the New Spending Limit field",
-        "3. Select <Card Status> from the Card Status dropdown (ensure the transition is allowed by policy)",
-        "4. Click the Update Controls button"
+        "1. Navigate to the Manage Cards page",
+        "2. In the Card Controls card, select <Selected Card> from the Select Existing Card dropdown",
+        "3. Enter <valid spending limit within policy> in the New Spending Limit field",
+        "4. Select <Frozen> from the Card Status dropdown (an allowable transition from current status)",
+        "5. Click the 'Update Controls' button"
       ],
-      "expected_result": "A success notification displays \"Card controls updated successfully.\" and the selected card's details show the updated spending limit (<a numeric spending limit within policy>) and the Card Status displays '<Card Status>'",
+      "expected_result": "'Card controls updated successfully.' is displayed and the selected card shows Status 'Frozen' and the Spending Limit updated to the entered value in the Card Controls area",
       "priority": "high"
     },
     {
       "tc_id": "P-003",
-      "test_case": "Add a valid travel notice and save controls successfully",
+      "wf_ref": "WF-002",
+      "test_case": "Add a travel notice with valid date range and one destination",
       "preconditions": [
-        "User logged in as <Customer>",
-        "Manage Cards page is open",
-        "Select Existing Card dropdown contains <an existing card>"
+        "User logged in as <Role>",
+        "An existing card <Selected Card> is present",
+        "Manage Cards page is reachable with Card Controls form visible"
       ],
       "steps": [
-        "1. In the Card Controls card, select <an existing card> from the Select Existing Card dropdown",
-        "2. Click Add Row in the Travel Notice section",
-        "3. Enter <Start_Date> in the Start Date field for the new travel row",
-        "4. Enter <End_Date> in the End Date field for the new travel row (ensure <Start_Date> <= <End_Date>)",
-        "5. Enter <Destination> in the Destination field for the new travel row",
-        "6. Click the Update Controls button"
+        "1. Navigate to the Manage Cards page",
+        "2. In the Card Controls card, select <Selected Card> from the Select Existing Card dropdown",
+        "3. Expand the Travel Notice group",
+        "4. Enter <valid start date> in Start_Date and <valid end date> in End_Date (Start_Date on or before End_Date)",
+        "5. Click 'Add Destination' to add a destination row",
+        "6. Enter <destination A> in the new Destination row",
+        "7. Click the 'Update Controls' button"
       ],
-      "expected_result": "A success notification displays \"Card controls updated successfully.\" and the Travel Notice list for the selected card shows a new entry with Start Date = <Start_Date>, End Date = <End_Date>, Destination = <Destination>",
+      "expected_result": "'Card controls updated successfully.' is displayed and the Travel Notice summary for the selected card shows the dates <valid start date> \u2013 <valid end date> and includes <destination A> in its destinations list",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-004",
+      "wf_ref": "WF-002",
+      "test_case": "Add multiple travel destinations using repeating-group and update controls",
+      "preconditions": [
+        "User logged in as <Role>",
+        "An existing card <Selected Card> is present",
+        "Manage Cards page is reachable with Card Controls form visible"
+      ],
+      "steps": [
+        "1. Navigate to the Manage Cards page",
+        "2. In the Card Controls card, select <Selected Card> from the Select Existing Card dropdown",
+        "3. Expand the Travel Notice group",
+        "4. Enter <valid start date> in Start_Date and <valid end date> in End_Date (Start_Date on or before End_Date)",
+        "5. Click 'Add Destination' to add the first destination row",
+        "6. Enter <destination A> in the first Destination row",
+        "7. Click 'Add Destination' again to add a second destination row",
+        "8. Enter <destination B> in the second Destination row",
+        "9. Click the 'Update Controls' button"
+      ],
+      "expected_result": "'Card controls updated successfully.' is displayed and the Travel Notice summary for the selected card shows the dates <valid start date> \u2013 <valid end date> and lists <destination A> and <destination B> as destinations",
       "priority": "medium"
     }
   ],
   "summary": {
-    "total": 3,
+    "total": 4,
     "high_priority": 2,
-    "medium_priority": 1,
+    "medium_priority": 2,
     "low_priority": 0
   }
 }

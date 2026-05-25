@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-21T22:54:00.263153
+DEBUG SESSION STARTED: 2026-05-25T14:51:20.251264
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[22:54:00] Test-Edge - SYSTEM PROMPT
+[14:51:20] Test-Edge - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Edge Case and Boundary Test Generator. You receive (1) a UI-AST JSON for one module and (2) the original functional description. Your job is to produce ONLY boundary and edge case tests — scenarios at the limits of valid/invalid input and unusual-but-plausible user behaviors.
 
@@ -25,6 +25,10 @@ You are NOT producing happy paths (positive prompt) or standard validation failu
 {Original functional description text for this module}
 </description>
 
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
+
 ---
 
 **UI-AST REFERENCE — How to Read the AST for Edge Testing:**
@@ -35,7 +39,7 @@ You are NOT producing happy paths (positive prompt) or standard validation failu
 | `repeating_group` with `max` | Test adding exactly `max` entries (should succeed) then one more (should block) |
 | `visible_when` / `required_when` | Edge: trigger condition, fill revealed field with boundary value |
 | `state_bound_action_bar` | State edges: rapid consecutive state transitions, transition from a boundary state |
-| `submit_actions[]` with multiple buttons | Interaction edge: double-click a submit button rapidly |
+
 | `type: "date"` fields | Data edges: today, yesterday, far future, Feb 29 leap year |
 | `type: "file_upload"` | Edge: file exactly at size limit, file at 1 byte over limit |
 
@@ -132,7 +136,6 @@ Pick only the ones that apply to field types present in this module's AST:
 
 Pick only the ones that match component types in this module's AST:
 
-- **Double-click submit** (any form/wizard with a submit button): rapidly double-click the submit button → assert only one record is created; no duplicate row appears in the listing table
 - **Rapid re-submission after redirect** (any form that redirects to a detail page on success): after a successful submit, press the browser back button → assert the creation form is shown blank (not pre-filled) OR the user is redirected to the detail page without a second entity being created
 - **Wizard step skip — enforced navigation** (wizard where steps must be completed sequentially): attempt to click a later step tab directly without completing earlier steps → assert navigation is blocked and the earlier step remains active
 - **Wizard step skip — free navigation** (wizard that allows free tab navigation): navigate to a later step without filling earlier steps → assert the later step displays and returning to the earlier step shows fields blank (no data was lost from the later step)
@@ -173,7 +176,16 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 
 - **High:** None — edge tests are secondary to core functionality
 - **Medium:** Boundary tests at thresholds (financial amounts, date ordering, count limits, file size limits)
-- **Low:** Input edge cases (long text, special chars, whitespace, decimal precision), interaction edge cases (double-click, browser back, wizard skip)
+- **Low:** Input edge cases (long text, special chars, whitespace, decimal precision), interaction edge cases (browser back, wizard skip)
+
+---
+
+**WORKFLOW-AWARE BOUNDARY SCOPING (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- For each workflow where `conditional_branch` activates a numeric or date field, check if that field has a boundary (a numeric/date threshold in the AST `constraints` or description).
+- If yes, that workflow's branch is a **candidate for a boundary edge test** — add or confirm a boundary TC exists for it.
+- Add `"wf_ref": "WF-NNN"` to each TC that maps to a specific workflow's boundary. Set `"wf_ref": null` for generic input/interaction edge tests.
 
 ---
 
@@ -185,6 +197,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": null,
       "subcategory": "boundary | input_edge | interaction_edge | state_edge | data_edge",
       "test_case": "Short descriptive name",
       "preconditions": ["precondition 1"],
@@ -207,7 +220,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 
 
 ------------------------------------------------------------
-[22:54:00] Test-Edge - USER PROMPT
+[14:51:20] Test-Edge - USER PROMPT
 ------------------------------------------------------------
 <module_name>Hotel Details & Booking</module_name>
 
@@ -215,91 +228,70 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 {
   "module_name": "Hotel Details & Booking",
   "components": {
-    "Room_Types": {
-      "type": "repeating_group",
-      "description": "List of available room types for the hotel; each row offers a select action to begin booking that room",
-      "item_fields": {
-        "Room_Type_Name": {
-          "type": "text",
-          "required": false
-        },
-        "Price": {
-          "type": "number",
-          "required": false
-        },
-        "Max_Occupancy": {
-          "type": "number",
-          "required": false
+    "Hotel_Details_Page": {
+      "type": "page",
+      "components": {
+        "Room_Types": {
+          "type": "data_table",
+          "columns": [
+            "Room_Type",
+            "Price",
+            "Max_Occupancy"
+          ],
+          "row_actions": [
+            {
+              "action_name": "Select Room",
+              "on_success": "reveals booking form and populates Selected_Hotel and Selected_Room_Type"
+            }
+          ],
+          "bulk_actions": []
         }
-      },
-      "row_actions": [
-        {
-          "action_name": "Select Room",
-          "type": "button",
-          "on_success": "populates Booking_Form.fields.Selected_Hotel, Booking_Form.fields.Selected_Room_Type, Booking_Form.fields.Room_Rate, Booking_Form.fields.Taxes, Booking_Form.fields.Fees, Booking_Form.fields.Total and opens Booking_Form",
-          "preconditions": []
-        }
-      ]
+      }
     },
     "Booking_Form": {
       "type": "form",
+      "visible_when": "Selected_Room_Type != ''",
       "fields": {
         "Selected_Hotel": {
           "type": "text",
-          "required": true,
-          "read_only": true,
-          "description": "Populated when a room is selected"
+          "required": false
         },
         "Selected_Room_Type": {
           "type": "text",
-          "required": true,
-          "read_only": true,
-          "description": "Populated when a room is selected"
+          "required": false
         },
-        "Check_In": {
+        "Check_in_Date": {
           "type": "date",
           "required": true
         },
-        "Check_Out": {
+        "Check_out_Date": {
           "type": "date",
           "required": true
         },
         "Guest_Count": {
           "type": "number",
-          "required": true,
-          "constraints": []
+          "required": true
         },
-        "Room_Rate": {
-          "type": "number",
-          "required": true,
-          "read_only": true,
-          "constraints": [
-            "currency"
-          ]
-        },
-        "Taxes": {
-          "type": "number",
-          "required": true,
-          "read_only": true,
-          "constraints": [
-            "currency"
-          ]
-        },
-        "Fees": {
-          "type": "number",
-          "required": true,
-          "read_only": true,
-          "constraints": [
-            "currency"
-          ]
-        },
-        "Total": {
-          "type": "number",
-          "required": true,
-          "read_only": true,
-          "constraints": [
-            "currency"
-          ]
+        "Price_Breakdown": {
+          "type": "object",
+          "fields": {
+            "Room_Rate": {
+              "type": "number",
+              "required": false
+            },
+            "Taxes": {
+              "type": "number",
+              "required": false
+            },
+            "Fees": {
+              "type": "number",
+              "required": false
+            },
+            "Total": {
+              "type": "number",
+              "required": false
+            }
+          }
         },
         "First_Name": {
           "type": "text",
@@ -311,26 +303,24 @@ If the module has any numeric/date/count threshold in the AST or description, pr
         },
         "Email": {
           "type": "email",
-          "required": true,
-          "constraints": []
+          "required": true
         },
         "Phone_Number": {
           "type": "tel",
           "required": true
         },
         "Special_Requests": {
-          "type": "textarea",
+          "type": "text",
           "required": false
         }
       },
       "submit_actions": [
         {
           "element_name": "Book Now",
-          "type": "button",
           "preconditions": [
             "user must be logged in"
           ],
-          "on_success": "redirects to Payment page"
+          "on_success": "proceeds to payment page"
         }
       ]
     }
@@ -347,10 +337,15 @@ The hotel details page displays a photo gallery, full property description, loca
 
 </description>
 
+<workflows>
+WF-001 | Select Room (row action) reveals booking form | actor: <role> | branch: none | terminal: Select Room | on_success: reveals booking form and populates Selected_Hotel and Selected_Room_Type
+WF-002 | Book Now with Selected_Room_Type visible (requires user logged in) | actor: <role> | branch: Selected_Room_Type != '' | terminal: Book Now | on_success: proceeds to payment page
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[22:55:48] Test-Edge - LLM RESPONSE
+[14:52:31] Test-Edge - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Hotel Details & Booking",
@@ -358,188 +353,104 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "E-001",
-      "subcategory": "boundary",
-      "test_case": "Earliest same/next-day booking allowed (Check_In = <today>, Check_Out = <today + 1 day>)",
+      "wf_ref": "WF-001",
+      "subcategory": "state_edge",
+      "test_case": "Select Room row action reveals booking form and populates selected fields",
       "preconditions": [
-        "User is logged in",
-        "Hotel details page is open and at least one room row is present"
+        "Hotel Details page is open",
+        "At least one room row is displayed in the Room_Types table"
       ],
       "steps": [
-        "1. Click 'Select Room' on a room row",
-        "2. Verify Booking_Form opens",
-        "3. Enter <today> into Check_In",
-        "4. Enter <today + 1 day> into Check_Out",
-        "5. Enter a valid value into Guest_Count",
-        "6. Enter a valid First_Name",
-        "7. Enter a valid Last_Name",
-        "8. Enter a valid Email",
-        "9. Enter a valid Phone_Number",
-        "10. Click 'Book Now'"
+        "1. Click the 'Select Room' row action for a specific room in the Room_Types table"
       ],
-      "expected_result": "Form submission succeeds: user is redirected to the Payment page and Booking_Form read-only fields (Selected_Hotel, Selected_Room_Type, Room_Rate, Taxes, Fees, Total) remain populated with the selected room's values; the redirect to Payment page is visible",
+      "expected_result": "Clicking the 'Select Room' row action succeeds; the Booking_Form becomes visible (was hidden before), and the Selected_Hotel and Selected_Room_Type input fields are populated with the room's hotel name and room type values displayed in their respective input fields.",
       "priority": "medium"
     },
     {
       "tc_id": "E-002",
-      "subcategory": "boundary",
-      "test_case": "Booking blocked when Check_In is in the past (Check_In = <yesterday>)",
+      "wf_ref": "WF-002",
+      "subcategory": "interaction_edge",
+      "test_case": "Attempt 'Book Now' while not logged in with booking form visible",
       "preconditions": [
-        "User is logged in",
-        "Hotel details page is open and at least one room row is present"
+        "User is not logged in",
+        "Booking_Form is visible with Selected_Room_Type populated"
       ],
       "steps": [
-        "1. Click 'Select Room' on a room row",
-        "2. Verify Booking_Form opens",
-        "3. Enter <yesterday> into Check_In",
-        "4. Enter <today + 1 day> into Check_Out",
-        "5. Enter a valid value into Guest_Count",
-        "6. Enter a valid First_Name",
-        "7. Enter a valid Last_Name",
-        "8. Enter a valid Email",
-        "9. Enter a valid Phone_Number",
-        "10. Click 'Book Now'"
+        "1. Enter a valid value into Check_in_Date",
+        "2. Enter a valid value into Check_out_Date",
+        "3. Enter a numeric value into Guest_Count",
+        "4. Enter values into First_Name and Last_Name",
+        "5. Enter a syntactically-valid Email value",
+        "6. Enter a Phone_Number value",
+        "7. Click the 'Book Now' button"
       ],
-      "expected_result": "Submission is blocked / error shown: the Check_In field displays an inline error indicating the date is in the past and the form does not redirect to the Payment page",
+      "expected_result": "'Book Now' is blocked; a login prompt or modal appears (or a visible inline message requiring authentication is shown) and the user remains on the booking form without progressing to the payment page.",
       "priority": "medium"
     },
     {
       "tc_id": "E-003",
-      "subcategory": "boundary",
-      "test_case": "Same-day check-in and check-out (Check_Out = Check_In) — zero-night stay boundary",
+      "wf_ref": null,
+      "subcategory": "data_edge",
+      "test_case": "Booking form accepts today's date in Check_in_Date",
       "preconditions": [
-        "User is logged in",
-        "Hotel details page is open and at least one room row is present"
+        "Booking_Form is visible with Selected_Room_Type populated"
       ],
       "steps": [
-        "1. Click 'Select Room' on a room row",
-        "2. Verify Booking_Form opens",
-        "3. Enter <a date X> into Check_In",
-        "4. Enter the same date <date X> into Check_Out",
-        "5. Enter a valid value into Guest_Count",
-        "6. Enter a valid First_Name",
-        "7. Enter a valid Last_Name",
-        "8. Enter a valid Email",
-        "9. Enter a valid Phone_Number",
-        "10. Click 'Book Now'"
+        "1. Open the Check_in_Date picker or focus the Check_in_Date field",
+        "2. Select or enter <today> in the Check_in_Date field",
+        "3. Select or enter <today + 1 day> in the Check_out_Date field"
       ],
-      "expected_result": "Submission is blocked / error shown: the Check_Out field (or a cross-field validation banner) displays an inline error indicating Check_Out must be after Check_In and the form does not redirect to the Payment page",
-      "priority": "medium"
+      "expected_result": "Entering <today> in Check_in_Date succeeds; the Check_in_Date and Check_out_Date fields show the entered dates and no inline date-validation error is displayed for using today's date.",
+      "priority": "low"
     },
     {
       "tc_id": "E-004",
+      "wf_ref": null,
       "subcategory": "input_edge",
-      "test_case": "Very long Special_Requests text (200+ characters) preserved through booking flow",
+      "test_case": "Special_Requests accepts long Unicode and emoji content (200+ characters)",
       "preconditions": [
-        "User is logged in",
-        "Hotel details page is open and at least one room row is present"
+        "Booking_Form is visible with Selected_Room_Type populated"
       ],
       "steps": [
-        "1. Click 'Select Room' on a room row",
-        "2. Verify Booking_Form opens",
-        "3. Enter valid Check_In and Check_Out dates",
-        "4. Enter a valid value into Guest_Count",
-        "5. Enter a valid First_Name",
-        "6. Enter a valid Last_Name",
-        "7. Enter a valid Email",
-        "8. Enter a valid Phone_Number",
-        "9. Enter a very long string (200+ characters) into Special_Requests",
-        "10. Click 'Book Now'"
+        "1. Enter a very long string (200+ characters) containing Unicode characters and emoji into the Special_Requests field",
+        "2. Blur the Special_Requests field (click outside the field) to trigger any client-side validation/preview"
       ],
-      "expected_result": "Form submission succeeds: user is redirected to the Payment page and the booking summary on the Payment page displays the full Special_Requests text (no visible truncation) or a visible note indicates preservation of the full text",
+      "expected_result": "Entering a 200+ character Unicode/emoji string into Special_Requests succeeds; the UI accepts the input and the exact entered characters are displayed in the booking summary/preview (no silent corruption). If the app truncates, a visible truncation indicator or inline message is shown instead.",
       "priority": "low"
     },
     {
       "tc_id": "E-005",
+      "wf_ref": null,
       "subcategory": "input_edge",
-      "test_case": "Unicode / emoji characters in First_Name are preserved",
+      "test_case": "Leading/trailing whitespace in First_Name and Last_Name is normalized on submit",
       "preconditions": [
         "User is logged in",
-        "Hotel details page is open and at least one room row is present"
+        "Booking_Form is visible with Selected_Room_Type populated"
       ],
       "steps": [
-        "1. Click 'Select Room' on a room row",
-        "2. Verify Booking_Form opens",
-        "3. Enter valid Check_In and Check_Out dates",
-        "4. Enter a valid value into Guest_Count",
-        "5. Enter a First_Name that contains emoji and other Unicode characters",
-        "6. Enter a valid Last_Name",
-        "7. Enter a valid Email",
-        "8. Enter a valid Phone_Number",
-        "9. Click 'Book Now'"
+        "1. Enter a First_Name value with leading and trailing spaces into the First_Name field",
+        "2. Enter a Last_Name value with leading and trailing spaces into the Last_Name field",
+        "3. Fill all other required fields (Check_in_Date, Check_out_Date, Guest_Count, Email, Phone_Number)",
+        "4. Click 'Book Now'"
       ],
-      "expected_result": "Form submission succeeds: user is redirected to the Payment page and the booking summary shows the First_Name exactly as entered (emoji/Unicode preserved and visible)",
+      "expected_result": "Submitting the form with leading/trailing whitespace in First_Name and Last_Name succeeds; on the booking details shown after the action (e.g., payment page or booking summary) the First_Name and Last_Name values are displayed without leading or trailing whitespace (whitespace is trimmed) and no validation error is shown for the names.",
       "priority": "low"
-    },
-    {
-      "tc_id": "E-006",
-      "subcategory": "input_edge",
-      "test_case": "Leading/trailing whitespace in First_Name is trimmed in saved booking",
-      "preconditions": [
-        "User is logged in",
-        "Hotel details page is open and at least one room row is present"
-      ],
-      "steps": [
-        "1. Click 'Select Room' on a room row",
-        "2. Verify Booking_Form opens",
-        "3. Enter valid Check_In and Check_Out dates",
-        "4. Enter a valid value into Guest_Count",
-        "5. Enter a First_Name with leading and trailing whitespace",
-        "6. Enter a valid Last_Name",
-        "7. Enter a valid Email",
-        "8. Enter a valid Phone_Number",
-        "9. Click 'Book Now'"
-      ],
-      "expected_result": "Form submission succeeds: user is redirected to the Payment page and the booking summary displays the First_Name with leading/trailing whitespace removed (trimmed) indicating the value was normalized before save",
-      "priority": "low"
-    },
-    {
-      "tc_id": "E-007",
-      "subcategory": "interaction_edge",
-      "test_case": "Rapid double-click of 'Book Now' should not create duplicate bookings",
-      "preconditions": [
-        "User is logged in",
-        "Hotel details page is open and at least one room row is present",
-        "Booking_Form is filled with valid required values"
-      ],
-      "steps": [
-        "1. Click 'Select Room' on a room row",
-        "2. Verify Booking_Form opens and required fields are filled",
-        "3. Rapidly double-click the 'Book Now' button (two clicks in quick succession)"
-      ],
-      "expected_result": "Form submission succeeds once: the UI performs a single redirect to the Payment page; the Book Now control becomes disabled (or shows a loading state) after the first click and the second click does not cause a second redirect or initiate a duplicate booking (duplicate submission is blocked)",
-      "priority": "medium"
-    },
-    {
-      "tc_id": "E-008",
-      "subcategory": "state_edge",
-      "test_case": "Rapidly selecting two different rooms before Booking_Form fully opens populates form with the last selection (last-click wins)",
-      "preconditions": [
-        "User is logged in",
-        "Hotel details page is open and at least two room rows are present"
-      ],
-      "steps": [
-        "1. Click 'Select Room' on Room Row A",
-        "2. Immediately (within UI response time) click 'Select Room' on Room Row B",
-        "3. Observe that Booking_Form opens"
-      ],
-      "expected_result": "Action succeeds: Booking_Form opens populated with the second selection's values (Selected_Room_Type and Room_Rate reflect Room Row B); the UI visibly shows the second room's details, demonstrating the last-click wins behavior",
-      "priority": "medium"
     }
   ],
   "summary": {
-    "total": 8,
-    "boundary": 3,
+    "total": 5,
+    "boundary": 0,
     "input_edge": 3,
     "interaction_edge": 1,
     "state_edge": 1,
-    "data_edge": 0,
-    "medium_priority": 5,
+    "data_edge": 1,
+    "medium_priority": 2,
     "low_priority": 3
   }
 }
 
 ------------------------------------------------------------
-[22:55:48] Test-Edge - PARSED JSON
+[14:52:31] Test-Edge - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Hotel Details & Booking",
@@ -547,182 +458,98 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "E-001",
-      "subcategory": "boundary",
-      "test_case": "Earliest same/next-day booking allowed (Check_In = <today>, Check_Out = <today + 1 day>)",
+      "wf_ref": "WF-001",
+      "subcategory": "state_edge",
+      "test_case": "Select Room row action reveals booking form and populates selected fields",
       "preconditions": [
-        "User is logged in",
-        "Hotel details page is open and at least one room row is present"
+        "Hotel Details page is open",
+        "At least one room row is displayed in the Room_Types table"
       ],
       "steps": [
-        "1. Click 'Select Room' on a room row",
-        "2. Verify Booking_Form opens",
-        "3. Enter <today> into Check_In",
-        "4. Enter <today + 1 day> into Check_Out",
-        "5. Enter a valid value into Guest_Count",
-        "6. Enter a valid First_Name",
-        "7. Enter a valid Last_Name",
-        "8. Enter a valid Email",
-        "9. Enter a valid Phone_Number",
-        "10. Click 'Book Now'"
+        "1. Click the 'Select Room' row action for a specific room in the Room_Types table"
       ],
-      "expected_result": "Form submission succeeds: user is redirected to the Payment page and Booking_Form read-only fields (Selected_Hotel, Selected_Room_Type, Room_Rate, Taxes, Fees, Total) remain populated with the selected room's values; the redirect to Payment page is visible",
+      "expected_result": "Clicking the 'Select Room' row action succeeds; the Booking_Form becomes visible (was hidden before), and the Selected_Hotel and Selected_Room_Type input fields are populated with the room's hotel name and room type values displayed in their respective input fields.",
       "priority": "medium"
     },
     {
       "tc_id": "E-002",
-      "subcategory": "boundary",
-      "test_case": "Booking blocked when Check_In is in the past (Check_In = <yesterday>)",
+      "wf_ref": "WF-002",
+      "subcategory": "interaction_edge",
+      "test_case": "Attempt 'Book Now' while not logged in with booking form visible",
       "preconditions": [
-        "User is logged in",
-        "Hotel details page is open and at least one room row is present"
+        "User is not logged in",
+        "Booking_Form is visible with Selected_Room_Type populated"
       ],
       "steps": [
-        "1. Click 'Select Room' on a room row",
-        "2. Verify Booking_Form opens",
-        "3. Enter <yesterday> into Check_In",
-        "4. Enter <today + 1 day> into Check_Out",
-        "5. Enter a valid value into Guest_Count",
-        "6. Enter a valid First_Name",
-        "7. Enter a valid Last_Name",
-        "8. Enter a valid Email",
-        "9. Enter a valid Phone_Number",
-        "10. Click 'Book Now'"
+        "1. Enter a valid value into Check_in_Date",
+        "2. Enter a valid value into Check_out_Date",
+        "3. Enter a numeric value into Guest_Count",
+        "4. Enter values into First_Name and Last_Name",
+        "5. Enter a syntactically-valid Email value",
+        "6. Enter a Phone_Number value",
+        "7. Click the 'Book Now' button"
       ],
-      "expected_result": "Submission is blocked / error shown: the Check_In field displays an inline error indicating the date is in the past and the form does not redirect to the Payment page",
+      "expected_result": "'Book Now' is blocked; a login prompt or modal appears (or a visible inline message requiring authentication is shown) and the user remains on the booking form without progressing to the payment page.",
       "priority": "medium"
     },
     {
       "tc_id": "E-003",
-      "subcategory": "boundary",
-      "test_case": "Same-day check-in and check-out (Check_Out = Check_In) \u2014 zero-night stay boundary",
+      "wf_ref": null,
+      "subcategory": "data_edge",
+      "test_case": "Booking form accepts today's date in Check_in_Date",
       "preconditions": [
-        "User is logged in",
-        "Hotel details page is open and at least one room row is present"
+        "Booking_Form is visible with Selected_Room_Type populated"
       ],
       "steps": [
-        "1. Click 'Select Room' on a room row",
-        "2. Verify Booking_Form opens",
-        "3. Enter <a date X> into Check_In",
-        "4. Enter the same date <date X> into Check_Out",
-        "5. Enter a valid value into Guest_Count",
-        "6. Enter a valid First_Name",
-        "7. Enter a valid Last_Name",
-        "8. Enter a valid Email",
-        "9. Enter a valid Phone_Number",
-        "10. Click 'Book Now'"
+        "1. Open the Check_in_Date picker or focus the Check_in_Date field",
+        "2. Select or enter <today> in the Check_in_Date field",
+        "3. Select or enter <today + 1 day> in the Check_out_Date field"
       ],
-      "expected_result": "Submission is blocked / error shown: the Check_Out field (or a cross-field validation banner) displays an inline error indicating Check_Out must be after Check_In and the form does not redirect to the Payment page",
-      "priority": "medium"
+      "expected_result": "Entering <today> in Check_in_Date succeeds; the Check_in_Date and Check_out_Date fields show the entered dates and no inline date-validation error is displayed for using today's date.",
+      "priority": "low"
     },
     {
       "tc_id": "E-004",
+      "wf_ref": null,
       "subcategory": "input_edge",
-      "test_case": "Very long Special_Requests text (200+ characters) preserved through booking flow",
+      "test_case": "Special_Requests accepts long Unicode and emoji content (200+ characters)",
       "preconditions": [
-        "User is logged in",
-        "Hotel details page is open and at least one room row is present"
+        "Booking_Form is visible with Selected_Room_Type populated"
       ],
       "steps": [
-        "1. Click 'Select Room' on a room row",
-        "2. Verify Booking_Form opens",
-        "3. Enter valid Check_In and Check_Out dates",
-        "4. Enter a valid value into Guest_Count",
-        "5. Enter a valid First_Name",
-        "6. Enter a valid Last_Name",
-        "7. Enter a valid Email",
-        "8. Enter a valid Phone_Number",
-        "9. Enter a very long string (200+ characters) into Special_Requests",
-        "10. Click 'Book Now'"
+        "1. Enter a very long string (200+ characters) containing Unicode characters and emoji into the Special_Requests field",
+        "2. Blur the Special_Requests field (click outside the field) to trigger any client-side validation/preview"
       ],
-      "expected_result": "Form submission succeeds: user is redirected to the Payment page and the booking summary on the Payment page displays the full Special_Requests text (no visible truncation) or a visible note indicates preservation of the full text",
+      "expected_result": "Entering a 200+ character Unicode/emoji string into Special_Requests succeeds; the UI accepts the input and the exact entered characters are displayed in the booking summary/preview (no silent corruption). If the app truncates, a visible truncation indicator or inline message is shown instead.",
       "priority": "low"
     },
     {
       "tc_id": "E-005",
+      "wf_ref": null,
       "subcategory": "input_edge",
-      "test_case": "Unicode / emoji characters in First_Name are preserved",
+      "test_case": "Leading/trailing whitespace in First_Name and Last_Name is normalized on submit",
       "preconditions": [
         "User is logged in",
-        "Hotel details page is open and at least one room row is present"
+        "Booking_Form is visible with Selected_Room_Type populated"
       ],
       "steps": [
-        "1. Click 'Select Room' on a room row",
-        "2. Verify Booking_Form opens",
-        "3. Enter valid Check_In and Check_Out dates",
-        "4. Enter a valid value into Guest_Count",
-        "5. Enter a First_Name that contains emoji and other Unicode characters",
-        "6. Enter a valid Last_Name",
-        "7. Enter a valid Email",
-        "8. Enter a valid Phone_Number",
-        "9. Click 'Book Now'"
+        "1. Enter a First_Name value with leading and trailing spaces into the First_Name field",
+        "2. Enter a Last_Name value with leading and trailing spaces into the Last_Name field",
+        "3. Fill all other required fields (Check_in_Date, Check_out_Date, Guest_Count, Email, Phone_Number)",
+        "4. Click 'Book Now'"
       ],
-      "expected_result": "Form submission succeeds: user is redirected to the Payment page and the booking summary shows the First_Name exactly as entered (emoji/Unicode preserved and visible)",
+      "expected_result": "Submitting the form with leading/trailing whitespace in First_Name and Last_Name succeeds; on the booking details shown after the action (e.g., payment page or booking summary) the First_Name and Last_Name values are displayed without leading or trailing whitespace (whitespace is trimmed) and no validation error is shown for the names.",
       "priority": "low"
-    },
-    {
-      "tc_id": "E-006",
-      "subcategory": "input_edge",
-      "test_case": "Leading/trailing whitespace in First_Name is trimmed in saved booking",
-      "preconditions": [
-        "User is logged in",
-        "Hotel details page is open and at least one room row is present"
-      ],
-      "steps": [
-        "1. Click 'Select Room' on a room row",
-        "2. Verify Booking_Form opens",
-        "3. Enter valid Check_In and Check_Out dates",
-        "4. Enter a valid value into Guest_Count",
-        "5. Enter a First_Name with leading and trailing whitespace",
-        "6. Enter a valid Last_Name",
-        "7. Enter a valid Email",
-        "8. Enter a valid Phone_Number",
-        "9. Click 'Book Now'"
-      ],
-      "expected_result": "Form submission succeeds: user is redirected to the Payment page and the booking summary displays the First_Name with leading/trailing whitespace removed (trimmed) indicating the value was normalized before save",
-      "priority": "low"
-    },
-    {
-      "tc_id": "E-007",
-      "subcategory": "interaction_edge",
-      "test_case": "Rapid double-click of 'Book Now' should not create duplicate bookings",
-      "preconditions": [
-        "User is logged in",
-        "Hotel details page is open and at least one room row is present",
-        "Booking_Form is filled with valid required values"
-      ],
-      "steps": [
-        "1. Click 'Select Room' on a room row",
-        "2. Verify Booking_Form opens and required fields are filled",
-        "3. Rapidly double-click the 'Book Now' button (two clicks in quick succession)"
-      ],
-      "expected_result": "Form submission succeeds once: the UI performs a single redirect to the Payment page; the Book Now control becomes disabled (or shows a loading state) after the first click and the second click does not cause a second redirect or initiate a duplicate booking (duplicate submission is blocked)",
-      "priority": "medium"
-    },
-    {
-      "tc_id": "E-008",
-      "subcategory": "state_edge",
-      "test_case": "Rapidly selecting two different rooms before Booking_Form fully opens populates form with the last selection (last-click wins)",
-      "preconditions": [
-        "User is logged in",
-        "Hotel details page is open and at least two room rows are present"
-      ],
-      "steps": [
-        "1. Click 'Select Room' on Room Row A",
-        "2. Immediately (within UI response time) click 'Select Room' on Room Row B",
-        "3. Observe that Booking_Form opens"
-      ],
-      "expected_result": "Action succeeds: Booking_Form opens populated with the second selection's values (Selected_Room_Type and Room_Rate reflect Room Row B); the UI visibly shows the second room's details, demonstrating the last-click wins behavior",
-      "priority": "medium"
     }
   ],
   "summary": {
-    "total": 8,
-    "boundary": 3,
+    "total": 5,
+    "boundary": 0,
     "input_edge": 3,
     "interaction_edge": 1,
     "state_edge": 1,
-    "data_edge": 0,
-    "medium_priority": 5,
+    "data_edge": 1,
+    "medium_priority": 2,
     "low_priority": 3
   }
 }

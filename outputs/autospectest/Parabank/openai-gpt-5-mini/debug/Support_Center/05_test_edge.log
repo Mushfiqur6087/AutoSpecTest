@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-22T21:31:44.632538
+DEBUG SESSION STARTED: 2026-05-25T15:41:24.137671
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[21:31:44] Test-Edge - SYSTEM PROMPT
+[15:41:24] Test-Edge - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Edge Case and Boundary Test Generator. You receive (1) a UI-AST JSON for one module and (2) the original functional description. Your job is to produce ONLY boundary and edge case tests — scenarios at the limits of valid/invalid input and unusual-but-plausible user behaviors.
 
@@ -24,6 +24,10 @@ You are NOT producing happy paths (positive prompt) or standard validation failu
 <description>
 {Original functional description text for this module}
 </description>
+
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
 
 ---
 
@@ -176,6 +180,15 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 
 ---
 
+**WORKFLOW-AWARE BOUNDARY SCOPING (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- For each workflow where `conditional_branch` activates a numeric or date field, check if that field has a boundary (a numeric/date threshold in the AST `constraints` or description).
+- If yes, that workflow's branch is a **candidate for a boundary edge test** — add or confirm a boundary TC exists for it.
+- Add `"wf_ref": "WF-NNN"` to each TC that maps to a specific workflow's boundary. Set `"wf_ref": null` for generic input/interaction edge tests.
+
+---
+
 **OUTPUT — JSON only, no prose, no markdown fencing:**
 
 {
@@ -184,6 +197,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": null,
       "subcategory": "boundary | input_edge | interaction_edge | state_edge | data_edge",
       "test_case": "Short descriptive name",
       "preconditions": ["precondition 1"],
@@ -206,7 +220,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 
 
 ------------------------------------------------------------
-[21:31:44] Test-Edge - USER PROMPT
+[15:41:24] Test-Edge - USER PROMPT
 ------------------------------------------------------------
 <module_name>Support Center</module_name>
 
@@ -221,7 +235,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
           "type": "text",
           "required": false,
           "constraints": [
-            "checks subject length"
+            "subject length must meet system limits (validated on submit)"
           ]
         },
         "Category": {
@@ -245,15 +259,20 @@ If the module has any numeric/date/count threshold in the AST or description, pr
           "type": "file_upload",
           "required": false,
           "constraints": [
-            "validates attachment types"
+            "attachment type must be one of allowed types (validated on upload)"
           ]
         }
       },
       "submit_actions": [
         {
           "element_name": "Send Message",
-          "on_success": "Message sent successfully. returns ticket ID",
-          "on_failure": "displays inline guidance"
+          "on_success": "Message sent successfully. Returns ticket ID.",
+          "on_failure": "validation errors are shown inline",
+          "constraints": [
+            "system checks subject length",
+            "ensures message body is present",
+            "validates attachment types"
+          ]
         }
       ]
     },
@@ -262,33 +281,37 @@ If the module has any numeric/date/count threshold in the AST or description, pr
       "fields": {
         "Reason_for_Call": {
           "type": "dropdown",
-          "required": false
+          "required": true
         },
         "Preferred_Date": {
           "type": "date",
-          "required": false,
+          "required": true,
           "constraints": [
             "date must be at least the next business day"
           ]
         },
         "Preferred_Time_Window": {
-          "type": "unspecified",
-          "required": false
+          "type": "time_window",
+          "required": true
         },
         "Phone_Number": {
-          "type": "tel",
-          "required": false,
+          "type": "unspecified",
+          "required": true,
           "prefilled": true,
           "constraints": [
-            "validates phone number format"
+            "must match valid phone number format (validated on submit)"
           ]
         }
       },
       "submit_actions": [
         {
           "element_name": "Request Callback",
-          "on_success": "Callback request submitted. sends email confirmation",
-          "on_failure": "validation errors shown inline"
+          "on_success": "Callback request submitted. Sends email confirmation.",
+          "on_failure": "validation errors are shown inline",
+          "constraints": [
+            "date must be at least the next business day",
+            "validates phone number format"
+          ]
         }
       ]
     }
@@ -302,10 +325,15 @@ The Support Center page integrates two communication forms.The secure message fo
 
 </description>
 
+<workflows>
+WF-001 | Send Secure Message | actor: <role> | branch: none | terminal: Send Message | on_success: Message sent successfully. Returns ticket ID.
+WF-002 | Request Callback | actor: <role> | branch: none | terminal: Request Callback | on_success: Callback request submitted. Sends email confirmation.
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[21:34:18] Test-Edge - LLM RESPONSE
+[15:44:37] Test-Edge - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Support Center",
@@ -313,171 +341,156 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": "WF-002",
       "subcategory": "boundary",
-      "test_case": "Subject at maximum allowed length is accepted",
+      "test_case": "Preferred Date exactly the next business day (boundary pass)",
       "preconditions": [
-        "User is logged in",
-        "Support Center page is open",
-        "Secure Message form is visible"
+        "User is authenticated and on Support Center page",
+        "Schedule Callback form is visible"
       ],
       "steps": [
-        "1. Click into the Subject field",
-        "2. Enter a string of exactly <maximum allowed length> characters into the Subject field",
-        "3. Click into the Message_Body field",
-        "4. Enter valid text into the Message_Body field",
-        "5. Click the Send Message button"
+        "1. Select a value in Reason_for_Call",
+        "2. Enter <next business day> into Preferred_Date",
+        "3. Select a value in Preferred_Time_Window",
+        "4. Verify Phone_Number is prefilled (do not edit)",
+        "5. Click Request Callback"
       ],
-      "expected_result": "Form submits successfully; 'Message sent successfully.' is shown and a ticket ID is returned (submission succeeds).",
+      "expected_result": "Request Callback succeeds; page shows confirmation with text 'Callback request submitted.' and an email confirmation is triggered (visible confirmation message displayed).",
       "priority": "medium"
     },
     {
       "tc_id": "E-002",
+      "wf_ref": "WF-002",
       "subcategory": "boundary",
-      "test_case": "Subject one character over maximum length is blocked",
+      "test_case": "Preferred Date one day before the next business day (boundary fail)",
       "preconditions": [
-        "User is logged in",
-        "Support Center page is open",
-        "Secure Message form is visible"
+        "User is authenticated and on Support Center page",
+        "Schedule Callback form is visible"
       ],
       "steps": [
-        "1. Click into the Subject field",
-        "2. Enter a string of exactly <maximum allowed length + 1> characters into the Subject field",
-        "3. Click into the Message_Body field",
-        "4. Enter valid text into the Message_Body field",
-        "5. Click the Send Message button"
+        "1. Select a value in Reason_for_Call",
+        "2. Enter <one day before the next business day> into Preferred_Date",
+        "3. Select a value in Preferred_Time_Window",
+        "4. Verify Phone_Number is prefilled (do not edit)",
+        "5. Click Request Callback"
       ],
-      "expected_result": "Submission is blocked; Subject field displays an inline error indicating the subject length exceeds the allowed maximum (is blocked / error shown).",
+      "expected_result": "Submission is blocked / error shown; Preferred_Date displays an inline error indicating the date must be at least the next business day and the callback request is not submitted.",
       "priority": "medium"
     },
     {
       "tc_id": "E-003",
-      "subcategory": "boundary",
-      "test_case": "Preferred Date set to the next business day is accepted",
+      "wf_ref": "WF-001",
+      "subcategory": "input_edge",
+      "test_case": "Very long Subject exceeds system length check (subject length edge)",
       "preconditions": [
-        "User is logged in",
-        "Support Center page is open",
-        "Schedule Callback form is visible"
+        "User is authenticated and on Support Center page",
+        "Secure Message form is visible"
       ],
       "steps": [
-        "1. Click into the Preferred_Date field",
-        "2. Enter <next business day> into the Preferred_Date field",
-        "3. (Optional) Click into Reason_for_Call and select a value or leave as default",
-        "4. Click into Phone_Number field and leave prefilled value unchanged",
-        "5. Click the Request Callback button"
+        "1. Enter a very long string (200+ characters) into Subject",
+        "2. Optionally select a Category",
+        "3. Enter a valid Message_Body (non-empty) into the Message_Body rich text field",
+        "4. Click Send Message"
       ],
-      "expected_result": "Form submits successfully; 'Callback request submitted.' is shown and the system sends an email confirmation (submission succeeds).",
+      "expected_result": "Submission is blocked / error shown; Subject field displays an inline error indicating the subject length exceeds the system limit and the message is not sent.",
       "priority": "medium"
     },
     {
       "tc_id": "E-004",
-      "subcategory": "boundary",
-      "test_case": "Preferred Date one calendar day before the next business day is blocked",
+      "wf_ref": "WF-001",
+      "subcategory": "input_edge",
+      "test_case": "Message Body contains only whitespace (rich text 'present' boundary)",
       "preconditions": [
-        "User is logged in",
-        "Support Center page is open",
-        "Schedule Callback form is visible"
+        "User is authenticated and on Support Center page",
+        "Secure Message form is visible"
       ],
       "steps": [
-        "1. Click into the Preferred_Date field",
-        "2. Enter <one calendar day before the next business day> into the Preferred_Date field",
-        "3. Click the Request Callback button"
+        "1. Leave Subject blank or enter any valid value",
+        "2. Optionally select a Category",
+        "3. Enter only whitespace characters into Message_Body",
+        "4. Click Send Message"
       ],
-      "expected_result": "Submission is blocked; Preferred_Date displays an inline validation error indicating the date must be at least the next business day (is blocked / error shown).",
+      "expected_result": "Submission is blocked / error shown; Message_Body displays an inline error indicating the message body must be present and the message is not sent.",
       "priority": "medium"
     },
     {
       "tc_id": "E-005",
+      "wf_ref": "WF-002",
       "subcategory": "input_edge",
-      "test_case": "Attachment with allowed type but uppercase filename extension is accepted",
+      "test_case": "Phone Number with leading/trailing whitespace is trimmed on submit",
       "preconditions": [
-        "User is logged in",
-        "Support Center page is open",
-        "Secure Message form is visible"
+        "User is authenticated and on Support Center page",
+        "Schedule Callback form is visible",
+        "Phone_Number field is prefilled with a valid phone number"
       ],
       "steps": [
-        "1. Click into the Subject field",
-        "2. Enter a short valid subject",
-        "3. Click into the Message_Body field",
-        "4. Enter valid text into the Message_Body field",
-        "5. Click the Attachment upload control",
-        "6. Select a file whose content type is allowed but whose filename uses an uppercase extension (e.g. filename ends with an uppercase extension)",
-        "7. Click the Send Message button"
+        "1. Edit Phone_Number by adding leading and trailing spaces around the prefilled number",
+        "2. Select a value in Reason_for_Call",
+        "3. Enter <next business day> into Preferred_Date",
+        "4. Select a value in Preferred_Time_Window",
+        "5. Click Request Callback"
       ],
-      "expected_result": "Attachment is accepted; form submits successfully and 'Message sent successfully.' is shown with a ticket ID (submission succeeds).",
-      "priority": "low"
+      "expected_result": "Request Callback succeeds; leading/trailing whitespace is trimmed from Phone_Number before validation and the callback request is submitted (confirmation 'Callback request submitted.' is shown).",
+      "priority": "medium"
     },
     {
       "tc_id": "E-006",
-      "subcategory": "input_edge",
-      "test_case": "Attachment using a double extension (allowed then disallowed) is blocked",
+      "wf_ref": "WF-001",
+      "subcategory": "interaction_edge",
+      "test_case": "Rapid re-submission after successful Send Message (duplicate prevention)",
       "preconditions": [
-        "User is logged in",
-        "Support Center page is open",
+        "User is authenticated and on Support Center page",
         "Secure Message form is visible"
       ],
       "steps": [
-        "1. Click into the Subject field",
-        "2. Enter a short valid subject",
-        "3. Click into the Message_Body field",
-        "4. Enter valid text into the Message_Body field",
-        "5. Click the Attachment upload control",
-        "6. Select a file whose filename contains a double extension pattern (e.g. allowed-extension followed by a disallowed-extension)",
-        "7. Click the Send Message button"
+        "1. Enter a valid Subject",
+        "2. Optionally select a Category",
+        "3. Enter a valid Message_Body",
+        "4. Click Send Message",
+        "5. Observe successful confirmation and note the returned ticket ID",
+        "6. Click the browser Back button to return to the Secure Message form",
+        "7. Click Send Message again without changing fields"
       ],
-      "expected_result": "Submission is blocked; the Attachment control displays an inline error indicating the attachment type is not allowed (is blocked / error shown).",
-      "priority": "low"
+      "expected_result": "Second submission is blocked / error shown; no duplicate ticket is created. UI shows either the original ticket detail or an inline message preventing duplicate submission, and only one ticket appears in the ticket list (the originally returned ticket ID).",
+      "priority": "medium"
     },
     {
       "tc_id": "E-007",
-      "subcategory": "input_edge",
-      "test_case": "Editing prefilled phone number with leading/trailing whitespace is trimmed and accepted",
-      "preconditions": [
-        "User is logged in",
-        "Support Center page is open",
-        "Schedule Callback form is visible and Phone_Number is prefilled"
-      ],
-      "steps": [
-        "1. Click into the Phone_Number field",
-        "2. Modify the Phone_Number to add leading and trailing whitespace around the existing number (enter <phone number with leading and trailing spaces>)",
-        "3. Click into Preferred_Date and enter <next business day>",
-        "4. Click the Request Callback button"
-      ],
-      "expected_result": "Form submits successfully; 'Callback request submitted.' is shown and phone number is saved/processed with leading/trailing whitespace trimmed in the saved record (submission succeeds).",
-      "priority": "low"
-    },
-    {
-      "tc_id": "E-008",
+      "wf_ref": "WF-002",
       "subcategory": "interaction_edge",
-      "test_case": "Rapid double-submit of Send Message does not create duplicate tickets",
+      "test_case": "Rapid re-submission after successful Request Callback (duplicate prevention)",
       "preconditions": [
-        "User is logged in",
-        "Support Center page is open",
-        "Secure Message form is visible and Message_Body is filled"
+        "User is authenticated and on Support Center page",
+        "Schedule Callback form is visible"
       ],
       "steps": [
-        "1. Click into the Message_Body field",
-        "2. Enter valid text into the Message_Body field",
-        "3. Click the Send Message button",
-        "4. Immediately click the Send Message button again before the first submission completes"
+        "1. Select a value in Reason_for_Call",
+        "2. Enter <next business day> into Preferred_Date",
+        "3. Select a value in Preferred_Time_Window",
+        "4. Verify Phone_Number is prefilled and valid",
+        "5. Click Request Callback",
+        "6. Observe successful confirmation 'Callback request submitted.'",
+        "7. Click the browser Back button to return to the Schedule Callback form",
+        "8. Click Request Callback again without changing fields"
       ],
-      "expected_result": "Second submission attempt is blocked; UI shows a single 'Message sent successfully.' confirmation with one ticket ID and only one ticket is created (second attempt is blocked / error shown if duplicate prevented).",
-      "priority": "low"
+      "expected_result": "Second submission is blocked / error shown; duplicate callback requests are not created. UI presents the original confirmation or an inline message preventing duplicate requests and only one callback request is recorded.",
+      "priority": "medium"
     }
   ],
   "summary": {
-    "total": 8,
-    "boundary": 4,
+    "total": 7,
+    "boundary": 2,
     "input_edge": 3,
-    "interaction_edge": 1,
+    "interaction_edge": 2,
     "state_edge": 0,
     "data_edge": 0,
-    "medium_priority": 4,
-    "low_priority": 4
+    "medium_priority": 7,
+    "low_priority": 0
   }
 }
 
 ------------------------------------------------------------
-[21:34:18] Test-Edge - PARSED JSON
+[15:44:37] Test-Edge - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Support Center",
@@ -485,165 +498,150 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": "WF-002",
       "subcategory": "boundary",
-      "test_case": "Subject at maximum allowed length is accepted",
+      "test_case": "Preferred Date exactly the next business day (boundary pass)",
       "preconditions": [
-        "User is logged in",
-        "Support Center page is open",
-        "Secure Message form is visible"
+        "User is authenticated and on Support Center page",
+        "Schedule Callback form is visible"
       ],
       "steps": [
-        "1. Click into the Subject field",
-        "2. Enter a string of exactly <maximum allowed length> characters into the Subject field",
-        "3. Click into the Message_Body field",
-        "4. Enter valid text into the Message_Body field",
-        "5. Click the Send Message button"
+        "1. Select a value in Reason_for_Call",
+        "2. Enter <next business day> into Preferred_Date",
+        "3. Select a value in Preferred_Time_Window",
+        "4. Verify Phone_Number is prefilled (do not edit)",
+        "5. Click Request Callback"
       ],
-      "expected_result": "Form submits successfully; 'Message sent successfully.' is shown and a ticket ID is returned (submission succeeds).",
+      "expected_result": "Request Callback succeeds; page shows confirmation with text 'Callback request submitted.' and an email confirmation is triggered (visible confirmation message displayed).",
       "priority": "medium"
     },
     {
       "tc_id": "E-002",
+      "wf_ref": "WF-002",
       "subcategory": "boundary",
-      "test_case": "Subject one character over maximum length is blocked",
+      "test_case": "Preferred Date one day before the next business day (boundary fail)",
       "preconditions": [
-        "User is logged in",
-        "Support Center page is open",
-        "Secure Message form is visible"
+        "User is authenticated and on Support Center page",
+        "Schedule Callback form is visible"
       ],
       "steps": [
-        "1. Click into the Subject field",
-        "2. Enter a string of exactly <maximum allowed length + 1> characters into the Subject field",
-        "3. Click into the Message_Body field",
-        "4. Enter valid text into the Message_Body field",
-        "5. Click the Send Message button"
+        "1. Select a value in Reason_for_Call",
+        "2. Enter <one day before the next business day> into Preferred_Date",
+        "3. Select a value in Preferred_Time_Window",
+        "4. Verify Phone_Number is prefilled (do not edit)",
+        "5. Click Request Callback"
       ],
-      "expected_result": "Submission is blocked; Subject field displays an inline error indicating the subject length exceeds the allowed maximum (is blocked / error shown).",
+      "expected_result": "Submission is blocked / error shown; Preferred_Date displays an inline error indicating the date must be at least the next business day and the callback request is not submitted.",
       "priority": "medium"
     },
     {
       "tc_id": "E-003",
-      "subcategory": "boundary",
-      "test_case": "Preferred Date set to the next business day is accepted",
+      "wf_ref": "WF-001",
+      "subcategory": "input_edge",
+      "test_case": "Very long Subject exceeds system length check (subject length edge)",
       "preconditions": [
-        "User is logged in",
-        "Support Center page is open",
-        "Schedule Callback form is visible"
+        "User is authenticated and on Support Center page",
+        "Secure Message form is visible"
       ],
       "steps": [
-        "1. Click into the Preferred_Date field",
-        "2. Enter <next business day> into the Preferred_Date field",
-        "3. (Optional) Click into Reason_for_Call and select a value or leave as default",
-        "4. Click into Phone_Number field and leave prefilled value unchanged",
-        "5. Click the Request Callback button"
+        "1. Enter a very long string (200+ characters) into Subject",
+        "2. Optionally select a Category",
+        "3. Enter a valid Message_Body (non-empty) into the Message_Body rich text field",
+        "4. Click Send Message"
       ],
-      "expected_result": "Form submits successfully; 'Callback request submitted.' is shown and the system sends an email confirmation (submission succeeds).",
+      "expected_result": "Submission is blocked / error shown; Subject field displays an inline error indicating the subject length exceeds the system limit and the message is not sent.",
       "priority": "medium"
     },
     {
       "tc_id": "E-004",
-      "subcategory": "boundary",
-      "test_case": "Preferred Date one calendar day before the next business day is blocked",
+      "wf_ref": "WF-001",
+      "subcategory": "input_edge",
+      "test_case": "Message Body contains only whitespace (rich text 'present' boundary)",
       "preconditions": [
-        "User is logged in",
-        "Support Center page is open",
-        "Schedule Callback form is visible"
+        "User is authenticated and on Support Center page",
+        "Secure Message form is visible"
       ],
       "steps": [
-        "1. Click into the Preferred_Date field",
-        "2. Enter <one calendar day before the next business day> into the Preferred_Date field",
-        "3. Click the Request Callback button"
+        "1. Leave Subject blank or enter any valid value",
+        "2. Optionally select a Category",
+        "3. Enter only whitespace characters into Message_Body",
+        "4. Click Send Message"
       ],
-      "expected_result": "Submission is blocked; Preferred_Date displays an inline validation error indicating the date must be at least the next business day (is blocked / error shown).",
+      "expected_result": "Submission is blocked / error shown; Message_Body displays an inline error indicating the message body must be present and the message is not sent.",
       "priority": "medium"
     },
     {
       "tc_id": "E-005",
+      "wf_ref": "WF-002",
       "subcategory": "input_edge",
-      "test_case": "Attachment with allowed type but uppercase filename extension is accepted",
+      "test_case": "Phone Number with leading/trailing whitespace is trimmed on submit",
       "preconditions": [
-        "User is logged in",
-        "Support Center page is open",
-        "Secure Message form is visible"
+        "User is authenticated and on Support Center page",
+        "Schedule Callback form is visible",
+        "Phone_Number field is prefilled with a valid phone number"
       ],
       "steps": [
-        "1. Click into the Subject field",
-        "2. Enter a short valid subject",
-        "3. Click into the Message_Body field",
-        "4. Enter valid text into the Message_Body field",
-        "5. Click the Attachment upload control",
-        "6. Select a file whose content type is allowed but whose filename uses an uppercase extension (e.g. filename ends with an uppercase extension)",
-        "7. Click the Send Message button"
+        "1. Edit Phone_Number by adding leading and trailing spaces around the prefilled number",
+        "2. Select a value in Reason_for_Call",
+        "3. Enter <next business day> into Preferred_Date",
+        "4. Select a value in Preferred_Time_Window",
+        "5. Click Request Callback"
       ],
-      "expected_result": "Attachment is accepted; form submits successfully and 'Message sent successfully.' is shown with a ticket ID (submission succeeds).",
-      "priority": "low"
+      "expected_result": "Request Callback succeeds; leading/trailing whitespace is trimmed from Phone_Number before validation and the callback request is submitted (confirmation 'Callback request submitted.' is shown).",
+      "priority": "medium"
     },
     {
       "tc_id": "E-006",
-      "subcategory": "input_edge",
-      "test_case": "Attachment using a double extension (allowed then disallowed) is blocked",
+      "wf_ref": "WF-001",
+      "subcategory": "interaction_edge",
+      "test_case": "Rapid re-submission after successful Send Message (duplicate prevention)",
       "preconditions": [
-        "User is logged in",
-        "Support Center page is open",
+        "User is authenticated and on Support Center page",
         "Secure Message form is visible"
       ],
       "steps": [
-        "1. Click into the Subject field",
-        "2. Enter a short valid subject",
-        "3. Click into the Message_Body field",
-        "4. Enter valid text into the Message_Body field",
-        "5. Click the Attachment upload control",
-        "6. Select a file whose filename contains a double extension pattern (e.g. allowed-extension followed by a disallowed-extension)",
-        "7. Click the Send Message button"
+        "1. Enter a valid Subject",
+        "2. Optionally select a Category",
+        "3. Enter a valid Message_Body",
+        "4. Click Send Message",
+        "5. Observe successful confirmation and note the returned ticket ID",
+        "6. Click the browser Back button to return to the Secure Message form",
+        "7. Click Send Message again without changing fields"
       ],
-      "expected_result": "Submission is blocked; the Attachment control displays an inline error indicating the attachment type is not allowed (is blocked / error shown).",
-      "priority": "low"
+      "expected_result": "Second submission is blocked / error shown; no duplicate ticket is created. UI shows either the original ticket detail or an inline message preventing duplicate submission, and only one ticket appears in the ticket list (the originally returned ticket ID).",
+      "priority": "medium"
     },
     {
       "tc_id": "E-007",
-      "subcategory": "input_edge",
-      "test_case": "Editing prefilled phone number with leading/trailing whitespace is trimmed and accepted",
-      "preconditions": [
-        "User is logged in",
-        "Support Center page is open",
-        "Schedule Callback form is visible and Phone_Number is prefilled"
-      ],
-      "steps": [
-        "1. Click into the Phone_Number field",
-        "2. Modify the Phone_Number to add leading and trailing whitespace around the existing number (enter <phone number with leading and trailing spaces>)",
-        "3. Click into Preferred_Date and enter <next business day>",
-        "4. Click the Request Callback button"
-      ],
-      "expected_result": "Form submits successfully; 'Callback request submitted.' is shown and phone number is saved/processed with leading/trailing whitespace trimmed in the saved record (submission succeeds).",
-      "priority": "low"
-    },
-    {
-      "tc_id": "E-008",
+      "wf_ref": "WF-002",
       "subcategory": "interaction_edge",
-      "test_case": "Rapid double-submit of Send Message does not create duplicate tickets",
+      "test_case": "Rapid re-submission after successful Request Callback (duplicate prevention)",
       "preconditions": [
-        "User is logged in",
-        "Support Center page is open",
-        "Secure Message form is visible and Message_Body is filled"
+        "User is authenticated and on Support Center page",
+        "Schedule Callback form is visible"
       ],
       "steps": [
-        "1. Click into the Message_Body field",
-        "2. Enter valid text into the Message_Body field",
-        "3. Click the Send Message button",
-        "4. Immediately click the Send Message button again before the first submission completes"
+        "1. Select a value in Reason_for_Call",
+        "2. Enter <next business day> into Preferred_Date",
+        "3. Select a value in Preferred_Time_Window",
+        "4. Verify Phone_Number is prefilled and valid",
+        "5. Click Request Callback",
+        "6. Observe successful confirmation 'Callback request submitted.'",
+        "7. Click the browser Back button to return to the Schedule Callback form",
+        "8. Click Request Callback again without changing fields"
       ],
-      "expected_result": "Second submission attempt is blocked; UI shows a single 'Message sent successfully.' confirmation with one ticket ID and only one ticket is created (second attempt is blocked / error shown if duplicate prevented).",
-      "priority": "low"
+      "expected_result": "Second submission is blocked / error shown; duplicate callback requests are not created. UI presents the original confirmation or an inline message preventing duplicate requests and only one callback request is recorded.",
+      "priority": "medium"
     }
   ],
   "summary": {
-    "total": 8,
-    "boundary": 4,
+    "total": 7,
+    "boundary": 2,
     "input_edge": 3,
-    "interaction_edge": 1,
+    "interaction_edge": 2,
     "state_edge": 0,
     "data_edge": 0,
-    "medium_priority": 4,
-    "low_priority": 4
+    "medium_priority": 7,
+    "low_priority": 0
   }
 }

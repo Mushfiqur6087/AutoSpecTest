@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-22T21:47:19.029201
+DEBUG SESSION STARTED: 2026-05-25T15:28:45.991298
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[21:47:19] Test-Positive - SYSTEM PROMPT
+[15:28:45] Test-Positive - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Expert UI Test Case Generator. You receive (1) a UI-AST JSON for one specific module and (2) the original functional description for that module.
 
@@ -24,6 +24,10 @@ Your job is to produce ONLY positive/functional UI test cases — tests where va
 <description>
 {Original functional description text for this module}
 </description>
+
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
 
 ---
 
@@ -146,6 +150,13 @@ Because you are testing a module in isolation, establish the required entry stat
 **1. Forms & Wizards (`form`, `wizard`):**
 - Generate ONE happy path per distinct success outcome.
 - *Conditional UI Check:* If a toggle/dropdown reveals new mandatory fields (`visible_when`), generate a separate test for that conditional branch.
+- **Wizard step coverage (CRITICAL):** If a wizard has multiple steps and any step beyond Step 1 contains its own named field group (e.g., "Address Details", "Family Members", "Identifiers"), generate ONE dedicated positive TC per such step. The TC must:
+  - Navigate to that specific step (include the preceding steps as preconditions or brief navigation steps)
+  - Fill the fields described for that step (not just pass through)
+  - Assert the step's content is visible/saved on the detail page after final submission
+  - **Do NOT collapse all wizard steps into one happy-path TC** — if Steps 2, 3, and 4 each have their own named section in the spec, they each need their own TC.
+- **Wizard in-step identifiers/duplicates:** If a wizard step allows adding identifiers, documents, or similar entries that have a uniqueness constraint, include a TC for that wizard step that also verifies the constraint (e.g., attempting to add a duplicate Document Type+Key pair inside the wizard). This is a different code path from adding the same post-creation on the detail page.
+- **Action dialogs:** If a `state_bound_action_bar` action opens a dialog with its own `fields{}` (e.g., Activate requires Activation Date, Reject requires Reason), generate ONE positive TC per such action-dialog — distinct from the state-transition TC. The TC fills the dialog field and completes the action.
 
 **2. State Machines (`state_bound_action_bar`):**
 - For each unique action available in a specific state, generate ONE test performing that action.
@@ -200,6 +211,19 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 
 ---
 
+**WORKFLOW COVERAGE OBLIGATION (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- Your test cases must **collectively cover every workflow** listed.
+- For each `wf_id`, at least one TC must:
+  - Activate the `conditional_branch` (if not null) — i.e. the test must set up the condition described.
+  - Assert the `on_success` as its `expected_result` (verbatim or as the primary basis for the expected result).
+- Add `"wf_ref": "WF-NNN"` to each TC to identify which workflow it covers.
+- If one TC naturally covers multiple workflows (e.g., the base path overlaps), pick the most specific `wf_ref`.
+- If a TC does not map to any workflow (e.g., a navigation-only test), set `"wf_ref": null`.
+
+---
+
 **OUTPUT — JSON only, no prose, no markdown fencing:**
 
 {
@@ -208,6 +232,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
   "test_cases": [
     {
       "tc_id": "P-001",
+      "wf_ref": "WF-001",
       "test_case": "Short descriptive name",
       "preconditions": ["User logged in as <Role>", "<Prerequisite state>"],
       "steps": ["1. Step one", "2. Step two"],
@@ -224,7 +249,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 }
 
 ------------------------------------------------------------
-[21:47:19] Test-Positive - USER PROMPT
+[15:28:45] Test-Positive - USER PROMPT
 ------------------------------------------------------------
 <module_name>Dashboard</module_name>
 
@@ -238,9 +263,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
         "Time_Range": {
           "type": "dropdown",
           "required": false,
-          "options": [
-            "Next 7 days"
-          ]
+          "on_change": "when selected range contains no items, the timeline shows empty state"
         },
         "Sort_Order": {
           "type": "dropdown",
@@ -250,13 +273,12 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
           "type": "search",
           "required": false,
           "constraints": [
-            "searches by activity name or type"
+            "searches activities by name or type"
           ]
-        },
-        "Empty_State": {
-          "type": "unspecified",
-          "visible_when": "no items exist within the selected time range"
         }
+      },
+      "state_behaviors": {
+        "empty_state": "shown when selected Time_Range contains no items"
       }
     },
     "Calendar_Block": {
@@ -264,45 +286,35 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
       "fields": {
         "Course_Filter": {
           "type": "dropdown",
-          "required": false,
-          "options": [
-            "All courses"
-          ],
-          "constraints": [
-            "filters calendar events by selected course"
-          ]
+          "required": false
         },
         "New_Event": {
           "type": "button",
-          "on_success": "creates calendar entry"
+          "on_click": "opens new event creation form or modal"
         },
-        "Previous_Month": {
+        "Prev_Month": {
           "type": "button",
-          "on_success": "navigates to previous month"
+          "on_click": "navigates to previous month",
+          "on_success": "updates displayed month and year heading"
         },
         "Next_Month": {
           "type": "button",
-          "on_success": "navigates to next month"
-        },
-        "Current_Date_Highlight": {
-          "type": "unspecified",
-          "visible_when": "date == current date"
-        },
-        "Date_Event_Display": {
-          "type": "unspecified",
-          "constraints": [
-            "dates with events display their event names inline"
-          ]
-        },
-        "Full_Calendar": {
-          "type": "link",
-          "on_success": "opens dedicated calendar view"
-        },
-        "Import_or_Export_Calendars": {
-          "type": "link",
-          "on_success": "opens calendar data management"
+          "on_click": "navigates to next month",
+          "on_success": "updates displayed month and year heading"
         }
-      }
+      },
+      "links": [
+        {
+          "element_name": "Full calendar",
+          "type": "link",
+          "on_click": "opens dedicated calendar view"
+        },
+        {
+          "element_name": "Import or export calendars",
+          "type": "link",
+          "on_click": "opens calendar data management (import/export)"
+        }
+      ]
     }
   }
 }
@@ -317,10 +329,23 @@ The Dashboard displays a personalized greeting at the top. The main content area
 
 </description>
 
+<workflows>
+WF-001 | Select Time_Range that contains items (timeline populated) | actor: <role> | branch: Time_Range contains items | terminal: Time_Range | on_success: Timeline displays activities within selected Time_Range
+WF-002 | Select Time_Range that contains no items (timeline empty state) | actor: <role> | branch: Time_Range contains no items | terminal: Time_Range | on_success: when selected range contains no items, the timeline shows empty state
+WF-003 | Change timeline Sort_Order | actor: <role> | branch: none | terminal: Sort_Order | on_success: Timeline sorts activities by selected Sort_Order
+WF-004 | Search activities in timeline | actor: <role> | branch: none | terminal: Search_Activities | on_success: Timeline shows activities matching the search term (searches activities by name or type)
+WF-005 | Filter calendar by course using Course_Filter | actor: <role> | branch: none | terminal: Course_Filter | on_success: Calendar displays events filtered by selected Course_Filter
+WF-006 | Create new calendar event | actor: <role> | branch: none | terminal: New_Event | on_success: opens new event creation form or modal
+WF-007 | Navigate to previous month in calendar | actor: <role> | branch: none | terminal: Prev_Month | on_success: updates displayed month and year heading
+WF-008 | Navigate to next month in calendar | actor: <role> | branch: none | terminal: Next_Month | on_success: updates displayed month and year heading
+WF-009 | Open full calendar view | actor: <role> | branch: none | terminal: Full calendar | on_success: opens dedicated calendar view
+WF-010 | Open calendar import/export management | actor: <role> | branch: none | terminal: Import or export calendars | on_success: opens calendar data management (import/export)
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[21:47:55] Test-Positive - LLM RESPONSE
+[15:29:18] Test-Positive - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Dashboard",
@@ -328,170 +353,178 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Timeline: search filters activities by name or type",
+      "wf_ref": "WF-001",
+      "test_case": "Select a Time_Range that contains items and view timeline",
       "preconditions": [
-        "User logged in as <Instructor>",
+        "User logged in as <role>",
         "Dashboard is open",
-        "Timeline contains multiple activities including at least one activity matching <search term> and at least one unrelated activity"
+        "There are activities scheduled within <time range with items>"
       ],
       "steps": [
-        "1. Enter <search term> in the Search_Activities field in the Timeline block",
-        "2. Press Enter or click the Search icon"
+        "1. Select <time range with items> from the Time_Range dropdown in the Timeline block"
       ],
-      "expected_result": "Timeline displays only activities matching <search term> by name or type; unrelated activities are no longer visible in the Timeline list",
+      "expected_result": "Timeline displays activities within selected Time_Range",
       "priority": "high"
     },
     {
       "tc_id": "P-002",
-      "test_case": "Timeline: empty state shown when no items exist in selected time range",
+      "wf_ref": "WF-002",
+      "test_case": "Select a Time_Range that contains no items and see empty timeline state",
       "preconditions": [
-        "User logged in as <Instructor>",
+        "User logged in as <role>",
         "Dashboard is open",
-        "No timeline items exist within the <Next 7 days> time range"
+        "There are no activities within <time range with no items>"
       ],
       "steps": [
-        "1. Select 'Next 7 days' from the Time_Range dropdown in the Timeline block"
+        "1. Select <time range with no items> from the Time_Range dropdown in the Timeline block"
       ],
-      "expected_result": "Timeline block shows the empty-state UI indicating there are no items within the selected time range",
-      "priority": "medium"
+      "expected_result": "when selected range contains no items, the timeline shows empty state",
+      "priority": "high"
     },
     {
       "tc_id": "P-003",
-      "test_case": "Timeline: changing sort order reorders the activity list",
+      "wf_ref": "WF-003",
+      "test_case": "Change timeline Sort_Order and verify ordering updates",
       "preconditions": [
-        "User logged in as <Instructor>",
+        "User logged in as <role>",
         "Dashboard is open",
-        "Timeline contains at least two activities with differing date/time or priority values"
+        "Timeline contains multiple activities across the selected range"
       ],
       "steps": [
-        "1. Select <Sort option> from the Sort_Order dropdown in the Timeline block"
+        "1. Select <desired sort order> from the Sort_Order dropdown in the Timeline block"
       ],
-      "expected_result": "Timeline lists activities in the order defined by the selected <Sort option>; the visible order of activities updates to reflect that sort criteria",
+      "expected_result": "Timeline sorts activities by selected Sort_Order",
       "priority": "medium"
     },
     {
       "tc_id": "P-004",
-      "test_case": "Calendar: course filter shows only events for selected course",
+      "wf_ref": "WF-004",
+      "test_case": "Search activities in timeline by name or type",
       "preconditions": [
-        "User logged in as <Instructor>",
+        "User logged in as <role>",
         "Dashboard is open",
-        "Calendar month contains events from multiple courses including <Course A> and <Course B>"
+        "Timeline contains activities including at least one matching <search term>"
       ],
       "steps": [
-        "1. Select <Course A> from the Course_Filter dropdown in the Calendar block"
+        "1. Enter <search term> in the Search_Activities field in the Timeline block",
+        "2. Submit the search (press Enter or click the search action)"
       ],
-      "expected_result": "Calendar month grid displays only events belonging to <Course A>; events from other courses are no longer visible in the calendar",
+      "expected_result": "Timeline shows activities matching the search term (searches activities by name or type)",
       "priority": "high"
     },
     {
       "tc_id": "P-005",
-      "test_case": "Calendar: create a new event using New Event button",
+      "wf_ref": "WF-005",
+      "test_case": "Filter calendar by course using Course_Filter",
       "preconditions": [
-        "User logged in as <Instructor>",
+        "User logged in as <role>",
         "Dashboard is open",
-        "Calendar is showing the target month and date where the event will be created"
+        "Calendar contains events for multiple courses including <course with events> and <other course>"
       ],
       "steps": [
-        "1. Click the New_Event button in the Calendar block",
-        "2. In the New Event modal, enter <valid event title>, select <date> and fill required details",
-        "3. Click Save (or Create) in the New Event modal"
+        "1. Select <course with events> from the Course_Filter dropdown in the Calendar block"
       ],
-      "expected_result": "A new event is visible on the selected date in the calendar grid and that date displays the event name inline",
-      "priority": "high"
+      "expected_result": "Calendar displays events filtered by selected Course_Filter",
+      "priority": "medium"
     },
     {
       "tc_id": "P-006",
-      "test_case": "Calendar: navigate to next month using Next arrow",
+      "wf_ref": "WF-006",
+      "test_case": "Open new event creation form from Calendar block",
       "preconditions": [
-        "User logged in as <Instructor>",
-        "Dashboard is open",
-        "Calendar is showing the current month"
-      ],
-      "steps": [
-        "1. Click the Next_Month button (right arrow) in the Calendar block"
-      ],
-      "expected_result": "Calendar heading updates to show the next month and year in the Calendar block",
-      "priority": "medium"
-    },
-    {
-      "tc_id": "P-007",
-      "test_case": "Calendar: navigate to previous month using Previous arrow",
-      "preconditions": [
-        "User logged in as <Instructor>",
-        "Dashboard is open",
-        "Calendar is showing the current month"
-      ],
-      "steps": [
-        "1. Click the Previous_Month button (left arrow) in the Calendar block"
-      ],
-      "expected_result": "Calendar heading updates to show the previous month and year in the Calendar block",
-      "priority": "medium"
-    },
-    {
-      "tc_id": "P-008",
-      "test_case": "Calendar: current date is highlighted in the month view",
-      "preconditions": [
-        "User logged in as <Instructor>",
-        "Dashboard is open",
-        "Calendar is showing the month that contains the current date"
-      ],
-      "steps": [
-        "1. Click the Calendar block to focus it"
-      ],
-      "expected_result": "The cell corresponding to the current date is visually highlighted in the calendar grid",
-      "priority": "medium"
-    },
-    {
-      "tc_id": "P-009",
-      "test_case": "Calendar: dates with events display event names inline",
-      "preconditions": [
-        "User logged in as <Instructor>",
-        "Dashboard is open",
-        "Calendar contains at least one event on <date> within the visible month"
-      ],
-      "steps": [
-        "1. Click the Calendar block to focus it"
-      ],
-      "expected_result": "The calendar cell for <date> shows the event name inline within the month grid",
-      "priority": "medium"
-    },
-    {
-      "tc_id": "P-010",
-      "test_case": "Calendar: Full calendar link opens the dedicated calendar view",
-      "preconditions": [
-        "User logged in as <Instructor>",
+        "User logged in as <role>",
         "Dashboard is open"
       ],
       "steps": [
-        "1. Click the Full_Calendar link at the bottom of the Calendar block"
+        "1. Click the New_Event button in the Calendar block"
       ],
-      "expected_result": "The dedicated calendar view is opened (user is navigated to the calendar page/view)",
+      "expected_result": "opens new event creation form or modal",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-007",
+      "wf_ref": "WF-007",
+      "test_case": "Navigate to previous month in calendar and observe heading update",
+      "preconditions": [
+        "User logged in as <role>",
+        "Dashboard is open",
+        "Calendar currently displays <current month and year>"
+      ],
+      "steps": [
+        "1. Click the Prev_Month button in the Calendar block"
+      ],
+      "expected_result": "updates displayed month and year heading",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-008",
+      "wf_ref": "WF-008",
+      "test_case": "Navigate to next month in calendar and observe heading update",
+      "preconditions": [
+        "User logged in as <role>",
+        "Dashboard is open",
+        "Calendar currently displays <current month and year>"
+      ],
+      "steps": [
+        "1. Click the Next_Month button in the Calendar block"
+      ],
+      "expected_result": "updates displayed month and year heading",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-009",
+      "wf_ref": "WF-009",
+      "test_case": "Open the dedicated full calendar view via link",
+      "preconditions": [
+        "User logged in as <role>",
+        "Dashboard is open"
+      ],
+      "steps": [
+        "1. Click the 'Full calendar' link at the bottom of the Calendar block"
+      ],
+      "expected_result": "opens dedicated calendar view",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-010",
+      "wf_ref": "WF-010",
+      "test_case": "Open calendar import/export management via link",
+      "preconditions": [
+        "User logged in as <role>",
+        "Dashboard is open"
+      ],
+      "steps": [
+        "1. Click the 'Import or export calendars' link at the bottom of the Calendar block"
+      ],
+      "expected_result": "opens calendar data management (import/export)",
       "priority": "high"
     },
     {
       "tc_id": "P-011",
-      "test_case": "Calendar: Import or Export Calendars link opens calendar data management",
+      "wf_ref": null,
+      "test_case": "Calendar highlights current date and shows event names inline on date cells",
       "preconditions": [
-        "User logged in as <Instructor>",
-        "Dashboard is open"
+        "User logged in as <role>",
+        "Dashboard is open",
+        "Calendar contains an event on <date with event>"
       ],
       "steps": [
-        "1. Click the Import_or_Export_Calendars link at the bottom of the Calendar block"
+        "1. Observe the monthly calendar view in the Calendar block"
       ],
-      "expected_result": "The calendar data management view is opened (import/export calendar settings or UI is displayed)",
+      "expected_result": "Current date cell is highlighted in the calendar; dates with events display event names inline in their date cells",
       "priority": "medium"
     }
   ],
   "summary": {
     "total": 11,
-    "high_priority": 4,
-    "medium_priority": 7,
+    "high_priority": 8,
+    "medium_priority": 3,
     "low_priority": 0
   }
 }
 
 ------------------------------------------------------------
-[21:47:55] Test-Positive - PARSED JSON
+[15:29:18] Test-Positive - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Dashboard",
@@ -499,164 +532,172 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Timeline: search filters activities by name or type",
+      "wf_ref": "WF-001",
+      "test_case": "Select a Time_Range that contains items and view timeline",
       "preconditions": [
-        "User logged in as <Instructor>",
+        "User logged in as <role>",
         "Dashboard is open",
-        "Timeline contains multiple activities including at least one activity matching <search term> and at least one unrelated activity"
+        "There are activities scheduled within <time range with items>"
       ],
       "steps": [
-        "1. Enter <search term> in the Search_Activities field in the Timeline block",
-        "2. Press Enter or click the Search icon"
+        "1. Select <time range with items> from the Time_Range dropdown in the Timeline block"
       ],
-      "expected_result": "Timeline displays only activities matching <search term> by name or type; unrelated activities are no longer visible in the Timeline list",
+      "expected_result": "Timeline displays activities within selected Time_Range",
       "priority": "high"
     },
     {
       "tc_id": "P-002",
-      "test_case": "Timeline: empty state shown when no items exist in selected time range",
+      "wf_ref": "WF-002",
+      "test_case": "Select a Time_Range that contains no items and see empty timeline state",
       "preconditions": [
-        "User logged in as <Instructor>",
+        "User logged in as <role>",
         "Dashboard is open",
-        "No timeline items exist within the <Next 7 days> time range"
+        "There are no activities within <time range with no items>"
       ],
       "steps": [
-        "1. Select 'Next 7 days' from the Time_Range dropdown in the Timeline block"
+        "1. Select <time range with no items> from the Time_Range dropdown in the Timeline block"
       ],
-      "expected_result": "Timeline block shows the empty-state UI indicating there are no items within the selected time range",
-      "priority": "medium"
+      "expected_result": "when selected range contains no items, the timeline shows empty state",
+      "priority": "high"
     },
     {
       "tc_id": "P-003",
-      "test_case": "Timeline: changing sort order reorders the activity list",
+      "wf_ref": "WF-003",
+      "test_case": "Change timeline Sort_Order and verify ordering updates",
       "preconditions": [
-        "User logged in as <Instructor>",
+        "User logged in as <role>",
         "Dashboard is open",
-        "Timeline contains at least two activities with differing date/time or priority values"
+        "Timeline contains multiple activities across the selected range"
       ],
       "steps": [
-        "1. Select <Sort option> from the Sort_Order dropdown in the Timeline block"
+        "1. Select <desired sort order> from the Sort_Order dropdown in the Timeline block"
       ],
-      "expected_result": "Timeline lists activities in the order defined by the selected <Sort option>; the visible order of activities updates to reflect that sort criteria",
+      "expected_result": "Timeline sorts activities by selected Sort_Order",
       "priority": "medium"
     },
     {
       "tc_id": "P-004",
-      "test_case": "Calendar: course filter shows only events for selected course",
+      "wf_ref": "WF-004",
+      "test_case": "Search activities in timeline by name or type",
       "preconditions": [
-        "User logged in as <Instructor>",
+        "User logged in as <role>",
         "Dashboard is open",
-        "Calendar month contains events from multiple courses including <Course A> and <Course B>"
+        "Timeline contains activities including at least one matching <search term>"
       ],
       "steps": [
-        "1. Select <Course A> from the Course_Filter dropdown in the Calendar block"
+        "1. Enter <search term> in the Search_Activities field in the Timeline block",
+        "2. Submit the search (press Enter or click the search action)"
       ],
-      "expected_result": "Calendar month grid displays only events belonging to <Course A>; events from other courses are no longer visible in the calendar",
+      "expected_result": "Timeline shows activities matching the search term (searches activities by name or type)",
       "priority": "high"
     },
     {
       "tc_id": "P-005",
-      "test_case": "Calendar: create a new event using New Event button",
+      "wf_ref": "WF-005",
+      "test_case": "Filter calendar by course using Course_Filter",
       "preconditions": [
-        "User logged in as <Instructor>",
+        "User logged in as <role>",
         "Dashboard is open",
-        "Calendar is showing the target month and date where the event will be created"
+        "Calendar contains events for multiple courses including <course with events> and <other course>"
       ],
       "steps": [
-        "1. Click the New_Event button in the Calendar block",
-        "2. In the New Event modal, enter <valid event title>, select <date> and fill required details",
-        "3. Click Save (or Create) in the New Event modal"
+        "1. Select <course with events> from the Course_Filter dropdown in the Calendar block"
       ],
-      "expected_result": "A new event is visible on the selected date in the calendar grid and that date displays the event name inline",
-      "priority": "high"
+      "expected_result": "Calendar displays events filtered by selected Course_Filter",
+      "priority": "medium"
     },
     {
       "tc_id": "P-006",
-      "test_case": "Calendar: navigate to next month using Next arrow",
+      "wf_ref": "WF-006",
+      "test_case": "Open new event creation form from Calendar block",
       "preconditions": [
-        "User logged in as <Instructor>",
-        "Dashboard is open",
-        "Calendar is showing the current month"
-      ],
-      "steps": [
-        "1. Click the Next_Month button (right arrow) in the Calendar block"
-      ],
-      "expected_result": "Calendar heading updates to show the next month and year in the Calendar block",
-      "priority": "medium"
-    },
-    {
-      "tc_id": "P-007",
-      "test_case": "Calendar: navigate to previous month using Previous arrow",
-      "preconditions": [
-        "User logged in as <Instructor>",
-        "Dashboard is open",
-        "Calendar is showing the current month"
-      ],
-      "steps": [
-        "1. Click the Previous_Month button (left arrow) in the Calendar block"
-      ],
-      "expected_result": "Calendar heading updates to show the previous month and year in the Calendar block",
-      "priority": "medium"
-    },
-    {
-      "tc_id": "P-008",
-      "test_case": "Calendar: current date is highlighted in the month view",
-      "preconditions": [
-        "User logged in as <Instructor>",
-        "Dashboard is open",
-        "Calendar is showing the month that contains the current date"
-      ],
-      "steps": [
-        "1. Click the Calendar block to focus it"
-      ],
-      "expected_result": "The cell corresponding to the current date is visually highlighted in the calendar grid",
-      "priority": "medium"
-    },
-    {
-      "tc_id": "P-009",
-      "test_case": "Calendar: dates with events display event names inline",
-      "preconditions": [
-        "User logged in as <Instructor>",
-        "Dashboard is open",
-        "Calendar contains at least one event on <date> within the visible month"
-      ],
-      "steps": [
-        "1. Click the Calendar block to focus it"
-      ],
-      "expected_result": "The calendar cell for <date> shows the event name inline within the month grid",
-      "priority": "medium"
-    },
-    {
-      "tc_id": "P-010",
-      "test_case": "Calendar: Full calendar link opens the dedicated calendar view",
-      "preconditions": [
-        "User logged in as <Instructor>",
+        "User logged in as <role>",
         "Dashboard is open"
       ],
       "steps": [
-        "1. Click the Full_Calendar link at the bottom of the Calendar block"
+        "1. Click the New_Event button in the Calendar block"
       ],
-      "expected_result": "The dedicated calendar view is opened (user is navigated to the calendar page/view)",
+      "expected_result": "opens new event creation form or modal",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-007",
+      "wf_ref": "WF-007",
+      "test_case": "Navigate to previous month in calendar and observe heading update",
+      "preconditions": [
+        "User logged in as <role>",
+        "Dashboard is open",
+        "Calendar currently displays <current month and year>"
+      ],
+      "steps": [
+        "1. Click the Prev_Month button in the Calendar block"
+      ],
+      "expected_result": "updates displayed month and year heading",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-008",
+      "wf_ref": "WF-008",
+      "test_case": "Navigate to next month in calendar and observe heading update",
+      "preconditions": [
+        "User logged in as <role>",
+        "Dashboard is open",
+        "Calendar currently displays <current month and year>"
+      ],
+      "steps": [
+        "1. Click the Next_Month button in the Calendar block"
+      ],
+      "expected_result": "updates displayed month and year heading",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-009",
+      "wf_ref": "WF-009",
+      "test_case": "Open the dedicated full calendar view via link",
+      "preconditions": [
+        "User logged in as <role>",
+        "Dashboard is open"
+      ],
+      "steps": [
+        "1. Click the 'Full calendar' link at the bottom of the Calendar block"
+      ],
+      "expected_result": "opens dedicated calendar view",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-010",
+      "wf_ref": "WF-010",
+      "test_case": "Open calendar import/export management via link",
+      "preconditions": [
+        "User logged in as <role>",
+        "Dashboard is open"
+      ],
+      "steps": [
+        "1. Click the 'Import or export calendars' link at the bottom of the Calendar block"
+      ],
+      "expected_result": "opens calendar data management (import/export)",
       "priority": "high"
     },
     {
       "tc_id": "P-011",
-      "test_case": "Calendar: Import or Export Calendars link opens calendar data management",
+      "wf_ref": null,
+      "test_case": "Calendar highlights current date and shows event names inline on date cells",
       "preconditions": [
-        "User logged in as <Instructor>",
-        "Dashboard is open"
+        "User logged in as <role>",
+        "Dashboard is open",
+        "Calendar contains an event on <date with event>"
       ],
       "steps": [
-        "1. Click the Import_or_Export_Calendars link at the bottom of the Calendar block"
+        "1. Observe the monthly calendar view in the Calendar block"
       ],
-      "expected_result": "The calendar data management view is opened (import/export calendar settings or UI is displayed)",
+      "expected_result": "Current date cell is highlighted in the calendar; dates with events display event names inline in their date cells",
       "priority": "medium"
     }
   ],
   "summary": {
     "total": 11,
-    "high_priority": 4,
-    "medium_priority": 7,
+    "high_priority": 8,
+    "medium_priority": 3,
     "low_priority": 0
   }
 }

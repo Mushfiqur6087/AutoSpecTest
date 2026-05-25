@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-22T21:47:19.043787
+DEBUG SESSION STARTED: 2026-05-25T15:28:46.009880
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[21:47:19] Test-Negative - SYSTEM PROMPT
+[15:28:46] Test-Negative - SYSTEM PROMPT
 ------------------------------------------------------------
 You are a Negative Test Case Generator. You receive (1) a UI-AST JSON for one module and (2) the original functional description. Your job is to produce ONLY negative test cases — tests where invalid input is provided or business rules are violated, and the system correctly rejects or blocks the action.
 
@@ -22,6 +22,10 @@ You are a Negative Test Case Generator. You receive (1) a UI-AST JSON for one mo
 <description>
 {Original functional description text for this module}
 </description>
+
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
 
 ---
 
@@ -111,6 +115,9 @@ Group required fields by type: `text/unspecified`, `email`, `password`, `number`
 
 Do NOT generate a separate blank-field test for every required field. If 5 text fields are all required, one representative covers them all.
 
+**Action dialog required fields — NOT subject to cross-form deduplication:**
+If a `state_bound_action_bar` action opens a dialog with its own required `fields{}` (e.g., Activate requires Activation Date, Reject requires a Reason, Withdraw requires a Reason, Close requires a Closure Reason), each such dialog is its own testing scope. Generate ONE "leave the required dialog field blank and submit" test per distinct action dialog. These are HIGH priority — they block state transitions and are common defect sites. Do not suppress them because the main wizard already has a blank-field test.
+
 **2. Format violations:**
 
 For fields with type-specific format rules (from AST type or description):
@@ -143,6 +150,10 @@ For each unique `constraints[]` entry in the AST, and for cross-field rules desc
 
 One test per unique constraint. Do not duplicate the same mechanism.
 
+**Constraint timing tests:** If the spec states an action is blocked by a pre-existing system state (e.g., "cannot close with active accounts", "cannot transfer to the same office"), generate TWO tests:
+1. The standard constraint violation test (user opens the dialog, fills required fields, submits → blocked).
+2. A constraint-timing test: user opens the dialog WITHOUT filling required fields → assert whether the block is shown immediately on dialog open (before the user fills anything) OR only on submit. This distinguishes whether the UI enforces the constraint eagerly or lazily. Steps: open the dialog, observe the state → assert what is visible before any interaction. If the spec is silent on timing, generate only the first test.
+
 **5. Precondition violations (auth, role, and state):**
 
 For each `preconditions[]` entry on any action — and for auth/role rules described in the spec:
@@ -154,18 +165,18 @@ For each `preconditions[]` entry on any action — and for auth/role rules descr
 **6. State-machine violations:**
 
 From `state_bound_action_bar` nodes:
-- For each state where an action is NOT listed in `available_actions`, generate one test attempting that action from that state. Example: attempting "Approve" on an entity already in "Active" state.
+- **Every defined state must have at least one wrong-state test.** For each state, identify at least one action that is NOT in its `available_actions` list and generate a test attempting that action from that state.
 - If a state has an empty `available_actions` array, generate one test verifying no action buttons are visible in that state.
-
-One test per unique wrong-state scenario — do not enumerate every action × every invalid state.
+- **Do not stop after 1–2 representative examples** when the module defines 4+ distinct states. The states Active, Pending, Closed, Rejected, and Withdrawn each have different action sets — each must be independently verified.
+- One test per state is sufficient — pick the most distinct unavailable action for that state. Do not enumerate every action × every state (that would be exponential).
 
 ---
 
 **DEDUPLICATION GATE (run before outputting):**
 
-1. **Required field dedup:** Multiple required text fields → ONE representative test, not one per field.
+1. **Required field dedup:** Multiple required text fields in the **same form or dialog** → ONE representative test, not one per field.
 2. **Sub-rule dedup:** A field with multiple validation sub-rules (e.g., password: length + uppercase + lowercase + number + special char) → ONE representative violation test, not one per sub-rule.
-3. **Cross-form dedup:** If two forms in the same module share the same validation mechanism (e.g., both have a required text field) → test it on the primary form only.
+3. **Cross-form dedup:** If two **main forms** in the same module share the same validation mechanism → test it on the primary form only. **Exception: action dialogs are never suppressed by cross-form dedup** — each action dialog with a required field gets its own blank-field test regardless.
 4. **Uniqueness check:** Before outputting, ask for each TC: "Does this test catch a bug that NO other test in this module would catch?" If no → remove it.
 
 ---
@@ -174,9 +185,11 @@ One test per unique wrong-state scenario — do not enumerate every action × ev
 
 - Simple module (login, single form, display page): **2–4 tests**
 - Medium module (standard CRUD form, form with constraints): **4–8 tests**
-- Complex module (state machine, multi-form, wizard with many constraints): **8–12 tests**
+- Complex module (state machine, multi-form, wizard with many constraints): **10–16 tests**
 
-If you exceed these ranges, you are generating redundant tests. Apply the deduplication gate again before outputting.
+For modules with a `state_bound_action_bar` defining 4+ states, the state-machine violation tests alone will produce 4–5 tests. This is expected and correct — do not suppress them to hit a lower target.
+
+If you exceed the upper range, apply the deduplication gate again before outputting.
 
 ---
 
@@ -184,6 +197,17 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
 
 - **High:** State precondition violations, constraint violations that could corrupt data, unauthenticated access, required field representatives
 - **Medium:** Format violations, cross-field validation, numeric bounds, wrong-role access, wrong-state action attempts
+
+---
+
+**WORKFLOW-AWARE FAILURE INJECTION (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- For each workflow that contains a form interaction (terminal action is a submit/save/create/approve button):
+  - Identify the most **critical blocking failure** for that workflow's `conditional_branch`.
+  - If that failure mode is NOT already covered by another workflow's negative test, generate one negative TC for it.
+- **Do NOT generate one negative TC per workflow mechanically.** Apply the existing deduplication gate first — only add a TC if it catches a bug that no other test would catch.
+- Add `"wf_ref": "WF-NNN"` to each TC that maps to a workflow. Set `"wf_ref": null` for generic validation tests.
 
 ---
 
@@ -195,6 +219,7 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
   "test_cases": [
     {
       "tc_id": "N-001",
+      "wf_ref": null,
       "test_case": "Short descriptive name",
       "preconditions": ["precondition 1"],
       "steps": ["1. Step one", "2. Step two"],
@@ -212,7 +237,7 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
 
 
 ------------------------------------------------------------
-[21:47:19] Test-Negative - USER PROMPT
+[15:28:46] Test-Negative - USER PROMPT
 ------------------------------------------------------------
 <module_name>My Courses</module_name>
 
@@ -220,81 +245,66 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
 {
   "module_name": "My Courses",
   "components": {
-    "My_Courses_Page": {
-      "type": "page",
-      "toolbar": {
-        "fields": {
-          "Status_Filter": {
-            "type": "dropdown",
-            "required": false,
-            "options": [
-              "All",
-              "In progress",
-              "Future",
-              "Past",
-              "Starred",
-              "Hidden"
-            ],
-            "constraints": [
-              "filters courses by selected status"
-            ]
-          },
-          "Search": {
-            "type": "search",
-            "required": false,
-            "constraints": [
-              "filters courses by search query"
-            ]
-          },
-          "Sort": {
-            "type": "dropdown",
-            "required": false,
-            "constraints": [
-              "sorts courses by selected criterion"
-            ]
-          },
-          "Layout": {
-            "type": "dropdown",
-            "required": false,
-            "options": [
-              "Card",
-              "List",
-              "Summary"
-            ],
-            "constraints": [
-              "switches layout between Card, List, and Summary"
-            ]
-          }
+    "Control_Bar": {
+      "type": "control_bar",
+      "fields": {
+        "Status": {
+          "type": "dropdown",
+          "required": false,
+          "options": [
+            "All",
+            "In progress",
+            "Future",
+            "Past",
+            "Starred",
+            "Hidden"
+          ],
+          "on_change": "filters courses by selected status"
+        },
+        "Search": {
+          "type": "search",
+          "required": false,
+          "on_change": "filters courses by search term"
+        },
+        "Sort": {
+          "type": "dropdown",
+          "required": false,
+          "on_change": "sorts courses by selected criterion"
+        },
+        "Layout": {
+          "type": "dropdown",
+          "required": false,
+          "options": [
+            "Card",
+            "List",
+            "Summary"
+          ],
+          "on_change": "changes course listing layout"
         }
-      },
-      "Courses_Grid": {
-        "type": "repeating_group",
-        "item_fields": {
+      }
+    },
+    "Courses_Grid": {
+      "type": "card_grid",
+      "item_template": {
+        "interactive_elements": {
           "Course_Name": {
             "type": "link",
             "required": false,
-            "on_click": "navigates to course main page"
+            "on_click": "navigates to course main page",
+            "params": [
+              "course_id"
+            ]
           },
           "Card_Menu": {
             "type": "menu",
-            "actions": [
+            "menu_actions": [
               {
                 "action_name": "Star this course",
-                "element_name": "Star this course",
-                "type": "button",
-                "on_success": "pins course to the top",
-                "state_changes": [
-                  "status => Starred"
-                ]
+                "on_success": "pins course to the top; marks course as Starred"
               },
               {
                 "action_name": "Remove from view",
-                "element_name": "Remove from view",
-                "type": "button",
-                "on_success": "hides course without affecting enrollment",
-                "state_changes": [
-                  "status => Hidden"
-                ]
+                "on_success": "hides course from this teacher's view; marks course as Hidden"
               }
             ]
           }
@@ -314,10 +324,20 @@ The My Courses page displays all courses the teacher has access to as visual car
 
 </description>
 
+<workflows>
+WF-001 | Filter courses by Status | actor: Teacher | branch: none | terminal: Status | on_success: filters courses by selected status
+WF-002 | Search courses | actor: Teacher | branch: none | terminal: Search | on_success: filters courses by search term
+WF-003 | Sort courses | actor: Teacher | branch: none | terminal: Sort | on_success: sorts courses by selected criterion
+WF-004 | Change course listing layout | actor: Teacher | branch: none | terminal: Layout | on_success: changes course listing layout
+WF-005 | Open a course (navigate to course main page) | actor: Teacher | branch: none | terminal: Course_Name | on_success: navigates to course main page
+WF-006 | Star a course from card menu | actor: Teacher | branch: none | terminal: Star this course | on_success: pins course to the top; marks course as Starred
+WF-007 | Remove a course from view (hide) | actor: Teacher | branch: none | terminal: Remove from view | on_success: hides course from this teacher's view; marks course as Hidden
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[21:47:52] Test-Negative - LLM RESPONSE
+[15:29:33] Test-Negative - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "My Courses",
@@ -325,28 +345,31 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "N-001",
-      "test_case": "Unauthenticated user attempts to access My Courses page",
+      "wf_ref": null,
+      "test_case": "Unauthenticated user cannot access My Courses page",
       "preconditions": [
-        "User is not authenticated (logged out)"
+        "User is not authenticated (not logged in)"
       ],
       "steps": [
-        "1. Ensure the user session is logged out",
-        "2. Navigate to the <My Courses page> (e.g., enter the My Courses URL or click the My Courses link)"
+        "1. In a new browser session, navigate to the My Courses page URL"
       ],
-      "expected_result": "Navigation is blocked: the user is redirected to the login page; the Login form is displayed and the My Courses content (course cards, toolbar) is not shown. No course cards are visible.",
+      "expected_result": "Navigation is blocked: the user is redirected to the Login page; the My Courses grid and control bar are not displayed; a login prompt or sign-in form is visible",
       "priority": "high"
     },
     {
       "tc_id": "N-002",
-      "test_case": "User with wrong role attempts to access My Courses (teacher-only) page",
+      "wf_ref": "WF-006",
+      "test_case": "Non-Teacher role cannot use card actions (Star / Remove from view)",
       "preconditions": [
-        "User is authenticated as <non-teacher role> (e.g., Student)"
+        "User is authenticated as a non-Teacher role (e.g., Student)"
       ],
       "steps": [
-        "1. Log in as a user with role <non-teacher role>",
-        "2. Navigate to the <My Courses page>"
+        "1. Login as a user with a non-Teacher role",
+        "2. Navigate to the My Courses page",
+        "3. Locate a course card and attempt to open the card's three-dot menu",
+        "4. Attempt to select 'Star this course' from the card menu"
       ],
-      "expected_result": "Access is blocked: the page does not display My Courses content. An authorization error or insufficient-permission indicator is shown (e.g., an access denied message) and no course cards or teacher-only controls are visible; the user is not able to view or interact with the My Courses page (user is either redirected away or remains on current page).",
+      "expected_result": "Action is blocked: the My Courses page either shows an access-denied indicator or the course grid/card menu controls are not present for this role; the three-dot menu cannot be opened and 'Star this course' is not available or clickable; no course is starred or pinned",
       "priority": "high"
     }
   ],
@@ -359,7 +382,7 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
 }
 
 ------------------------------------------------------------
-[21:47:52] Test-Negative - PARSED JSON
+[15:29:33] Test-Negative - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "My Courses",
@@ -367,28 +390,31 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "N-001",
-      "test_case": "Unauthenticated user attempts to access My Courses page",
+      "wf_ref": null,
+      "test_case": "Unauthenticated user cannot access My Courses page",
       "preconditions": [
-        "User is not authenticated (logged out)"
+        "User is not authenticated (not logged in)"
       ],
       "steps": [
-        "1. Ensure the user session is logged out",
-        "2. Navigate to the <My Courses page> (e.g., enter the My Courses URL or click the My Courses link)"
+        "1. In a new browser session, navigate to the My Courses page URL"
       ],
-      "expected_result": "Navigation is blocked: the user is redirected to the login page; the Login form is displayed and the My Courses content (course cards, toolbar) is not shown. No course cards are visible.",
+      "expected_result": "Navigation is blocked: the user is redirected to the Login page; the My Courses grid and control bar are not displayed; a login prompt or sign-in form is visible",
       "priority": "high"
     },
     {
       "tc_id": "N-002",
-      "test_case": "User with wrong role attempts to access My Courses (teacher-only) page",
+      "wf_ref": "WF-006",
+      "test_case": "Non-Teacher role cannot use card actions (Star / Remove from view)",
       "preconditions": [
-        "User is authenticated as <non-teacher role> (e.g., Student)"
+        "User is authenticated as a non-Teacher role (e.g., Student)"
       ],
       "steps": [
-        "1. Log in as a user with role <non-teacher role>",
-        "2. Navigate to the <My Courses page>"
+        "1. Login as a user with a non-Teacher role",
+        "2. Navigate to the My Courses page",
+        "3. Locate a course card and attempt to open the card's three-dot menu",
+        "4. Attempt to select 'Star this course' from the card menu"
       ],
-      "expected_result": "Access is blocked: the page does not display My Courses content. An authorization error or insufficient-permission indicator is shown (e.g., an access denied message) and no course cards or teacher-only controls are visible; the user is not able to view or interact with the My Courses page (user is either redirected away or remains on current page).",
+      "expected_result": "Action is blocked: the My Courses page either shows an access-denied indicator or the course grid/card menu controls are not present for this role; the three-dot menu cannot be opened and 'Star this course' is not available or clickable; no course is starred or pinned",
       "priority": "high"
     }
   ],

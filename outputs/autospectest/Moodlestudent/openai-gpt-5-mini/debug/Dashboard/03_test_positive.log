@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-22T21:41:13.066295
+DEBUG SESSION STARTED: 2026-05-25T15:09:37.475767
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[21:41:13] Test-Positive - SYSTEM PROMPT
+[15:09:37] Test-Positive - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Expert UI Test Case Generator. You receive (1) a UI-AST JSON for one specific module and (2) the original functional description for that module.
 
@@ -24,6 +24,10 @@ Your job is to produce ONLY positive/functional UI test cases — tests where va
 <description>
 {Original functional description text for this module}
 </description>
+
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
 
 ---
 
@@ -146,6 +150,13 @@ Because you are testing a module in isolation, establish the required entry stat
 **1. Forms & Wizards (`form`, `wizard`):**
 - Generate ONE happy path per distinct success outcome.
 - *Conditional UI Check:* If a toggle/dropdown reveals new mandatory fields (`visible_when`), generate a separate test for that conditional branch.
+- **Wizard step coverage (CRITICAL):** If a wizard has multiple steps and any step beyond Step 1 contains its own named field group (e.g., "Address Details", "Family Members", "Identifiers"), generate ONE dedicated positive TC per such step. The TC must:
+  - Navigate to that specific step (include the preceding steps as preconditions or brief navigation steps)
+  - Fill the fields described for that step (not just pass through)
+  - Assert the step's content is visible/saved on the detail page after final submission
+  - **Do NOT collapse all wizard steps into one happy-path TC** — if Steps 2, 3, and 4 each have their own named section in the spec, they each need their own TC.
+- **Wizard in-step identifiers/duplicates:** If a wizard step allows adding identifiers, documents, or similar entries that have a uniqueness constraint, include a TC for that wizard step that also verifies the constraint (e.g., attempting to add a duplicate Document Type+Key pair inside the wizard). This is a different code path from adding the same post-creation on the detail page.
+- **Action dialogs:** If a `state_bound_action_bar` action opens a dialog with its own `fields{}` (e.g., Activate requires Activation Date, Reject requires Reason), generate ONE positive TC per such action-dialog — distinct from the state-transition TC. The TC fills the dialog field and completes the action.
 
 **2. State Machines (`state_bound_action_bar`):**
 - For each unique action available in a specific state, generate ONE test performing that action.
@@ -200,6 +211,19 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 
 ---
 
+**WORKFLOW COVERAGE OBLIGATION (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- Your test cases must **collectively cover every workflow** listed.
+- For each `wf_id`, at least one TC must:
+  - Activate the `conditional_branch` (if not null) — i.e. the test must set up the condition described.
+  - Assert the `on_success` as its `expected_result` (verbatim or as the primary basis for the expected result).
+- Add `"wf_ref": "WF-NNN"` to each TC to identify which workflow it covers.
+- If one TC naturally covers multiple workflows (e.g., the base path overlaps), pick the most specific `wf_ref`.
+- If a TC does not map to any workflow (e.g., a navigation-only test), set `"wf_ref": null`.
+
+---
+
 **OUTPUT — JSON only, no prose, no markdown fencing:**
 
 {
@@ -208,6 +232,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
   "test_cases": [
     {
       "tc_id": "P-001",
+      "wf_ref": "WF-001",
       "test_case": "Short descriptive name",
       "preconditions": ["User logged in as <Role>", "<Prerequisite state>"],
       "steps": ["1. Step one", "2. Step two"],
@@ -224,7 +249,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 }
 
 ------------------------------------------------------------
-[21:41:13] Test-Positive - USER PROMPT
+[15:09:37] Test-Positive - USER PROMPT
 ------------------------------------------------------------
 <module_name>Dashboard</module_name>
 
@@ -232,25 +257,22 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 {
   "module_name": "Dashboard",
   "components": {
-    "Dashboard_Page": {
-      "type": "page",
-      "fields": {
-        "Edit_Mode": {
-          "type": "checkbox",
-          "required": false,
-          "description": "Toggle to enter/exit Edit mode"
-        },
-        "Reset_Page_To_Default": {
-          "type": "button",
-          "visible_when": "Edit_Mode == true"
-        },
-        "Add_Block_Button": {
-          "type": "button",
-          "element_name": "+ Add a block",
-          "visible_when": "Edit_Mode == true",
-          "opens": "Block_Library_Page"
-        }
-      }
+    "Edit_Mode_Toggle": {
+      "type": "checkbox",
+      "element_name": "Edit Mode",
+      "field_name": "Edit_Mode"
+    },
+    "Add_Block_Button": {
+      "type": "button",
+      "element_name": "+ Add a block",
+      "visible_when": "Edit_Mode == true",
+      "on_success": "opens page listing all available block types"
+    },
+    "Reset_Page_Button": {
+      "type": "button",
+      "element_name": "Reset page to default",
+      "visible_when": "Edit_Mode == true",
+      "on_success": "resets page to default"
     },
     "Timeline_Block": {
       "type": "block",
@@ -266,30 +288,39 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
           "type": "dropdown",
           "required": false
         },
-        "Search_Activities": {
+        "Search": {
           "type": "search",
           "required": false,
-          "description": "Search activities by name or type"
-        },
-        "Empty_State": {
-          "type": "empty_state",
-          "visible_when": "Timeline_Block.items_in_range == 0"
+          "constraints": []
         }
+      },
+      "empty_state": {
+        "type": "state",
+        "state_name": "Empty",
+        "visible_when": "Timeline_Block.Time_Range results == 0",
+        "message": "No activities in the selected range"
       },
       "edit_controls": {
         "visible_when": "Edit_Mode == true",
         "move_handle": {
           "type": "button",
-          "element_name": "Move"
+          "element_name": "Move",
+          "preconditions": [
+            "Edit mode must be on"
+          ]
         },
-        "options_menu": {
+        "three_dot_menu": {
           "type": "menu",
+          "element_name": "Block menu",
           "menu_actions": [
             {
               "action_name": "Configure"
             },
             {
-              "action_name": "Move"
+              "action_name": "Move",
+              "preconditions": [
+                "Edit mode must be on"
+              ]
             },
             {
               "action_name": "Delete"
@@ -301,48 +332,59 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
     "Calendar_Block": {
       "type": "block",
       "fields": {
-        "All_Courses_Filter": {
+        "All_Courses": {
           "type": "dropdown",
           "required": false
         },
-        "New_Event_Button": {
+        "New_Event": {
           "type": "button",
           "element_name": "New event",
-          "opens": "New_Event_Form"
+          "on_success": "opens new personal event form"
         },
         "Prev_Month": {
           "type": "button",
-          "element_name": "Previous month"
+          "element_name": "Previous month",
+          "on_success": "navigates to previous month"
         },
         "Next_Month": {
           "type": "button",
-          "element_name": "Next month"
-        },
-        "Full_Calendar_Link": {
+          "element_name": "Next month",
+          "on_success": "navigates to next month"
+        }
+      },
+      "links": {
+        "Full_Calendar": {
           "type": "link",
           "element_name": "Full calendar",
-          "opens": "Full_Calendar_View"
+          "on_success": "opens dedicated calendar view"
         },
-        "Import_or_Export_Calendars_Link": {
+        "Import_or_Export_Calendars": {
           "type": "link",
           "element_name": "Import or export calendars",
-          "opens": "Calendar_Data_Management"
+          "on_success": "opens calendar data management"
         }
       },
       "edit_controls": {
         "visible_when": "Edit_Mode == true",
         "move_handle": {
           "type": "button",
-          "element_name": "Move"
+          "element_name": "Move",
+          "preconditions": [
+            "Edit mode must be on"
+          ]
         },
-        "options_menu": {
+        "three_dot_menu": {
           "type": "menu",
+          "element_name": "Block menu",
           "menu_actions": [
             {
               "action_name": "Configure"
             },
             {
-              "action_name": "Move"
+              "action_name": "Move",
+              "preconditions": [
+                "Edit mode must be on"
+              ]
             },
             {
               "action_name": "Delete"
@@ -350,22 +392,6 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
           ]
         }
       }
-    },
-    "Block_Library_Page": {
-      "type": "page",
-      "fields": {}
-    },
-    "New_Event_Form": {
-      "type": "modal",
-      "fields": {}
-    },
-    "Full_Calendar_View": {
-      "type": "page",
-      "fields": {}
-    },
-    "Calendar_Data_Management": {
-      "type": "page",
-      "fields": {}
     }
   }
 }
@@ -380,10 +406,29 @@ The Dashboard displays a personalized greeting at the top. The main content area
 
 </description>
 
+<workflows>
+WF-001 | Toggle Edit Mode | actor: <role> | branch: none | terminal: Edit Mode | on_success: toggles dashboard edit mode; edit controls become visible or hidden
+WF-002 | Add a block (Edit mode) | actor: <role> | branch: Edit_Mode == true | terminal: + Add a block | on_success: opens page listing all available block types
+WF-003 | Reset page to default (Edit mode) | actor: <role> | branch: Edit_Mode == true | terminal: Reset page to default | on_success: resets page to default
+WF-004 | Timeline block move handle (Edit mode) | actor: <role> | branch: Edit_Mode == true | terminal: Move | on_success: enables dragging to reposition the Timeline block
+WF-005 | Timeline block menu Configure (Edit mode) | actor: <role> | branch: Edit_Mode == true | terminal: Configure | on_success: opens block configuration for the Timeline block
+WF-006 | Timeline block menu Move (Edit mode) | actor: <role> | branch: Edit_Mode == true | terminal: Move | on_success: enables repositioning of the Timeline block via the menu
+WF-007 | Timeline block menu Delete (Edit mode) | actor: <role> | branch: Edit_Mode == true | terminal: Delete | on_success: removes the Timeline block from the dashboard
+WF-008 | Create new personal event (Calendar) | actor: <role> | branch: none | terminal: New event | on_success: opens new personal event form
+WF-009 | Navigate to previous month (Calendar) | actor: <role> | branch: none | terminal: Previous month | on_success: navigates to previous month
+WF-010 | Navigate to next month (Calendar) | actor: <role> | branch: none | terminal: Next month | on_success: navigates to next month
+WF-011 | Open full calendar view | actor: <role> | branch: none | terminal: Full calendar | on_success: opens dedicated calendar view
+WF-012 | Open calendar import/export | actor: <role> | branch: none | terminal: Import or export calendars | on_success: opens calendar data management
+WF-013 | Calendar block move handle (Edit mode) | actor: <role> | branch: Edit_Mode == true | terminal: Move | on_success: enables dragging to reposition the Calendar block
+WF-014 | Calendar block menu Configure (Edit mode) | actor: <role> | branch: Edit_Mode == true | terminal: Configure | on_success: opens block configuration for the Calendar block
+WF-015 | Calendar block menu Move (Edit mode) | actor: <role> | branch: Edit_Mode == true | terminal: Move | on_success: enables repositioning of the Calendar block via the menu
+WF-016 | Calendar block menu Delete (Edit mode) | actor: <role> | branch: Edit_Mode == true | terminal: Delete | on_success: removes the Calendar block from the dashboard
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[21:41:45] Test-Positive - LLM RESPONSE
+[15:10:52] Test-Positive - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Dashboard",
@@ -391,164 +436,217 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Enable Edit mode shows Reset and Add Block controls",
-      "preconditions": [
-        "User logged in as <User>"
-      ],
+      "wf_ref": "WF-001",
+      "test_case": "Enable Edit Mode shows edit controls on blocks",
+      "preconditions": ["User logged in as <role>", "Dashboard is open", "Edit Mode is off"],
       "steps": [
-        "1. Navigate to the Dashboard page",
-        "2. Click the Edit Mode checkbox to enable Edit mode"
+        "1. Click the Edit Mode checkbox to enable Edit Mode"
       ],
-      "expected_result": "The 'Reset page to default' button is visible at the top right and the '+ Add a block' button is visible below the Dashboard heading",
+      "expected_result": "toggles dashboard edit mode; edit controls become visible or hidden — the Edit Mode checkbox is shown as enabled and both the Move handle and the Block menu are visible on the Timeline and Calendar blocks",
       "priority": "high"
     },
     {
       "tc_id": "P-002",
-      "test_case": "Click '+ Add a block' in Edit mode opens Block Library page",
-      "preconditions": [
-        "User logged in as <User>"
-      ],
+      "wf_ref": "WF-002",
+      "test_case": "Open Add Block page while in Edit Mode",
+      "preconditions": ["User logged in as <role>", "Dashboard is open", "Edit Mode is enabled"],
       "steps": [
-        "1. Navigate to the Dashboard page",
-        "2. Click the Edit Mode checkbox to enable Edit mode",
-        "3. Click the '+ Add a block' button"
+        "1. Click the '+ Add a block' button below the Dashboard heading"
       ],
-      "expected_result": "Block Library page is displayed",
+      "expected_result": "opens page listing all available block types",
       "priority": "high"
     },
     {
       "tc_id": "P-003",
-      "test_case": "Timeline block shows move handle and options menu entries in Edit mode",
-      "preconditions": [
-        "User logged in as <User>"
-      ],
+      "wf_ref": "WF-003",
+      "test_case": "Reset dashboard page to default in Edit Mode",
+      "preconditions": ["User logged in as <role>", "Dashboard is open", "Edit Mode is enabled"],
       "steps": [
-        "1. Navigate to the Dashboard page",
-        "2. Click the Edit Mode checkbox to enable Edit mode",
-        "3. Locate the Timeline block and verify the Move handle is visible",
-        "4. Click the Timeline block's options (three-dot) menu"
+        "1. Click the 'Reset page to default' button at the top right",
+        "2. If a confirmation dialog appears, click Confirm"
       ],
-      "expected_result": "The options menu shows entries 'Configure', 'Move', and 'Delete'",
-      "priority": "medium"
+      "expected_result": "resets page to default — the dashboard layout reverts to the default blocks and positions and any custom block placements are no longer present",
+      "priority": "high"
     },
     {
       "tc_id": "P-004",
-      "test_case": "Search in Timeline filters activities by name or type",
-      "preconditions": [
-        "User logged in as <User>",
-        "Dashboard contains activities in the Timeline block"
-      ],
+      "wf_ref": "WF-004",
+      "test_case": "Use Timeline block move handle to reposition the block",
+      "preconditions": ["User logged in as <role>", "Dashboard is open", "Edit Mode is enabled"],
       "steps": [
-        "1. Navigate to the Dashboard page",
-        "2. Enter <search term> in the Timeline block's Search activities field",
-        "3. Press Enter or trigger the search"
+        "1. Click and hold the Timeline block Move handle",
+        "2. Drag the Timeline block to <new position> on the dashboard and release"
       ],
-      "expected_result": "Timeline displays only activities matching <search term>; unrelated activities are no longer visible",
+      "expected_result": "enables dragging to reposition the Timeline block — the Timeline block is shown in the new location on the dashboard",
       "priority": "medium"
     },
     {
       "tc_id": "P-005",
-      "test_case": "Timeline shows empty state when no items are in the selected time range",
-      "preconditions": [
-        "User logged in as <User>"
-      ],
+      "wf_ref": "WF-005",
+      "test_case": "Open Timeline block configuration from block menu",
+      "preconditions": ["User logged in as <role>", "Dashboard is open", "Edit Mode is enabled"],
       "steps": [
-        "1. Navigate to the Dashboard page",
-        "2. Select <time range with no items> from the Timeline block's Time Range dropdown"
+        "1. Click the Timeline block's three-dot Block menu",
+        "2. Click 'Configure' from the menu"
       ],
-      "expected_result": "Timeline block displays its empty state indicating there are no upcoming activities in the selected range",
+      "expected_result": "opens block configuration for the Timeline block",
       "priority": "medium"
     },
     {
       "tc_id": "P-006",
-      "test_case": "Click 'New event' in Calendar block opens New Event modal",
-      "preconditions": [
-        "User logged in as <User>"
-      ],
+      "wf_ref": "WF-006",
+      "test_case": "Reposition Timeline block via block menu Move action",
+      "preconditions": ["User logged in as <role>", "Dashboard is open", "Edit Mode is enabled"],
       "steps": [
-        "1. Navigate to the Dashboard page",
-        "2. In the Calendar block, click the 'New event' button"
+        "1. Click the Timeline block's three-dot Block menu",
+        "2. Click 'Move' from the menu",
+        "3. Use the shown drag controls to move the Timeline block to <new position> and release"
       ],
-      "expected_result": "New Event modal is displayed",
-      "priority": "high"
+      "expected_result": "enables repositioning of the Timeline block via the menu — a drag overlay/handle appears and the Timeline block is shown in the new position on the dashboard",
+      "priority": "medium"
     },
     {
       "tc_id": "P-007",
-      "test_case": "Click Next month updates the calendar heading to the next month",
-      "preconditions": [
-        "User logged in as <User>"
-      ],
+      "wf_ref": "WF-007",
+      "test_case": "Delete Timeline block via block menu",
+      "preconditions": ["User logged in as <role>", "Dashboard is open", "Edit Mode is enabled", "Timeline block is present"],
       "steps": [
-        "1. Navigate to the Dashboard page",
-        "2. In the Calendar block, click the 'Next month' button"
+        "1. Click the Timeline block's three-dot Block menu",
+        "2. Click 'Delete' from the menu",
+        "3. Click Confirm on the Delete dialog"
       ],
-      "expected_result": "Calendar heading updates to display the next month and year",
+      "expected_result": "The Timeline block is no longer visible on the dashboard",
       "priority": "medium"
     },
     {
       "tc_id": "P-008",
-      "test_case": "Click Previous month updates the calendar heading to the previous month",
-      "preconditions": [
-        "User logged in as <User>"
-      ],
+      "wf_ref": "WF-008",
+      "test_case": "Open new personal event form from Calendar block",
+      "preconditions": ["User logged in as <role>", "Dashboard is open", "Calendar block is present"],
       "steps": [
-        "1. Navigate to the Dashboard page",
-        "2. In the Calendar block, click the 'Previous month' button"
+        "1. Click the Calendar block 'New event' button"
       ],
-      "expected_result": "Calendar heading updates to display the previous month and year",
-      "priority": "medium"
+      "expected_result": "opens new personal event form",
+      "priority": "high"
     },
     {
       "tc_id": "P-009",
-      "test_case": "Click 'Full calendar' opens the Full Calendar view page",
-      "preconditions": [
-        "User logged in as <User>"
-      ],
+      "wf_ref": "WF-009",
+      "test_case": "Navigate calendar to previous month",
+      "preconditions": ["User logged in as <role>", "Dashboard is open", "Calendar block is present showing current month"],
       "steps": [
-        "1. Navigate to the Dashboard page",
-        "2. In the Calendar block, click the 'Full calendar' link"
+        "1. Click the Calendar block 'Previous month' button"
       ],
-      "expected_result": "Full Calendar view page is displayed",
-      "priority": "medium"
+      "expected_result": "navigates to previous month — the Calendar heading updates to the previous month and year",
+      "priority": "high"
     },
     {
       "tc_id": "P-010",
-      "test_case": "Click 'Import or export calendars' opens Calendar Data Management page",
-      "preconditions": [
-        "User logged in as <User>"
-      ],
+      "wf_ref": "WF-010",
+      "test_case": "Navigate calendar to next month",
+      "preconditions": ["User logged in as <role>", "Dashboard is open", "Calendar block is present showing current month"],
       "steps": [
-        "1. Navigate to the Dashboard page",
-        "2. In the Calendar block, click the 'Import or export calendars' link"
+        "1. Click the Calendar block 'Next month' button"
       ],
-      "expected_result": "Calendar Data Management page is displayed",
-      "priority": "low"
+      "expected_result": "navigates to next month — the Calendar heading updates to the next month and year",
+      "priority": "high"
     },
     {
       "tc_id": "P-011",
-      "test_case": "Click 'Reset page to default' restores the Dashboard to its default layout",
-      "preconditions": [
-        "User logged in as <User>"
-      ],
+      "wf_ref": "WF-011",
+      "test_case": "Open dedicated full calendar view",
+      "preconditions": ["User logged in as <role>", "Dashboard is open", "Calendar block is present"],
       "steps": [
-        "1. Navigate to the Dashboard page",
-        "2. Click the Edit Mode checkbox to enable Edit mode",
-        "3. Click the 'Reset page to default' button"
+        "1. Click the 'Full calendar' link at the bottom of the Calendar block"
       ],
-      "expected_result": "Dashboard layout returns to the default arrangement with Timeline and Calendar blocks in their original positions",
+      "expected_result": "opens dedicated calendar view",
       "priority": "high"
+    },
+    {
+      "tc_id": "P-012",
+      "wf_ref": "WF-012",
+      "test_case": "Open calendar import/export management",
+      "preconditions": ["User logged in as <role>", "Dashboard is open", "Calendar block is present"],
+      "steps": [
+        "1. Click the 'Import or export calendars' link at the bottom of the Calendar block"
+      ],
+      "expected_result": "opens calendar data management",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-013",
+      "wf_ref": "WF-013",
+      "test_case": "Use Calendar block move handle to reposition the block",
+      "preconditions": ["User logged in as <role>", "Dashboard is open", "Edit Mode is enabled", "Calendar block is present"],
+      "steps": [
+        "1. Click and hold the Calendar block Move handle",
+        "2. Drag the Calendar block to <new position> on the dashboard and release"
+      ],
+      "expected_result": "enables dragging to reposition the Calendar block — the Calendar block is shown in the new location on the dashboard",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-014",
+      "wf_ref": "WF-014",
+      "test_case": "Open Calendar block configuration from block menu",
+      "preconditions": ["User logged in as <role>", "Dashboard is open", "Edit Mode is enabled", "Calendar block is present"],
+      "steps": [
+        "1. Click the Calendar block's three-dot Block menu",
+        "2. Click 'Configure' from the menu"
+      ],
+      "expected_result": "opens block configuration for the Calendar block",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-015",
+      "wf_ref": "WF-015",
+      "test_case": "Reposition Calendar block via block menu Move action",
+      "preconditions": ["User logged in as <role>", "Dashboard is open", "Edit Mode is enabled", "Calendar block is present"],
+      "steps": [
+        "1. Click the Calendar block's three-dot Block menu",
+        "2. Click 'Move' from the menu",
+        "3. Use the shown drag controls to move the Calendar block to <new position> and release"
+      ],
+      "expected_result": "enables repositioning of the Calendar block via the menu — a drag overlay/handle appears and the Calendar block is shown in the new position on the dashboard",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-016",
+      "wf_ref": "WF-016",
+      "test_case": "Delete Calendar block via block menu",
+      "preconditions": ["User logged in as <role>", "Dashboard is open", "Edit Mode is enabled", "Calendar block is present"],
+      "steps": [
+        "1. Click the Calendar block's three-dot Block menu",
+        "2. Click 'Delete' from the menu",
+        "3. Click Confirm on the Delete dialog"
+      ],
+      "expected_result": "The Calendar block is no longer visible on the dashboard",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-017",
+      "wf_ref": null,
+      "test_case": "Timeline empty state displays when no activities in selected range",
+      "preconditions": ["User logged in as <role>", "Dashboard is open", "Timeline block is present"],
+      "steps": [
+        "1. Open the Timeline block Time Range dropdown",
+        "2. Select <time range with no activities> from the Time Range dropdown",
+        "3. (Optional) Enter <search term> in the Timeline Search field and press Enter"
+      ],
+      "expected_result": "No activities in the selected range is visible within the Timeline block",
+      "priority": "low"
     }
   ],
   "summary": {
-    "total": 11,
-    "high_priority": 4,
-    "medium_priority": 6,
+    "total": 17,
+    "high_priority": 8,
+    "medium_priority": 8,
     "low_priority": 1
   }
 }
 
 ------------------------------------------------------------
-[21:41:45] Test-Positive - PARSED JSON
+[15:10:52] Test-Positive - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Dashboard",
@@ -556,158 +654,284 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Enable Edit mode shows Reset and Add Block controls",
+      "wf_ref": "WF-001",
+      "test_case": "Enable Edit Mode shows edit controls on blocks",
       "preconditions": [
-        "User logged in as <User>"
+        "User logged in as <role>",
+        "Dashboard is open",
+        "Edit Mode is off"
       ],
       "steps": [
-        "1. Navigate to the Dashboard page",
-        "2. Click the Edit Mode checkbox to enable Edit mode"
+        "1. Click the Edit Mode checkbox to enable Edit Mode"
       ],
-      "expected_result": "The 'Reset page to default' button is visible at the top right and the '+ Add a block' button is visible below the Dashboard heading",
+      "expected_result": "toggles dashboard edit mode; edit controls become visible or hidden \u2014 the Edit Mode checkbox is shown as enabled and both the Move handle and the Block menu are visible on the Timeline and Calendar blocks",
       "priority": "high"
     },
     {
       "tc_id": "P-002",
-      "test_case": "Click '+ Add a block' in Edit mode opens Block Library page",
+      "wf_ref": "WF-002",
+      "test_case": "Open Add Block page while in Edit Mode",
       "preconditions": [
-        "User logged in as <User>"
+        "User logged in as <role>",
+        "Dashboard is open",
+        "Edit Mode is enabled"
       ],
       "steps": [
-        "1. Navigate to the Dashboard page",
-        "2. Click the Edit Mode checkbox to enable Edit mode",
-        "3. Click the '+ Add a block' button"
+        "1. Click the '+ Add a block' button below the Dashboard heading"
       ],
-      "expected_result": "Block Library page is displayed",
+      "expected_result": "opens page listing all available block types",
       "priority": "high"
     },
     {
       "tc_id": "P-003",
-      "test_case": "Timeline block shows move handle and options menu entries in Edit mode",
+      "wf_ref": "WF-003",
+      "test_case": "Reset dashboard page to default in Edit Mode",
       "preconditions": [
-        "User logged in as <User>"
+        "User logged in as <role>",
+        "Dashboard is open",
+        "Edit Mode is enabled"
       ],
       "steps": [
-        "1. Navigate to the Dashboard page",
-        "2. Click the Edit Mode checkbox to enable Edit mode",
-        "3. Locate the Timeline block and verify the Move handle is visible",
-        "4. Click the Timeline block's options (three-dot) menu"
+        "1. Click the 'Reset page to default' button at the top right",
+        "2. If a confirmation dialog appears, click Confirm"
       ],
-      "expected_result": "The options menu shows entries 'Configure', 'Move', and 'Delete'",
-      "priority": "medium"
+      "expected_result": "resets page to default \u2014 the dashboard layout reverts to the default blocks and positions and any custom block placements are no longer present",
+      "priority": "high"
     },
     {
       "tc_id": "P-004",
-      "test_case": "Search in Timeline filters activities by name or type",
+      "wf_ref": "WF-004",
+      "test_case": "Use Timeline block move handle to reposition the block",
       "preconditions": [
-        "User logged in as <User>",
-        "Dashboard contains activities in the Timeline block"
+        "User logged in as <role>",
+        "Dashboard is open",
+        "Edit Mode is enabled"
       ],
       "steps": [
-        "1. Navigate to the Dashboard page",
-        "2. Enter <search term> in the Timeline block's Search activities field",
-        "3. Press Enter or trigger the search"
+        "1. Click and hold the Timeline block Move handle",
+        "2. Drag the Timeline block to <new position> on the dashboard and release"
       ],
-      "expected_result": "Timeline displays only activities matching <search term>; unrelated activities are no longer visible",
+      "expected_result": "enables dragging to reposition the Timeline block \u2014 the Timeline block is shown in the new location on the dashboard",
       "priority": "medium"
     },
     {
       "tc_id": "P-005",
-      "test_case": "Timeline shows empty state when no items are in the selected time range",
+      "wf_ref": "WF-005",
+      "test_case": "Open Timeline block configuration from block menu",
       "preconditions": [
-        "User logged in as <User>"
+        "User logged in as <role>",
+        "Dashboard is open",
+        "Edit Mode is enabled"
       ],
       "steps": [
-        "1. Navigate to the Dashboard page",
-        "2. Select <time range with no items> from the Timeline block's Time Range dropdown"
+        "1. Click the Timeline block's three-dot Block menu",
+        "2. Click 'Configure' from the menu"
       ],
-      "expected_result": "Timeline block displays its empty state indicating there are no upcoming activities in the selected range",
+      "expected_result": "opens block configuration for the Timeline block",
       "priority": "medium"
     },
     {
       "tc_id": "P-006",
-      "test_case": "Click 'New event' in Calendar block opens New Event modal",
+      "wf_ref": "WF-006",
+      "test_case": "Reposition Timeline block via block menu Move action",
       "preconditions": [
-        "User logged in as <User>"
+        "User logged in as <role>",
+        "Dashboard is open",
+        "Edit Mode is enabled"
       ],
       "steps": [
-        "1. Navigate to the Dashboard page",
-        "2. In the Calendar block, click the 'New event' button"
+        "1. Click the Timeline block's three-dot Block menu",
+        "2. Click 'Move' from the menu",
+        "3. Use the shown drag controls to move the Timeline block to <new position> and release"
       ],
-      "expected_result": "New Event modal is displayed",
-      "priority": "high"
+      "expected_result": "enables repositioning of the Timeline block via the menu \u2014 a drag overlay/handle appears and the Timeline block is shown in the new position on the dashboard",
+      "priority": "medium"
     },
     {
       "tc_id": "P-007",
-      "test_case": "Click Next month updates the calendar heading to the next month",
+      "wf_ref": "WF-007",
+      "test_case": "Delete Timeline block via block menu",
       "preconditions": [
-        "User logged in as <User>"
+        "User logged in as <role>",
+        "Dashboard is open",
+        "Edit Mode is enabled",
+        "Timeline block is present"
       ],
       "steps": [
-        "1. Navigate to the Dashboard page",
-        "2. In the Calendar block, click the 'Next month' button"
+        "1. Click the Timeline block's three-dot Block menu",
+        "2. Click 'Delete' from the menu",
+        "3. Click Confirm on the Delete dialog"
       ],
-      "expected_result": "Calendar heading updates to display the next month and year",
+      "expected_result": "The Timeline block is no longer visible on the dashboard",
       "priority": "medium"
     },
     {
       "tc_id": "P-008",
-      "test_case": "Click Previous month updates the calendar heading to the previous month",
+      "wf_ref": "WF-008",
+      "test_case": "Open new personal event form from Calendar block",
       "preconditions": [
-        "User logged in as <User>"
+        "User logged in as <role>",
+        "Dashboard is open",
+        "Calendar block is present"
       ],
       "steps": [
-        "1. Navigate to the Dashboard page",
-        "2. In the Calendar block, click the 'Previous month' button"
+        "1. Click the Calendar block 'New event' button"
       ],
-      "expected_result": "Calendar heading updates to display the previous month and year",
-      "priority": "medium"
+      "expected_result": "opens new personal event form",
+      "priority": "high"
     },
     {
       "tc_id": "P-009",
-      "test_case": "Click 'Full calendar' opens the Full Calendar view page",
+      "wf_ref": "WF-009",
+      "test_case": "Navigate calendar to previous month",
       "preconditions": [
-        "User logged in as <User>"
+        "User logged in as <role>",
+        "Dashboard is open",
+        "Calendar block is present showing current month"
       ],
       "steps": [
-        "1. Navigate to the Dashboard page",
-        "2. In the Calendar block, click the 'Full calendar' link"
+        "1. Click the Calendar block 'Previous month' button"
       ],
-      "expected_result": "Full Calendar view page is displayed",
-      "priority": "medium"
+      "expected_result": "navigates to previous month \u2014 the Calendar heading updates to the previous month and year",
+      "priority": "high"
     },
     {
       "tc_id": "P-010",
-      "test_case": "Click 'Import or export calendars' opens Calendar Data Management page",
+      "wf_ref": "WF-010",
+      "test_case": "Navigate calendar to next month",
       "preconditions": [
-        "User logged in as <User>"
+        "User logged in as <role>",
+        "Dashboard is open",
+        "Calendar block is present showing current month"
       ],
       "steps": [
-        "1. Navigate to the Dashboard page",
-        "2. In the Calendar block, click the 'Import or export calendars' link"
+        "1. Click the Calendar block 'Next month' button"
       ],
-      "expected_result": "Calendar Data Management page is displayed",
-      "priority": "low"
+      "expected_result": "navigates to next month \u2014 the Calendar heading updates to the next month and year",
+      "priority": "high"
     },
     {
       "tc_id": "P-011",
-      "test_case": "Click 'Reset page to default' restores the Dashboard to its default layout",
+      "wf_ref": "WF-011",
+      "test_case": "Open dedicated full calendar view",
       "preconditions": [
-        "User logged in as <User>"
+        "User logged in as <role>",
+        "Dashboard is open",
+        "Calendar block is present"
       ],
       "steps": [
-        "1. Navigate to the Dashboard page",
-        "2. Click the Edit Mode checkbox to enable Edit mode",
-        "3. Click the 'Reset page to default' button"
+        "1. Click the 'Full calendar' link at the bottom of the Calendar block"
       ],
-      "expected_result": "Dashboard layout returns to the default arrangement with Timeline and Calendar blocks in their original positions",
+      "expected_result": "opens dedicated calendar view",
       "priority": "high"
+    },
+    {
+      "tc_id": "P-012",
+      "wf_ref": "WF-012",
+      "test_case": "Open calendar import/export management",
+      "preconditions": [
+        "User logged in as <role>",
+        "Dashboard is open",
+        "Calendar block is present"
+      ],
+      "steps": [
+        "1. Click the 'Import or export calendars' link at the bottom of the Calendar block"
+      ],
+      "expected_result": "opens calendar data management",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-013",
+      "wf_ref": "WF-013",
+      "test_case": "Use Calendar block move handle to reposition the block",
+      "preconditions": [
+        "User logged in as <role>",
+        "Dashboard is open",
+        "Edit Mode is enabled",
+        "Calendar block is present"
+      ],
+      "steps": [
+        "1. Click and hold the Calendar block Move handle",
+        "2. Drag the Calendar block to <new position> on the dashboard and release"
+      ],
+      "expected_result": "enables dragging to reposition the Calendar block \u2014 the Calendar block is shown in the new location on the dashboard",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-014",
+      "wf_ref": "WF-014",
+      "test_case": "Open Calendar block configuration from block menu",
+      "preconditions": [
+        "User logged in as <role>",
+        "Dashboard is open",
+        "Edit Mode is enabled",
+        "Calendar block is present"
+      ],
+      "steps": [
+        "1. Click the Calendar block's three-dot Block menu",
+        "2. Click 'Configure' from the menu"
+      ],
+      "expected_result": "opens block configuration for the Calendar block",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-015",
+      "wf_ref": "WF-015",
+      "test_case": "Reposition Calendar block via block menu Move action",
+      "preconditions": [
+        "User logged in as <role>",
+        "Dashboard is open",
+        "Edit Mode is enabled",
+        "Calendar block is present"
+      ],
+      "steps": [
+        "1. Click the Calendar block's three-dot Block menu",
+        "2. Click 'Move' from the menu",
+        "3. Use the shown drag controls to move the Calendar block to <new position> and release"
+      ],
+      "expected_result": "enables repositioning of the Calendar block via the menu \u2014 a drag overlay/handle appears and the Calendar block is shown in the new position on the dashboard",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-016",
+      "wf_ref": "WF-016",
+      "test_case": "Delete Calendar block via block menu",
+      "preconditions": [
+        "User logged in as <role>",
+        "Dashboard is open",
+        "Edit Mode is enabled",
+        "Calendar block is present"
+      ],
+      "steps": [
+        "1. Click the Calendar block's three-dot Block menu",
+        "2. Click 'Delete' from the menu",
+        "3. Click Confirm on the Delete dialog"
+      ],
+      "expected_result": "The Calendar block is no longer visible on the dashboard",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-017",
+      "wf_ref": null,
+      "test_case": "Timeline empty state displays when no activities in selected range",
+      "preconditions": [
+        "User logged in as <role>",
+        "Dashboard is open",
+        "Timeline block is present"
+      ],
+      "steps": [
+        "1. Open the Timeline block Time Range dropdown",
+        "2. Select <time range with no activities> from the Time Range dropdown",
+        "3. (Optional) Enter <search term> in the Timeline Search field and press Enter"
+      ],
+      "expected_result": "No activities in the selected range is visible within the Timeline block",
+      "priority": "low"
     }
   ],
   "summary": {
-    "total": 11,
-    "high_priority": 4,
-    "medium_priority": 6,
+    "total": 17,
+    "high_priority": 8,
+    "medium_priority": 8,
     "low_priority": 1
   }
 }

@@ -1,19 +1,19 @@
 # Semantic Critique — Mifos
 
-Generated: 2026-05-21T22:36:26.545692Z
+Generated: 2026-05-25T14:33:08.684030Z
 
 ## Login
 
 **Verdict:** yes  
 **Forced ship:** no  
 
-AST includes all interactive elements and behaviors from the description; only a minor phantom (explicit error message text) is present.
+AST accurately represents the interactive elements, validation, and submission behaviors; only a single minor inferred action (Forgot Password link navigation) was added.
 
 **Missing:** none
 
 **Phantoms (hallucinations):**
 
-- Login_Form.submit_actions[0].on_failure (shows error message 'Invalid credentials' — exact message text was not specified in the description)
+- Authentication_Interface.links[0].on_click (navigates to Forgot Password page not specified in description)
 
 ---
 
@@ -22,13 +22,11 @@ AST includes all interactive elements and behaviors from the description; only a
 **Verdict:** yes  
 **Forced ship:** no  
 
-AST accurately captures the interactive elements (Search Activity input and Dashboard button); only a minor inferred submit action for Search is present.
+AST correctly represents the interactive elements (Search Activity field and Dashboard button) and the login precondition; no missing or extraneous interactive items found.
 
 **Missing:** none
 
-**Phantoms (hallucinations):**
-
-- Home_Page.submit_actions[0] (Search action/button not explicitly mentioned in the description)
+**Phantoms:** none
 
 ---
 
@@ -37,7 +35,7 @@ AST accurately captures the interactive elements (Search Activity input and Dash
 **Verdict:** yes  
 **Forced ship:** no  
 
-AST correctly models the Dashboard button navigation, the Search Activity field, the Client Trends chart with legends for New Clients and Closed Clients, and the two summary cards with 'No Data' behavior.
+The AST correctly captures the interactive elements (Home 'Dashboard' button, 'Search Activity' field, and the 'Client Trends' chart with legends and office binding); the summary cards are passive displays and may be omitted.
 
 **Missing:** none
 
@@ -50,7 +48,7 @@ AST correctly models the Dashboard button navigation, the Search Activity field,
 **Verdict:** yes  
 **Forced ship:** no  
 
-AST accurately captures the global search button, live search input, grouped results (Clients, Groups, Loans, Savings accounts), result item fields (name, identifier, status), navigation on selection, empty state, and matching constraints.
+AST accurately captures the interactive elements (search launcher, input, real-time grouped results with name/identifier/status, navigation on select, and no-results message) and the stated constraints.
 
 **Missing:** none
 
@@ -63,7 +61,7 @@ AST accurately captures the global search button, live search input, grouped res
 **Verdict:** yes  
 **Forced ship:** no  
 
-AST accurately captures the interactive elements, actions, conditional logic, wizard steps, import workflow, and detail-page tabs/actions as described.
+The AST accurately captures all interactive elements, actions, wizard steps, filters, search targets, import flows, state-bound actions, and tabs described; no critical items are missing.
 
 **Missing:** none
 
@@ -76,50 +74,34 @@ AST accurately captures the interactive elements, actions, conditional logic, wi
 **Verdict:** retry (forced ship)  
 **Forced ship:** yes  
 
-The AST adds inferred action preconditions and an extra 'Generate Collection Sheet' action that are not specified in the description; remove those inferred constraints/actions or make them explicit in the description before reuse.
+AST introduces state-bound conditional actions and embedded preconditions/fields that are not specified in the description (phantoms); regenerate with simpler action definitions or explicit conditional triggers in the description.
 
 **Missing:** none
 
 **Phantoms (hallucinations):**
 
-- Group_Detail_Page.Detail_Action_Bar.states.Pending.available_actions[0].preconditions[0] ("status must be Pending" — not stated in description)
-- Group_Detail_Page.Detail_Action_Bar.states.Active.available_actions[0].preconditions[0] ("status must be Active" — not stated in description)
-- Group_Detail_Page.Detail_Action_Bar.states.Closed.available_actions[0].preconditions[0] ("status must be Active or Pending" — contradictory and not stated in description)
-- Group_Detail_Page.Detail_Action_Bar.states.Active.available_actions[4] ("Generate Collection Sheet" action — the description mentions a Collection Sheet feature but does not state there is an action button in the detail action bar)
+- Group_Detail_Page.Group_Action_Bar (state_bound_action_bar with explicit states and state-specific available_actions) — description only lists action buttons, it does not specify state-dependent availability.
+- Group_Detail_Page.Group_Action_Bar.states.*.*.preconditions (e.g., 'status must be Pending') — preconditions/availability per-state were not specified in the description.
+- Group_Detail_Page.Group_Action_Bar.states.*.available_actions[].fields.Staff (Assign Staff contains an embedded required Staff field) — the description only names the Assign Staff action, it does not describe the action UI or required fields.
 
 **Fixes applied:**
 
-- Remove the inferred precondition at Group_Detail_Page.Detail_Action_Bar.states.Pending.available_actions[0].preconditions[0]; replace the 'preconditions' array with an empty array or remove the 'preconditions' property entirely.
-- Remove the inferred precondition at Group_Detail_Page.Detail_Action_Bar.states.Active.available_actions[0].preconditions[0]; replace the 'preconditions' array with an empty array or remove the 'preconditions' property entirely.
-- Remove or correct the contradictory inferred precondition at Group_Detail_Page.Detail_Action_Bar.states.Closed.available_actions[0].preconditions[0]; set 'preconditions' to an empty array or remove it (the description does not specify any preconditions for Edit in Closed state).
-- Remove the 'Generate Collection Sheet' action from Group_Detail_Page.Detail_Action_Bar.states.Active.available_actions[4] (or move it out of the state_bound_action_bar into the standalone Collection_Sheet component) because the description does not explicitly state there is an action button for generating the collection sheet in the detail action bar.
+- Replace Group_Detail_Page.Group_Action_Bar (state_bound_action_bar) with a simple action_bar listing actions: Activate, Edit, Close, Assign Staff, Transfer Clients at path Group_Detail_Page.Group_Action_Bar; remove state-specific 'states' map and any 'preconditions' unless the description is extended to explicitly define when each action is available.
+- If Assign Staff requires an input form, move the Staff field out of action definitions and model Assign Staff as an action that opens a separate form/modal at path Group_Detail_Page.Group_Action_Bar.available_actions[] named 'Assign Staff' with its own fields: { 'Staff': { 'type': 'dropdown' } }. Do not mark it required in the action definition unless the description explicitly states 'Assign Staff requires selecting a Staff'.
+- If state-dependent availability is intended, update the description to explicitly state triggers (e.g., 'Activate is only available when status is Pending') and then regenerate so the AST can accurately include state_bound_action_bar.states with the specified preconditions.
 
 ---
 
 ## Center Management
 
-**Verdict:** retry (forced ship)  
-**Forced ship:** yes  
+**Verdict:** yes  
+**Forced ship:** no  
 
-Reject: the AST introduces multiple phantom elements not present in the description (an explicit 'Generate Collection Sheet' action, several Member_Groups table columns, and inferred numeric constraints); please remove or align these with the spec.
+The AST accurately represents the interactive elements (centers table with link, Import/Create actions, Create Center form fields and submit, bulk import template/upload, detail page actions and tabs, and the collection sheet) with no significant missing items or extraneous phantoms.
 
 **Missing:** none
 
-**Phantoms (hallucinations):**
-
-- components.Center_Detail_Page.action_bar.states.Any.available_actions[4] (Generate Collection Sheet action not explicitly described in the input)
-- components.Center_Detail_Page.tabs[0].components.Member_Groups_Table.columns[1] (Member_Groups_Table column 'Group External Id' not specified in the input)
-- components.Center_Detail_Page.tabs[0].components.Member_Groups_Table.columns[2] (Member_Groups_Table column 'Status' not specified in the input)
-- components.Center_Detail_Page.tabs[0].components.Member_Groups_Table.columns[3] (Member_Groups_Table column 'Office Name' not specified in the input)
-- components.Collection_Sheet.row_fields.Loan_Repayment_Amount.constraints (non-negative constraint inferred but not stated in the input)
-- components.Collection_Sheet.row_fields.Savings_Deposit_Amount.constraints (non-negative constraint inferred but not stated in the input)
-
-**Fixes applied:**
-
-- Remove components.Center_Detail_Page.action_bar.states.Any.available_actions[4] (the 'Generate Collection Sheet' action) unless the description explicitly names a button/action on the Center Detail page to open the Collection Sheet; if the description is updated to name such an action, add it back with the exact label and trigger.
-- Replace components.Center_Detail_Page.tabs[0].components.Member_Groups_Table.columns with ["Name"] and keep link_column set to "Name" — the description only specifies a list of member groups with links and does not enumerate additional columns.
-- Delete components.Collection_Sheet.row_fields.Loan_Repayment_Amount.constraints — do not add inferred validation constraints unless explicitly specified in the description.
-- Delete components.Collection_Sheet.row_fields.Savings_Deposit_Amount.constraints — do not add inferred validation constraints unless explicitly specified in the description.
+**Phantoms:** none
 
 ---
 
@@ -128,11 +110,14 @@ Reject: the AST introduces multiple phantom elements not present in the descript
 **Verdict:** yes  
 **Forced ship:** no  
 
-AST correctly captures the filter, table, Create button, 6-step wizard with all specified fields and step-6 conditional GL mappings, and the product detail Edit action.
+AST accurately captures the wizard steps, table, detail view, and accounting conditional logic; only minor inferred elements present.
 
 **Missing:** none
 
-**Phantoms:** none
+**Phantoms (hallucinations):**
+
+- components.Loan_Products_Filter_Bar.fields.Search (search field inferred from 'filter bar' but not explicitly named)
+- components.Create_Loan_Product_Wizard.steps[4].fields.Selected_Charges.item_fields.Remove (remove button inferred for selected charges but not explicitly described)
 
 ---
 
@@ -141,24 +126,38 @@ AST correctly captures the filter, table, Create button, 6-step wizard with all 
 **Verdict:** yes  
 **Forced ship:** no  
 
-AST accurately captures all interactive elements, steps, fields, options, and conditional logic described for Savings, Fixed Deposit, and Recurring Deposit product wizards and the Savings Products page.
+AST accurately captures the interactive elements and conditional logic described; only a minor inferred action name is present.
 
 **Missing:** none
 
-**Phantoms:** none
+**Phantoms (hallucinations):**
+
+- Savings_Products_Page.Products_Table.row_actions[0] (action_name 'View' was inferred; description only specified 'Name' is a clickable link)
 
 ---
 
 ## Share Products
 
-**Verdict:** yes  
-**Forced ship:** no  
+**Verdict:** retry (forced ship)  
+**Forced ship:** yes  
 
-The AST accurately represents the interactive elements described: the data table with clickable Product Name, the + Create Share Product wizard with all 7 steps and fields (including repeating market-price rows and charges search-and-add), the accounting conditional fields, and the product detail Edit/Delete actions.
+The AST is mostly complete but is missing the auto-calculated Capital Value field and includes a few phantom actions that are not specified in the description.
 
-**Missing:** none
+**Missing:**
 
-**Phantoms:** none
+- Create_Share_Product_Wizard.steps[3].fields.Capital_Value
+
+**Phantoms (hallucinations):**
+
+- Share_Products_Table.row_actions[0] (Edit action not described on the table; Edit is only described in the detail view)
+- Share_Products_Table.row_actions[1] (Delete action not described on the table; Delete is only described in the detail view)
+- Create_Share_Product_Wizard.submit_actions[0] (Create Share Product button label/submit action text was not specified in the description)
+
+**Fixes applied:**
+
+- Create_Share_Product_Wizard.steps[3].fields.Capital_Value: Add a read-only numeric field named Capital_Value with metadata indicating it is auto-calculated (e.g., "auto_calculated": true) and an optional note of the calculation formula (e.g., Total_Number_of_Shares * Nominal_Unit_Price).
+- Share_Products_Table.row_actions: Remove the Edit and Delete actions from the table row_actions array; retain Edit and Delete only in Share_Product_Detail.actions as described.
+- Create_Share_Product_Wizard.submit_actions[0]: Remove or make generic (e.g., replace explicit labeled button with a generic wizard submit action) since the description did not specify the exact submit button text; do not invent a specific button label unless present in the description.
 
 ---
 
@@ -167,14 +166,14 @@ The AST accurately represents the interactive elements described: the data table
 **Verdict:** yes  
 **Forced ship:** no  
 
-AST accurately captures the described interactive elements; only minor row-level Edit/Delete actions in the table are extra but non-critical.
+AST accurately covers all interactive elements from the description; only two minor inferred items (an Edit form and a redundant row action) are present but acceptable.
 
 **Missing:** none
 
 **Phantoms (hallucinations):**
 
-- components.Charges_Table.row_actions[1] (Edit row action not explicitly described; Edit is only mentioned in the detail view)
-- components.Charges_Table.row_actions[2] (Delete row action not explicitly described; Delete is only mentioned in the detail view)
+- components.Charges_Table.row_actions[0] (Open Detail row_action duplicates the Name clickable link described)
+- components.Edit_Charge_Form (Edit opening a separate form was inferred though description only specifies an Edit option in the detail view)
 
 ---
 
@@ -183,27 +182,40 @@ AST accurately captures the described interactive elements; only minor row-level
 **Verdict:** yes  
 **Forced ship:** no  
 
-AST correctly captures the interactive elements, constraints, repeating rate periods, table/link actions, create/edit flows, and detail view; only minor inferred submit button labels were added.
+The AST correctly captures the interactive elements described (data table with clickable Floating Rate Name, Create button and form with required fields and repeating Rate Periods, add-row action, and detail view Edit action), with appropriate constraints and submit behavior.
 
 **Missing:** none
 
-**Phantoms (hallucinations):**
-
-- Create_Floating_Rate_Form.submit_actions[0] (element_name 'Create' — submit button label was not explicitly specified in the description)
-- Edit_Floating_Rate_Form.submit_actions[0] (element_name 'Save' — submit button label was not explicitly specified in the description)
+**Phantoms:** none
 
 ---
 
 ## Delinquency Management
 
-**Verdict:** yes  
-**Forced ship:** no  
+**Verdict:** retry (forced ship)  
+**Forced ship:** yes  
 
-The AST correctly represents both pages, their data tables (including clickable columns), the create forms with required/optional fields, and the repeating ranges interface for buckets matching the description.
+AST contains multiple inferred elements not explicitly stated (phantoms); adjust detail page fields and remove or justify inferred form controls.
 
 **Missing:** none
 
-**Phantoms:** none
+**Phantoms (hallucinations):**
+
+- components.Delinquency_Bucket_Detail.fields (description only names a clickable Bucket Name link; no detail fields were specified)
+- components.Delinquency_Bucket_Detail.fields.Bucket_Ranges (detail page fields were not described and are inferred)
+- components.Delinquency_Bucket_Detail.fields.Linked_Loan_Products (detail fields were not specified)
+- components.Create_Delinquency_Bucket_Form.Bucket_Ranges.add_action.element_name ("Add Range" button label is inferred, not present in description)
+- components.Delinquency_Bucket_Detail.Bucket_Ranges.add_action.element_name ("Add Range" on detail is inferred)
+- components.Create_Delinquency_Bucket_Form.Linked_Loan_Products (the description states buckets are linked to Loan Products but does not explicitly state there is a Link/Dropdown field on the create form)
+
+**Fixes applied:**
+
+- components.Delinquency_Bucket_Detail.fields: Clear this object to an empty object {} (the description only specifies that Bucket Name is a clickable link; no detail fields were described).
+- components.Delinquency_Bucket_Detail.fields.Bucket_Ranges: Remove this repeating_group; if detail fields are required, the description must explicitly list them.
+- components.Delinquency_Bucket_Detail.fields.Linked_Loan_Products: Remove this field from the detail page unless the description explicitly requires it.
+- components.Create_Delinquency_Bucket_Form.Bucket_Ranges.add_action.element_name: Remove or leave unspecified the element_name ("Add Range") unless the exact control label is provided in the description.
+- components.Delinquency_Bucket_Detail.Bucket_Ranges.add_action.element_name: Remove this add_action from the detail page unless explicitly described.
+- components.Create_Delinquency_Bucket_Form.Linked_Loan_Products: Either remove this field or update the description to explicitly state that the create form includes a multi-select/dropdown to link Loan Products.
 
 ---
 
@@ -212,7 +224,7 @@ The AST correctly represents both pages, their data tables (including clickable 
 **Verdict:** yes  
 **Forced ship:** no  
 
-AST accurately captures the interactive elements, steps, actions, and tabs described; no critical items are missing and there are no extraneous phantom elements.
+AST accurately represents the interactive elements in the description with no significant missing or extraneous interactive items.
 
 **Missing:** none
 
@@ -225,14 +237,15 @@ AST accurately captures the interactive elements, steps, actions, and tabs descr
 **Verdict:** yes  
 **Forced ship:** no  
 
-AST accurately captures the interactive elements, states, actions, forms, and tabs described; only minor non-critical extras (empty row/bulk action placeholders) are present.
+AST accurately captures the interactive elements and state-bound actions from the description; only minor omissions/inferences noted.
 
-**Missing:** none
+**Missing:**
+
+- Create_Savings_Account_Form.fields.Charges.add_action (explicit 'Add Charge' control to add more charges)
 
 **Phantoms (hallucinations):**
 
-- Savings_Account_Detail_Tabs.tabs[1].fields.Transactions_Table.row_actions
-- Savings_Account_Detail_Tabs.tabs[1].fields.Transactions_Table.bulk_actions
+- Savings_Account_Detail_Actions.states.Approved.available_actions[1].on_success (Undo Approval 'reverts to Submitted and Pending Approval status' effect is an inferred behavior not explicitly stated)
 
 ---
 
@@ -241,7 +254,7 @@ AST accurately captures the interactive elements, states, actions, forms, and ta
 **Verdict:** yes  
 **Forced ship:** no  
 
-The AST correctly includes all interactive elements (create link, application form fields including Charges section, submit action, state-bound actions with their fields, and the three detail tabs/tables) without extraneous phantoms.
+The AST accurately captures the interactive elements (application form fields, submit action, state-bound actions with their fields, and the three tabs with tables); no significant missing items or extraneous phantoms were found.
 
 **Missing:** none
 
@@ -254,13 +267,14 @@ The AST correctly includes all interactive elements (create link, application fo
 **Verdict:** yes  
 **Forced ship:** no  
 
-AST accurately captures the interactive elements described (creation actions, form fields, detail-page actions, and tabs); only one minor inferred field (RD deposit period unit) that is reasonable.
+AST correctly captures the interactive elements (creation actions, form fields, tabs, and detail actions) with only two minor inferred fields (Interest_Rate) that are non-critical.
 
 **Missing:** none
 
 **Phantoms (hallucinations):**
 
-- components.RD_Account_Creation_Form.fields.Deposit_Period_Unit (Deposit period unit options for RD were not explicitly specified in the description)
+- Fixed_Deposit_Account_Creation_Form.fields.Interest_Rate
+- Recurring_Deposit_Account_Creation_Form.fields.Interest_Rate
 
 ---
 
@@ -269,39 +283,30 @@ AST accurately captures the interactive elements described (creation actions, fo
 **Verdict:** yes  
 **Forced ship:** no  
 
-The AST correctly models the tree, create form (with filtered Parent Account and GL code uniqueness validation), and account detail actions; only a generic submit action in the form is an extra minor element.
+AST matches the described interactive elements (create form with all fields and constraints, tree with row click to detail, edit/delete actions); only minor inferred element present.
 
 **Missing:** none
 
 **Phantoms (hallucinations):**
 
-- Create_GL_Account_Form.submit_actions[0] (submit button not explicitly mentioned in description)
+- components.Edit_GL_Account_Form.fields (Edit action was mentioned but the description did not enumerate edit form fields; fields were inferred)
 
 ---
 
 ## Accounting — Journal Entries & Closures
 
-**Verdict:** retry (forced ship)  
-**Forced ship:** yes  
+**Verdict:** yes  
+**Forced ship:** no  
 
-AST is missing the explicit 'Add Row' action for entry lines and includes several phantom elements (per-line Type and explicit submit button labels) that are not present in the description.
+AST is acceptable for use; only minor issues (a missing running total display and an inferred min on entry lines) were found.
 
 **Missing:**
 
-- Add_Journal_Entry_Form.fields.Entry_Lines.Add_Row_Button (explicit '+ Add Row' action to append another entry line)
+- Add_Journal_Entry_Form.fields.Running_Total (debit_total, credit_total, difference display)
 
 **Phantoms (hallucinations):**
 
-- Add_Journal_Entry_Form.fields.Entry_Lines.item_fields.Type (per-line 'Type' field not specified in the description for the creation form)
-- Add_Journal_Entry_Form.submit_actions[0].element_name (Create Journal Entry button label not specified in the description)
-- Create_Closure_Form.submit_actions[0].element_name (Create Closure button label not specified in the description)
-
-**Fixes applied:**
-
-- Add_Journal_Entry_Form.fields.Entry_Lines.Add_Row_Button: add an explicit action/button with element_name '+ Add Row' (or similar) that appends a new item to the repeating Entry_Lines group.
-- Remove or make unspecified: Add_Journal_Entry_Form.fields.Entry_Lines.item_fields.Type — remove this field unless the description is updated to explicitly state that each entry line includes a Debit/Credit selector; if you keep it, ensure the description mentions per-line Type.
-- Remove or mark unspecified: Add_Journal_Entry_Form.submit_actions[0].element_name — the description did not specify the submit button label; either remove the explicit element_name or set it to a generic unspecified value (e.g., 'Submit').
-- Remove or mark unspecified: Create_Closure_Form.submit_actions[0].element_name — the description did not specify the submit button label; either remove the explicit element_name or set it to a generic unspecified value (e.g., 'Submit').
+- Add_Journal_Entry_Form.fields.Entry_Lines.min (min: 1 inferred but not specified in description)
 
 ---
 
@@ -310,13 +315,14 @@ AST is missing the explicit 'Add Row' action for entry lines and includes severa
 **Verdict:** yes  
 **Forced ship:** no  
 
-AST accurately captures the interactive elements for both pages; only a single minor inferred Edit form (reasonable) was added beyond the explicit description.
+AST matches the described interactive elements; only minor inferred details (Edit form fields and save button) are present but acceptable.
 
 **Missing:** none
 
 **Phantoms (hallucinations):**
 
-- components.Edit_Rule_Form (edit form fields inferred though description only mentioned an Edit option on the detail view)
+- Accounting_Rule_Detail_View.actions[0].fields (Edit form fields were not explicitly listed in the description)
+- Accounting_Rule_Detail_View.actions[0].submit_actions[0] (Save Changes button name/action not explicitly specified in the description)
 
 ---
 
@@ -325,14 +331,15 @@ AST accurately captures the interactive elements for both pages; only a single m
 **Verdict:** yes  
 **Forced ship:** no  
 
-AST captures all interactive elements described (tables, create buttons, form with repeating Definitions rows, entries table with create/review/recreate actions); only minor inferred UI details (save button and category shown as dropdown in detail view) are present but acceptable.
+AST matches the description with only minor issues: it omits an explicit add-row control for the Definitions repeating table and includes one inferred constraint not stated in the description.
 
-**Missing:** none
+**Missing:**
+
+- Provisioning_Criteria_Form.fields.Definitions.add_row_action
 
 **Phantoms (hallucinations):**
 
-- Provisioning_Criteria_Form.submit_actions[0] (Save button and its on_success behavior are not explicitly named in the description)
-- Provisioning_Entry_Detail.columns[1] (Category rendered as a dropdown in the detail breakdown is an inferred control not explicitly specified)
+- Provisioning_Criteria_Form.fields.Definitions.constraints[0] (Minimum_Age must be <= Maximum_Age)
 
 ---
 
@@ -341,38 +348,26 @@ AST captures all interactive elements described (tables, create buttons, form wi
 **Verdict:** yes  
 **Forced ship:** no  
 
-AST correctly captures the hierarchical offices table, clickable office name, Create Office flow with required fields, and Office Detail page with Edit action; only a minor inferred submit button was added.
+The AST accurately captures the interactive elements described: the hierarchical offices table with clickable Office Name, the + Create Office button and its form fields (with required constraints), and the Office Detail page Edit action with an edit form; no missing or extraneous interactive items identified.
 
 **Missing:** none
 
-**Phantoms (hallucinations):**
-
-- Create_Office_Form.submit_actions[0] (Submit button label and explicit submit action are not specified in the description)
+**Phantoms:** none
 
 ---
 
 ## Employees
 
-**Verdict:** retry (forced ship)  
-**Forced ship:** yes  
+**Verdict:** yes  
+**Forced ship:** no  
 
-AST contains multiple inferred elements (phantoms) not specified in the description (notably a row action and inferred edit-form fields/submit labels); please remove or align these with the description.
+AST accurately captures the interactive elements (table, name link, create button + form with required fields, and staff detail with Edit action); the only minor phantom is the detailed Edit form fields which were not explicitly described but are reasonable to include.
 
 **Missing:** none
 
 **Phantoms (hallucinations):**
 
-- components.Employees_Table.row_actions[0] (View Details action not mentioned in description)
-- components.Create_Employee_Form.submit_actions[0].element_name (Create Employee button label inside the form is not specified in description)
-- components.Edit_Employee_Form.fields (Edit form fields were inferred but the description only states there is an Edit option on the detail page)
-- components.Edit_Employee_Form.submit_actions[0].element_name (Save Changes button label was inferred but not specified in description)
-
-**Fixes applied:**
-
-- components.Employees_Table.row_actions — Remove this array or set it to []: the description only specifies that the Name column is a clickable link to the Staff Detail page; do not invent an additional 'View Details' row action.
-- components.Create_Employee_Form.submit_actions[0].element_name — Remove the element_name property or set it to null: the description does not provide a label for the form submit button, so do not invent 'Create Employee' as a label. You may keep a submit_actions entry describing the effect, but omit an explicit label.
-- components.Edit_Employee_Form.fields — Replace the current fields object with an empty object {}: the description only mentions an Edit option on the Staff Detail page and does not enumerate the edit form fields, so do not populate inferred fields.
-- components.Edit_Employee_Form.submit_actions[0].element_name — Remove the element_name property or set it to null: the description does not provide a label for the edit form submit button, so do not invent 'Save Changes' as a label. You may keep an on_success description if needed but omit an explicit label.
+- components.Edit_Employee_Form.fields (the description only mentions an Edit option on the Staff Detail page, but does not enumerate the edit form fields)
 
 ---
 
@@ -381,7 +376,7 @@ AST contains multiple inferred elements (phantoms) not specified in the descript
 **Verdict:** yes  
 **Forced ship:** no  
 
-The AST accurately captures the interactive elements (tables, buttons, forms, fields, and actions) described for Tellers, Teller Detail, Allocate Cashier, and Cashier Detail pages with no missing critical items or extraneous elements.
+AST accurately captures the interactive elements described (tables, buttons, forms, fields, actions) with no significant missing or extraneous items.
 
 **Missing:** none
 
@@ -394,14 +389,13 @@ The AST accurately captures the interactive elements (tables, buttons, forms, fi
 **Verdict:** yes  
 **Forced ship:** no  
 
-The AST accurately captures the interactive elements (tables, create buttons, forms, fields, constraints, and the permissions matrix) with only minor inferred details.
+AST covers the described interactive elements (Users table and create form, Roles table and create form, permissions matrix) with only a minor inferred navigation target.
 
 **Missing:** none
 
 **Phantoms (hallucinations):**
 
-- components.Role_Permissions_Page.fields.Permission_Categories.item_fields.Category_Name.type (category represented as a dropdown was inferred; description only specified categorized matrix)
-- components.Users_Table.row_actions[0].target (User_Detail target name is an inferred navigation target, not explicitly named in the description)
+- Users_Page.row_actions[0].navigates_to (User_Detail_Page not explicitly named in description)
 
 ---
 
@@ -410,7 +404,7 @@ The AST accurately captures the interactive elements (tables, create buttons, fo
 **Verdict:** yes  
 **Forced ship:** no  
 
-AST accurately includes tabs, report list with clickable rows, the parameters form with the specified fields, Run Report and export actions, and the generated sortable/paginated table.
+The AST correctly models the interactive elements described: category tabs, report rows with clickable Name opening the parameters form (Office, Branch, Currency, Loan Product, Date Range, Loan Officer, Fund), a Run Report action that renders a sortable, paginated results table, and the specified export/view output options.
 
 **Missing:** none
 
@@ -423,11 +417,14 @@ AST accurately includes tabs, report list with clickable rows, the parameters fo
 **Verdict:** yes  
 **Forced ship:** no  
 
-The AST accurately includes all interactive elements (forms, fields, validations, buttons, table columns, row actions) described for Account Transfers and Standing Instructions with no substantive extras or omissions.
+AST accurately captures the interactive elements from the description; only minor inferred preconditions were added for enable/disable row actions.
 
 **Missing:** none
 
-**Phantoms:** none
+**Phantoms (hallucinations):**
+
+- Standing_Instructions_Table.row_actions[0].preconditions[0] ("status must be Disabled" - inferred precondition for Enable action not explicitly stated)
+- Standing_Instructions_Table.row_actions[1].preconditions[0] ("status must be Active" - inferred precondition for Disable action not explicitly stated)
 
 ---
 
@@ -436,11 +433,14 @@ The AST accurately includes all interactive elements (forms, fields, validations
 **Verdict:** yes  
 **Forced ship:** no  
 
-The AST accurately captures the described interactive elements (tables, clickable Name links, create buttons, forms with required fields, repeating tax-component entries, and references from Savings Products and Charge Definitions) with no missing or extraneous items.
+AST matches the described interactive elements (tables, links, create buttons, forms, fields, repeating group, and conditional tax-group selection) with only two minor inferred submit actions.
 
 **Missing:** none
 
-**Phantoms:** none
+**Phantoms (hallucinations):**
+
+- Create_Tax_Component_Form.submit_actions[0] (Create button not explicitly named in description)
+- Create_Tax_Group_Form.submit_actions[0] (Create button not explicitly named in description)
 
 ---
 
@@ -449,27 +449,42 @@ The AST accurately captures the described interactive elements (tables, clickabl
 **Verdict:** yes  
 **Forced ship:** no  
 
-AST accurately captures the interactive elements described; only minor omissions (create button label for Funds and two table column entries for Payment Types) that do not require a full regeneration.
+AST is largely correct with one missing table column and one minor phantom element; acceptable to use with small adjustments.
 
 **Missing:**
 
-- Funds_Page.page_actions[0].element_name (label for the Create Fund button, e.g., '+ Create Fund')
-- Payment_Types_Page.sortable_columns (missing columns: 'Description', 'Is Cash Payment')
+- Holidays_Table.columns (missing "Status" column)
 
-**Phantoms:** none
+**Phantoms (hallucinations):**
+
+- Holiday_State_Actions (state_bound_action_bar not described in the input)
 
 ---
 
 ## System Administration
 
-**Verdict:** yes  
-**Forced ship:** no  
+**Verdict:** retry (forced ship)  
+**Forced ship:** yes  
 
-AST accurately covers the interactive elements described (per-row job toggles and editable CRONs, global scheduler toggle, configuration toggles/values, code list detail actions, data table creation form with column definitions, and audit trails with filters and approve/reject actions) with no critical omissions.
+AST contains multiple inferred/unsupported elements (phantoms) that are not explicitly stated in the description and should be removed or aligned; regeneration recommended.
 
 **Missing:** none
 
-**Phantoms:** none
+**Phantoms (hallucinations):**
+
+- Manage_Scheduler_Jobs_Table.row_fields.CRON_Expression.constraints (CRON validation constraint not explicitly specified in description)
+- Manage_Scheduler_Jobs_Table.sortable_columns (sortable columns were not mentioned in the description)
+- Manage_Data_Tables.row_actions.Delete_Data_Table.preconditions[0] (user must confirm deletion precondition not stated in description)
+- Create_Data_Table_Form.fields.Column_Definitions.min (min: 0 inferred default not mentioned in description)
+- Create_Data_Table_Form.submit_actions[1] (Cancel button was not specified in the description)
+
+**Fixes applied:**
+
+- Remove Manage_Scheduler_Jobs_Table.row_fields.CRON_Expression.constraints or replace with an explicit requirement only if the description is updated to require client-side CRON validation; JSON path: Manage_Scheduler_Jobs_Table.row_fields.CRON_Expression.constraints (delete array).
+- Remove Manage_Scheduler_Jobs_Table.sortable_columns if sorting behavior was not specified in the description; JSON path: Manage_Scheduler_Jobs_Table.sortable_columns (delete property) — alternatively add explicit row_field definitions for any sortable columns if they should be present.
+- Remove the implicit deletion confirmation precondition from Manage_Data_Tables.row_actions.Delete_Data_Table.preconditions or change it to a neutral note if confirmation is desired; JSON path: Manage_Data_Tables.row_actions[1].preconditions (delete or replace entry).
+- Remove the inferred 'min' property from Create_Data_Table_Form.fields.Column_Definitions since the description did not specify a minimum; JSON path: Create_Data_Table_Form.fields.Column_Definitions.min (delete property).
+- Remove the Cancel submit action from Create_Data_Table_Form.submit_actions unless the description explicitly requires a Cancel button; JSON path: Create_Data_Table_Form.submit_actions[1] (delete the Cancel action) — keep only the Create submit action if Cancel was not specified.
 
 ---
 
@@ -478,7 +493,7 @@ AST accurately covers the interactive elements described (per-row job toggles an
 **Verdict:** yes  
 **Forced ship:** no  
 
-The AST accurately captures the interactive elements (profile icon button, dropdown with Profile Settings and Log Out, logout effects, and the authenticated route guard) described in the specification.
+The AST correctly captures the profile icon trigger, the dropdown items (Profile Settings and Log Out) with the logout side effects, and the post-logout redirect/auth guard; no missing or extraneous interactive elements found.
 
 **Missing:** none
 

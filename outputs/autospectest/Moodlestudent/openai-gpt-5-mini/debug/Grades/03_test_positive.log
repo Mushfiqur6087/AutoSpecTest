@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-22T21:41:13.083547
+DEBUG SESSION STARTED: 2026-05-25T15:09:37.492571
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[21:41:13] Test-Positive - SYSTEM PROMPT
+[15:09:37] Test-Positive - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Expert UI Test Case Generator. You receive (1) a UI-AST JSON for one specific module and (2) the original functional description for that module.
 
@@ -24,6 +24,10 @@ Your job is to produce ONLY positive/functional UI test cases — tests where va
 <description>
 {Original functional description text for this module}
 </description>
+
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
 
 ---
 
@@ -146,6 +150,13 @@ Because you are testing a module in isolation, establish the required entry stat
 **1. Forms & Wizards (`form`, `wizard`):**
 - Generate ONE happy path per distinct success outcome.
 - *Conditional UI Check:* If a toggle/dropdown reveals new mandatory fields (`visible_when`), generate a separate test for that conditional branch.
+- **Wizard step coverage (CRITICAL):** If a wizard has multiple steps and any step beyond Step 1 contains its own named field group (e.g., "Address Details", "Family Members", "Identifiers"), generate ONE dedicated positive TC per such step. The TC must:
+  - Navigate to that specific step (include the preceding steps as preconditions or brief navigation steps)
+  - Fill the fields described for that step (not just pass through)
+  - Assert the step's content is visible/saved on the detail page after final submission
+  - **Do NOT collapse all wizard steps into one happy-path TC** — if Steps 2, 3, and 4 each have their own named section in the spec, they each need their own TC.
+- **Wizard in-step identifiers/duplicates:** If a wizard step allows adding identifiers, documents, or similar entries that have a uniqueness constraint, include a TC for that wizard step that also verifies the constraint (e.g., attempting to add a duplicate Document Type+Key pair inside the wizard). This is a different code path from adding the same post-creation on the detail page.
+- **Action dialogs:** If a `state_bound_action_bar` action opens a dialog with its own `fields{}` (e.g., Activate requires Activation Date, Reject requires Reason), generate ONE positive TC per such action-dialog — distinct from the state-transition TC. The TC fills the dialog field and completes the action.
 
 **2. State Machines (`state_bound_action_bar`):**
 - For each unique action available in a specific state, generate ONE test performing that action.
@@ -200,6 +211,19 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 
 ---
 
+**WORKFLOW COVERAGE OBLIGATION (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- Your test cases must **collectively cover every workflow** listed.
+- For each `wf_id`, at least one TC must:
+  - Activate the `conditional_branch` (if not null) — i.e. the test must set up the condition described.
+  - Assert the `on_success` as its `expected_result` (verbatim or as the primary basis for the expected result).
+- Add `"wf_ref": "WF-NNN"` to each TC to identify which workflow it covers.
+- If one TC naturally covers multiple workflows (e.g., the base path overlaps), pick the most specific `wf_ref`.
+- If a TC does not map to any workflow (e.g., a navigation-only test), set `"wf_ref": null`.
+
+---
+
 **OUTPUT — JSON only, no prose, no markdown fencing:**
 
 {
@@ -208,6 +232,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
   "test_cases": [
     {
       "tc_id": "P-001",
+      "wf_ref": "WF-001",
       "test_case": "Short descriptive name",
       "preconditions": ["User logged in as <Role>", "<Prerequisite state>"],
       "steps": ["1. Step one", "2. Step two"],
@@ -224,7 +249,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 }
 
 ------------------------------------------------------------
-[21:41:13] Test-Positive - USER PROMPT
+[15:09:37] Test-Positive - USER PROMPT
 ------------------------------------------------------------
 <module_name>Grades</module_name>
 
@@ -235,117 +260,59 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
     "Grades_User_Report": {
       "type": "data_table",
       "preconditions": [
-        "role must be Student"
-      ],
-      "constraints": [
-        "students can only view their own grades",
-        "cannot access full gradebook or other students' grades"
+        "user must be the student (owner of this report)",
+        "user must not have gradebook_access",
+        "user must not have permission to view other students' grades"
       ],
       "columns": [
-        {
-          "name": "Grade item",
-          "type": "unspecified",
-          "description": "Course header is collapsible; graded activities are indented beneath"
-        },
-        {
-          "name": "Calculated weight",
-          "type": "number"
-        },
-        {
-          "name": "Grade",
-          "type": "unspecified",
-          "description": "earned value or '\u2013' if not yet graded"
-        },
-        {
-          "name": "Range",
-          "type": "unspecified"
-        },
-        {
-          "name": "Percentage",
-          "type": "number"
-        },
-        {
-          "name": "Feedback",
-          "type": "unspecified"
-        },
-        {
-          "name": "Contribution to course total",
-          "type": "number"
-        }
+        "Grade item",
+        "Calculated weight",
+        "Grade",
+        "Range",
+        "Percentage",
+        "Feedback",
+        "Contribution to course total"
       ],
       "row_grouping": {
-        "type": "repeating_group",
-        "group_name": "Courses",
-        "group_by_field": "Course_Name",
-        "group_behavior": "collapsible",
-        "group_toggle_action": "Expand/Collapse Course",
-        "item_fields": {
-          "Course_Name": {
-            "type": "unspecified",
-            "required": true
-          },
-          "Course_Expanded": {
-            "type": "checkbox",
-            "required": false,
-            "description": "controls visibility of Activities for this course"
-          }
+        "type": "collapsible_group",
+        "group_by_field": "Course Name",
+        "group_header_interaction": {
+          "action_name": "Toggle Course Collapse",
+          "on_action": "expands_or_collapses_course_group"
         },
-        "child_items": {
-          "type": "repeating_group",
-          "field_name": "Activities",
-          "visible_when": "Course_Expanded == true",
-          "item_fields": {
-            "Grade_item": {
-              "type": "unspecified",
-              "required": true
-            },
-            "Calculated_weight": {
-              "type": "number"
-            },
-            "Grade": {
-              "type": "unspecified"
-            },
-            "Range": {
-              "type": "unspecified"
-            },
-            "Percentage": {
-              "type": "number"
-            },
-            "Feedback": {
-              "type": "unspecified"
-            },
-            "Contribution_to_course_total": {
-              "type": "number"
-            }
-          }
-        }
-      },
-      "row_actions": [
-        {
-          "action_name": "Expand/Collapse Course",
-          "applies_to": "group_header",
-          "description": "toggles visibility of the course's activity rows"
-        }
-      ],
-      "aggregation_row": {
-        "row_name": "AGGREGATION Course total",
-        "fields": {
-          "Calculated_weight_total": {
-            "type": "number"
-          },
-          "Grade_total": {
+        "group_item_fields": {
+          "Grade item": {
             "type": "unspecified"
           },
-          "Percentage_total": {
+          "Calculated weight": {
             "type": "number"
           },
-          "Contribution_total": {
+          "Grade": {
+            "type": "unspecified"
+          },
+          "Range": {
+            "type": "unspecified"
+          },
+          "Percentage": {
+            "type": "number"
+          },
+          "Feedback": {
+            "type": "unspecified"
+          },
+          "Contribution to course total": {
             "type": "number"
           }
         },
-        "constraints": [
-          "displays cumulative grade across all weighted items"
-        ]
+        "description": "Course name appears as a collapsible header; graded activities are child rows indented beneath each course header"
+      },
+      "aggregation_row": {
+        "label": "AGGREGATION Course total",
+        "fields": {
+          "Cumulative grade": {
+            "type": "number",
+            "on_display": "displays the cumulative grade across all weighted items"
+          }
+        }
       }
     }
   }
@@ -361,10 +328,14 @@ The Grades page displays the student's own grades for the course via a User repo
 
 </description>
 
+<workflows>
+WF-001 | Toggle Course Collapse | actor: student | branch: none | terminal: Toggle Course Collapse | on_success: expands_or_collapses_course_group
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[21:41:57] Test-Positive - LLM RESPONSE
+[15:10:47] Test-Positive - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Grades",
@@ -372,84 +343,77 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Expand a course to reveal its activity grade rows",
+      "wf_ref": "WF-001",
+      "test_case": "Toggle a course group to reveal child graded activities",
       "preconditions": [
         "User logged in as <Student>",
-        "Grades page is open with at least one course <Course with activities> collapsed"
+        "User is the owner of this Grades report",
+        "There is at least one course with graded activities listed in the report"
       ],
       "steps": [
-        "1. On the Grades page, locate the group header for <Course with activities>",
-        "2. Click the 'Expand/Collapse Course' control on the course group header to expand the course"
+        "1. Navigate to the Grades page",
+        "2. Locate the course group header for <Course Name>",
+        "3. Click the course group header to toggle collapse/expand"
       ],
-      "expected_result": "Activity rows for <Course with activities> become visible, indented beneath the course header, showing columns: Grade item, Calculated weight, Grade, Range, Percentage, Feedback, and Contribution to course total",
+      "expected_result": "Course group header expands showing child graded activity rows beneath the header; expands_or_collapses_course_group",
       "priority": "high"
     },
     {
       "tc_id": "P-002",
-      "test_case": "Collapse an expanded course to hide its activity rows",
+      "wf_ref": null,
+      "test_case": "AGGREGATION Course total row shows the cumulative grade across weighted items",
       "preconditions": [
         "User logged in as <Student>",
-        "Grades page is open with <Course with activities> currently expanded"
+        "The student has at least one graded activity with a non-zero calculated weight"
       ],
       "steps": [
-        "1. On the Grades page, locate the group header for <Course with activities>",
-        "2. Click the 'Expand/Collapse Course' control on the course group header to collapse the course"
+        "1. Navigate to the Grades page",
+        "2. Scroll to the bottom of the grade table to view the aggregation row"
       ],
-      "expected_result": "Activity rows for <Course with activities> are hidden and only the course header row remains visible",
-      "priority": "medium"
+      "expected_result": "AGGREGATION Course total row is visible and displays the cumulative grade across all weighted items in the table",
+      "priority": "high"
     },
     {
       "tc_id": "P-003",
-      "test_case": "See the AGGREGATION Course total row showing the cumulative grade across weighted items",
+      "wf_ref": null,
+      "test_case": "Grade table columns render and ungraded items show '–' in the Grade column",
       "preconditions": [
         "User logged in as <Student>",
-        "Grades page is open with at least one course <Course with activities> (expanded if necessary to show activities)"
+        "The report contains at least one graded activity with a recorded grade and one activity not yet graded"
       ],
       "steps": [
-        "1. If the course is collapsed, click the 'Expand/Collapse Course' control to ensure activities are visible",
-        "2. Scroll to the bottom of the course grade table"
+        "1. Navigate to the Grades page",
+        "2. Expand the course group for <Course Name> to reveal child activity rows"
       ],
-      "expected_result": "An 'AGGREGATION Course total' row is visible showing the cumulative values for Calculated weight total, Grade total or summary, Percentage total and Contribution total that represent the cumulative grade across all weighted items",
+      "expected_result": "Table displays columns: Grade item, Calculated weight, Grade, Range, Percentage, Feedback, Contribution to course total; the row for <graded activity> shows a numeric value in the Grade column and the row for <ungraded activity> shows '–' in the Grade column",
       "priority": "high"
     },
     {
       "tc_id": "P-004",
-      "test_case": "Display '–' for an activity that has not yet been graded",
+      "wf_ref": null,
+      "test_case": "Student view does not provide access to full gradebook or other students' grades",
       "preconditions": [
         "User logged in as <Student>",
-        "Grades page is open with <Course with activities> expanded and containing at least one activity <Activity with no grade yet>"
+        "The student does not have gradebook_access and has no permission to view other students' grades"
       ],
       "steps": [
-        "1. On the Grades page, locate <Activity with no grade yet> within the activities list for the course",
-        "2. Observe the Grade column value for <Activity with no grade yet>"
+        "1. Navigate to the Grades page",
+        "2. Inspect the page header and any action buttons/links around the grade table"
       ],
-      "expected_result": "The Grade column for <Activity with no grade yet> displays '–' to indicate it is not yet graded",
+      "expected_result": "No links, buttons, or controls are present to view the full gradebook or other students' grades; only this student's own grade rows and the AGGREGATION Course total row are visible",
       "priority": "medium"
-    },
-    {
-      "tc_id": "P-005",
-      "test_case": "Grades page shows only the logged-in student's grades and not other students' grades",
-      "preconditions": [
-        "User logged in as <Student>",
-        "Grades page is open for a course that contains grades for multiple students in the system (other students' grades exist in the backend)"
-      ],
-      "steps": [
-        "1. On the Grades page, view the grade table for the course"
-      ],
-      "expected_result": "The grade table displays only rows corresponding to the logged-in student's grade items; rows or entries belonging to other students are not present in the table",
-      "priority": "high"
     }
   ],
   "summary": {
-    "total": 5,
+    "total": 4,
     "high_priority": 3,
-    "medium_priority": 2,
+    "medium_priority": 1,
     "low_priority": 0
   }
 }
 
 ------------------------------------------------------------
-[21:41:57] Test-Positive - PARSED JSON
+[15:10:47] Test-Positive - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Grades",
@@ -457,78 +421,71 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Expand a course to reveal its activity grade rows",
+      "wf_ref": "WF-001",
+      "test_case": "Toggle a course group to reveal child graded activities",
       "preconditions": [
         "User logged in as <Student>",
-        "Grades page is open with at least one course <Course with activities> collapsed"
+        "User is the owner of this Grades report",
+        "There is at least one course with graded activities listed in the report"
       ],
       "steps": [
-        "1. On the Grades page, locate the group header for <Course with activities>",
-        "2. Click the 'Expand/Collapse Course' control on the course group header to expand the course"
+        "1. Navigate to the Grades page",
+        "2. Locate the course group header for <Course Name>",
+        "3. Click the course group header to toggle collapse/expand"
       ],
-      "expected_result": "Activity rows for <Course with activities> become visible, indented beneath the course header, showing columns: Grade item, Calculated weight, Grade, Range, Percentage, Feedback, and Contribution to course total",
+      "expected_result": "Course group header expands showing child graded activity rows beneath the header; expands_or_collapses_course_group",
       "priority": "high"
     },
     {
       "tc_id": "P-002",
-      "test_case": "Collapse an expanded course to hide its activity rows",
+      "wf_ref": null,
+      "test_case": "AGGREGATION Course total row shows the cumulative grade across weighted items",
       "preconditions": [
         "User logged in as <Student>",
-        "Grades page is open with <Course with activities> currently expanded"
+        "The student has at least one graded activity with a non-zero calculated weight"
       ],
       "steps": [
-        "1. On the Grades page, locate the group header for <Course with activities>",
-        "2. Click the 'Expand/Collapse Course' control on the course group header to collapse the course"
+        "1. Navigate to the Grades page",
+        "2. Scroll to the bottom of the grade table to view the aggregation row"
       ],
-      "expected_result": "Activity rows for <Course with activities> are hidden and only the course header row remains visible",
-      "priority": "medium"
+      "expected_result": "AGGREGATION Course total row is visible and displays the cumulative grade across all weighted items in the table",
+      "priority": "high"
     },
     {
       "tc_id": "P-003",
-      "test_case": "See the AGGREGATION Course total row showing the cumulative grade across weighted items",
+      "wf_ref": null,
+      "test_case": "Grade table columns render and ungraded items show '\u2013' in the Grade column",
       "preconditions": [
         "User logged in as <Student>",
-        "Grades page is open with at least one course <Course with activities> (expanded if necessary to show activities)"
+        "The report contains at least one graded activity with a recorded grade and one activity not yet graded"
       ],
       "steps": [
-        "1. If the course is collapsed, click the 'Expand/Collapse Course' control to ensure activities are visible",
-        "2. Scroll to the bottom of the course grade table"
+        "1. Navigate to the Grades page",
+        "2. Expand the course group for <Course Name> to reveal child activity rows"
       ],
-      "expected_result": "An 'AGGREGATION Course total' row is visible showing the cumulative values for Calculated weight total, Grade total or summary, Percentage total and Contribution total that represent the cumulative grade across all weighted items",
+      "expected_result": "Table displays columns: Grade item, Calculated weight, Grade, Range, Percentage, Feedback, Contribution to course total; the row for <graded activity> shows a numeric value in the Grade column and the row for <ungraded activity> shows '\u2013' in the Grade column",
       "priority": "high"
     },
     {
       "tc_id": "P-004",
-      "test_case": "Display '\u2013' for an activity that has not yet been graded",
+      "wf_ref": null,
+      "test_case": "Student view does not provide access to full gradebook or other students' grades",
       "preconditions": [
         "User logged in as <Student>",
-        "Grades page is open with <Course with activities> expanded and containing at least one activity <Activity with no grade yet>"
+        "The student does not have gradebook_access and has no permission to view other students' grades"
       ],
       "steps": [
-        "1. On the Grades page, locate <Activity with no grade yet> within the activities list for the course",
-        "2. Observe the Grade column value for <Activity with no grade yet>"
+        "1. Navigate to the Grades page",
+        "2. Inspect the page header and any action buttons/links around the grade table"
       ],
-      "expected_result": "The Grade column for <Activity with no grade yet> displays '\u2013' to indicate it is not yet graded",
+      "expected_result": "No links, buttons, or controls are present to view the full gradebook or other students' grades; only this student's own grade rows and the AGGREGATION Course total row are visible",
       "priority": "medium"
-    },
-    {
-      "tc_id": "P-005",
-      "test_case": "Grades page shows only the logged-in student's grades and not other students' grades",
-      "preconditions": [
-        "User logged in as <Student>",
-        "Grades page is open for a course that contains grades for multiple students in the system (other students' grades exist in the backend)"
-      ],
-      "steps": [
-        "1. On the Grades page, view the grade table for the course"
-      ],
-      "expected_result": "The grade table displays only rows corresponding to the logged-in student's grade items; rows or entries belonging to other students are not present in the table",
-      "priority": "high"
     }
   ],
   "summary": {
-    "total": 5,
+    "total": 4,
     "high_priority": 3,
-    "medium_priority": 2,
+    "medium_priority": 1,
     "low_priority": 0
   }
 }

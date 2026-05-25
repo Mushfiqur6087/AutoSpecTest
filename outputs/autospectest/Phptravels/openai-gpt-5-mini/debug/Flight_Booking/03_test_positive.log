@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-21T22:54:00.265787
+DEBUG SESSION STARTED: 2026-05-25T14:51:20.253356
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[22:54:00] Test-Positive - SYSTEM PROMPT
+[14:51:20] Test-Positive - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Expert UI Test Case Generator. You receive (1) a UI-AST JSON for one specific module and (2) the original functional description for that module.
 
@@ -24,6 +24,10 @@ Your job is to produce ONLY positive/functional UI test cases — tests where va
 <description>
 {Original functional description text for this module}
 </description>
+
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
 
 ---
 
@@ -146,6 +150,13 @@ Because you are testing a module in isolation, establish the required entry stat
 **1. Forms & Wizards (`form`, `wizard`):**
 - Generate ONE happy path per distinct success outcome.
 - *Conditional UI Check:* If a toggle/dropdown reveals new mandatory fields (`visible_when`), generate a separate test for that conditional branch.
+- **Wizard step coverage (CRITICAL):** If a wizard has multiple steps and any step beyond Step 1 contains its own named field group (e.g., "Address Details", "Family Members", "Identifiers"), generate ONE dedicated positive TC per such step. The TC must:
+  - Navigate to that specific step (include the preceding steps as preconditions or brief navigation steps)
+  - Fill the fields described for that step (not just pass through)
+  - Assert the step's content is visible/saved on the detail page after final submission
+  - **Do NOT collapse all wizard steps into one happy-path TC** — if Steps 2, 3, and 4 each have their own named section in the spec, they each need their own TC.
+- **Wizard in-step identifiers/duplicates:** If a wizard step allows adding identifiers, documents, or similar entries that have a uniqueness constraint, include a TC for that wizard step that also verifies the constraint (e.g., attempting to add a duplicate Document Type+Key pair inside the wizard). This is a different code path from adding the same post-creation on the detail page.
+- **Action dialogs:** If a `state_bound_action_bar` action opens a dialog with its own `fields{}` (e.g., Activate requires Activation Date, Reject requires Reason), generate ONE positive TC per such action-dialog — distinct from the state-transition TC. The TC fills the dialog field and completes the action.
 
 **2. State Machines (`state_bound_action_bar`):**
 - For each unique action available in a specific state, generate ONE test performing that action.
@@ -200,6 +211,19 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 
 ---
 
+**WORKFLOW COVERAGE OBLIGATION (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- Your test cases must **collectively cover every workflow** listed.
+- For each `wf_id`, at least one TC must:
+  - Activate the `conditional_branch` (if not null) — i.e. the test must set up the condition described.
+  - Assert the `on_success` as its `expected_result` (verbatim or as the primary basis for the expected result).
+- Add `"wf_ref": "WF-NNN"` to each TC to identify which workflow it covers.
+- If one TC naturally covers multiple workflows (e.g., the base path overlaps), pick the most specific `wf_ref`.
+- If a TC does not map to any workflow (e.g., a navigation-only test), set `"wf_ref": null`.
+
+---
+
 **OUTPUT — JSON only, no prose, no markdown fencing:**
 
 {
@@ -208,6 +232,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
   "test_cases": [
     {
       "tc_id": "P-001",
+      "wf_ref": "WF-001",
       "test_case": "Short descriptive name",
       "preconditions": ["User logged in as <Role>", "<Prerequisite state>"],
       "steps": ["1. Step one", "2. Step two"],
@@ -224,7 +249,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 }
 
 ------------------------------------------------------------
-[22:54:00] Test-Positive - USER PROMPT
+[14:51:20] Test-Positive - USER PROMPT
 ------------------------------------------------------------
 <module_name>Flight Booking</module_name>
 
@@ -246,29 +271,49 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
                 "Mrs",
                 "Ms",
                 "Dr"
+              ],
+              "constraints": [
+                "required"
               ]
             },
             "First_Name": {
               "type": "unspecified",
-              "required": true
+              "required": true,
+              "constraints": [
+                "required"
+              ]
             },
             "Last_Name": {
               "type": "unspecified",
-              "required": true
+              "required": true,
+              "constraints": [
+                "required"
+              ]
             },
             "Date_of_Birth": {
               "type": "date",
-              "required": true
+              "required": true,
+              "constraints": [
+                "required",
+                "must be a valid date"
+              ]
             },
             "Passport_Number": {
               "type": "unspecified",
-              "required": true
+              "required": true,
+              "constraints": [
+                "required"
+              ]
             },
             "Passport_Expiry": {
               "type": "date",
-              "required": true
+              "required": true,
+              "constraints": [
+                "required",
+                "must be a valid date"
+              ]
             },
-            "Meal_Preferences": {
+            "Meal_Preference": {
               "type": "unspecified",
               "required": false
             },
@@ -278,18 +323,29 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
             }
           }
         },
-        "Lead_Passenger_Email": {
-          "type": "email",
-          "required": true
-        },
-        "Lead_Passenger_Phone": {
-          "type": "unspecified",
-          "required": true
+        "Lead_Passenger_Contact": {
+          "type": "group",
+          "fields": {
+            "Email": {
+              "type": "email",
+              "required": true,
+              "constraints": [
+                "required",
+                "must be a valid email"
+              ]
+            },
+            "Phone": {
+              "type": "unspecified",
+              "required": true,
+              "constraints": [
+                "required"
+              ]
+            }
+          }
         }
       },
       "constraints": [
-        "invalid fields display inline errors",
-        "incomplete or invalid required fields block progression"
+        "all required fields must be present and valid"
       ],
       "submit_actions": [
         {
@@ -298,7 +354,8 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
           "preconditions": [
             "all required fields valid"
           ],
-          "on_success": "navigates to Payment page"
+          "on_success": "navigates to Payment page",
+          "on_failure": "inline errors displayed and progression blocked"
         }
       ]
     }
@@ -315,10 +372,14 @@ The flight booking page displays a full itinerary summary, passenger count, cabi
 
 </description>
 
+<workflows>
+WF-001 | Complete passenger and contact details and Continue to payment | actor: <role> | branch: none | terminal: Continue | on_success: navigates to Payment page
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[22:55:34] Test-Positive - LLM RESPONSE
+[14:52:34] Test-Positive - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Flight Booking",
@@ -326,20 +387,21 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Single traveler complete booking proceeds to Payment",
+      "wf_ref": "WF-001",
+      "test_case": "Complete required passenger and contact details and Continue to payment",
       "preconditions": [
-        "User logged in as <Customer>",
-        "Flight Booking page open with itinerary summary and fare breakdown visible"
+        "User logged in as <role>",
+        "Flight Booking page is open"
       ],
       "steps": [
-        "1. In the Travelers section, for Traveler 1 select <Title> from the Title dropdown",
-        "2. Enter <First Name> in the First Name field for Traveler 1",
-        "3. Enter <Last Name> in the Last Name field for Traveler 1",
-        "4. Enter <Date of Birth> in the Date of Birth field for Traveler 1",
-        "5. Enter <Passport Number> in the Passport Number field for Traveler 1",
-        "6. Enter <Passport Expiry> in the Passport Expiry field for Traveler 1",
-        "7. Enter <Lead passenger email> in the Lead Passenger Email field",
-        "8. Enter <Lead passenger phone> in the Lead Passenger Phone field",
+        "1. In the Travelers list, for Traveler 1 select <Title> from the Title dropdown",
+        "2. Enter <First_Name> in the First Name field for Traveler 1",
+        "3. Enter <Last_Name> in the Last Name field for Traveler 1",
+        "4. Enter <Date_of_Birth> in the Date of Birth field for Traveler 1",
+        "5. Enter <Passport_Number> in the Passport Number field for Traveler 1",
+        "6. Enter <Passport_Expiry> in the Passport Expiry field for Traveler 1",
+        "7. In Lead Passenger Contact, enter <valid email> in the Email field",
+        "8. Enter <phone number> in the Phone field",
         "9. Click the Continue button"
       ],
       "expected_result": "navigates to Payment page",
@@ -347,65 +409,71 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
     },
     {
       "tc_id": "P-002",
-      "test_case": "Adding a second traveler updates fare breakdown totals",
+      "wf_ref": null,
+      "test_case": "Add a second traveler and verify passenger count and fare breakdown update",
       "preconditions": [
-        "User logged in as <Customer>",
-        "Flight Booking page open with itinerary summary and fare breakdown visible"
+        "User logged in as <role>",
+        "Flight Booking page is open with the initial traveler entry present"
       ],
       "steps": [
-        "1. In the Travelers section, click 'Add Row' to add Traveler 2",
-        "2. For Traveler 1 select <Title> and enter <First Name>, <Last Name>, <Date of Birth>, <Passport Number>, and <Passport Expiry>",
-        "3. For Traveler 2 select <Title> and enter <First Name>, <Last Name>, <Date of Birth>, <Passport Number>, and <Passport Expiry>",
-        "4. Observe the fare breakdown section"
+        "1. Click Add Row to add a new Traveler",
+        "2. For the new Traveler (Traveler 2) select <Title> from the Title dropdown",
+        "3. Enter <First_Name> in the First Name field for Traveler 2",
+        "4. Enter <Last_Name> in the Last Name field for Traveler 2",
+        "5. Enter <Date_of_Birth> in the Date of Birth field for Traveler 2",
+        "6. Enter <Passport_Number> in the Passport Number field for Traveler 2",
+        "7. Enter <Passport_Expiry> in the Passport Expiry field for Traveler 2"
       ],
-      "expected_result": "Fare breakdown shows 2 passengers and the Overall Total updates to reflect the aggregated total for both passengers (per-passenger breakdown still visible)",
+      "expected_result": "Itinerary summary updates to show 2 travelers; Fare breakdown displays per-passenger totals for each passenger and an overall total that reflects the added traveler",
       "priority": "medium"
     },
     {
       "tc_id": "P-003",
-      "test_case": "Multiple travelers filled and Continue navigates to Payment",
+      "wf_ref": null,
+      "test_case": "Select meal preference and seat selection for a traveler and see selections in the itinerary summary",
       "preconditions": [
-        "User logged in as <Customer>",
-        "Flight Booking page open with itinerary summary and fare breakdown visible"
+        "User logged in as <role>",
+        "Flight Booking page is open with a traveler entry present"
       ],
       "steps": [
-        "1. In the Travelers section, click 'Add Row' to add Traveler 2",
-        "2. For Traveler 1 select <Title> and enter <First Name>, <Last Name>, <Date of Birth>, <Passport Number>, and <Passport Expiry>",
-        "3. For Traveler 2 select <Title> and enter <First Name>, <Last Name>, <Date of Birth>, <Passport Number>, and <Passport Expiry>",
-        "4. Enter <Lead passenger email> in the Lead Passenger Email field",
-        "5. Enter <Lead passenger phone> in the Lead Passenger Phone field",
-        "6. Click the Continue button"
+        "1. For Traveler 1, select <Meal_Preference> from the Meal Preference control",
+        "2. For Traveler 1, select <Seat_Selection> from the Seat Selection control",
+        "3. Click outside the form row or otherwise save the traveler row to register the selections"
       ],
-      "expected_result": "navigates to Payment page",
-      "priority": "high"
+      "expected_result": "Traveler 1 is shown in the itinerary summary with the selected Meal preference and Seat selection visible on the traveler row",
+      "priority": "medium"
     },
     {
       "tc_id": "P-004",
-      "test_case": "Optional meal and seat selections are shown in passenger summary",
+      "wf_ref": null,
+      "test_case": "Add a traveler with passport details and verify the new traveler row appears",
       "preconditions": [
-        "User logged in as <Customer>",
-        "Flight Booking page open with itinerary summary and passenger summary visible"
+        "User logged in as <role>",
+        "Flight Booking page is open"
       ],
       "steps": [
-        "1. For Traveler 1 select <Title> and enter <First Name> and <Last Name>, and required passport fields",
-        "2. In Traveler 1, enter <meal preference> in the Meal Preferences field",
-        "3. In Traveler 1, enter <seat selection> in the Seat Selection field",
-        "4. Observe the Passenger Summary or Travelers list"
+        "1. Click Add Row to add a new Traveler",
+        "2. For the new Traveler select <Title> from the Title dropdown",
+        "3. Enter <First_Name> in the First Name field",
+        "4. Enter <Last_Name> in the Last Name field",
+        "5. Enter <Date_of_Birth> in the Date of Birth field",
+        "6. Enter <Passport_Number> in the Passport Number field",
+        "7. Enter <Passport_Expiry> in the Passport Expiry field"
       ],
-      "expected_result": "Passenger summary shows the selected meal preference <meal preference> and seat selection <seat selection> for Traveler 1",
+      "expected_result": "A new traveler row appears in the Travelers list showing the entered Title, First Name and Last Name and the Passport Expiry is displayed for that traveler",
       "priority": "medium"
     }
   ],
   "summary": {
     "total": 4,
-    "high_priority": 2,
-    "medium_priority": 2,
+    "high_priority": 1,
+    "medium_priority": 3,
     "low_priority": 0
   }
 }
 
 ------------------------------------------------------------
-[22:55:34] Test-Positive - PARSED JSON
+[14:52:34] Test-Positive - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Flight Booking",
@@ -413,20 +481,21 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Single traveler complete booking proceeds to Payment",
+      "wf_ref": "WF-001",
+      "test_case": "Complete required passenger and contact details and Continue to payment",
       "preconditions": [
-        "User logged in as <Customer>",
-        "Flight Booking page open with itinerary summary and fare breakdown visible"
+        "User logged in as <role>",
+        "Flight Booking page is open"
       ],
       "steps": [
-        "1. In the Travelers section, for Traveler 1 select <Title> from the Title dropdown",
-        "2. Enter <First Name> in the First Name field for Traveler 1",
-        "3. Enter <Last Name> in the Last Name field for Traveler 1",
-        "4. Enter <Date of Birth> in the Date of Birth field for Traveler 1",
-        "5. Enter <Passport Number> in the Passport Number field for Traveler 1",
-        "6. Enter <Passport Expiry> in the Passport Expiry field for Traveler 1",
-        "7. Enter <Lead passenger email> in the Lead Passenger Email field",
-        "8. Enter <Lead passenger phone> in the Lead Passenger Phone field",
+        "1. In the Travelers list, for Traveler 1 select <Title> from the Title dropdown",
+        "2. Enter <First_Name> in the First Name field for Traveler 1",
+        "3. Enter <Last_Name> in the Last Name field for Traveler 1",
+        "4. Enter <Date_of_Birth> in the Date of Birth field for Traveler 1",
+        "5. Enter <Passport_Number> in the Passport Number field for Traveler 1",
+        "6. Enter <Passport_Expiry> in the Passport Expiry field for Traveler 1",
+        "7. In Lead Passenger Contact, enter <valid email> in the Email field",
+        "8. Enter <phone number> in the Phone field",
         "9. Click the Continue button"
       ],
       "expected_result": "navigates to Payment page",
@@ -434,59 +503,65 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
     },
     {
       "tc_id": "P-002",
-      "test_case": "Adding a second traveler updates fare breakdown totals",
+      "wf_ref": null,
+      "test_case": "Add a second traveler and verify passenger count and fare breakdown update",
       "preconditions": [
-        "User logged in as <Customer>",
-        "Flight Booking page open with itinerary summary and fare breakdown visible"
+        "User logged in as <role>",
+        "Flight Booking page is open with the initial traveler entry present"
       ],
       "steps": [
-        "1. In the Travelers section, click 'Add Row' to add Traveler 2",
-        "2. For Traveler 1 select <Title> and enter <First Name>, <Last Name>, <Date of Birth>, <Passport Number>, and <Passport Expiry>",
-        "3. For Traveler 2 select <Title> and enter <First Name>, <Last Name>, <Date of Birth>, <Passport Number>, and <Passport Expiry>",
-        "4. Observe the fare breakdown section"
+        "1. Click Add Row to add a new Traveler",
+        "2. For the new Traveler (Traveler 2) select <Title> from the Title dropdown",
+        "3. Enter <First_Name> in the First Name field for Traveler 2",
+        "4. Enter <Last_Name> in the Last Name field for Traveler 2",
+        "5. Enter <Date_of_Birth> in the Date of Birth field for Traveler 2",
+        "6. Enter <Passport_Number> in the Passport Number field for Traveler 2",
+        "7. Enter <Passport_Expiry> in the Passport Expiry field for Traveler 2"
       ],
-      "expected_result": "Fare breakdown shows 2 passengers and the Overall Total updates to reflect the aggregated total for both passengers (per-passenger breakdown still visible)",
+      "expected_result": "Itinerary summary updates to show 2 travelers; Fare breakdown displays per-passenger totals for each passenger and an overall total that reflects the added traveler",
       "priority": "medium"
     },
     {
       "tc_id": "P-003",
-      "test_case": "Multiple travelers filled and Continue navigates to Payment",
+      "wf_ref": null,
+      "test_case": "Select meal preference and seat selection for a traveler and see selections in the itinerary summary",
       "preconditions": [
-        "User logged in as <Customer>",
-        "Flight Booking page open with itinerary summary and fare breakdown visible"
+        "User logged in as <role>",
+        "Flight Booking page is open with a traveler entry present"
       ],
       "steps": [
-        "1. In the Travelers section, click 'Add Row' to add Traveler 2",
-        "2. For Traveler 1 select <Title> and enter <First Name>, <Last Name>, <Date of Birth>, <Passport Number>, and <Passport Expiry>",
-        "3. For Traveler 2 select <Title> and enter <First Name>, <Last Name>, <Date of Birth>, <Passport Number>, and <Passport Expiry>",
-        "4. Enter <Lead passenger email> in the Lead Passenger Email field",
-        "5. Enter <Lead passenger phone> in the Lead Passenger Phone field",
-        "6. Click the Continue button"
+        "1. For Traveler 1, select <Meal_Preference> from the Meal Preference control",
+        "2. For Traveler 1, select <Seat_Selection> from the Seat Selection control",
+        "3. Click outside the form row or otherwise save the traveler row to register the selections"
       ],
-      "expected_result": "navigates to Payment page",
-      "priority": "high"
+      "expected_result": "Traveler 1 is shown in the itinerary summary with the selected Meal preference and Seat selection visible on the traveler row",
+      "priority": "medium"
     },
     {
       "tc_id": "P-004",
-      "test_case": "Optional meal and seat selections are shown in passenger summary",
+      "wf_ref": null,
+      "test_case": "Add a traveler with passport details and verify the new traveler row appears",
       "preconditions": [
-        "User logged in as <Customer>",
-        "Flight Booking page open with itinerary summary and passenger summary visible"
+        "User logged in as <role>",
+        "Flight Booking page is open"
       ],
       "steps": [
-        "1. For Traveler 1 select <Title> and enter <First Name> and <Last Name>, and required passport fields",
-        "2. In Traveler 1, enter <meal preference> in the Meal Preferences field",
-        "3. In Traveler 1, enter <seat selection> in the Seat Selection field",
-        "4. Observe the Passenger Summary or Travelers list"
+        "1. Click Add Row to add a new Traveler",
+        "2. For the new Traveler select <Title> from the Title dropdown",
+        "3. Enter <First_Name> in the First Name field",
+        "4. Enter <Last_Name> in the Last Name field",
+        "5. Enter <Date_of_Birth> in the Date of Birth field",
+        "6. Enter <Passport_Number> in the Passport Number field",
+        "7. Enter <Passport_Expiry> in the Passport Expiry field"
       ],
-      "expected_result": "Passenger summary shows the selected meal preference <meal preference> and seat selection <seat selection> for Traveler 1",
+      "expected_result": "A new traveler row appears in the Travelers list showing the entered Title, First Name and Last Name and the Passport Expiry is displayed for that traveler",
       "priority": "medium"
     }
   ],
   "summary": {
     "total": 4,
-    "high_priority": 2,
-    "medium_priority": 2,
+    "high_priority": 1,
+    "medium_priority": 3,
     "low_priority": 0
   }
 }

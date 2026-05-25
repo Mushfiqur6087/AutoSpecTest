@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-21T22:54:00.274401
+DEBUG SESSION STARTED: 2026-05-25T14:51:20.261036
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[22:54:00] Test-Positive - SYSTEM PROMPT
+[14:51:20] Test-Positive - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Expert UI Test Case Generator. You receive (1) a UI-AST JSON for one specific module and (2) the original functional description for that module.
 
@@ -24,6 +24,10 @@ Your job is to produce ONLY positive/functional UI test cases — tests where va
 <description>
 {Original functional description text for this module}
 </description>
+
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
 
 ---
 
@@ -146,6 +150,13 @@ Because you are testing a module in isolation, establish the required entry stat
 **1. Forms & Wizards (`form`, `wizard`):**
 - Generate ONE happy path per distinct success outcome.
 - *Conditional UI Check:* If a toggle/dropdown reveals new mandatory fields (`visible_when`), generate a separate test for that conditional branch.
+- **Wizard step coverage (CRITICAL):** If a wizard has multiple steps and any step beyond Step 1 contains its own named field group (e.g., "Address Details", "Family Members", "Identifiers"), generate ONE dedicated positive TC per such step. The TC must:
+  - Navigate to that specific step (include the preceding steps as preconditions or brief navigation steps)
+  - Fill the fields described for that step (not just pass through)
+  - Assert the step's content is visible/saved on the detail page after final submission
+  - **Do NOT collapse all wizard steps into one happy-path TC** — if Steps 2, 3, and 4 each have their own named section in the spec, they each need their own TC.
+- **Wizard in-step identifiers/duplicates:** If a wizard step allows adding identifiers, documents, or similar entries that have a uniqueness constraint, include a TC for that wizard step that also verifies the constraint (e.g., attempting to add a duplicate Document Type+Key pair inside the wizard). This is a different code path from adding the same post-creation on the detail page.
+- **Action dialogs:** If a `state_bound_action_bar` action opens a dialog with its own `fields{}` (e.g., Activate requires Activation Date, Reject requires Reason), generate ONE positive TC per such action-dialog — distinct from the state-transition TC. The TC fills the dialog field and completes the action.
 
 **2. State Machines (`state_bound_action_bar`):**
 - For each unique action available in a specific state, generate ONE test performing that action.
@@ -200,6 +211,19 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 
 ---
 
+**WORKFLOW COVERAGE OBLIGATION (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- Your test cases must **collectively cover every workflow** listed.
+- For each `wf_id`, at least one TC must:
+  - Activate the `conditional_branch` (if not null) — i.e. the test must set up the condition described.
+  - Assert the `on_success` as its `expected_result` (verbatim or as the primary basis for the expected result).
+- Add `"wf_ref": "WF-NNN"` to each TC to identify which workflow it covers.
+- If one TC naturally covers multiple workflows (e.g., the base path overlaps), pick the most specific `wf_ref`.
+- If a TC does not map to any workflow (e.g., a navigation-only test), set `"wf_ref": null`.
+
+---
+
 **OUTPUT — JSON only, no prose, no markdown fencing:**
 
 {
@@ -208,6 +232,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
   "test_cases": [
     {
       "tc_id": "P-001",
+      "wf_ref": "WF-001",
       "test_case": "Short descriptive name",
       "preconditions": ["User logged in as <Role>", "<Prerequisite state>"],
       "steps": ["1. Step one", "2. Step two"],
@@ -224,7 +249,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 }
 
 ------------------------------------------------------------
-[22:54:00] Test-Positive - USER PROMPT
+[14:51:20] Test-Positive - USER PROMPT
 ------------------------------------------------------------
 <module_name>Payment Processing</module_name>
 
@@ -232,12 +257,11 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 {
   "module_name": "Payment Processing",
   "components": {
-    "Payment_Form": {
+    "Payment_Page": {
       "type": "form",
       "fields": {
         "Payment_Method": {
           "type": "dropdown",
-          "required": true,
           "options": [
             "Credit/Debit Card",
             "PayPal",
@@ -246,76 +270,58 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
           ]
         },
         "Cardholder_Name": {
-          "type": "text",
-          "required": true,
+          "type": "unspecified",
           "visible_when": "Payment_Method == Credit/Debit Card"
         },
         "Card_Number": {
-          "type": "text",
-          "required": true,
+          "type": "unspecified",
           "visible_when": "Payment_Method == Credit/Debit Card"
         },
         "Expiration_Date": {
-          "type": "month_year",
-          "required": true,
+          "type": "unspecified",
           "visible_when": "Payment_Method == Credit/Debit Card"
         },
         "CVV": {
-          "type": "number",
-          "required": true,
+          "type": "unspecified",
           "visible_when": "Payment_Method == Credit/Debit Card"
         },
         "Save_Card_For_Future_Use": {
           "type": "checkbox",
-          "required": false,
           "visible_when": "Payment_Method == Credit/Debit Card"
         }
       },
       "submit_actions": [
         {
-          "element_name": "Pay Now",
-          "on_success": "redirects to booking confirmation page with reference number; confirmation email sent",
-          "on_failure": "shows error message and allows retry without losing booking details",
+          "element_name": "Submit",
+          "on_success": "redirects to Booking Confirmation page with reference number",
+          "on_success_side_effects": [
+            "sends confirmation email"
+          ],
+          "on_failure": "displays an error message describing the issue and allows retry without losing booking details",
           "error_messages": [
             "Card declined",
-            "Insufficient funds",
-            "Payment gateway error"
-          ]
+            "Insufficient funds"
+          ],
+          "allow_retry": true,
+          "preserve_booking_details": true
         }
       ]
     },
-    "Confirmation_Page": {
+    "Booking_Confirmation_Page": {
       "type": "page",
-      "components": {
-        "Download_Actions": {
-          "type": "action_group",
-          "actions": [
-            {
-              "element_name": "Download Invoice",
-              "action_type": "button",
-              "on_success": "downloads invoice PDF"
-            },
-            {
-              "element_name": "Download Voucher",
-              "action_type": "button",
-              "on_success": "downloads voucher PDF"
-            }
-          ]
-        }
-      }
-    },
-    "Payment_Error_Recovery": {
-      "type": "form_helper",
-      "fields": {
-        "Retry_Payment": {
+      "fields": {},
+      "actions": [
+        {
+          "action_name": "Download Invoice",
           "type": "button",
-          "element_name": "Retry",
-          "description": "Retries the payment using existing booking details",
-          "preconditions": [],
-          "on_success": "re-attempts payment using current form values; redirects to confirmation on success",
-          "on_failure": "shows error message and retains booking details"
+          "on_success": "downloads invoice PDF"
+        },
+        {
+          "action_name": "Download Voucher",
+          "type": "button",
+          "on_success": "downloads voucher PDF"
         }
-      }
+      ]
     }
   }
 }
@@ -330,10 +336,19 @@ The payment page displays a full booking summary with a price breakdown (base pr
 
 </description>
 
+<workflows>
+WF-001 | Submit payment using Credit/Debit Card | actor: <role> | branch: Payment_Method == Credit/Debit Card | terminal: Submit | on_success: redirects to Booking Confirmation page with reference number
+WF-002 | Submit payment using PayPal or Bank Transfer or Wallet/Credits | actor: <role> | branch: Payment_Method == PayPal OR Payment_Method == Bank Transfer OR Payment_Method == Wallet/Credits | terminal: Submit | on_success: redirects to Booking Confirmation page with reference number
+WF-003 | Download Invoice after Credit/Debit Card payment | actor: <role> | branch: Payment_Method == Credit/Debit Card | terminal: Download Invoice | on_success: downloads invoice PDF
+WF-004 | Download Voucher after Credit/Debit Card payment | actor: <role> | branch: Payment_Method == Credit/Debit Card | terminal: Download Voucher | on_success: downloads voucher PDF
+WF-005 | Download Invoice after PayPal or Bank Transfer or Wallet/Credits payment | actor: <role> | branch: Payment_Method == PayPal OR Payment_Method == Bank Transfer OR Payment_Method == Wallet/Credits | terminal: Download Invoice | on_success: downloads invoice PDF
+WF-006 | Download Voucher after PayPal or Bank Transfer or Wallet/Credits payment | actor: <role> | branch: Payment_Method == PayPal OR Payment_Method == Bank Transfer OR Payment_Method == Wallet/Credits | terminal: Download Voucher | on_success: downloads voucher PDF
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[22:57:35] Test-Positive - LLM RESPONSE
+[14:54:01] Test-Positive - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Payment Processing",
@@ -341,109 +356,157 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Pay Now with Credit/Debit Card (card fields visible and saved option)",
+      "wf_ref": "WF-001",
+      "test_case": "Submit payment using Credit/Debit Card (happy path)",
       "preconditions": [
-        "User logged in as <Customer>",
-        "A booking is ready for payment"
+        "User logged in as <role>",
+        "Booking is ready for payment with price breakdown visible"
       ],
       "steps": [
-        "1. Open the Payment page for <booking>",
-        "2. Select 'Credit/Debit Card' from the Payment Method dropdown",
-        "3. Enter <cardholder name> in the Cardholder Name field",
-        "4. Enter <valid card number> in the Card Number field",
-        "5. Enter <valid expiration date> in the Expiration Date field",
-        "6. Enter <valid CVV> in the CVV field",
-        "7. Check the 'Save Card For Future Use' checkbox",
-        "8. Click the 'Pay Now' button"
+        "1. Open the Payment Page for the booking",
+        "2. Select <Credit/Debit Card> from the Payment Method dropdown",
+        "3. Enter <Cardholder name> in the Cardholder Name field",
+        "4. Enter <Card number> in the Card Number field",
+        "5. Enter <expiration date> in the Expiration Date field",
+        "6. Enter <CVV> in the CVV field",
+        "7. Check the Save Card For Future Use checkbox",
+        "8. Click Submit"
       ],
-      "expected_result": "Redirected to booking confirmation page with reference number; confirmation email sent. The Booking Confirmation page is displayed and shows a booking reference number.",
+      "expected_result": "redirects to Booking Confirmation page with reference number",
       "priority": "high"
     },
     {
       "tc_id": "P-002",
-      "test_case": "Pay Now with PayPal (card fields hidden)",
+      "wf_ref": "WF-002",
+      "test_case": "Submit payment using PayPal (alternate non-card method)",
       "preconditions": [
-        "User logged in as <Customer>",
-        "A booking is ready for payment"
+        "User logged in as <role>",
+        "Booking is ready for payment with price breakdown visible"
       ],
       "steps": [
-        "1. Open the Payment page for <booking>",
-        "2. Select 'PayPal' from the Payment Method dropdown",
-        "3. Confirm that Cardholder Name, Card Number, Expiration Date and CVV fields are not visible",
-        "4. Click the 'Pay Now' button",
-        "5. Complete any PayPal-specific authentication if prompted (use <valid PayPal credentials>)"
+        "1. Open the Payment Page for the booking",
+        "2. Select <PayPal> from the Payment Method dropdown",
+        "3. Click Submit"
       ],
-      "expected_result": "Redirected to booking confirmation page with reference number; confirmation email sent. The Booking Confirmation page is displayed and shows a booking reference number.",
+      "expected_result": "redirects to Booking Confirmation page with reference number",
       "priority": "high"
     },
     {
       "tc_id": "P-003",
-      "test_case": "Retry payment after a failed attempt using retained booking details",
+      "wf_ref": "WF-003",
+      "test_case": "Download Invoice from Booking Confirmation after Credit/Debit Card payment",
       "preconditions": [
-        "User logged in as <Customer>",
-        "A prior payment attempt has failed and booking details remain on the Payment page"
+        "User logged in as <role>",
+        "Booking is ready for payment with price breakdown visible"
       ],
       "steps": [
-        "1. Open the Payment page for <booking> which shows the payment error state and retained form values",
-        "2. Verify booking summary and payment form contain the retained values",
-        "3. Click the 'Retry' button on the payment error recovery control"
+        "1. Open the Payment Page for the booking",
+        "2. Select <Credit/Debit Card> from the Payment Method dropdown",
+        "3. Enter <Cardholder name> in the Cardholder Name field",
+        "4. Enter <Card number> in the Card Number field",
+        "5. Enter <expiration date> in the Expiration Date field",
+        "6. Enter <CVV> in the CVV field",
+        "7. Click Submit and wait for redirect to the Booking Confirmation page",
+        "8. Click the Download Invoice button on the Booking Confirmation page"
       ],
-      "expected_result": "re-attempts payment using current form values; redirects to confirmation on success. The Booking Confirmation page is displayed and shows a booking reference number.",
+      "expected_result": "downloads invoice PDF",
       "priority": "high"
     },
     {
       "tc_id": "P-004",
-      "test_case": "Download Invoice from Booking Confirmation page",
+      "wf_ref": "WF-004",
+      "test_case": "Download Voucher from Booking Confirmation after Credit/Debit Card payment",
       "preconditions": [
-        "User logged in as <Customer>",
-        "A booking has completed and the user is on the Booking Confirmation page"
+        "User logged in as <role>",
+        "Booking is ready for payment with price breakdown visible"
       ],
       "steps": [
-        "1. Open the Booking Confirmation page for <booking>",
-        "2. Click the 'Download Invoice' button"
+        "1. Open the Payment Page for the booking",
+        "2. Select <Credit/Debit Card> from the Payment Method dropdown",
+        "3. Enter <Cardholder name> in the Cardholder Name field",
+        "4. Enter <Card number> in the Card Number field",
+        "5. Enter <expiration date> in the Expiration Date field",
+        "6. Enter <CVV> in the CVV field",
+        "7. Click Submit and wait for redirect to the Booking Confirmation page",
+        "8. Click the Download Voucher button on the Booking Confirmation page"
       ],
-      "expected_result": "An invoice PDF download is triggered in the browser (downloads invoice PDF).",
-      "priority": "medium"
+      "expected_result": "downloads voucher PDF",
+      "priority": "high"
     },
     {
       "tc_id": "P-005",
-      "test_case": "Download Voucher from Booking Confirmation page",
+      "wf_ref": "WF-005",
+      "test_case": "Download Invoice from Booking Confirmation after PayPal payment",
       "preconditions": [
-        "User logged in as <Customer>",
-        "A booking has completed and the user is on the Booking Confirmation page"
+        "User logged in as <role>",
+        "Booking is ready for payment with price breakdown visible"
       ],
       "steps": [
-        "1. Open the Booking Confirmation page for <booking>",
-        "2. Click the 'Download Voucher' button"
+        "1. Open the Payment Page for the booking",
+        "2. Select <PayPal> from the Payment Method dropdown",
+        "3. Click Submit and wait for redirect to the Booking Confirmation page",
+        "4. Click the Download Invoice button on the Booking Confirmation page"
       ],
-      "expected_result": "A voucher PDF download is triggered in the browser (downloads voucher PDF).",
-      "priority": "medium"
+      "expected_result": "downloads invoice PDF",
+      "priority": "high"
     },
     {
       "tc_id": "P-006",
-      "test_case": "Payment page shows price breakdown and security badges; Total reflects calculation",
+      "wf_ref": "WF-006",
+      "test_case": "Download Voucher from Booking Confirmation after PayPal payment",
       "preconditions": [
-        "User logged in as <Customer>",
-        "A booking is ready for payment with price components available"
+        "User logged in as <role>",
+        "Booking is ready for payment with price breakdown visible"
       ],
       "steps": [
-        "1. Open the Payment page for <booking>",
-        "2. Observe the booking summary and price breakdown section"
+        "1. Open the Payment Page for the booking",
+        "2. Select <PayPal> from the Payment Method dropdown",
+        "3. Click Submit and wait for redirect to the Booking Confirmation page",
+        "4. Click the Download Voucher button on the Booking Confirmation page"
       ],
-      "expected_result": "Price breakdown displays Base Price, Taxes, Service Fees, and Discounts, and a Total. The Total updates to reflect Base Price + Taxes + Service Fees - Discounts. A security badge and SSL encryption indicator are visible on the page.",
+      "expected_result": "downloads voucher PDF",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-007",
+      "wf_ref": null,
+      "test_case": "Conditional UI: Card fields appear when Credit/Debit Card is selected",
+      "preconditions": [
+        "User logged in as <role>",
+        "Booking is ready for payment with price breakdown visible"
+      ],
+      "steps": [
+        "1. Open the Payment Page for the booking",
+        "2. Select <Credit/Debit Card> from the Payment Method dropdown"
+      ],
+      "expected_result": "Cardholder Name, Card Number, Expiration Date, CVV fields and the Save Card For Future Use checkbox become visible on the Payment Page",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-008",
+      "wf_ref": null,
+      "test_case": "Payment Page displays price breakdown and security indicators",
+      "preconditions": [
+        "User logged in as <role>",
+        "Booking is ready for payment"
+      ],
+      "steps": [
+        "1. Open the Payment Page for the booking"
+      ],
+      "expected_result": "Price breakdown displays Base Price, Taxes, Service Fees, applicable Discounts, and Total; security badges and SSL encryption indicators are visible on the Payment Page",
       "priority": "medium"
     }
   ],
   "summary": {
-    "total": 6,
-    "high_priority": 3,
-    "medium_priority": 3,
+    "total": 8,
+    "high_priority": 6,
+    "medium_priority": 2,
     "low_priority": 0
   }
 }
 
 ------------------------------------------------------------
-[22:57:35] Test-Positive - PARSED JSON
+[14:54:01] Test-Positive - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Payment Processing",
@@ -451,103 +514,151 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Pay Now with Credit/Debit Card (card fields visible and saved option)",
+      "wf_ref": "WF-001",
+      "test_case": "Submit payment using Credit/Debit Card (happy path)",
       "preconditions": [
-        "User logged in as <Customer>",
-        "A booking is ready for payment"
+        "User logged in as <role>",
+        "Booking is ready for payment with price breakdown visible"
       ],
       "steps": [
-        "1. Open the Payment page for <booking>",
-        "2. Select 'Credit/Debit Card' from the Payment Method dropdown",
-        "3. Enter <cardholder name> in the Cardholder Name field",
-        "4. Enter <valid card number> in the Card Number field",
-        "5. Enter <valid expiration date> in the Expiration Date field",
-        "6. Enter <valid CVV> in the CVV field",
-        "7. Check the 'Save Card For Future Use' checkbox",
-        "8. Click the 'Pay Now' button"
+        "1. Open the Payment Page for the booking",
+        "2. Select <Credit/Debit Card> from the Payment Method dropdown",
+        "3. Enter <Cardholder name> in the Cardholder Name field",
+        "4. Enter <Card number> in the Card Number field",
+        "5. Enter <expiration date> in the Expiration Date field",
+        "6. Enter <CVV> in the CVV field",
+        "7. Check the Save Card For Future Use checkbox",
+        "8. Click Submit"
       ],
-      "expected_result": "Redirected to booking confirmation page with reference number; confirmation email sent. The Booking Confirmation page is displayed and shows a booking reference number.",
+      "expected_result": "redirects to Booking Confirmation page with reference number",
       "priority": "high"
     },
     {
       "tc_id": "P-002",
-      "test_case": "Pay Now with PayPal (card fields hidden)",
+      "wf_ref": "WF-002",
+      "test_case": "Submit payment using PayPal (alternate non-card method)",
       "preconditions": [
-        "User logged in as <Customer>",
-        "A booking is ready for payment"
+        "User logged in as <role>",
+        "Booking is ready for payment with price breakdown visible"
       ],
       "steps": [
-        "1. Open the Payment page for <booking>",
-        "2. Select 'PayPal' from the Payment Method dropdown",
-        "3. Confirm that Cardholder Name, Card Number, Expiration Date and CVV fields are not visible",
-        "4. Click the 'Pay Now' button",
-        "5. Complete any PayPal-specific authentication if prompted (use <valid PayPal credentials>)"
+        "1. Open the Payment Page for the booking",
+        "2. Select <PayPal> from the Payment Method dropdown",
+        "3. Click Submit"
       ],
-      "expected_result": "Redirected to booking confirmation page with reference number; confirmation email sent. The Booking Confirmation page is displayed and shows a booking reference number.",
+      "expected_result": "redirects to Booking Confirmation page with reference number",
       "priority": "high"
     },
     {
       "tc_id": "P-003",
-      "test_case": "Retry payment after a failed attempt using retained booking details",
+      "wf_ref": "WF-003",
+      "test_case": "Download Invoice from Booking Confirmation after Credit/Debit Card payment",
       "preconditions": [
-        "User logged in as <Customer>",
-        "A prior payment attempt has failed and booking details remain on the Payment page"
+        "User logged in as <role>",
+        "Booking is ready for payment with price breakdown visible"
       ],
       "steps": [
-        "1. Open the Payment page for <booking> which shows the payment error state and retained form values",
-        "2. Verify booking summary and payment form contain the retained values",
-        "3. Click the 'Retry' button on the payment error recovery control"
+        "1. Open the Payment Page for the booking",
+        "2. Select <Credit/Debit Card> from the Payment Method dropdown",
+        "3. Enter <Cardholder name> in the Cardholder Name field",
+        "4. Enter <Card number> in the Card Number field",
+        "5. Enter <expiration date> in the Expiration Date field",
+        "6. Enter <CVV> in the CVV field",
+        "7. Click Submit and wait for redirect to the Booking Confirmation page",
+        "8. Click the Download Invoice button on the Booking Confirmation page"
       ],
-      "expected_result": "re-attempts payment using current form values; redirects to confirmation on success. The Booking Confirmation page is displayed and shows a booking reference number.",
+      "expected_result": "downloads invoice PDF",
       "priority": "high"
     },
     {
       "tc_id": "P-004",
-      "test_case": "Download Invoice from Booking Confirmation page",
+      "wf_ref": "WF-004",
+      "test_case": "Download Voucher from Booking Confirmation after Credit/Debit Card payment",
       "preconditions": [
-        "User logged in as <Customer>",
-        "A booking has completed and the user is on the Booking Confirmation page"
+        "User logged in as <role>",
+        "Booking is ready for payment with price breakdown visible"
       ],
       "steps": [
-        "1. Open the Booking Confirmation page for <booking>",
-        "2. Click the 'Download Invoice' button"
+        "1. Open the Payment Page for the booking",
+        "2. Select <Credit/Debit Card> from the Payment Method dropdown",
+        "3. Enter <Cardholder name> in the Cardholder Name field",
+        "4. Enter <Card number> in the Card Number field",
+        "5. Enter <expiration date> in the Expiration Date field",
+        "6. Enter <CVV> in the CVV field",
+        "7. Click Submit and wait for redirect to the Booking Confirmation page",
+        "8. Click the Download Voucher button on the Booking Confirmation page"
       ],
-      "expected_result": "An invoice PDF download is triggered in the browser (downloads invoice PDF).",
-      "priority": "medium"
+      "expected_result": "downloads voucher PDF",
+      "priority": "high"
     },
     {
       "tc_id": "P-005",
-      "test_case": "Download Voucher from Booking Confirmation page",
+      "wf_ref": "WF-005",
+      "test_case": "Download Invoice from Booking Confirmation after PayPal payment",
       "preconditions": [
-        "User logged in as <Customer>",
-        "A booking has completed and the user is on the Booking Confirmation page"
+        "User logged in as <role>",
+        "Booking is ready for payment with price breakdown visible"
       ],
       "steps": [
-        "1. Open the Booking Confirmation page for <booking>",
-        "2. Click the 'Download Voucher' button"
+        "1. Open the Payment Page for the booking",
+        "2. Select <PayPal> from the Payment Method dropdown",
+        "3. Click Submit and wait for redirect to the Booking Confirmation page",
+        "4. Click the Download Invoice button on the Booking Confirmation page"
       ],
-      "expected_result": "A voucher PDF download is triggered in the browser (downloads voucher PDF).",
-      "priority": "medium"
+      "expected_result": "downloads invoice PDF",
+      "priority": "high"
     },
     {
       "tc_id": "P-006",
-      "test_case": "Payment page shows price breakdown and security badges; Total reflects calculation",
+      "wf_ref": "WF-006",
+      "test_case": "Download Voucher from Booking Confirmation after PayPal payment",
       "preconditions": [
-        "User logged in as <Customer>",
-        "A booking is ready for payment with price components available"
+        "User logged in as <role>",
+        "Booking is ready for payment with price breakdown visible"
       ],
       "steps": [
-        "1. Open the Payment page for <booking>",
-        "2. Observe the booking summary and price breakdown section"
+        "1. Open the Payment Page for the booking",
+        "2. Select <PayPal> from the Payment Method dropdown",
+        "3. Click Submit and wait for redirect to the Booking Confirmation page",
+        "4. Click the Download Voucher button on the Booking Confirmation page"
       ],
-      "expected_result": "Price breakdown displays Base Price, Taxes, Service Fees, and Discounts, and a Total. The Total updates to reflect Base Price + Taxes + Service Fees - Discounts. A security badge and SSL encryption indicator are visible on the page.",
+      "expected_result": "downloads voucher PDF",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-007",
+      "wf_ref": null,
+      "test_case": "Conditional UI: Card fields appear when Credit/Debit Card is selected",
+      "preconditions": [
+        "User logged in as <role>",
+        "Booking is ready for payment with price breakdown visible"
+      ],
+      "steps": [
+        "1. Open the Payment Page for the booking",
+        "2. Select <Credit/Debit Card> from the Payment Method dropdown"
+      ],
+      "expected_result": "Cardholder Name, Card Number, Expiration Date, CVV fields and the Save Card For Future Use checkbox become visible on the Payment Page",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-008",
+      "wf_ref": null,
+      "test_case": "Payment Page displays price breakdown and security indicators",
+      "preconditions": [
+        "User logged in as <role>",
+        "Booking is ready for payment"
+      ],
+      "steps": [
+        "1. Open the Payment Page for the booking"
+      ],
+      "expected_result": "Price breakdown displays Base Price, Taxes, Service Fees, applicable Discounts, and Total; security badges and SSL encryption indicators are visible on the Payment Page",
       "priority": "medium"
     }
   ],
   "summary": {
-    "total": 6,
-    "high_priority": 3,
-    "medium_priority": 3,
+    "total": 8,
+    "high_priority": 6,
+    "medium_priority": 2,
     "low_priority": 0
   }
 }

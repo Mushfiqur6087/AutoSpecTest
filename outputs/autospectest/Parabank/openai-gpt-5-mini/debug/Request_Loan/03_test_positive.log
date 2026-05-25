@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-22T21:31:44.627287
+DEBUG SESSION STARTED: 2026-05-25T15:41:24.133392
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[21:31:44] Test-Positive - SYSTEM PROMPT
+[15:41:24] Test-Positive - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Expert UI Test Case Generator. You receive (1) a UI-AST JSON for one specific module and (2) the original functional description for that module.
 
@@ -24,6 +24,10 @@ Your job is to produce ONLY positive/functional UI test cases — tests where va
 <description>
 {Original functional description text for this module}
 </description>
+
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
 
 ---
 
@@ -146,6 +150,13 @@ Because you are testing a module in isolation, establish the required entry stat
 **1. Forms & Wizards (`form`, `wizard`):**
 - Generate ONE happy path per distinct success outcome.
 - *Conditional UI Check:* If a toggle/dropdown reveals new mandatory fields (`visible_when`), generate a separate test for that conditional branch.
+- **Wizard step coverage (CRITICAL):** If a wizard has multiple steps and any step beyond Step 1 contains its own named field group (e.g., "Address Details", "Family Members", "Identifiers"), generate ONE dedicated positive TC per such step. The TC must:
+  - Navigate to that specific step (include the preceding steps as preconditions or brief navigation steps)
+  - Fill the fields described for that step (not just pass through)
+  - Assert the step's content is visible/saved on the detail page after final submission
+  - **Do NOT collapse all wizard steps into one happy-path TC** — if Steps 2, 3, and 4 each have their own named section in the spec, they each need their own TC.
+- **Wizard in-step identifiers/duplicates:** If a wizard step allows adding identifiers, documents, or similar entries that have a uniqueness constraint, include a TC for that wizard step that also verifies the constraint (e.g., attempting to add a duplicate Document Type+Key pair inside the wizard). This is a different code path from adding the same post-creation on the detail page.
+- **Action dialogs:** If a `state_bound_action_bar` action opens a dialog with its own `fields{}` (e.g., Activate requires Activation Date, Reject requires Reason), generate ONE positive TC per such action-dialog — distinct from the state-transition TC. The TC fills the dialog field and completes the action.
 
 **2. State Machines (`state_bound_action_bar`):**
 - For each unique action available in a specific state, generate ONE test performing that action.
@@ -200,6 +211,19 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 
 ---
 
+**WORKFLOW COVERAGE OBLIGATION (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- Your test cases must **collectively cover every workflow** listed.
+- For each `wf_id`, at least one TC must:
+  - Activate the `conditional_branch` (if not null) — i.e. the test must set up the condition described.
+  - Assert the `on_success` as its `expected_result` (verbatim or as the primary basis for the expected result).
+- Add `"wf_ref": "WF-NNN"` to each TC to identify which workflow it covers.
+- If one TC naturally covers multiple workflows (e.g., the base path overlaps), pick the most specific `wf_ref`.
+- If a TC does not map to any workflow (e.g., a navigation-only test), set `"wf_ref": null`.
+
+---
+
 **OUTPUT — JSON only, no prose, no markdown fencing:**
 
 {
@@ -208,6 +232,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
   "test_cases": [
     {
       "tc_id": "P-001",
+      "wf_ref": "WF-001",
       "test_case": "Short descriptive name",
       "preconditions": ["User logged in as <Role>", "<Prerequisite state>"],
       "steps": ["1. Step one", "2. Step two"],
@@ -224,7 +249,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 }
 
 ------------------------------------------------------------
-[21:31:44] Test-Positive - USER PROMPT
+[15:41:24] Test-Positive - USER PROMPT
 ------------------------------------------------------------
 <module_name>Request Loan</module_name>
 
@@ -232,80 +257,63 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 {
   "module_name": "Request Loan",
   "components": {
-    "Request_Loan_Form": {
+    "Loan_Request_Form": {
       "type": "form",
       "fields": {
         "Loan_Type": {
           "type": "radio",
           "required": true,
           "options": [
-            {
-              "label": "Personal",
-              "value": "Personal",
-              "interest_rate": "unspecified"
-            },
-            {
-              "label": "Auto",
-              "value": "Auto",
-              "interest_rate": "unspecified"
-            },
-            {
-              "label": "Home",
-              "value": "Home",
-              "interest_rate": "unspecified"
-            }
+            "Personal",
+            "Auto",
+            "Home"
           ]
         },
         "Loan_Amount": {
           "type": "number",
           "required": true,
           "constraints": [
-            "when Loan_Type == Personal: min 1000, max 50000",
-            "when Loan_Type == Auto: min 5000, max 75000",
-            "when Loan_Type == Home: min 50000, max 500000",
+            "when Loan_Type == Personal => min 1000",
+            "when Loan_Type == Personal => max 50000",
+            "when Loan_Type == Auto => min 5000",
+            "when Loan_Type == Auto => max 75000",
+            "when Loan_Type == Home => min 50000",
+            "when Loan_Type == Home => max 500000",
             "must be a positive number"
           ]
         },
-        "Down_Payment_Amount": {
+        "Down_Payment": {
           "type": "number",
           "required": true,
           "constraints": [
             "must be less than Loan_Amount",
-            "must be >= 10% of Loan_Amount"
+            "must be >= 0",
+            "minimum 10% down payment is required by the credit engine for approval (enforced during credit simulation on submit)"
           ]
         },
         "Collateral_Account": {
           "type": "dropdown",
-          "required": false,
+          "required": true,
           "constraints": [
-            "selected account balance must be >= 20% of Loan_Amount",
-            "sufficient collateral funds required (account balance check)"
+            "selected account balance must be sufficient to cover required collateral value",
+            "required collateral value = 0.20 * Loan_Amount",
+            "collateral sufficiency validated before approval"
           ]
         }
       },
       "submit_actions": [
         {
-          "element_name": "Request Loan",
+          "element_name": "Submit Application",
           "type": "button",
           "constraints": [
-            "validates Loan_Amount against type-specific ranges (see Loan_Amount.constraints)",
-            "validates Down_Payment_Amount < Loan_Amount",
-            "validates Down_Payment_Amount >= 10% of Loan_Amount",
-            "validates Collateral_Account balance >= 20% of Loan_Amount"
+            "validates Loan_Amount ranges per Loan_Type (see Loan_Amount.constraints)",
+            "validates Down_Payment < Loan_Amount",
+            "validates Collateral_Account.balance >= 0.20 * Loan_Amount",
+            "simulated approval: credit engine returns approval with 80% probability",
+            "credit engine enforces minimum 10% down payment for approval"
           ],
-          "credit_engine": {
-            "approval_rate": 0.8,
-            "min_down_payment_percent": 10,
-            "behavior": "simulates approval/denial; returns specific denial reason on failure",
-            "denial_reasons": [
-              "Insufficient credit history",
-              "Inadequate collateral value",
-              "Down payment too low",
-              "Loan amount out of allowed range"
-            ]
-          },
-          "on_success": "Loan approved and created successfully! Returns account details. Note: in this mock system no actual balance debits occur.",
-          "on_failure": "Loan denied. Returns specific denial reason such as 'Insufficient credit history' or 'Inadequate collateral value'."
+          "on_success": "Loan approved and created successfully! returns loan account details; no actual balance debits occur",
+          "on_failure": "Loan denied; system surfaces specific reasons such as 'Insufficient credit history' or 'Inadequate collateral value'"
         }
       ]
     }
@@ -319,10 +327,23 @@ The loan page has interactive loan type cards (Personal, Auto, Home) with intere
 
 </description>
 
+<workflows>
+WF-001 | Submit valid Personal loan application (meets ranges, down payment and collateral) | actor: <role> | branch: Loan_Type == Personal AND Loan_Amount >= 1000 AND Loan_Amount <= 50000 AND Down_Payment < Loan_Amount AND Down_Payment >= 0.10 * Loan_Amount AND Collateral_Account.balance >= 0.20 * Loan_Amount | terminal: Submit Application | on_success: Loan approved and created successfully! returns loan account details; no actual balance debits occur
+WF-002 | Submit valid Auto loan application (meets ranges, down payment and collateral) | actor: <role> | branch: Loan_Type == Auto AND Loan_Amount >= 5000 AND Loan_Amount <= 75000 AND Down_Payment < Loan_Amount AND Down_Payment >= 0.10 * Loan_Amount AND Collateral_Account.balance >= 0.20 * Loan_Amount | terminal: Submit Application | on_success: Loan approved and created successfully! returns loan account details; no actual balance debits occur
+WF-003 | Submit valid Home loan application (meets ranges, down payment and collateral) | actor: <role> | branch: Loan_Type == Home AND Loan_Amount >= 50000 AND Loan_Amount <= 500000 AND Down_Payment < Loan_Amount AND Down_Payment >= 0.10 * Loan_Amount AND Collateral_Account.balance >= 0.20 * Loan_Amount | terminal: Submit Application | on_success: Loan approved and created successfully! returns loan account details; no actual balance debits occur
+WF-004 | Submit Personal loan with Loan_Amount out of allowed range | actor: <role> | branch: Loan_Type == Personal AND (Loan_Amount < 1000 OR Loan_Amount > 50000) | terminal: Submit Application | on_success: Loan denied; system surfaces specific reasons such as 'Insufficient credit history' or 'Inadequate collateral value'
+WF-005 | Submit Auto loan with Loan_Amount out of allowed range | actor: <role> | branch: Loan_Type == Auto AND (Loan_Amount < 5000 OR Loan_Amount > 75000) | terminal: Submit Application | on_success: Loan denied; system surfaces specific reasons such as 'Insufficient credit history' or 'Inadequate collateral value'
+WF-006 | Submit Home loan with Loan_Amount out of allowed range | actor: <role> | branch: Loan_Type == Home AND (Loan_Amount < 50000 OR Loan_Amount > 500000) | terminal: Submit Application | on_success: Loan denied; system surfaces specific reasons such as 'Insufficient credit history' or 'Inadequate collateral value'
+WF-007 | Submit with Down_Payment greater than or equal to Loan_Amount (invalid) | actor: <role> | branch: Down_Payment >= Loan_Amount | terminal: Submit Application | on_success: Loan denied; system surfaces specific reasons such as 'Insufficient credit history' or 'Inadequate collateral value'
+WF-008 | Submit with Down_Payment below minimum 10% of Loan_Amount (credit engine enforces minimum) | actor: <role> | branch: Down_Payment < 0.10 * Loan_Amount | terminal: Submit Application | on_success: Loan denied; system surfaces specific reasons such as 'Insufficient credit history' or 'Inadequate collateral value'
+WF-009 | Submit with Collateral_Account balance insufficient for required 20% collateral | actor: <role> | branch: Collateral_Account.balance < 0.20 * Loan_Amount | terminal: Submit Application | on_success: Loan denied; system surfaces specific reasons such as 'Insufficient credit history' or 'Inadequate collateral value'
+WF-010 | Submit with non-positive Loan_Amount (invalid) | actor: <role> | branch: Loan_Amount <= 0 | terminal: Submit Application | on_success: Loan denied; system surfaces specific reasons such as 'Insufficient credit history' or 'Inadequate collateral value'
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[21:32:47] Test-Positive - LLM RESPONSE
+[15:43:08] Test-Positive - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Request Loan",
@@ -330,72 +351,210 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Request Personal Loan with valid amounts and no collateral (credit engine approves)",
+      "wf_ref": "WF-001",
+      "test_case": "Submit valid Personal loan application resulting in approval",
       "preconditions": [
-        "User logged in as <Customer>",
-        "Credit engine mock configured to return approval for this request",
-        "No Collateral Account selection required for this scenario"
+        "User logged in as <Applicant>",
+        "<Collateral account with balance >= 0.20 * Loan_Amount> exists and is selectable in Collateral_Account dropdown",
+        "Request Loan page is reachable"
       ],
       "steps": [
-        "1. Navigate to the Request Loan page",
-        "2. Select 'Personal' for Loan Type",
-        "3. Enter <valid personal loan amount within Personal range> in the Loan Amount field",
-        "4. Enter <valid down payment >= 10% of Loan Amount and < Loan Amount> in the Down Payment Amount field",
-        "5. Ensure Collateral Account is left unselected",
-        "6. Click the 'Request Loan' button"
+        "1. Open the Request Loan page",
+        "2. Select 'Personal' as Loan_Type",
+        "3. Enter <Loan_Amount between 1000 and 50000> in the Loan_Amount field",
+        "4. Enter <Down_Payment >= 0.10 * Loan_Amount and < Loan_Amount> in the Down_Payment field",
+        "5. Select <collateral account with balance >= 0.20 * Loan_Amount> from the Collateral_Account dropdown",
+        "6. Click the 'Submit Application' button"
       ],
-      "expected_result": "Success notification displays the exact text 'Loan approved and created successfully! Returns account details. Note: in this mock system no actual balance debits occur.'; the Loan Details panel is shown with the selected Loan Type 'Personal' and the entered Loan Amount and Down Payment visible.",
+      "expected_result": "Loan approved and created successfully! returns loan account details; no actual balance debits occur — The page displays the new loan account details including loan type 'Personal', the approved Loan Amount, and a loan account identifier",
       "priority": "high"
     },
     {
       "tc_id": "P-002",
-      "test_case": "Request Auto Loan with required down payment and sufficient collateral selected (credit engine approves)",
+      "wf_ref": "WF-002",
+      "test_case": "Submit valid Auto loan application resulting in approval",
       "preconditions": [
-        "User logged in as <Customer>",
-        "Credit engine mock configured to return approval for this request",
-        "A Collateral Account exists with balance >= 20% of the intended Loan Amount"
+        "User logged in as <Applicant>",
+        "<Collateral account with balance >= 0.20 * Loan_Amount> exists and is selectable in Collateral_Account dropdown",
+        "Request Loan page is reachable"
       ],
       "steps": [
-        "1. Navigate to the Request Loan page",
-        "2. Select 'Auto' for Loan Type",
-        "3. Enter <valid auto loan amount within Auto range> in the Loan Amount field",
-        "4. Enter <valid down payment >= 10% of Loan Amount and < Loan Amount> in the Down Payment Amount field",
-        "5. Open the Collateral Account dropdown and select <collateral account with balance >= 20% of Loan_Amount>",
-        "6. Click the 'Request Loan' button"
+        "1. Open the Request Loan page",
+        "2. Select 'Auto' as Loan_Type",
+        "3. Enter <Loan_Amount between 5000 and 75000> in the Loan_Amount field",
+        "4. Enter <Down_Payment >= 0.10 * Loan_Amount and < Loan_Amount> in the Down_Payment field",
+        "5. Select <collateral account with balance >= 0.20 * Loan_Amount> from the Collateral_Account dropdown",
+        "6. Click the 'Submit Application' button"
       ],
-      "expected_result": "Success notification displays the exact text 'Loan approved and created successfully! Returns account details. Note: in this mock system no actual balance debits occur.'; the Loan Details panel is shown with the selected Loan Type 'Auto', the entered Loan Amount and Down Payment visible, and the selected Collateral Account listed with its balance.",
+      "expected_result": "Loan approved and created successfully! returns loan account details; no actual balance debits occur — The page displays the new loan account details including loan type 'Auto', the approved Loan Amount, and a loan account identifier",
       "priority": "high"
     },
     {
       "tc_id": "P-003",
-      "test_case": "Request Home Loan with large amount, valid down payment, and sufficient collateral (credit engine approves)",
+      "wf_ref": "WF-003",
+      "test_case": "Submit valid Home loan application resulting in approval",
       "preconditions": [
-        "User logged in as <Customer>",
-        "Credit engine mock configured to return approval for this request",
-        "A Collateral Account exists with balance >= 20% of the intended Loan Amount"
+        "User logged in as <Applicant>",
+        "<Collateral account with balance >= 0.20 * Loan_Amount> exists and is selectable in Collateral_Account dropdown",
+        "Request Loan page is reachable"
       ],
       "steps": [
-        "1. Navigate to the Request Loan page",
-        "2. Select 'Home' for Loan Type",
-        "3. Enter <valid home loan amount within Home range> in the Loan Amount field",
-        "4. Enter <valid down payment >= 10% of Loan Amount and < Loan Amount> in the Down Payment Amount field",
-        "5. Open the Collateral Account dropdown and select <collateral account with balance >= 20% of Loan_Amount>",
-        "6. Click the 'Request Loan' button"
+        "1. Open the Request Loan page",
+        "2. Select 'Home' as Loan_Type",
+        "3. Enter <Loan_Amount between 50000 and 500000> in the Loan_Amount field",
+        "4. Enter <Down_Payment >= 0.10 * Loan_Amount and < Loan_Amount> in the Down_Payment field",
+        "5. Select <collateral account with balance >= 0.20 * Loan_Amount> from the Collateral_Account dropdown",
+        "6. Click the 'Submit Application' button"
       ],
-      "expected_result": "Success notification displays the exact text 'Loan approved and created successfully! Returns account details. Note: in this mock system no actual balance debits occur.'; the Loan Details panel is shown with the selected Loan Type 'Home', the entered Loan Amount and Down Payment visible, and the selected Collateral Account listed with its balance.",
+      "expected_result": "Loan approved and created successfully! returns loan account details; no actual balance debits occur — The page displays the new loan account details including loan type 'Home', the approved Loan Amount, and a loan account identifier",
       "priority": "high"
+    },
+    {
+      "tc_id": "P-004",
+      "wf_ref": "WF-004",
+      "test_case": "Submit Personal loan with Loan_Amount outside allowed range and observe denial",
+      "preconditions": [
+        "User logged in as <Applicant>",
+        "Request Loan page is reachable"
+      ],
+      "steps": [
+        "1. Open the Request Loan page",
+        "2. Select 'Personal' as Loan_Type",
+        "3. Enter <Loan_Amount less than 1000 (outside Personal range)> in the Loan_Amount field",
+        "4. Enter <Down_Payment that satisfies Down_Payment < Loan_Amount> in the Down_Payment field",
+        "5. Select <any collateral account> from the Collateral_Account dropdown",
+        "6. Click the 'Submit Application' button"
+      ],
+      "expected_result": "Loan denied; system surfaces specific reasons such as 'Insufficient credit history' or 'Inadequate collateral value' — An inline validation/error message is shown indicating the Loan Amount is outside the allowed range for 'Personal' loans",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-005",
+      "wf_ref": "WF-005",
+      "test_case": "Submit Auto loan with Loan_Amount outside allowed range and observe denial",
+      "preconditions": [
+        "User logged in as <Applicant>",
+        "Request Loan page is reachable"
+      ],
+      "steps": [
+        "1. Open the Request Loan page",
+        "2. Select 'Auto' as Loan_Type",
+        "3. Enter <Loan_Amount greater than 75000 (outside Auto range)> in the Loan_Amount field",
+        "4. Enter <Down_Payment that satisfies Down_Payment < Loan_Amount> in the Down_Payment field",
+        "5. Select <any collateral account> from the Collateral_Account dropdown",
+        "6. Click the 'Submit Application' button"
+      ],
+      "expected_result": "Loan denied; system surfaces specific reasons such as 'Insufficient credit history' or 'Inadequate collateral value' — An inline validation/error message is shown indicating the Loan Amount is outside the allowed range for 'Auto' loans",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-006",
+      "wf_ref": "WF-006",
+      "test_case": "Submit Home loan with Loan_Amount outside allowed range and observe denial",
+      "preconditions": [
+        "User logged in as <Applicant>",
+        "Request Loan page is reachable"
+      ],
+      "steps": [
+        "1. Open the Request Loan page",
+        "2. Select 'Home' as Loan_Type",
+        "3. Enter <Loan_Amount less than 50000 (outside Home range)> in the Loan_Amount field",
+        "4. Enter <Down_Payment that satisfies Down_Payment < Loan_Amount> in the Down_Payment field",
+        "5. Select <any collateral account> from the Collateral_Account dropdown",
+        "6. Click the 'Submit Application' button"
+      ],
+      "expected_result": "Loan denied; system surfaces specific reasons such as 'Insufficient credit history' or 'Inadequate collateral value' — An inline validation/error message is shown indicating the Loan Amount is outside the allowed range for 'Home' loans",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-007",
+      "wf_ref": "WF-007",
+      "test_case": "Submit application where Down_Payment is greater than or equal to Loan_Amount and observe denial",
+      "preconditions": [
+        "User logged in as <Applicant>",
+        "Request Loan page is reachable"
+      ],
+      "steps": [
+        "1. Open the Request Loan page",
+        "2. Select <Loan_Type valid for payment scenario> as Loan_Type",
+        "3. Enter <Loan_Amount > 0 and within the selected Loan_Type's allowed range> in the Loan_Amount field",
+        "4. Enter <Down_Payment >= Loan_Amount> in the Down_Payment field",
+        "5. Select <any collateral account> from the Collateral_Account dropdown",
+        "6. Click the 'Submit Application' button"
+      ],
+      "expected_result": "Loan denied; system surfaces specific reasons such as 'Insufficient credit history' or 'Inadequate collateral value' — An inline validation/error message is shown indicating Down Payment must be less than the Loan Amount",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-008",
+      "wf_ref": "WF-008",
+      "test_case": "Submit application with Down_Payment below minimum 10% of Loan_Amount and observe credit-engine denial",
+      "preconditions": [
+        "User logged in as <Applicant>",
+        "<Collateral account with balance >= 0.20 * Loan_Amount> exists and is selectable in Collateral_Account dropdown",
+        "Request Loan page is reachable"
+      ],
+      "steps": [
+        "1. Open the Request Loan page",
+        "2. Select <Loan_Type valid for amount> as Loan_Type",
+        "3. Enter <Loan_Amount within the selected Loan_Type's allowed range> in the Loan_Amount field",
+        "4. Enter <Down_Payment less than 0.10 * Loan_Amount> in the Down_Payment field",
+        "5. Select <collateral account with balance >= 0.20 * Loan_Amount> from the Collateral_Account dropdown",
+        "6. Click the 'Submit Application' button"
+      ],
+      "expected_result": "Loan denied; system surfaces specific reasons such as 'Insufficient credit history' or 'Inadequate collateral value' — The credit simulation indicates the minimum 10% down payment requirement was not met and displays a message to that effect",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-009",
+      "wf_ref": "WF-009",
+      "test_case": "Submit application with Collateral_Account balance insufficient for required 20% collateral and observe denial",
+      "preconditions": [
+        "User logged in as <Applicant>",
+        "<Collateral account with balance < 0.20 * Loan_Amount> exists and is selectable in Collateral_Account dropdown",
+        "Request Loan page is reachable"
+      ],
+      "steps": [
+        "1. Open the Request Loan page",
+        "2. Select <Loan_Type valid for amount> as Loan_Type",
+        "3. Enter <Loan_Amount within the selected Loan_Type's allowed range> in the Loan_Amount field",
+        "4. Enter <Down_Payment >= 0.10 * Loan_Amount and < Loan_Amount> in the Down_Payment field",
+        "5. Select <collateral account with balance < 0.20 * Loan_Amount> from the Collateral_Account dropdown",
+        "6. Click the 'Submit Application' button"
+      ],
+      "expected_result": "Loan denied; system surfaces specific reasons such as 'Insufficient credit history' or 'Inadequate collateral value' — The UI displays an error indicating 'Inadequate collateral value' (selected account balance is insufficient to meet the required 20% collateral)",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-010",
+      "wf_ref": "WF-010",
+      "test_case": "Submit application with non-positive Loan_Amount and observe denial",
+      "preconditions": [
+        "User logged in as <Applicant>",
+        "Request Loan page is reachable"
+      ],
+      "steps": [
+        "1. Open the Request Loan page",
+        "2. Select <Loan_Type valid for scenario> as Loan_Type",
+        "3. Enter <Loan_Amount less than or equal to 0> in the Loan_Amount field",
+        "4. Enter <Down_Payment that satisfies Down_Payment < Loan_Amount if applicable> in the Down_Payment field",
+        "5. Select <any collateral account> from the Collateral_Account dropdown",
+        "6. Click the 'Submit Application' button"
+      ],
+      "expected_result": "Loan denied; system surfaces specific reasons such as 'Insufficient credit history' or 'Inadequate collateral value' — An inline validation/error message is shown indicating Loan Amount must be a positive number",
+      "priority": "medium"
     }
   ],
   "summary": {
-    "total": 3,
+    "total": 10,
     "high_priority": 3,
-    "medium_priority": 0,
+    "medium_priority": 7,
     "low_priority": 0
   }
 }
 
 ------------------------------------------------------------
-[21:32:47] Test-Positive - PARSED JSON
+[15:43:08] Test-Positive - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Request Loan",
@@ -403,66 +562,204 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Request Personal Loan with valid amounts and no collateral (credit engine approves)",
+      "wf_ref": "WF-001",
+      "test_case": "Submit valid Personal loan application resulting in approval",
       "preconditions": [
-        "User logged in as <Customer>",
-        "Credit engine mock configured to return approval for this request",
-        "No Collateral Account selection required for this scenario"
+        "User logged in as <Applicant>",
+        "<Collateral account with balance >= 0.20 * Loan_Amount> exists and is selectable in Collateral_Account dropdown",
+        "Request Loan page is reachable"
       ],
       "steps": [
-        "1. Navigate to the Request Loan page",
-        "2. Select 'Personal' for Loan Type",
-        "3. Enter <valid personal loan amount within Personal range> in the Loan Amount field",
-        "4. Enter <valid down payment >= 10% of Loan Amount and < Loan Amount> in the Down Payment Amount field",
-        "5. Ensure Collateral Account is left unselected",
-        "6. Click the 'Request Loan' button"
+        "1. Open the Request Loan page",
+        "2. Select 'Personal' as Loan_Type",
+        "3. Enter <Loan_Amount between 1000 and 50000> in the Loan_Amount field",
+        "4. Enter <Down_Payment >= 0.10 * Loan_Amount and < Loan_Amount> in the Down_Payment field",
+        "5. Select <collateral account with balance >= 0.20 * Loan_Amount> from the Collateral_Account dropdown",
+        "6. Click the 'Submit Application' button"
       ],
-      "expected_result": "Success notification displays the exact text 'Loan approved and created successfully! Returns account details. Note: in this mock system no actual balance debits occur.'; the Loan Details panel is shown with the selected Loan Type 'Personal' and the entered Loan Amount and Down Payment visible.",
+      "expected_result": "Loan approved and created successfully! returns loan account details; no actual balance debits occur \u2014 The page displays the new loan account details including loan type 'Personal', the approved Loan Amount, and a loan account identifier",
       "priority": "high"
     },
     {
       "tc_id": "P-002",
-      "test_case": "Request Auto Loan with required down payment and sufficient collateral selected (credit engine approves)",
+      "wf_ref": "WF-002",
+      "test_case": "Submit valid Auto loan application resulting in approval",
       "preconditions": [
-        "User logged in as <Customer>",
-        "Credit engine mock configured to return approval for this request",
-        "A Collateral Account exists with balance >= 20% of the intended Loan Amount"
+        "User logged in as <Applicant>",
+        "<Collateral account with balance >= 0.20 * Loan_Amount> exists and is selectable in Collateral_Account dropdown",
+        "Request Loan page is reachable"
       ],
       "steps": [
-        "1. Navigate to the Request Loan page",
-        "2. Select 'Auto' for Loan Type",
-        "3. Enter <valid auto loan amount within Auto range> in the Loan Amount field",
-        "4. Enter <valid down payment >= 10% of Loan Amount and < Loan Amount> in the Down Payment Amount field",
-        "5. Open the Collateral Account dropdown and select <collateral account with balance >= 20% of Loan_Amount>",
-        "6. Click the 'Request Loan' button"
+        "1. Open the Request Loan page",
+        "2. Select 'Auto' as Loan_Type",
+        "3. Enter <Loan_Amount between 5000 and 75000> in the Loan_Amount field",
+        "4. Enter <Down_Payment >= 0.10 * Loan_Amount and < Loan_Amount> in the Down_Payment field",
+        "5. Select <collateral account with balance >= 0.20 * Loan_Amount> from the Collateral_Account dropdown",
+        "6. Click the 'Submit Application' button"
       ],
-      "expected_result": "Success notification displays the exact text 'Loan approved and created successfully! Returns account details. Note: in this mock system no actual balance debits occur.'; the Loan Details panel is shown with the selected Loan Type 'Auto', the entered Loan Amount and Down Payment visible, and the selected Collateral Account listed with its balance.",
+      "expected_result": "Loan approved and created successfully! returns loan account details; no actual balance debits occur \u2014 The page displays the new loan account details including loan type 'Auto', the approved Loan Amount, and a loan account identifier",
       "priority": "high"
     },
     {
       "tc_id": "P-003",
-      "test_case": "Request Home Loan with large amount, valid down payment, and sufficient collateral (credit engine approves)",
+      "wf_ref": "WF-003",
+      "test_case": "Submit valid Home loan application resulting in approval",
       "preconditions": [
-        "User logged in as <Customer>",
-        "Credit engine mock configured to return approval for this request",
-        "A Collateral Account exists with balance >= 20% of the intended Loan Amount"
+        "User logged in as <Applicant>",
+        "<Collateral account with balance >= 0.20 * Loan_Amount> exists and is selectable in Collateral_Account dropdown",
+        "Request Loan page is reachable"
       ],
       "steps": [
-        "1. Navigate to the Request Loan page",
-        "2. Select 'Home' for Loan Type",
-        "3. Enter <valid home loan amount within Home range> in the Loan Amount field",
-        "4. Enter <valid down payment >= 10% of Loan Amount and < Loan Amount> in the Down Payment Amount field",
-        "5. Open the Collateral Account dropdown and select <collateral account with balance >= 20% of Loan_Amount>",
-        "6. Click the 'Request Loan' button"
+        "1. Open the Request Loan page",
+        "2. Select 'Home' as Loan_Type",
+        "3. Enter <Loan_Amount between 50000 and 500000> in the Loan_Amount field",
+        "4. Enter <Down_Payment >= 0.10 * Loan_Amount and < Loan_Amount> in the Down_Payment field",
+        "5. Select <collateral account with balance >= 0.20 * Loan_Amount> from the Collateral_Account dropdown",
+        "6. Click the 'Submit Application' button"
       ],
-      "expected_result": "Success notification displays the exact text 'Loan approved and created successfully! Returns account details. Note: in this mock system no actual balance debits occur.'; the Loan Details panel is shown with the selected Loan Type 'Home', the entered Loan Amount and Down Payment visible, and the selected Collateral Account listed with its balance.",
+      "expected_result": "Loan approved and created successfully! returns loan account details; no actual balance debits occur \u2014 The page displays the new loan account details including loan type 'Home', the approved Loan Amount, and a loan account identifier",
       "priority": "high"
+    },
+    {
+      "tc_id": "P-004",
+      "wf_ref": "WF-004",
+      "test_case": "Submit Personal loan with Loan_Amount outside allowed range and observe denial",
+      "preconditions": [
+        "User logged in as <Applicant>",
+        "Request Loan page is reachable"
+      ],
+      "steps": [
+        "1. Open the Request Loan page",
+        "2. Select 'Personal' as Loan_Type",
+        "3. Enter <Loan_Amount less than 1000 (outside Personal range)> in the Loan_Amount field",
+        "4. Enter <Down_Payment that satisfies Down_Payment < Loan_Amount> in the Down_Payment field",
+        "5. Select <any collateral account> from the Collateral_Account dropdown",
+        "6. Click the 'Submit Application' button"
+      ],
+      "expected_result": "Loan denied; system surfaces specific reasons such as 'Insufficient credit history' or 'Inadequate collateral value' \u2014 An inline validation/error message is shown indicating the Loan Amount is outside the allowed range for 'Personal' loans",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-005",
+      "wf_ref": "WF-005",
+      "test_case": "Submit Auto loan with Loan_Amount outside allowed range and observe denial",
+      "preconditions": [
+        "User logged in as <Applicant>",
+        "Request Loan page is reachable"
+      ],
+      "steps": [
+        "1. Open the Request Loan page",
+        "2. Select 'Auto' as Loan_Type",
+        "3. Enter <Loan_Amount greater than 75000 (outside Auto range)> in the Loan_Amount field",
+        "4. Enter <Down_Payment that satisfies Down_Payment < Loan_Amount> in the Down_Payment field",
+        "5. Select <any collateral account> from the Collateral_Account dropdown",
+        "6. Click the 'Submit Application' button"
+      ],
+      "expected_result": "Loan denied; system surfaces specific reasons such as 'Insufficient credit history' or 'Inadequate collateral value' \u2014 An inline validation/error message is shown indicating the Loan Amount is outside the allowed range for 'Auto' loans",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-006",
+      "wf_ref": "WF-006",
+      "test_case": "Submit Home loan with Loan_Amount outside allowed range and observe denial",
+      "preconditions": [
+        "User logged in as <Applicant>",
+        "Request Loan page is reachable"
+      ],
+      "steps": [
+        "1. Open the Request Loan page",
+        "2. Select 'Home' as Loan_Type",
+        "3. Enter <Loan_Amount less than 50000 (outside Home range)> in the Loan_Amount field",
+        "4. Enter <Down_Payment that satisfies Down_Payment < Loan_Amount> in the Down_Payment field",
+        "5. Select <any collateral account> from the Collateral_Account dropdown",
+        "6. Click the 'Submit Application' button"
+      ],
+      "expected_result": "Loan denied; system surfaces specific reasons such as 'Insufficient credit history' or 'Inadequate collateral value' \u2014 An inline validation/error message is shown indicating the Loan Amount is outside the allowed range for 'Home' loans",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-007",
+      "wf_ref": "WF-007",
+      "test_case": "Submit application where Down_Payment is greater than or equal to Loan_Amount and observe denial",
+      "preconditions": [
+        "User logged in as <Applicant>",
+        "Request Loan page is reachable"
+      ],
+      "steps": [
+        "1. Open the Request Loan page",
+        "2. Select <Loan_Type valid for payment scenario> as Loan_Type",
+        "3. Enter <Loan_Amount > 0 and within the selected Loan_Type's allowed range> in the Loan_Amount field",
+        "4. Enter <Down_Payment >= Loan_Amount> in the Down_Payment field",
+        "5. Select <any collateral account> from the Collateral_Account dropdown",
+        "6. Click the 'Submit Application' button"
+      ],
+      "expected_result": "Loan denied; system surfaces specific reasons such as 'Insufficient credit history' or 'Inadequate collateral value' \u2014 An inline validation/error message is shown indicating Down Payment must be less than the Loan Amount",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-008",
+      "wf_ref": "WF-008",
+      "test_case": "Submit application with Down_Payment below minimum 10% of Loan_Amount and observe credit-engine denial",
+      "preconditions": [
+        "User logged in as <Applicant>",
+        "<Collateral account with balance >= 0.20 * Loan_Amount> exists and is selectable in Collateral_Account dropdown",
+        "Request Loan page is reachable"
+      ],
+      "steps": [
+        "1. Open the Request Loan page",
+        "2. Select <Loan_Type valid for amount> as Loan_Type",
+        "3. Enter <Loan_Amount within the selected Loan_Type's allowed range> in the Loan_Amount field",
+        "4. Enter <Down_Payment less than 0.10 * Loan_Amount> in the Down_Payment field",
+        "5. Select <collateral account with balance >= 0.20 * Loan_Amount> from the Collateral_Account dropdown",
+        "6. Click the 'Submit Application' button"
+      ],
+      "expected_result": "Loan denied; system surfaces specific reasons such as 'Insufficient credit history' or 'Inadequate collateral value' \u2014 The credit simulation indicates the minimum 10% down payment requirement was not met and displays a message to that effect",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-009",
+      "wf_ref": "WF-009",
+      "test_case": "Submit application with Collateral_Account balance insufficient for required 20% collateral and observe denial",
+      "preconditions": [
+        "User logged in as <Applicant>",
+        "<Collateral account with balance < 0.20 * Loan_Amount> exists and is selectable in Collateral_Account dropdown",
+        "Request Loan page is reachable"
+      ],
+      "steps": [
+        "1. Open the Request Loan page",
+        "2. Select <Loan_Type valid for amount> as Loan_Type",
+        "3. Enter <Loan_Amount within the selected Loan_Type's allowed range> in the Loan_Amount field",
+        "4. Enter <Down_Payment >= 0.10 * Loan_Amount and < Loan_Amount> in the Down_Payment field",
+        "5. Select <collateral account with balance < 0.20 * Loan_Amount> from the Collateral_Account dropdown",
+        "6. Click the 'Submit Application' button"
+      ],
+      "expected_result": "Loan denied; system surfaces specific reasons such as 'Insufficient credit history' or 'Inadequate collateral value' \u2014 The UI displays an error indicating 'Inadequate collateral value' (selected account balance is insufficient to meet the required 20% collateral)",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-010",
+      "wf_ref": "WF-010",
+      "test_case": "Submit application with non-positive Loan_Amount and observe denial",
+      "preconditions": [
+        "User logged in as <Applicant>",
+        "Request Loan page is reachable"
+      ],
+      "steps": [
+        "1. Open the Request Loan page",
+        "2. Select <Loan_Type valid for scenario> as Loan_Type",
+        "3. Enter <Loan_Amount less than or equal to 0> in the Loan_Amount field",
+        "4. Enter <Down_Payment that satisfies Down_Payment < Loan_Amount if applicable> in the Down_Payment field",
+        "5. Select <any collateral account> from the Collateral_Account dropdown",
+        "6. Click the 'Submit Application' button"
+      ],
+      "expected_result": "Loan denied; system surfaces specific reasons such as 'Insufficient credit history' or 'Inadequate collateral value' \u2014 An inline validation/error message is shown indicating Loan Amount must be a positive number",
+      "priority": "medium"
     }
   ],
   "summary": {
-    "total": 3,
+    "total": 10,
     "high_priority": 3,
-    "medium_priority": 0,
+    "medium_priority": 7,
     "low_priority": 0
   }
 }

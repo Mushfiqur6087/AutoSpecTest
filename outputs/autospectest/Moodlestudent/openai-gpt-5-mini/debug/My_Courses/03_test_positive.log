@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-22T21:41:13.072941
+DEBUG SESSION STARTED: 2026-05-25T15:09:37.482709
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[21:41:13] Test-Positive - SYSTEM PROMPT
+[15:09:37] Test-Positive - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Expert UI Test Case Generator. You receive (1) a UI-AST JSON for one specific module and (2) the original functional description for that module.
 
@@ -24,6 +24,10 @@ Your job is to produce ONLY positive/functional UI test cases — tests where va
 <description>
 {Original functional description text for this module}
 </description>
+
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
 
 ---
 
@@ -146,6 +150,13 @@ Because you are testing a module in isolation, establish the required entry stat
 **1. Forms & Wizards (`form`, `wizard`):**
 - Generate ONE happy path per distinct success outcome.
 - *Conditional UI Check:* If a toggle/dropdown reveals new mandatory fields (`visible_when`), generate a separate test for that conditional branch.
+- **Wizard step coverage (CRITICAL):** If a wizard has multiple steps and any step beyond Step 1 contains its own named field group (e.g., "Address Details", "Family Members", "Identifiers"), generate ONE dedicated positive TC per such step. The TC must:
+  - Navigate to that specific step (include the preceding steps as preconditions or brief navigation steps)
+  - Fill the fields described for that step (not just pass through)
+  - Assert the step's content is visible/saved on the detail page after final submission
+  - **Do NOT collapse all wizard steps into one happy-path TC** — if Steps 2, 3, and 4 each have their own named section in the spec, they each need their own TC.
+- **Wizard in-step identifiers/duplicates:** If a wizard step allows adding identifiers, documents, or similar entries that have a uniqueness constraint, include a TC for that wizard step that also verifies the constraint (e.g., attempting to add a duplicate Document Type+Key pair inside the wizard). This is a different code path from adding the same post-creation on the detail page.
+- **Action dialogs:** If a `state_bound_action_bar` action opens a dialog with its own `fields{}` (e.g., Activate requires Activation Date, Reject requires Reason), generate ONE positive TC per such action-dialog — distinct from the state-transition TC. The TC fills the dialog field and completes the action.
 
 **2. State Machines (`state_bound_action_bar`):**
 - For each unique action available in a specific state, generate ONE test performing that action.
@@ -200,6 +211,19 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 
 ---
 
+**WORKFLOW COVERAGE OBLIGATION (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- Your test cases must **collectively cover every workflow** listed.
+- For each `wf_id`, at least one TC must:
+  - Activate the `conditional_branch` (if not null) — i.e. the test must set up the condition described.
+  - Assert the `on_success` as its `expected_result` (verbatim or as the primary basis for the expected result).
+- Add `"wf_ref": "WF-NNN"` to each TC to identify which workflow it covers.
+- If one TC naturally covers multiple workflows (e.g., the base path overlaps), pick the most specific `wf_ref`.
+- If a TC does not map to any workflow (e.g., a navigation-only test), set `"wf_ref": null`.
+
+---
+
 **OUTPUT — JSON only, no prose, no markdown fencing:**
 
 {
@@ -208,6 +232,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
   "test_cases": [
     {
       "tc_id": "P-001",
+      "wf_ref": "WF-001",
       "test_case": "Short descriptive name",
       "preconditions": ["User logged in as <Role>", "<Prerequisite state>"],
       "steps": ["1. Step one", "2. Step two"],
@@ -224,7 +249,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 }
 
 ------------------------------------------------------------
-[21:41:13] Test-Positive - USER PROMPT
+[15:09:37] Test-Positive - USER PROMPT
 ------------------------------------------------------------
 <module_name>My Courses</module_name>
 
@@ -232,11 +257,12 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 {
   "module_name": "My Courses",
   "components": {
-    "Controls_Bar": {
+    "My_Courses_Toolbar": {
       "type": "form",
       "fields": {
         "Status_Filter": {
           "type": "dropdown",
+          "required": false,
           "options": [
             "All",
             "In progress",
@@ -244,44 +270,59 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
             "Past",
             "Starred",
             "Hidden"
-          ]
+          ],
+          "on_change": "filters courses by selected status"
         },
         "Search": {
-          "type": "search"
+          "type": "search",
+          "required": false,
+          "on_change": "filters courses by text match on course name and category"
         },
         "Sort": {
-          "type": "dropdown"
+          "type": "dropdown",
+          "required": false,
+          "on_change": "sorts courses by selected criterion"
         },
         "Layout": {
           "type": "dropdown",
+          "required": false,
           "options": [
             "Card",
             "List",
             "Summary"
-          ]
+          ],
+          "on_change": "switches course grid layout between Card, List, and Summary"
         }
       }
     },
     "Courses_Grid": {
-      "type": "card_grid",
-      "item_fields": {
+      "type": "grid",
+      "item_template": {
         "Course_Name": {
           "type": "link",
-          "on_success": "navigates to course main page"
+          "on_click": "navigates to the course's main page"
         },
-        "Three_Dot_Menu": {
-          "type": "unspecified",
-          "row_actions": [
+        "Card_Menu": {
+          "type": "menu",
+          "menu_items": [
             {
               "action_name": "Star this course",
-              "on_success": "pins course to the top"
+              "on_success": "pins the course to the top of the list and marks it as Starred"
             },
             {
               "action_name": "Remove from view",
-              "on_success": "hides course from view without unenrolling"
+              "on_success": "hides the course from the user's view without unenrolling (sets status to Hidden)"
             }
           ]
         }
+      },
+      "interactions": {
+        "filters": [
+          "Status_Filter",
+          "Search"
+        ],
+        "sort_control": "Sort",
+        "layout_control": "Layout"
       }
     }
   }
@@ -297,10 +338,22 @@ The My Courses page displays all courses in which the student is enrolled as vis
 
 </description>
 
+<workflows>
+WF-001 | Change Status filter | actor: <role> | branch: none | terminal: Status_Filter | on_success: filters courses by selected status
+WF-002 | Search with query | actor: <role> | branch: Search != empty | terminal: Search | on_success: filters courses by text match on course name and category
+WF-003 | Change Sort order | actor: <role> | branch: none | terminal: Sort | on_success: sorts courses by selected criterion
+WF-004 | Switch layout to Card | actor: <role> | branch: Layout == Card | terminal: Layout | on_success: switches course grid layout between Card, List, and Summary
+WF-005 | Switch layout to List | actor: <role> | branch: Layout == List | terminal: Layout | on_success: switches course grid layout between Card, List, and Summary
+WF-006 | Switch layout to Summary | actor: <role> | branch: Layout == Summary | terminal: Layout | on_success: switches course grid layout between Card, List, and Summary
+WF-007 | Open course main page via course name link | actor: <role> | branch: none | terminal: Course_Name | on_success: navigates to the course's main page
+WF-008 | Star this course from card menu | actor: <role> | branch: none | terminal: Star this course | on_success: pins the course to the top of the list and marks it as Starred
+WF-009 | Remove course from view from card menu | actor: <role> | branch: none | terminal: Remove from view | on_success: hides the course from the user's view without unenrolling (sets status to Hidden)
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[21:41:42] Test-Positive - LLM RESPONSE
+[15:10:21] Test-Positive - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "My Courses",
@@ -308,119 +361,160 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Open course from course card link",
+      "wf_ref": "WF-001",
+      "test_case": "Apply Status filter shows only courses with that status",
       "preconditions": [
-        "User logged in as <Student>",
-        "My Courses page is open",
-        "<target course> is visible in the Courses grid"
+        "User logged in as <role>",
+        "User is enrolled in multiple courses with varying statuses"
       ],
       "steps": [
-        "1. Click the Course Name link on the card for <target course>"
+        "1. Navigate to the My Courses page",
+        "2. From the Status dropdown, select <status>",
+        "3. Observe the Courses grid"
       ],
-      "expected_result": "'navigates to course main page' — The browser navigates to the course main page for <target course>; the course main page is displayed (redirect to the course page is observed).",
+      "expected_result": "Courses grid displays only courses with status <status>; courses with other statuses are no longer visible",
       "priority": "high"
     },
     {
       "tc_id": "P-002",
-      "test_case": "Star a course using the three-dot menu pins it to the top",
+      "wf_ref": "WF-002",
+      "test_case": "Search filters courses by name or category",
       "preconditions": [
-        "User logged in as <Student>",
-        "My Courses page is open",
-        "<target course> is visible in the Courses grid and is not starred"
+        "User logged in as <role>",
+        "User is enrolled in multiple courses whose names and categories differ"
       ],
       "steps": [
-        "1. Click the three-dot menu on the card for <target course>",
-        "2. Click 'Star this course' in the menu"
+        "1. Navigate to the My Courses page",
+        "2. Enter <query> in the Search field",
+        "3. Press Enter or wait for search to apply",
+        "4. Observe the Courses grid"
       ],
-      "expected_result": "'pins course to the top' — The card for <target course> appears as the first card in the Courses grid (pinned to the top) and is visually identifiable as starred.",
+      "expected_result": "Courses grid displays only courses whose name or category matches <query>; unrelated courses are no longer visible",
       "priority": "high"
     },
     {
       "tc_id": "P-003",
-      "test_case": "Remove a course from view using the three-dot menu",
+      "wf_ref": "WF-003",
+      "test_case": "Change Sort reorders the courses by the selected criterion",
       "preconditions": [
-        "User logged in as <Student>",
-        "My Courses page is open",
-        "<target course> is visible in the Courses grid"
+        "User logged in as <role>",
+        "User is enrolled in multiple courses with differing values relevant to sort criteria"
       ],
       "steps": [
-        "1. Click the three-dot menu on the card for <target course>",
-        "2. Click 'Remove from view' in the menu"
+        "1. Navigate to the My Courses page",
+        "2. From the Sort dropdown, select <sort criterion>",
+        "3. Observe the order of courses in the Courses grid"
       ],
-      "expected_result": "'hides course from view without unenrolling' — The card for <target course> is no longer visible in the Courses grid; other course cards remain visible.",
+      "expected_result": "Courses grid is ordered by <sort criterion>; course ordering visibly reflects the selected sort criterion",
       "priority": "medium"
     },
     {
       "tc_id": "P-004",
-      "test_case": "Filter courses by Status = Starred",
+      "wf_ref": "WF-004",
+      "test_case": "Switch layout to Card displays courses as cards",
       "preconditions": [
-        "User logged in as <Student>",
-        "My Courses page is open",
-        "At least one course is starred and present in the Courses grid"
+        "User logged in as <role>",
+        "User is enrolled in at least one course"
       ],
       "steps": [
-        "1. Click the Status dropdown in the Controls Bar",
-        "2. Select 'Starred' from the Status dropdown"
+        "1. Navigate to the My Courses page",
+        "2. From the Layout dropdown, select 'Card'",
+        "3. Observe the Courses grid"
       ],
-      "expected_result": "Courses grid displays only starred courses; non-starred course cards are not visible and at least one starred course card is shown.",
+      "expected_result": "Course grid switches to Card layout; each course is shown as a card with banner image, clickable course name link, and category",
       "priority": "medium"
     },
     {
       "tc_id": "P-005",
-      "test_case": "Search for courses using the Search field",
+      "wf_ref": "WF-005",
+      "test_case": "Switch layout to List displays courses in a list view",
       "preconditions": [
-        "User logged in as <Student>",
-        "My Courses page is open",
-        "Multiple courses with distinguishable names/categories are present in the Courses grid"
+        "User logged in as <role>",
+        "User is enrolled in multiple courses"
       ],
       "steps": [
-        "1. Enter <search term> in the Search field in the Controls Bar",
-        "2. Submit the search (press Enter or click the search control)"
+        "1. Navigate to the My Courses page",
+        "2. From the Layout dropdown, select 'List'",
+        "3. Observe the Courses grid"
       ],
-      "expected_result": "Courses grid displays only course cards whose Course Name or category match <search term>; unrelated course cards are no longer visible.",
+      "expected_result": "Course grid switches to List layout; courses are displayed in a list-style layout appropriate for the List option",
       "priority": "medium"
     },
     {
       "tc_id": "P-006",
-      "test_case": "Change layout to List view",
+      "wf_ref": "WF-006",
+      "test_case": "Switch layout to Summary displays condensed course entries",
       "preconditions": [
-        "User logged in as <Student>",
-        "My Courses page is open",
-        "Multiple courses are present in the Courses grid"
+        "User logged in as <role>",
+        "User is enrolled in multiple courses"
       ],
       "steps": [
-        "1. Click the Layout dropdown in the Controls Bar",
-        "2. Select 'List' from the Layout dropdown"
+        "1. Navigate to the My Courses page",
+        "2. From the Layout dropdown, select 'Summary'",
+        "3. Observe the Courses grid"
       ],
-      "expected_result": "Courses grid switches to List layout: courses are displayed in a vertical list where each row shows the course name and category.",
-      "priority": "low"
+      "expected_result": "Course grid switches to Summary layout; courses are displayed in the condensed Summary view",
+      "priority": "medium"
     },
     {
       "tc_id": "P-007",
-      "test_case": "Apply a Sort option and observe reordered courses",
+      "wf_ref": "WF-007",
+      "test_case": "Click course name navigates to the course main page",
       "preconditions": [
-        "User logged in as <Student>",
-        "My Courses page is open",
-        "Multiple courses with different <sort key> values are present in the Courses grid"
+        "User logged in as <role>",
+        "At least one course is visible in the My Courses grid"
       ],
       "steps": [
-        "1. Click the Sort dropdown in the Controls Bar",
-        "2. Select <sort option> from the Sort dropdown"
+        "1. Navigate to the My Courses page",
+        "2. Click the Course Name link on the <target course> card"
       ],
-      "expected_result": "Courses grid updates to reflect the selected <sort option>; course cards are displayed in the chosen sort order.",
-      "priority": "low"
+      "expected_result": "The course's main page is displayed for the clicked course (the course main page is visible)",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-008",
+      "wf_ref": "WF-008",
+      "test_case": "Star a course from the card menu pins it to top and marks as Starred",
+      "preconditions": [
+        "User logged in as <role>",
+        "At least two courses are visible in the My Courses grid",
+        "A non-starred <target course> is visible"
+      ],
+      "steps": [
+        "1. Navigate to the My Courses page",
+        "2. Click the three-dot Card Menu on the <target course> card",
+        "3. Select 'Star this course' from the menu"
+      ],
+      "expected_result": "pins the course to the top of the list and marks it as Starred",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-009",
+      "wf_ref": "WF-009",
+      "test_case": "Remove a course from view hides it without unenrolling",
+      "preconditions": [
+        "User logged in as <role>",
+        "At least one course is visible in the My Courses grid"
+      ],
+      "steps": [
+        "1. Navigate to the My Courses page",
+        "2. Click the three-dot Card Menu on the <target course> card",
+        "3. Select 'Remove from view' from the menu"
+      ],
+      "expected_result": "hides the course from the user's view without unenrolling (sets status to Hidden)",
+      "priority": "high"
     }
   ],
   "summary": {
-    "total": 7,
-    "high_priority": 2,
-    "medium_priority": 3,
-    "low_priority": 2
+    "total": 9,
+    "high_priority": 4,
+    "medium_priority": 5,
+    "low_priority": 0
   }
 }
 
 ------------------------------------------------------------
-[21:41:42] Test-Positive - PARSED JSON
+[15:10:21] Test-Positive - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "My Courses",
@@ -428,113 +522,154 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Open course from course card link",
+      "wf_ref": "WF-001",
+      "test_case": "Apply Status filter shows only courses with that status",
       "preconditions": [
-        "User logged in as <Student>",
-        "My Courses page is open",
-        "<target course> is visible in the Courses grid"
+        "User logged in as <role>",
+        "User is enrolled in multiple courses with varying statuses"
       ],
       "steps": [
-        "1. Click the Course Name link on the card for <target course>"
+        "1. Navigate to the My Courses page",
+        "2. From the Status dropdown, select <status>",
+        "3. Observe the Courses grid"
       ],
-      "expected_result": "'navigates to course main page' \u2014 The browser navigates to the course main page for <target course>; the course main page is displayed (redirect to the course page is observed).",
+      "expected_result": "Courses grid displays only courses with status <status>; courses with other statuses are no longer visible",
       "priority": "high"
     },
     {
       "tc_id": "P-002",
-      "test_case": "Star a course using the three-dot menu pins it to the top",
+      "wf_ref": "WF-002",
+      "test_case": "Search filters courses by name or category",
       "preconditions": [
-        "User logged in as <Student>",
-        "My Courses page is open",
-        "<target course> is visible in the Courses grid and is not starred"
+        "User logged in as <role>",
+        "User is enrolled in multiple courses whose names and categories differ"
       ],
       "steps": [
-        "1. Click the three-dot menu on the card for <target course>",
-        "2. Click 'Star this course' in the menu"
+        "1. Navigate to the My Courses page",
+        "2. Enter <query> in the Search field",
+        "3. Press Enter or wait for search to apply",
+        "4. Observe the Courses grid"
       ],
-      "expected_result": "'pins course to the top' \u2014 The card for <target course> appears as the first card in the Courses grid (pinned to the top) and is visually identifiable as starred.",
+      "expected_result": "Courses grid displays only courses whose name or category matches <query>; unrelated courses are no longer visible",
       "priority": "high"
     },
     {
       "tc_id": "P-003",
-      "test_case": "Remove a course from view using the three-dot menu",
+      "wf_ref": "WF-003",
+      "test_case": "Change Sort reorders the courses by the selected criterion",
       "preconditions": [
-        "User logged in as <Student>",
-        "My Courses page is open",
-        "<target course> is visible in the Courses grid"
+        "User logged in as <role>",
+        "User is enrolled in multiple courses with differing values relevant to sort criteria"
       ],
       "steps": [
-        "1. Click the three-dot menu on the card for <target course>",
-        "2. Click 'Remove from view' in the menu"
+        "1. Navigate to the My Courses page",
+        "2. From the Sort dropdown, select <sort criterion>",
+        "3. Observe the order of courses in the Courses grid"
       ],
-      "expected_result": "'hides course from view without unenrolling' \u2014 The card for <target course> is no longer visible in the Courses grid; other course cards remain visible.",
+      "expected_result": "Courses grid is ordered by <sort criterion>; course ordering visibly reflects the selected sort criterion",
       "priority": "medium"
     },
     {
       "tc_id": "P-004",
-      "test_case": "Filter courses by Status = Starred",
+      "wf_ref": "WF-004",
+      "test_case": "Switch layout to Card displays courses as cards",
       "preconditions": [
-        "User logged in as <Student>",
-        "My Courses page is open",
-        "At least one course is starred and present in the Courses grid"
+        "User logged in as <role>",
+        "User is enrolled in at least one course"
       ],
       "steps": [
-        "1. Click the Status dropdown in the Controls Bar",
-        "2. Select 'Starred' from the Status dropdown"
+        "1. Navigate to the My Courses page",
+        "2. From the Layout dropdown, select 'Card'",
+        "3. Observe the Courses grid"
       ],
-      "expected_result": "Courses grid displays only starred courses; non-starred course cards are not visible and at least one starred course card is shown.",
+      "expected_result": "Course grid switches to Card layout; each course is shown as a card with banner image, clickable course name link, and category",
       "priority": "medium"
     },
     {
       "tc_id": "P-005",
-      "test_case": "Search for courses using the Search field",
+      "wf_ref": "WF-005",
+      "test_case": "Switch layout to List displays courses in a list view",
       "preconditions": [
-        "User logged in as <Student>",
-        "My Courses page is open",
-        "Multiple courses with distinguishable names/categories are present in the Courses grid"
+        "User logged in as <role>",
+        "User is enrolled in multiple courses"
       ],
       "steps": [
-        "1. Enter <search term> in the Search field in the Controls Bar",
-        "2. Submit the search (press Enter or click the search control)"
+        "1. Navigate to the My Courses page",
+        "2. From the Layout dropdown, select 'List'",
+        "3. Observe the Courses grid"
       ],
-      "expected_result": "Courses grid displays only course cards whose Course Name or category match <search term>; unrelated course cards are no longer visible.",
+      "expected_result": "Course grid switches to List layout; courses are displayed in a list-style layout appropriate for the List option",
       "priority": "medium"
     },
     {
       "tc_id": "P-006",
-      "test_case": "Change layout to List view",
+      "wf_ref": "WF-006",
+      "test_case": "Switch layout to Summary displays condensed course entries",
       "preconditions": [
-        "User logged in as <Student>",
-        "My Courses page is open",
-        "Multiple courses are present in the Courses grid"
+        "User logged in as <role>",
+        "User is enrolled in multiple courses"
       ],
       "steps": [
-        "1. Click the Layout dropdown in the Controls Bar",
-        "2. Select 'List' from the Layout dropdown"
+        "1. Navigate to the My Courses page",
+        "2. From the Layout dropdown, select 'Summary'",
+        "3. Observe the Courses grid"
       ],
-      "expected_result": "Courses grid switches to List layout: courses are displayed in a vertical list where each row shows the course name and category.",
-      "priority": "low"
+      "expected_result": "Course grid switches to Summary layout; courses are displayed in the condensed Summary view",
+      "priority": "medium"
     },
     {
       "tc_id": "P-007",
-      "test_case": "Apply a Sort option and observe reordered courses",
+      "wf_ref": "WF-007",
+      "test_case": "Click course name navigates to the course main page",
       "preconditions": [
-        "User logged in as <Student>",
-        "My Courses page is open",
-        "Multiple courses with different <sort key> values are present in the Courses grid"
+        "User logged in as <role>",
+        "At least one course is visible in the My Courses grid"
       ],
       "steps": [
-        "1. Click the Sort dropdown in the Controls Bar",
-        "2. Select <sort option> from the Sort dropdown"
+        "1. Navigate to the My Courses page",
+        "2. Click the Course Name link on the <target course> card"
       ],
-      "expected_result": "Courses grid updates to reflect the selected <sort option>; course cards are displayed in the chosen sort order.",
-      "priority": "low"
+      "expected_result": "The course's main page is displayed for the clicked course (the course main page is visible)",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-008",
+      "wf_ref": "WF-008",
+      "test_case": "Star a course from the card menu pins it to top and marks as Starred",
+      "preconditions": [
+        "User logged in as <role>",
+        "At least two courses are visible in the My Courses grid",
+        "A non-starred <target course> is visible"
+      ],
+      "steps": [
+        "1. Navigate to the My Courses page",
+        "2. Click the three-dot Card Menu on the <target course> card",
+        "3. Select 'Star this course' from the menu"
+      ],
+      "expected_result": "pins the course to the top of the list and marks it as Starred",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-009",
+      "wf_ref": "WF-009",
+      "test_case": "Remove a course from view hides it without unenrolling",
+      "preconditions": [
+        "User logged in as <role>",
+        "At least one course is visible in the My Courses grid"
+      ],
+      "steps": [
+        "1. Navigate to the My Courses page",
+        "2. Click the three-dot Card Menu on the <target course> card",
+        "3. Select 'Remove from view' from the menu"
+      ],
+      "expected_result": "hides the course from the user's view without unenrolling (sets status to Hidden)",
+      "priority": "high"
     }
   ],
   "summary": {
-    "total": 7,
-    "high_priority": 2,
-    "medium_priority": 3,
-    "low_priority": 2
+    "total": 9,
+    "high_priority": 4,
+    "medium_priority": 5,
+    "low_priority": 0
   }
 }

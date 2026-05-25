@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-21T22:29:06.546932
+DEBUG SESSION STARTED: 2026-05-25T14:24:50.738189
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[22:29:06] Test-Negative - SYSTEM PROMPT
+[14:24:50] Test-Negative - SYSTEM PROMPT
 ------------------------------------------------------------
 You are a Negative Test Case Generator. You receive (1) a UI-AST JSON for one module and (2) the original functional description. Your job is to produce ONLY negative test cases — tests where invalid input is provided or business rules are violated, and the system correctly rejects or blocks the action.
 
@@ -22,6 +22,10 @@ You are a Negative Test Case Generator. You receive (1) a UI-AST JSON for one mo
 <description>
 {Original functional description text for this module}
 </description>
+
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
 
 ---
 
@@ -111,6 +115,9 @@ Group required fields by type: `text/unspecified`, `email`, `password`, `number`
 
 Do NOT generate a separate blank-field test for every required field. If 5 text fields are all required, one representative covers them all.
 
+**Action dialog required fields — NOT subject to cross-form deduplication:**
+If a `state_bound_action_bar` action opens a dialog with its own required `fields{}` (e.g., Activate requires Activation Date, Reject requires a Reason, Withdraw requires a Reason, Close requires a Closure Reason), each such dialog is its own testing scope. Generate ONE "leave the required dialog field blank and submit" test per distinct action dialog. These are HIGH priority — they block state transitions and are common defect sites. Do not suppress them because the main wizard already has a blank-field test.
+
 **2. Format violations:**
 
 For fields with type-specific format rules (from AST type or description):
@@ -143,6 +150,10 @@ For each unique `constraints[]` entry in the AST, and for cross-field rules desc
 
 One test per unique constraint. Do not duplicate the same mechanism.
 
+**Constraint timing tests:** If the spec states an action is blocked by a pre-existing system state (e.g., "cannot close with active accounts", "cannot transfer to the same office"), generate TWO tests:
+1. The standard constraint violation test (user opens the dialog, fills required fields, submits → blocked).
+2. A constraint-timing test: user opens the dialog WITHOUT filling required fields → assert whether the block is shown immediately on dialog open (before the user fills anything) OR only on submit. This distinguishes whether the UI enforces the constraint eagerly or lazily. Steps: open the dialog, observe the state → assert what is visible before any interaction. If the spec is silent on timing, generate only the first test.
+
 **5. Precondition violations (auth, role, and state):**
 
 For each `preconditions[]` entry on any action — and for auth/role rules described in the spec:
@@ -154,18 +165,18 @@ For each `preconditions[]` entry on any action — and for auth/role rules descr
 **6. State-machine violations:**
 
 From `state_bound_action_bar` nodes:
-- For each state where an action is NOT listed in `available_actions`, generate one test attempting that action from that state. Example: attempting "Approve" on an entity already in "Active" state.
+- **Every defined state must have at least one wrong-state test.** For each state, identify at least one action that is NOT in its `available_actions` list and generate a test attempting that action from that state.
 - If a state has an empty `available_actions` array, generate one test verifying no action buttons are visible in that state.
-
-One test per unique wrong-state scenario — do not enumerate every action × every invalid state.
+- **Do not stop after 1–2 representative examples** when the module defines 4+ distinct states. The states Active, Pending, Closed, Rejected, and Withdrawn each have different action sets — each must be independently verified.
+- One test per state is sufficient — pick the most distinct unavailable action for that state. Do not enumerate every action × every state (that would be exponential).
 
 ---
 
 **DEDUPLICATION GATE (run before outputting):**
 
-1. **Required field dedup:** Multiple required text fields → ONE representative test, not one per field.
+1. **Required field dedup:** Multiple required text fields in the **same form or dialog** → ONE representative test, not one per field.
 2. **Sub-rule dedup:** A field with multiple validation sub-rules (e.g., password: length + uppercase + lowercase + number + special char) → ONE representative violation test, not one per sub-rule.
-3. **Cross-form dedup:** If two forms in the same module share the same validation mechanism (e.g., both have a required text field) → test it on the primary form only.
+3. **Cross-form dedup:** If two **main forms** in the same module share the same validation mechanism → test it on the primary form only. **Exception: action dialogs are never suppressed by cross-form dedup** — each action dialog with a required field gets its own blank-field test regardless.
 4. **Uniqueness check:** Before outputting, ask for each TC: "Does this test catch a bug that NO other test in this module would catch?" If no → remove it.
 
 ---
@@ -174,9 +185,11 @@ One test per unique wrong-state scenario — do not enumerate every action × ev
 
 - Simple module (login, single form, display page): **2–4 tests**
 - Medium module (standard CRUD form, form with constraints): **4–8 tests**
-- Complex module (state machine, multi-form, wizard with many constraints): **8–12 tests**
+- Complex module (state machine, multi-form, wizard with many constraints): **10–16 tests**
 
-If you exceed these ranges, you are generating redundant tests. Apply the deduplication gate again before outputting.
+For modules with a `state_bound_action_bar` defining 4+ states, the state-machine violation tests alone will produce 4–5 tests. This is expected and correct — do not suppress them to hit a lower target.
+
+If you exceed the upper range, apply the deduplication gate again before outputting.
 
 ---
 
@@ -184,6 +197,17 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
 
 - **High:** State precondition violations, constraint violations that could corrupt data, unauthenticated access, required field representatives
 - **Medium:** Format violations, cross-field validation, numeric bounds, wrong-role access, wrong-state action attempts
+
+---
+
+**WORKFLOW-AWARE FAILURE INJECTION (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- For each workflow that contains a form interaction (terminal action is a submit/save/create/approve button):
+  - Identify the most **critical blocking failure** for that workflow's `conditional_branch`.
+  - If that failure mode is NOT already covered by another workflow's negative test, generate one negative TC for it.
+- **Do NOT generate one negative TC per workflow mechanically.** Apply the existing deduplication gate first — only add a TC if it catches a bug that no other test would catch.
+- Add `"wf_ref": "WF-NNN"` to each TC that maps to a workflow. Set `"wf_ref": null` for generic validation tests.
 
 ---
 
@@ -195,6 +219,7 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
   "test_cases": [
     {
       "tc_id": "N-001",
+      "wf_ref": null,
       "test_case": "Short descriptive name",
       "preconditions": ["precondition 1"],
       "steps": ["1. Step one", "2. Step two"],
@@ -212,7 +237,7 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
 
 
 ------------------------------------------------------------
-[22:29:06] Test-Negative - USER PROMPT
+[14:24:50] Test-Negative - USER PROMPT
 ------------------------------------------------------------
 <module_name>Provisioning</module_name>
 
@@ -223,20 +248,20 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
     "Provisioning_Criteria_Table": {
       "type": "data_table",
       "columns": [
-        {
-          "name": "Criteria Name",
-          "type": "link",
-          "clickable": true
-        },
-        {
-          "name": "Created Date",
-          "type": "date"
-        }
+        "Criteria Name",
+        "Created Date"
       ],
-      "top_actions": [
+      "page_actions": [
         {
           "element_name": "+ Create",
-          "action_name": "Open Create Provisioning Criteria Form",
+          "action_name": "Open Create Criteria Form",
+          "opens": "Provisioning_Criteria_Form"
+        }
+      ],
+      "row_actions": [
+        {
+          "action_name": "Open Criteria",
+          "triggered_by": "Criteria Name link",
           "opens": "Provisioning_Criteria_Form"
         }
       ]
@@ -244,15 +269,14 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
     "Provisioning_Criteria_Form": {
       "type": "form",
       "fields": {
-        "Criteria Name": {
+        "Criteria_Name": {
           "type": "unspecified",
           "required": true
         },
         "Definitions": {
           "type": "repeating_group",
-          "add_row_action": true,
           "item_fields": {
-            "Loan Product": {
+            "Loan_Product": {
               "type": "unspecified"
             },
             "Category": {
@@ -264,103 +288,63 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
                 "LOSS"
               ]
             },
-            "Minimum Age (overdue days)": {
+            "Minimum_Age": {
               "type": "number",
-              "constraints": [
-                "represents overdue days (minimum of the overdue range)"
-              ]
+              "description": "overdue days"
             },
-            "Maximum Age (overdue days)": {
+            "Maximum_Age": {
               "type": "number",
-              "constraints": [
-                "represents overdue days (maximum of the overdue range)"
-              ]
+              "description": "overdue days"
             },
-            "Provisioning Percentage": {
+            "Provisioning_Percentage": {
               "type": "number",
-              "constraints": [
-                "percentage of outstanding principal"
-              ]
+              "description": "percentage of outstanding principal"
             },
-            "Liability Account": {
+            "Liability_Account": {
               "type": "dropdown",
-              "constraints": [
-                "select GL liability account"
-              ]
+              "description": "GL account dropdown"
             },
-            "Expense Account": {
+            "Expense_Account": {
               "type": "dropdown",
-              "constraints": [
-                "select GL expense account"
-              ]
+              "description": "GL account dropdown"
             }
-          }
+          },
+          "constraints": [
+            "Minimum_Age must be <= Maximum_Age"
+          ]
         }
       },
       "submit_actions": [
         {
-          "element_name": "Save",
-          "action_name": "Create Provisioning Criteria",
-          "on_success": "creates a new provisioning criteria and closes the form"
+          "element_name": "Create",
+          "on_success": "creates provisioning criteria"
         }
       ]
     },
     "Provisioning_Entries_Table": {
       "type": "data_table",
       "columns": [
-        {
-          "name": "Entry Date",
-          "type": "date"
-        },
-        {
-          "name": "Journal Entry Created",
-          "type": "date"
-        },
-        {
-          "name": "Created By",
-          "type": "unspecified"
-        }
+        "Entry Date",
+        "Journal Entry Created",
+        "Created By"
       ],
-      "top_actions": [
+      "page_actions": [
         {
           "element_name": "+ Create Provisioning Entry",
           "action_name": "Generate Provisioning Entries",
-          "on_success": "calculates required provision amount for each loan category and creates corresponding journal entries"
+          "on_success": "generates provisioning journal entries by calculating required provision amount for each loan category and creating corresponding journal entries based on current loan portfolio and configured criteria"
         }
       ],
       "row_actions": [
         {
           "action_name": "Review",
-          "action_description": "opens Provisioning_Entry_Detail for the selected entry",
-          "opens": "Provisioning_Entry_Detail"
+          "on_success": "opens entry detail showing detailed breakdown by loan product and category"
         },
         {
           "action_name": "Recreate",
-          "action_description": "recreates provisioning journal entry based on current loan portfolio status and configured criteria",
-          "on_success": "recreates journal entry"
+          "on_success": "recreates provisioning entry based on current loan portfolio and configured criteria"
         }
       ]
-    },
-    "Provisioning_Entry_Detail": {
-      "type": "data_table",
-      "description": "detailed breakdown by loan product and category",
-      "columns": [
-        {
-          "name": "Loan Product",
-          "type": "unspecified"
-        },
-        {
-          "name": "Category",
-          "type": "dropdown",
-          "options": [
-            "STANDARD",
-            "SUB-STANDARD",
-            "DOUBTFUL",
-            "LOSS"
-          ]
-        }
-      ],
-      "row_actions": []
     }
   }
 }
@@ -377,10 +361,19 @@ The Provisioning Entries page lists all generated provisioning journal entries w
 
 </description>
 
+<workflows>
+WF-001 | Open Create Criteria form from Criteria table | actor: <role> | branch: none | terminal: Open Create Criteria Form | on_success: opens Provisioning_Criteria_Form
+WF-002 | Open existing Criteria via Criteria Name link | actor: <role> | branch: none | terminal: Open Criteria | on_success: opens Provisioning_Criteria_Form for the selected criteria
+WF-003 | Create provisioning criteria (submit form) | actor: <role> | branch: none | terminal: Create | on_success: creates provisioning criteria
+WF-004 | Generate provisioning entries (create journal entries) | actor: <role> | branch: none | terminal: Generate Provisioning Entries | on_success: generates provisioning journal entries by calculating required provision amount for each loan category and creating corresponding journal entries based on current loan portfolio and configured criteria
+WF-005 | Review provisioning entry | actor: <role> | branch: none | terminal: Review | on_success: opens entry detail showing detailed breakdown by loan product and category
+WF-006 | Recreate provisioning entry | actor: <role> | branch: none | terminal: Recreate | on_success: recreates provisioning entry based on current loan portfolio and configured criteria
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[22:34:14] Test-Negative - LLM RESPONSE
+[14:30:32] Test-Negative - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Provisioning",
@@ -388,99 +381,93 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "N-001",
-      "test_case": "Save blocked when Criteria Name is blank",
+      "wf_ref": "WF-003",
+      "test_case": "Create Criteria — leave required Criteria Name blank (text field representative)",
       "preconditions": [
-        "Provisioning Criteria creation form is open"
+        "Provisioning Criteria page is open"
       ],
       "steps": [
-        "1. Leave the Criteria Name field blank",
-        "2. Click the Save button"
+        "1. Click the '+ Create' button to open the Provisioning Criteria form",
+        "2. Leave the Criteria Name field blank",
+        "3. Click the 'Create' button"
       ],
-      "expected_result": "Inline validation error appears on the Criteria Name field indicating it is required; the form does not submit and no provisioning criteria is created or listed in the Provisioning Criteria table",
+      "expected_result": "Inline validation error appears on the Criteria Name field indicating it is required; the form does not submit; no provisioning criteria is created.",
       "priority": "high"
     },
     {
       "tc_id": "N-002",
-      "test_case": "Attempt to submit with all required fields empty",
+      "wf_ref": "WF-003",
+      "test_case": "Create Criteria — submit with ALL required fields empty",
       "preconditions": [
-        "Provisioning Criteria creation form is open",
-        "No Definition rows have been added (or all Definition row fields are empty)"
+        "Provisioning Criteria page is open",
+        "No fields populated in the Create form"
       ],
       "steps": [
-        "1. Leave all required fields (representative: Criteria Name) blank",
-        "2. Click the Save button"
+        "1. Click the '+ Create' button to open the Provisioning Criteria form",
+        "2. Ensure Criteria Name is blank and do not add any Definitions rows",
+        "3. Click the 'Create' button"
       ],
-      "expected_result": "Form does not submit; Criteria Name field displays an inline 'required' validation error; no provisioning criteria is created and the creation form remains open",
+      "expected_result": "Form does not submit; Criteria Name field displays an inline 'required' validation error (or the Create button remains disabled); no provisioning criteria is created.",
       "priority": "high"
     },
     {
       "tc_id": "N-003",
-      "test_case": "Non-numeric input rejected for numeric fields (representative: Minimum Age)",
+      "wf_ref": "WF-003",
+      "test_case": "Definitions constraint — Minimum_Age greater than Maximum_Age",
       "preconditions": [
-        "Provisioning Criteria creation form is open",
-        "A Definitions row has been added"
+        "Provisioning Criteria page is open"
       ],
       "steps": [
-        "1. In the added Definitions row enter <non-numeric characters> into the Minimum Age (overdue days) field",
-        "2. Click the Save button"
+        "1. Click the '+ Create' button to open the Provisioning Criteria form",
+        "2. Add one row in the Definitions repeating group",
+        "3. Enter <minimum age greater than maximum age> in the Minimum Age field of the new Definitions row",
+        "4. Enter <smaller number> in the Maximum Age field of the same Definitions row",
+        "5. Click the 'Create' button"
       ],
-      "expected_result": "Minimum Age (overdue days) field displays an inline validation error indicating it must be a numeric value; the form does not submit and no provisioning criteria is created",
-      "priority": "medium"
-    },
-    {
-      "tc_id": "N-004",
-      "test_case": "Maximum Age less than Minimum Age is rejected",
-      "preconditions": [
-        "Provisioning Criteria creation form is open",
-        "A Definitions row has been added"
-      ],
-      "steps": [
-        "1. In the Definitions row enter <minimum overdue days> into Minimum Age (overdue days)",
-        "2. In the same row enter <value less than Minimum Age> into Maximum Age (overdue days)",
-        "3. Click the Save button"
-      ],
-      "expected_result": "Maximum Age (overdue days) field displays an inline validation error indicating it must be greater than or equal to Minimum Age (overdue days); the form does not submit and no provisioning criteria is created",
+      "expected_result": "Definitions row displays a validation error stating the constraint 'Minimum_Age must be <= Maximum_Age'; the form does not submit; no provisioning criteria is created.",
       "priority": "high"
     },
     {
-      "tc_id": "N-005",
-      "test_case": "Definitions row missing Category is rejected",
+      "tc_id": "N-004",
+      "wf_ref": "WF-003",
+      "test_case": "Number field format — non-numeric input in number field (representative)",
       "preconditions": [
-        "Provisioning Criteria creation form is open",
-        "A Definitions row has been added"
+        "Provisioning Criteria page is open"
       ],
       "steps": [
-        "1. In the added Definitions row leave the Category field blank",
-        "2. Fill other fields in the row as needed",
-        "3. Click the Save button"
+        "1. Click the '+ Create' button to open the Provisioning Criteria form",
+        "2. Add one row in the Definitions repeating group",
+        "3. Enter <non-numeric input> into the Minimum Age field of the Definitions row",
+        "4. Click the 'Create' button"
       ],
-      "expected_result": "Category field in the Definitions row displays an inline validation error indicating it is required (row-level error); the form does not submit and no provisioning criteria is created",
+      "expected_result": "Inline validation error appears on the Minimum Age field indicating it must be a numeric value; the form does not submit; no provisioning criteria is created.",
       "priority": "medium"
     },
     {
-      "tc_id": "N-006",
-      "test_case": "Create Provisioning Entry blocked when no provisioning criteria configured",
+      "tc_id": "N-005",
+      "wf_ref": "WF-004",
+      "test_case": "Generate Provisioning Entries — attempt when no provisioning criteria are configured",
       "preconditions": [
         "Provisioning Entries page is open",
-        "No provisioning criteria exist in the Provisioning Criteria table"
+        "There are NO provisioning criteria configured in the system"
       ],
       "steps": [
-        "1. Click the + Create Provisioning Entry button on the Provisioning Entries page"
+        "1. On the Provisioning Entries page, click the '+ Create Provisioning Entry' button"
       ],
-      "expected_result": "A blocking error message is displayed indicating there are no provisioning criteria configured (preventing calculation); no provisioning entries or journal entries are created and the user remains on the Provisioning Entries page",
+      "expected_result": "A modal or inline error/warning is displayed indicating there are no configured provisioning criteria and the action is blocked; no provisioning journal entries are generated and no new rows appear in the Provisioning Entries table.",
       "priority": "high"
     }
   ],
   "summary": {
-    "total": 6,
+    "total": 5,
     "high_priority": 4,
-    "medium_priority": 2,
+    "medium_priority": 1,
     "low_priority": 0
   }
 }
 
 ------------------------------------------------------------
-[22:34:14] Test-Negative - PARSED JSON
+[14:30:32] Test-Negative - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Provisioning",
@@ -488,93 +475,87 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "N-001",
-      "test_case": "Save blocked when Criteria Name is blank",
+      "wf_ref": "WF-003",
+      "test_case": "Create Criteria \u2014 leave required Criteria Name blank (text field representative)",
       "preconditions": [
-        "Provisioning Criteria creation form is open"
+        "Provisioning Criteria page is open"
       ],
       "steps": [
-        "1. Leave the Criteria Name field blank",
-        "2. Click the Save button"
+        "1. Click the '+ Create' button to open the Provisioning Criteria form",
+        "2. Leave the Criteria Name field blank",
+        "3. Click the 'Create' button"
       ],
-      "expected_result": "Inline validation error appears on the Criteria Name field indicating it is required; the form does not submit and no provisioning criteria is created or listed in the Provisioning Criteria table",
+      "expected_result": "Inline validation error appears on the Criteria Name field indicating it is required; the form does not submit; no provisioning criteria is created.",
       "priority": "high"
     },
     {
       "tc_id": "N-002",
-      "test_case": "Attempt to submit with all required fields empty",
+      "wf_ref": "WF-003",
+      "test_case": "Create Criteria \u2014 submit with ALL required fields empty",
       "preconditions": [
-        "Provisioning Criteria creation form is open",
-        "No Definition rows have been added (or all Definition row fields are empty)"
+        "Provisioning Criteria page is open",
+        "No fields populated in the Create form"
       ],
       "steps": [
-        "1. Leave all required fields (representative: Criteria Name) blank",
-        "2. Click the Save button"
+        "1. Click the '+ Create' button to open the Provisioning Criteria form",
+        "2. Ensure Criteria Name is blank and do not add any Definitions rows",
+        "3. Click the 'Create' button"
       ],
-      "expected_result": "Form does not submit; Criteria Name field displays an inline 'required' validation error; no provisioning criteria is created and the creation form remains open",
+      "expected_result": "Form does not submit; Criteria Name field displays an inline 'required' validation error (or the Create button remains disabled); no provisioning criteria is created.",
       "priority": "high"
     },
     {
       "tc_id": "N-003",
-      "test_case": "Non-numeric input rejected for numeric fields (representative: Minimum Age)",
+      "wf_ref": "WF-003",
+      "test_case": "Definitions constraint \u2014 Minimum_Age greater than Maximum_Age",
       "preconditions": [
-        "Provisioning Criteria creation form is open",
-        "A Definitions row has been added"
+        "Provisioning Criteria page is open"
       ],
       "steps": [
-        "1. In the added Definitions row enter <non-numeric characters> into the Minimum Age (overdue days) field",
-        "2. Click the Save button"
+        "1. Click the '+ Create' button to open the Provisioning Criteria form",
+        "2. Add one row in the Definitions repeating group",
+        "3. Enter <minimum age greater than maximum age> in the Minimum Age field of the new Definitions row",
+        "4. Enter <smaller number> in the Maximum Age field of the same Definitions row",
+        "5. Click the 'Create' button"
       ],
-      "expected_result": "Minimum Age (overdue days) field displays an inline validation error indicating it must be a numeric value; the form does not submit and no provisioning criteria is created",
-      "priority": "medium"
-    },
-    {
-      "tc_id": "N-004",
-      "test_case": "Maximum Age less than Minimum Age is rejected",
-      "preconditions": [
-        "Provisioning Criteria creation form is open",
-        "A Definitions row has been added"
-      ],
-      "steps": [
-        "1. In the Definitions row enter <minimum overdue days> into Minimum Age (overdue days)",
-        "2. In the same row enter <value less than Minimum Age> into Maximum Age (overdue days)",
-        "3. Click the Save button"
-      ],
-      "expected_result": "Maximum Age (overdue days) field displays an inline validation error indicating it must be greater than or equal to Minimum Age (overdue days); the form does not submit and no provisioning criteria is created",
+      "expected_result": "Definitions row displays a validation error stating the constraint 'Minimum_Age must be <= Maximum_Age'; the form does not submit; no provisioning criteria is created.",
       "priority": "high"
     },
     {
-      "tc_id": "N-005",
-      "test_case": "Definitions row missing Category is rejected",
+      "tc_id": "N-004",
+      "wf_ref": "WF-003",
+      "test_case": "Number field format \u2014 non-numeric input in number field (representative)",
       "preconditions": [
-        "Provisioning Criteria creation form is open",
-        "A Definitions row has been added"
+        "Provisioning Criteria page is open"
       ],
       "steps": [
-        "1. In the added Definitions row leave the Category field blank",
-        "2. Fill other fields in the row as needed",
-        "3. Click the Save button"
+        "1. Click the '+ Create' button to open the Provisioning Criteria form",
+        "2. Add one row in the Definitions repeating group",
+        "3. Enter <non-numeric input> into the Minimum Age field of the Definitions row",
+        "4. Click the 'Create' button"
       ],
-      "expected_result": "Category field in the Definitions row displays an inline validation error indicating it is required (row-level error); the form does not submit and no provisioning criteria is created",
+      "expected_result": "Inline validation error appears on the Minimum Age field indicating it must be a numeric value; the form does not submit; no provisioning criteria is created.",
       "priority": "medium"
     },
     {
-      "tc_id": "N-006",
-      "test_case": "Create Provisioning Entry blocked when no provisioning criteria configured",
+      "tc_id": "N-005",
+      "wf_ref": "WF-004",
+      "test_case": "Generate Provisioning Entries \u2014 attempt when no provisioning criteria are configured",
       "preconditions": [
         "Provisioning Entries page is open",
-        "No provisioning criteria exist in the Provisioning Criteria table"
+        "There are NO provisioning criteria configured in the system"
       ],
       "steps": [
-        "1. Click the + Create Provisioning Entry button on the Provisioning Entries page"
+        "1. On the Provisioning Entries page, click the '+ Create Provisioning Entry' button"
       ],
-      "expected_result": "A blocking error message is displayed indicating there are no provisioning criteria configured (preventing calculation); no provisioning entries or journal entries are created and the user remains on the Provisioning Entries page",
+      "expected_result": "A modal or inline error/warning is displayed indicating there are no configured provisioning criteria and the action is blocked; no provisioning journal entries are generated and no new rows appear in the Provisioning Entries table.",
       "priority": "high"
     }
   ],
   "summary": {
-    "total": 6,
+    "total": 5,
     "high_priority": 4,
-    "medium_priority": 2,
+    "medium_priority": 1,
     "low_priority": 0
   }
 }

@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-21T22:29:06.547426
+DEBUG SESSION STARTED: 2026-05-25T14:24:50.738429
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[22:29:06] Test-Edge - SYSTEM PROMPT
+[14:24:50] Test-Edge - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Edge Case and Boundary Test Generator. You receive (1) a UI-AST JSON for one module and (2) the original functional description. Your job is to produce ONLY boundary and edge case tests — scenarios at the limits of valid/invalid input and unusual-but-plausible user behaviors.
 
@@ -25,6 +25,10 @@ You are NOT producing happy paths (positive prompt) or standard validation failu
 {Original functional description text for this module}
 </description>
 
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
+
 ---
 
 **UI-AST REFERENCE — How to Read the AST for Edge Testing:**
@@ -35,7 +39,7 @@ You are NOT producing happy paths (positive prompt) or standard validation failu
 | `repeating_group` with `max` | Test adding exactly `max` entries (should succeed) then one more (should block) |
 | `visible_when` / `required_when` | Edge: trigger condition, fill revealed field with boundary value |
 | `state_bound_action_bar` | State edges: rapid consecutive state transitions, transition from a boundary state |
-| `submit_actions[]` with multiple buttons | Interaction edge: double-click a submit button rapidly |
+
 | `type: "date"` fields | Data edges: today, yesterday, far future, Feb 29 leap year |
 | `type: "file_upload"` | Edge: file exactly at size limit, file at 1 byte over limit |
 
@@ -132,7 +136,6 @@ Pick only the ones that apply to field types present in this module's AST:
 
 Pick only the ones that match component types in this module's AST:
 
-- **Double-click submit** (any form/wizard with a submit button): rapidly double-click the submit button → assert only one record is created; no duplicate row appears in the listing table
 - **Rapid re-submission after redirect** (any form that redirects to a detail page on success): after a successful submit, press the browser back button → assert the creation form is shown blank (not pre-filled) OR the user is redirected to the detail page without a second entity being created
 - **Wizard step skip — enforced navigation** (wizard where steps must be completed sequentially): attempt to click a later step tab directly without completing earlier steps → assert navigation is blocked and the earlier step remains active
 - **Wizard step skip — free navigation** (wizard that allows free tab navigation): navigate to a later step without filling earlier steps → assert the later step displays and returning to the earlier step shows fields blank (no data was lost from the later step)
@@ -173,7 +176,16 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 
 - **High:** None — edge tests are secondary to core functionality
 - **Medium:** Boundary tests at thresholds (financial amounts, date ordering, count limits, file size limits)
-- **Low:** Input edge cases (long text, special chars, whitespace, decimal precision), interaction edge cases (double-click, browser back, wizard skip)
+- **Low:** Input edge cases (long text, special chars, whitespace, decimal precision), interaction edge cases (browser back, wizard skip)
+
+---
+
+**WORKFLOW-AWARE BOUNDARY SCOPING (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- For each workflow where `conditional_branch` activates a numeric or date field, check if that field has a boundary (a numeric/date threshold in the AST `constraints` or description).
+- If yes, that workflow's branch is a **candidate for a boundary edge test** — add or confirm a boundary TC exists for it.
+- Add `"wf_ref": "WF-NNN"` to each TC that maps to a specific workflow's boundary. Set `"wf_ref": null` for generic input/interaction edge tests.
 
 ---
 
@@ -185,6 +197,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": null,
       "subcategory": "boundary | input_edge | interaction_edge | state_edge | data_edge",
       "test_case": "Short descriptive name",
       "preconditions": ["precondition 1"],
@@ -207,7 +220,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 
 
 ------------------------------------------------------------
-[22:29:06] Test-Edge - USER PROMPT
+[14:24:50] Test-Edge - USER PROMPT
 ------------------------------------------------------------
 <module_name>Provisioning</module_name>
 
@@ -218,20 +231,20 @@ If the module has any numeric/date/count threshold in the AST or description, pr
     "Provisioning_Criteria_Table": {
       "type": "data_table",
       "columns": [
-        {
-          "name": "Criteria Name",
-          "type": "link",
-          "clickable": true
-        },
-        {
-          "name": "Created Date",
-          "type": "date"
-        }
+        "Criteria Name",
+        "Created Date"
       ],
-      "top_actions": [
+      "page_actions": [
         {
           "element_name": "+ Create",
-          "action_name": "Open Create Provisioning Criteria Form",
+          "action_name": "Open Create Criteria Form",
+          "opens": "Provisioning_Criteria_Form"
+        }
+      ],
+      "row_actions": [
+        {
+          "action_name": "Open Criteria",
+          "triggered_by": "Criteria Name link",
           "opens": "Provisioning_Criteria_Form"
         }
       ]
@@ -239,15 +252,14 @@ If the module has any numeric/date/count threshold in the AST or description, pr
     "Provisioning_Criteria_Form": {
       "type": "form",
       "fields": {
-        "Criteria Name": {
+        "Criteria_Name": {
           "type": "unspecified",
           "required": true
         },
         "Definitions": {
           "type": "repeating_group",
-          "add_row_action": true,
           "item_fields": {
-            "Loan Product": {
+            "Loan_Product": {
               "type": "unspecified"
             },
             "Category": {
@@ -259,103 +271,63 @@ If the module has any numeric/date/count threshold in the AST or description, pr
                 "LOSS"
               ]
             },
-            "Minimum Age (overdue days)": {
+            "Minimum_Age": {
               "type": "number",
-              "constraints": [
-                "represents overdue days (minimum of the overdue range)"
-              ]
+              "description": "overdue days"
             },
-            "Maximum Age (overdue days)": {
+            "Maximum_Age": {
               "type": "number",
-              "constraints": [
-                "represents overdue days (maximum of the overdue range)"
-              ]
+              "description": "overdue days"
             },
-            "Provisioning Percentage": {
+            "Provisioning_Percentage": {
               "type": "number",
-              "constraints": [
-                "percentage of outstanding principal"
-              ]
+              "description": "percentage of outstanding principal"
             },
-            "Liability Account": {
+            "Liability_Account": {
               "type": "dropdown",
-              "constraints": [
-                "select GL liability account"
-              ]
+              "description": "GL account dropdown"
             },
-            "Expense Account": {
+            "Expense_Account": {
               "type": "dropdown",
-              "constraints": [
-                "select GL expense account"
-              ]
+              "description": "GL account dropdown"
             }
-          }
+          },
+          "constraints": [
+            "Minimum_Age must be <= Maximum_Age"
+          ]
         }
       },
       "submit_actions": [
         {
-          "element_name": "Save",
-          "action_name": "Create Provisioning Criteria",
-          "on_success": "creates a new provisioning criteria and closes the form"
+          "element_name": "Create",
+          "on_success": "creates provisioning criteria"
         }
       ]
     },
     "Provisioning_Entries_Table": {
       "type": "data_table",
       "columns": [
-        {
-          "name": "Entry Date",
-          "type": "date"
-        },
-        {
-          "name": "Journal Entry Created",
-          "type": "date"
-        },
-        {
-          "name": "Created By",
-          "type": "unspecified"
-        }
+        "Entry Date",
+        "Journal Entry Created",
+        "Created By"
       ],
-      "top_actions": [
+      "page_actions": [
         {
           "element_name": "+ Create Provisioning Entry",
           "action_name": "Generate Provisioning Entries",
-          "on_success": "calculates required provision amount for each loan category and creates corresponding journal entries"
+          "on_success": "generates provisioning journal entries by calculating required provision amount for each loan category and creating corresponding journal entries based on current loan portfolio and configured criteria"
         }
       ],
       "row_actions": [
         {
           "action_name": "Review",
-          "action_description": "opens Provisioning_Entry_Detail for the selected entry",
-          "opens": "Provisioning_Entry_Detail"
+          "on_success": "opens entry detail showing detailed breakdown by loan product and category"
         },
         {
           "action_name": "Recreate",
-          "action_description": "recreates provisioning journal entry based on current loan portfolio status and configured criteria",
-          "on_success": "recreates journal entry"
+          "on_success": "recreates provisioning entry based on current loan portfolio and configured criteria"
         }
       ]
-    },
-    "Provisioning_Entry_Detail": {
-      "type": "data_table",
-      "description": "detailed breakdown by loan product and category",
-      "columns": [
-        {
-          "name": "Loan Product",
-          "type": "unspecified"
-        },
-        {
-          "name": "Category",
-          "type": "dropdown",
-          "options": [
-            "STANDARD",
-            "SUB-STANDARD",
-            "DOUBTFUL",
-            "LOSS"
-          ]
-        }
-      ],
-      "row_actions": []
     }
   }
 }
@@ -372,10 +344,19 @@ The Provisioning Entries page lists all generated provisioning journal entries w
 
 </description>
 
+<workflows>
+WF-001 | Open Create Criteria form from Criteria table | actor: <role> | branch: none | terminal: Open Create Criteria Form | on_success: opens Provisioning_Criteria_Form
+WF-002 | Open existing Criteria via Criteria Name link | actor: <role> | branch: none | terminal: Open Criteria | on_success: opens Provisioning_Criteria_Form for the selected criteria
+WF-003 | Create provisioning criteria (submit form) | actor: <role> | branch: none | terminal: Create | on_success: creates provisioning criteria
+WF-004 | Generate provisioning entries (create journal entries) | actor: <role> | branch: none | terminal: Generate Provisioning Entries | on_success: generates provisioning journal entries by calculating required provision amount for each loan category and creating corresponding journal entries based on current loan portfolio and configured criteria
+WF-005 | Review provisioning entry | actor: <role> | branch: none | terminal: Review | on_success: opens entry detail showing detailed breakdown by loan product and category
+WF-006 | Recreate provisioning entry | actor: <role> | branch: none | terminal: Recreate | on_success: recreates provisioning entry based on current loan portfolio and configured criteria
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[22:34:37] Test-Edge - LLM RESPONSE
+[14:30:57] Test-Edge - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Provisioning",
@@ -383,153 +364,194 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": "WF-003",
       "subcategory": "boundary",
-      "test_case": "Minimum Age equals Maximum Age in a Definition row",
+      "test_case": "Minimum_Age equals Maximum_Age (boundary)",
       "preconditions": [
-        "User is on Provisioning -> Provisioning Criteria page",
-        "Provisioning Criteria table is visible"
+        "User is logged in with permission to create provisioning criteria",
+        "Provisioning Criteria page is open"
       ],
       "steps": [
-        "1. Click + Create to open Provisioning_Criteria_Form",
-        "2. Enter <valid name> in Criteria Name",
-        "3. Click Add row in Definitions",
-        "4. Enter <value> in Minimum Age (overdue days)",
-        "5. Enter <same value> in Maximum Age (overdue days)",
-        "6. (Optional) Enter valid values for other definition fields if required by UI",
-        "7. Click Save"
+        "1. Click \"+ Create\" to open the Provisioning_Criteria_Form",
+        "2. Enter <valid Criteria Name> in Criteria_Name",
+        "3. Click to add one row in Definitions",
+        "4. Enter <value X> in Minimum_Age for the Definitions row",
+        "5. Enter <same value X> in Maximum_Age for the Definitions row",
+        "6. Enter <valid value> in Provisioning_Percentage for the Definitions row",
+        "7. Select a value in Liability_Account for the Definitions row",
+        "8. Select a value in Expense_Account for the Definitions row",
+        "9. Click Create"
       ],
-      "expected_result": "Save succeeds; form closes; a new provisioning criteria row appears in the Provisioning Criteria table. Opening the created criteria shows the Definitions row with Minimum Age equal to Maximum Age.",
+      "expected_result": "Form submits successfully; provisioning criteria is created and the new criteria appears in the Provisioning Criteria table (creation succeeds).",
       "priority": "medium"
     },
     {
       "tc_id": "E-002",
+      "wf_ref": "WF-003",
       "subcategory": "boundary",
-      "test_case": "Minimum Age one unit greater than Maximum Age is rejected",
+      "test_case": "Minimum_Age one unit greater than Maximum_Age (past-boundary)",
       "preconditions": [
-        "User is on Provisioning -> Provisioning Criteria page",
-        "Provisioning Criteria table is visible"
+        "User is logged in with permission to create provisioning criteria",
+        "Provisioning Criteria page is open"
       ],
       "steps": [
-        "1. Click + Create to open Provisioning_Criteria_Form",
-        "2. Enter <valid name> in Criteria Name",
-        "3. Click Add row in Definitions",
-        "4. Enter <value> in Maximum Age (overdue days)",
-        "5. Enter <one unit above the Maximum Age value> in Minimum Age (overdue days)",
-        "6. (Optional) Enter valid values for other definition fields if required by UI",
-        "7. Click Save"
+        "1. Click \"+ Create\" to open the Provisioning_Criteria_Form",
+        "2. Enter <valid Criteria Name> in Criteria_Name",
+        "3. Click to add one row in Definitions",
+        "4. Enter <value Y> in Maximum_Age for the Definitions row",
+        "5. Enter <one unit greater than value Y> in Minimum_Age for the Definitions row",
+        "6. Enter <valid value> in Provisioning_Percentage for the Definitions row",
+        "7. Select a value in Liability_Account for the Definitions row",
+        "8. Select a value in Expense_Account for the Definitions row",
+        "9. Click Create"
       ],
-      "expected_result": "Save is blocked / error shown: Minimum Age (overdue days) displays an inline error indicating it must be less than or equal to Maximum Age; the form remains open and the provisioning criteria is not created.",
+      "expected_result": "Creation is blocked; Minimum_Age displays an inline error stating \"Minimum_Age must be <= Maximum_Age\" and the form is not submitted (is blocked / error shown).",
       "priority": "medium"
     },
     {
       "tc_id": "E-003",
+      "wf_ref": "WF-003",
       "subcategory": "input_edge",
-      "test_case": "Very long Criteria Name (>200 characters) saved",
+      "test_case": "Very long Criteria_Name (200+ characters) submitted",
       "preconditions": [
-        "User is on Provisioning -> Provisioning Criteria page",
-        "Provisioning Criteria table is visible"
+        "User is logged in with permission to create provisioning criteria",
+        "Provisioning Criteria page is open"
       ],
       "steps": [
-        "1. Click + Create to open Provisioning_Criteria_Form",
-        "2. Enter <very long string with more than 200 characters> in Criteria Name",
-        "3. (Optional) Add at least one Definitions row if UI requires a definition to enable Save",
-        "4. Click Save"
+        "1. Click \"+ Create\" to open the Provisioning_Criteria_Form",
+        "2. Enter <very long string (200+ characters)> in Criteria_Name",
+        "3. Click to add one row in Definitions",
+        "4. Enter <valid Minimum_Age> in Minimum_Age for the Definitions row",
+        "5. Enter <valid Maximum_Age> in Maximum_Age for the Definitions row",
+        "6. Enter <valid value> in Provisioning_Percentage for the Definitions row",
+        "7. Select a value in Liability_Account for the Definitions row",
+        "8. Select a value in Expense_Account for the Definitions row",
+        "9. Click Create"
       ],
-      "expected_result": "Save succeeds; form closes; Provisioning Criteria table shows the new row. Opening the created criteria displays the full entered Criteria Name (no truncation indicator shown).",
+      "expected_result": "Form submits successfully; saved Criteria Name shown in the Provisioning Criteria table displays the full entered string (no truncation) (succeeds).",
       "priority": "low"
     },
     {
       "tc_id": "E-004",
+      "wf_ref": "WF-003",
       "subcategory": "input_edge",
-      "test_case": "Leading and trailing whitespace in Criteria Name is trimmed on save",
+      "test_case": "Special characters and emoji in Criteria_Name",
       "preconditions": [
-        "User is on Provisioning -> Provisioning Criteria page",
-        "Provisioning Criteria table is visible"
+        "User is logged in with permission to create provisioning criteria",
+        "Provisioning Criteria page is open"
       ],
       "steps": [
-        "1. Click + Create to open Provisioning_Criteria_Form",
-        "2. Enter a name with leading and trailing spaces (e.g. '  <name>  ') in Criteria Name",
-        "3. (Optional) Add at least one Definitions row if UI requires a definition to enable Save",
-        "4. Click Save"
+        "1. Click \"+ Create\" to open the Provisioning_Criteria_Form",
+        "2. Enter <string containing special characters and emoji> in Criteria_Name",
+        "3. Click to add one row in Definitions",
+        "4. Enter <valid Minimum_Age> in Minimum_Age for the Definitions row",
+        "5. Enter <valid Maximum_Age> in Maximum_Age for the Definitions row",
+        "6. Enter <valid value> in Provisioning_Percentage for the Definitions row",
+        "7. Select a value in Liability_Account for the Definitions row",
+        "8. Select a value in Expense_Account for the Definitions row",
+        "9. Click Create"
       ],
-      "expected_result": "Save succeeds; form closes; Provisioning Criteria table shows the Criteria Name without leading/trailing whitespace (value is trimmed in the table and in the opened criteria detail).",
+      "expected_result": "Form submits successfully; saved Criteria Name displayed in the Provisioning Criteria table preserves special characters and emoji (succeeds).",
       "priority": "low"
     },
     {
       "tc_id": "E-005",
-      "subcategory": "interaction_edge",
-      "test_case": "Rapid double-click Save does not create duplicate criteria",
+      "wf_ref": "WF-003",
+      "subcategory": "input_edge",
+      "test_case": "Leading and trailing whitespace in Criteria_Name is trimmed on save",
       "preconditions": [
-        "User is on Provisioning -> Provisioning Criteria page",
-        "Provisioning Criteria table is visible"
+        "User is logged in with permission to create provisioning criteria",
+        "Provisioning Criteria page is open"
       ],
       "steps": [
-        "1. Click + Create to open Provisioning_Criteria_Form",
-        "2. Enter <valid name> in Criteria Name",
-        "3. Add at least one Definitions row and enter required values",
-        "4. Rapidly double-click the Save button (two clicks within a short interval)"
+        "1. Click \"+ Create\" to open the Provisioning_Criteria_Form",
+        "2. Enter <string with leading and trailing whitespace> in Criteria_Name",
+        "3. Click to add one row in Definitions",
+        "4. Enter <valid Minimum_Age> in Minimum_Age for the Definitions row",
+        "5. Enter <valid Maximum_Age> in Maximum_Age for the Definitions row",
+        "6. Enter <valid value> in Provisioning_Percentage for the Definitions row",
+        "7. Select a value in Liability_Account for the Definitions row",
+        "8. Select a value in Expense_Account for the Definitions row",
+        "9. Click Create"
       ],
-      "expected_result": "Only one save action succeeds; the second submission is blocked / ignored. Exactly one new provisioning criteria row appears in the Provisioning Criteria table; the Save button shows a processing/disabled state after the first click.",
-      "priority": "medium"
+      "expected_result": "Form submits successfully; leading and trailing whitespace is trimmed and the saved Criteria Name shown in the Provisioning Criteria table has no leading/trailing spaces (succeeds).",
+      "priority": "low"
     },
     {
       "tc_id": "E-006",
-      "subcategory": "interaction_edge",
-      "test_case": "Rapid double-click + Create Provisioning Entry does not create duplicate journal entries",
+      "wf_ref": "WF-003",
+      "subcategory": "data_edge",
+      "test_case": "Provisioning_Percentage entered with excessive decimal places",
       "preconditions": [
-        "User is on Provisioning -> Provisioning Entries page",
-        "Provisioning Entries table is visible"
+        "User is logged in with permission to create provisioning criteria",
+        "Provisioning Criteria page is open"
       ],
       "steps": [
-        "1. Rapidly double-click the + Create Provisioning Entry top action (two clicks within a short interval)"
+        "1. Click \"+ Create\" to open the Provisioning_Criteria_Form",
+        "2. Enter <valid Criteria Name> in Criteria_Name",
+        "3. Click to add one row in Definitions",
+        "4. Enter <valid Minimum_Age> in Minimum_Age for the Definitions row",
+        "5. Enter <valid Maximum_Age> in Maximum_Age for the Definitions row",
+        "6. Enter <value with many decimal places> in Provisioning_Percentage for the Definitions row",
+        "7. Select a value in Liability_Account for the Definitions row",
+        "8. Select a value in Expense_Account for the Definitions row",
+        "9. Click Create"
       ],
-      "expected_result": "Only one provisioning entry generation action succeeds; the second click is blocked / ignored. Exactly one new provisioning entry row (or one set of journal entries) appears in the Provisioning Entries table; the Create button displays a processing/disabled state after the first click.",
+      "expected_result": "Form submits successfully; the saved Provisioning Percentage shown in the Definitions row is displayed rounded to the system's displayed precision (succeeds).",
       "priority": "medium"
     },
     {
       "tc_id": "E-007",
-      "subcategory": "data_edge",
-      "test_case": "Provisioning Percentage with high decimal precision is normalized on save",
+      "wf_ref": "WF-003",
+      "subcategory": "interaction_edge",
+      "test_case": "Rapid re-submission after successful create (attempt duplicate)",
       "preconditions": [
-        "User is on Provisioning -> Provisioning Criteria page",
-        "Provisioning Criteria table is visible"
+        "User is logged in with permission to create provisioning criteria",
+        "Provisioning Criteria page is open"
       ],
       "steps": [
-        "1. Click + Create to open Provisioning_Criteria_Form",
-        "2. Enter <valid name> in Criteria Name",
-        "3. Click Add row in Definitions",
-        "4. Enter a provisioning percentage with excessive decimal places in Provisioning Percentage (e.g. a value with more than typical decimal precision)",
-        "5. Fill other required definition fields as needed",
-        "6. Click Save"
+        "1. Click \"+ Create\" to open the Provisioning_Criteria_Form",
+        "2. Enter <valid Criteria Name> in Criteria_Name",
+        "3. Click to add one row in Definitions",
+        "4. Enter <valid Minimum_Age> in Minimum_Age for the Definitions row",
+        "5. Enter <valid Maximum_Age> in Maximum_Age for the Definitions row",
+        "6. Enter <valid value> in Provisioning_Percentage for the Definitions row",
+        "7. Select a value in Liability_Account for the Definitions row",
+        "8. Select a value in Expense_Account for the Definitions row",
+        "9. Click Create",
+        "10. After success and return to the Provisioning Criteria table, use the browser Back button to return to the Create form",
+        "11. Click Create again without changing any fields"
       ],
-      "expected_result": "Save succeeds; form closes; opening the created criteria shows the Provisioning Percentage for the definition normalized in the UI (rounded/normalized to the system's displayed precision in the definition row).",
+      "expected_result": "Second submission is blocked; only one record for the same Criteria Name appears in the Provisioning Criteria table (second create is blocked / error shown).",
       "priority": "medium"
     },
     {
       "tc_id": "E-008",
+      "wf_ref": "WF-003",
       "subcategory": "interaction_edge",
-      "test_case": "Add then remove all Definitions rows, then save (no minimum definitions)",
+      "test_case": "Add a Definitions row then remove all rows and submit",
       "preconditions": [
-        "User is on Provisioning -> Provisioning Criteria page",
-        "Provisioning Criteria table is visible"
+        "User is logged in with permission to create provisioning criteria",
+        "Provisioning Criteria page is open"
       ],
       "steps": [
-        "1. Click + Create to open Provisioning_Criteria_Form",
-        "2. Enter <valid name> in Criteria Name",
-        "3. Click Add row in Definitions",
-        "4. Enter values in the added Definitions row as needed",
-        "5. Remove the added Definitions row so zero rows remain",
-        "6. Click Save"
+        "1. Click \"+ Create\" to open the Provisioning_Criteria_Form",
+        "2. Enter <valid Criteria Name> in Criteria_Name",
+        "3. Click to add one row in Definitions",
+        "4. Enter <valid Minimum_Age> in Minimum_Age for the Definitions row",
+        "5. Enter <valid Maximum_Age> in Maximum_Age for the Definitions row",
+        "6. Click the remove/delete control for the Definitions row to leave Definitions empty",
+        "7. Click Create"
       ],
-      "expected_result": "Save succeeds; form closes; a new provisioning criteria row appears in the Provisioning Criteria table. Opening the created criteria shows an empty Definitions table (no definition rows saved).",
-      "priority": "low"
+      "expected_result": "Form submits successfully; provisioning criteria is created and the criteria's details show zero Definitions rows (succeeds).",
+      "priority": "medium"
     }
   ],
   "summary": {
     "total": 8,
     "boundary": 2,
-    "input_edge": 2,
-    "interaction_edge": 3,
+    "input_edge": 3,
+    "interaction_edge": 2,
     "state_edge": 0,
     "data_edge": 1,
     "medium_priority": 5,
@@ -538,7 +560,7 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
 }
 
 ------------------------------------------------------------
-[22:34:37] Test-Edge - PARSED JSON
+[14:30:57] Test-Edge - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Provisioning",
@@ -546,153 +568,194 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": "WF-003",
       "subcategory": "boundary",
-      "test_case": "Minimum Age equals Maximum Age in a Definition row",
+      "test_case": "Minimum_Age equals Maximum_Age (boundary)",
       "preconditions": [
-        "User is on Provisioning -> Provisioning Criteria page",
-        "Provisioning Criteria table is visible"
+        "User is logged in with permission to create provisioning criteria",
+        "Provisioning Criteria page is open"
       ],
       "steps": [
-        "1. Click + Create to open Provisioning_Criteria_Form",
-        "2. Enter <valid name> in Criteria Name",
-        "3. Click Add row in Definitions",
-        "4. Enter <value> in Minimum Age (overdue days)",
-        "5. Enter <same value> in Maximum Age (overdue days)",
-        "6. (Optional) Enter valid values for other definition fields if required by UI",
-        "7. Click Save"
+        "1. Click \"+ Create\" to open the Provisioning_Criteria_Form",
+        "2. Enter <valid Criteria Name> in Criteria_Name",
+        "3. Click to add one row in Definitions",
+        "4. Enter <value X> in Minimum_Age for the Definitions row",
+        "5. Enter <same value X> in Maximum_Age for the Definitions row",
+        "6. Enter <valid value> in Provisioning_Percentage for the Definitions row",
+        "7. Select a value in Liability_Account for the Definitions row",
+        "8. Select a value in Expense_Account for the Definitions row",
+        "9. Click Create"
       ],
-      "expected_result": "Save succeeds; form closes; a new provisioning criteria row appears in the Provisioning Criteria table. Opening the created criteria shows the Definitions row with Minimum Age equal to Maximum Age.",
+      "expected_result": "Form submits successfully; provisioning criteria is created and the new criteria appears in the Provisioning Criteria table (creation succeeds).",
       "priority": "medium"
     },
     {
       "tc_id": "E-002",
+      "wf_ref": "WF-003",
       "subcategory": "boundary",
-      "test_case": "Minimum Age one unit greater than Maximum Age is rejected",
+      "test_case": "Minimum_Age one unit greater than Maximum_Age (past-boundary)",
       "preconditions": [
-        "User is on Provisioning -> Provisioning Criteria page",
-        "Provisioning Criteria table is visible"
+        "User is logged in with permission to create provisioning criteria",
+        "Provisioning Criteria page is open"
       ],
       "steps": [
-        "1. Click + Create to open Provisioning_Criteria_Form",
-        "2. Enter <valid name> in Criteria Name",
-        "3. Click Add row in Definitions",
-        "4. Enter <value> in Maximum Age (overdue days)",
-        "5. Enter <one unit above the Maximum Age value> in Minimum Age (overdue days)",
-        "6. (Optional) Enter valid values for other definition fields if required by UI",
-        "7. Click Save"
+        "1. Click \"+ Create\" to open the Provisioning_Criteria_Form",
+        "2. Enter <valid Criteria Name> in Criteria_Name",
+        "3. Click to add one row in Definitions",
+        "4. Enter <value Y> in Maximum_Age for the Definitions row",
+        "5. Enter <one unit greater than value Y> in Minimum_Age for the Definitions row",
+        "6. Enter <valid value> in Provisioning_Percentage for the Definitions row",
+        "7. Select a value in Liability_Account for the Definitions row",
+        "8. Select a value in Expense_Account for the Definitions row",
+        "9. Click Create"
       ],
-      "expected_result": "Save is blocked / error shown: Minimum Age (overdue days) displays an inline error indicating it must be less than or equal to Maximum Age; the form remains open and the provisioning criteria is not created.",
+      "expected_result": "Creation is blocked; Minimum_Age displays an inline error stating \"Minimum_Age must be <= Maximum_Age\" and the form is not submitted (is blocked / error shown).",
       "priority": "medium"
     },
     {
       "tc_id": "E-003",
+      "wf_ref": "WF-003",
       "subcategory": "input_edge",
-      "test_case": "Very long Criteria Name (>200 characters) saved",
+      "test_case": "Very long Criteria_Name (200+ characters) submitted",
       "preconditions": [
-        "User is on Provisioning -> Provisioning Criteria page",
-        "Provisioning Criteria table is visible"
+        "User is logged in with permission to create provisioning criteria",
+        "Provisioning Criteria page is open"
       ],
       "steps": [
-        "1. Click + Create to open Provisioning_Criteria_Form",
-        "2. Enter <very long string with more than 200 characters> in Criteria Name",
-        "3. (Optional) Add at least one Definitions row if UI requires a definition to enable Save",
-        "4. Click Save"
+        "1. Click \"+ Create\" to open the Provisioning_Criteria_Form",
+        "2. Enter <very long string (200+ characters)> in Criteria_Name",
+        "3. Click to add one row in Definitions",
+        "4. Enter <valid Minimum_Age> in Minimum_Age for the Definitions row",
+        "5. Enter <valid Maximum_Age> in Maximum_Age for the Definitions row",
+        "6. Enter <valid value> in Provisioning_Percentage for the Definitions row",
+        "7. Select a value in Liability_Account for the Definitions row",
+        "8. Select a value in Expense_Account for the Definitions row",
+        "9. Click Create"
       ],
-      "expected_result": "Save succeeds; form closes; Provisioning Criteria table shows the new row. Opening the created criteria displays the full entered Criteria Name (no truncation indicator shown).",
+      "expected_result": "Form submits successfully; saved Criteria Name shown in the Provisioning Criteria table displays the full entered string (no truncation) (succeeds).",
       "priority": "low"
     },
     {
       "tc_id": "E-004",
+      "wf_ref": "WF-003",
       "subcategory": "input_edge",
-      "test_case": "Leading and trailing whitespace in Criteria Name is trimmed on save",
+      "test_case": "Special characters and emoji in Criteria_Name",
       "preconditions": [
-        "User is on Provisioning -> Provisioning Criteria page",
-        "Provisioning Criteria table is visible"
+        "User is logged in with permission to create provisioning criteria",
+        "Provisioning Criteria page is open"
       ],
       "steps": [
-        "1. Click + Create to open Provisioning_Criteria_Form",
-        "2. Enter a name with leading and trailing spaces (e.g. '  <name>  ') in Criteria Name",
-        "3. (Optional) Add at least one Definitions row if UI requires a definition to enable Save",
-        "4. Click Save"
+        "1. Click \"+ Create\" to open the Provisioning_Criteria_Form",
+        "2. Enter <string containing special characters and emoji> in Criteria_Name",
+        "3. Click to add one row in Definitions",
+        "4. Enter <valid Minimum_Age> in Minimum_Age for the Definitions row",
+        "5. Enter <valid Maximum_Age> in Maximum_Age for the Definitions row",
+        "6. Enter <valid value> in Provisioning_Percentage for the Definitions row",
+        "7. Select a value in Liability_Account for the Definitions row",
+        "8. Select a value in Expense_Account for the Definitions row",
+        "9. Click Create"
       ],
-      "expected_result": "Save succeeds; form closes; Provisioning Criteria table shows the Criteria Name without leading/trailing whitespace (value is trimmed in the table and in the opened criteria detail).",
+      "expected_result": "Form submits successfully; saved Criteria Name displayed in the Provisioning Criteria table preserves special characters and emoji (succeeds).",
       "priority": "low"
     },
     {
       "tc_id": "E-005",
-      "subcategory": "interaction_edge",
-      "test_case": "Rapid double-click Save does not create duplicate criteria",
+      "wf_ref": "WF-003",
+      "subcategory": "input_edge",
+      "test_case": "Leading and trailing whitespace in Criteria_Name is trimmed on save",
       "preconditions": [
-        "User is on Provisioning -> Provisioning Criteria page",
-        "Provisioning Criteria table is visible"
+        "User is logged in with permission to create provisioning criteria",
+        "Provisioning Criteria page is open"
       ],
       "steps": [
-        "1. Click + Create to open Provisioning_Criteria_Form",
-        "2. Enter <valid name> in Criteria Name",
-        "3. Add at least one Definitions row and enter required values",
-        "4. Rapidly double-click the Save button (two clicks within a short interval)"
+        "1. Click \"+ Create\" to open the Provisioning_Criteria_Form",
+        "2. Enter <string with leading and trailing whitespace> in Criteria_Name",
+        "3. Click to add one row in Definitions",
+        "4. Enter <valid Minimum_Age> in Minimum_Age for the Definitions row",
+        "5. Enter <valid Maximum_Age> in Maximum_Age for the Definitions row",
+        "6. Enter <valid value> in Provisioning_Percentage for the Definitions row",
+        "7. Select a value in Liability_Account for the Definitions row",
+        "8. Select a value in Expense_Account for the Definitions row",
+        "9. Click Create"
       ],
-      "expected_result": "Only one save action succeeds; the second submission is blocked / ignored. Exactly one new provisioning criteria row appears in the Provisioning Criteria table; the Save button shows a processing/disabled state after the first click.",
-      "priority": "medium"
+      "expected_result": "Form submits successfully; leading and trailing whitespace is trimmed and the saved Criteria Name shown in the Provisioning Criteria table has no leading/trailing spaces (succeeds).",
+      "priority": "low"
     },
     {
       "tc_id": "E-006",
-      "subcategory": "interaction_edge",
-      "test_case": "Rapid double-click + Create Provisioning Entry does not create duplicate journal entries",
+      "wf_ref": "WF-003",
+      "subcategory": "data_edge",
+      "test_case": "Provisioning_Percentage entered with excessive decimal places",
       "preconditions": [
-        "User is on Provisioning -> Provisioning Entries page",
-        "Provisioning Entries table is visible"
+        "User is logged in with permission to create provisioning criteria",
+        "Provisioning Criteria page is open"
       ],
       "steps": [
-        "1. Rapidly double-click the + Create Provisioning Entry top action (two clicks within a short interval)"
+        "1. Click \"+ Create\" to open the Provisioning_Criteria_Form",
+        "2. Enter <valid Criteria Name> in Criteria_Name",
+        "3. Click to add one row in Definitions",
+        "4. Enter <valid Minimum_Age> in Minimum_Age for the Definitions row",
+        "5. Enter <valid Maximum_Age> in Maximum_Age for the Definitions row",
+        "6. Enter <value with many decimal places> in Provisioning_Percentage for the Definitions row",
+        "7. Select a value in Liability_Account for the Definitions row",
+        "8. Select a value in Expense_Account for the Definitions row",
+        "9. Click Create"
       ],
-      "expected_result": "Only one provisioning entry generation action succeeds; the second click is blocked / ignored. Exactly one new provisioning entry row (or one set of journal entries) appears in the Provisioning Entries table; the Create button displays a processing/disabled state after the first click.",
+      "expected_result": "Form submits successfully; the saved Provisioning Percentage shown in the Definitions row is displayed rounded to the system's displayed precision (succeeds).",
       "priority": "medium"
     },
     {
       "tc_id": "E-007",
-      "subcategory": "data_edge",
-      "test_case": "Provisioning Percentage with high decimal precision is normalized on save",
+      "wf_ref": "WF-003",
+      "subcategory": "interaction_edge",
+      "test_case": "Rapid re-submission after successful create (attempt duplicate)",
       "preconditions": [
-        "User is on Provisioning -> Provisioning Criteria page",
-        "Provisioning Criteria table is visible"
+        "User is logged in with permission to create provisioning criteria",
+        "Provisioning Criteria page is open"
       ],
       "steps": [
-        "1. Click + Create to open Provisioning_Criteria_Form",
-        "2. Enter <valid name> in Criteria Name",
-        "3. Click Add row in Definitions",
-        "4. Enter a provisioning percentage with excessive decimal places in Provisioning Percentage (e.g. a value with more than typical decimal precision)",
-        "5. Fill other required definition fields as needed",
-        "6. Click Save"
+        "1. Click \"+ Create\" to open the Provisioning_Criteria_Form",
+        "2. Enter <valid Criteria Name> in Criteria_Name",
+        "3. Click to add one row in Definitions",
+        "4. Enter <valid Minimum_Age> in Minimum_Age for the Definitions row",
+        "5. Enter <valid Maximum_Age> in Maximum_Age for the Definitions row",
+        "6. Enter <valid value> in Provisioning_Percentage for the Definitions row",
+        "7. Select a value in Liability_Account for the Definitions row",
+        "8. Select a value in Expense_Account for the Definitions row",
+        "9. Click Create",
+        "10. After success and return to the Provisioning Criteria table, use the browser Back button to return to the Create form",
+        "11. Click Create again without changing any fields"
       ],
-      "expected_result": "Save succeeds; form closes; opening the created criteria shows the Provisioning Percentage for the definition normalized in the UI (rounded/normalized to the system's displayed precision in the definition row).",
+      "expected_result": "Second submission is blocked; only one record for the same Criteria Name appears in the Provisioning Criteria table (second create is blocked / error shown).",
       "priority": "medium"
     },
     {
       "tc_id": "E-008",
+      "wf_ref": "WF-003",
       "subcategory": "interaction_edge",
-      "test_case": "Add then remove all Definitions rows, then save (no minimum definitions)",
+      "test_case": "Add a Definitions row then remove all rows and submit",
       "preconditions": [
-        "User is on Provisioning -> Provisioning Criteria page",
-        "Provisioning Criteria table is visible"
+        "User is logged in with permission to create provisioning criteria",
+        "Provisioning Criteria page is open"
       ],
       "steps": [
-        "1. Click + Create to open Provisioning_Criteria_Form",
-        "2. Enter <valid name> in Criteria Name",
-        "3. Click Add row in Definitions",
-        "4. Enter values in the added Definitions row as needed",
-        "5. Remove the added Definitions row so zero rows remain",
-        "6. Click Save"
+        "1. Click \"+ Create\" to open the Provisioning_Criteria_Form",
+        "2. Enter <valid Criteria Name> in Criteria_Name",
+        "3. Click to add one row in Definitions",
+        "4. Enter <valid Minimum_Age> in Minimum_Age for the Definitions row",
+        "5. Enter <valid Maximum_Age> in Maximum_Age for the Definitions row",
+        "6. Click the remove/delete control for the Definitions row to leave Definitions empty",
+        "7. Click Create"
       ],
-      "expected_result": "Save succeeds; form closes; a new provisioning criteria row appears in the Provisioning Criteria table. Opening the created criteria shows an empty Definitions table (no definition rows saved).",
-      "priority": "low"
+      "expected_result": "Form submits successfully; provisioning criteria is created and the criteria's details show zero Definitions rows (succeeds).",
+      "priority": "medium"
     }
   ],
   "summary": {
     "total": 8,
     "boundary": 2,
-    "input_edge": 2,
-    "interaction_edge": 3,
+    "input_edge": 3,
+    "interaction_edge": 2,
     "state_edge": 0,
     "data_edge": 1,
     "medium_priority": 5,

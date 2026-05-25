@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-22T21:41:13.085738
+DEBUG SESSION STARTED: 2026-05-25T15:09:37.493923
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[21:41:13] Test-Negative - SYSTEM PROMPT
+[15:09:37] Test-Negative - SYSTEM PROMPT
 ------------------------------------------------------------
 You are a Negative Test Case Generator. You receive (1) a UI-AST JSON for one module and (2) the original functional description. Your job is to produce ONLY negative test cases — tests where invalid input is provided or business rules are violated, and the system correctly rejects or blocks the action.
 
@@ -22,6 +22,10 @@ You are a Negative Test Case Generator. You receive (1) a UI-AST JSON for one mo
 <description>
 {Original functional description text for this module}
 </description>
+
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
 
 ---
 
@@ -111,6 +115,9 @@ Group required fields by type: `text/unspecified`, `email`, `password`, `number`
 
 Do NOT generate a separate blank-field test for every required field. If 5 text fields are all required, one representative covers them all.
 
+**Action dialog required fields — NOT subject to cross-form deduplication:**
+If a `state_bound_action_bar` action opens a dialog with its own required `fields{}` (e.g., Activate requires Activation Date, Reject requires a Reason, Withdraw requires a Reason, Close requires a Closure Reason), each such dialog is its own testing scope. Generate ONE "leave the required dialog field blank and submit" test per distinct action dialog. These are HIGH priority — they block state transitions and are common defect sites. Do not suppress them because the main wizard already has a blank-field test.
+
 **2. Format violations:**
 
 For fields with type-specific format rules (from AST type or description):
@@ -143,6 +150,10 @@ For each unique `constraints[]` entry in the AST, and for cross-field rules desc
 
 One test per unique constraint. Do not duplicate the same mechanism.
 
+**Constraint timing tests:** If the spec states an action is blocked by a pre-existing system state (e.g., "cannot close with active accounts", "cannot transfer to the same office"), generate TWO tests:
+1. The standard constraint violation test (user opens the dialog, fills required fields, submits → blocked).
+2. A constraint-timing test: user opens the dialog WITHOUT filling required fields → assert whether the block is shown immediately on dialog open (before the user fills anything) OR only on submit. This distinguishes whether the UI enforces the constraint eagerly or lazily. Steps: open the dialog, observe the state → assert what is visible before any interaction. If the spec is silent on timing, generate only the first test.
+
 **5. Precondition violations (auth, role, and state):**
 
 For each `preconditions[]` entry on any action — and for auth/role rules described in the spec:
@@ -154,18 +165,18 @@ For each `preconditions[]` entry on any action — and for auth/role rules descr
 **6. State-machine violations:**
 
 From `state_bound_action_bar` nodes:
-- For each state where an action is NOT listed in `available_actions`, generate one test attempting that action from that state. Example: attempting "Approve" on an entity already in "Active" state.
+- **Every defined state must have at least one wrong-state test.** For each state, identify at least one action that is NOT in its `available_actions` list and generate a test attempting that action from that state.
 - If a state has an empty `available_actions` array, generate one test verifying no action buttons are visible in that state.
-
-One test per unique wrong-state scenario — do not enumerate every action × every invalid state.
+- **Do not stop after 1–2 representative examples** when the module defines 4+ distinct states. The states Active, Pending, Closed, Rejected, and Withdrawn each have different action sets — each must be independently verified.
+- One test per state is sufficient — pick the most distinct unavailable action for that state. Do not enumerate every action × every state (that would be exponential).
 
 ---
 
 **DEDUPLICATION GATE (run before outputting):**
 
-1. **Required field dedup:** Multiple required text fields → ONE representative test, not one per field.
+1. **Required field dedup:** Multiple required text fields in the **same form or dialog** → ONE representative test, not one per field.
 2. **Sub-rule dedup:** A field with multiple validation sub-rules (e.g., password: length + uppercase + lowercase + number + special char) → ONE representative violation test, not one per sub-rule.
-3. **Cross-form dedup:** If two forms in the same module share the same validation mechanism (e.g., both have a required text field) → test it on the primary form only.
+3. **Cross-form dedup:** If two **main forms** in the same module share the same validation mechanism → test it on the primary form only. **Exception: action dialogs are never suppressed by cross-form dedup** — each action dialog with a required field gets its own blank-field test regardless.
 4. **Uniqueness check:** Before outputting, ask for each TC: "Does this test catch a bug that NO other test in this module would catch?" If no → remove it.
 
 ---
@@ -174,9 +185,11 @@ One test per unique wrong-state scenario — do not enumerate every action × ev
 
 - Simple module (login, single form, display page): **2–4 tests**
 - Medium module (standard CRUD form, form with constraints): **4–8 tests**
-- Complex module (state machine, multi-form, wizard with many constraints): **8–12 tests**
+- Complex module (state machine, multi-form, wizard with many constraints): **10–16 tests**
 
-If you exceed these ranges, you are generating redundant tests. Apply the deduplication gate again before outputting.
+For modules with a `state_bound_action_bar` defining 4+ states, the state-machine violation tests alone will produce 4–5 tests. This is expected and correct — do not suppress them to hit a lower target.
+
+If you exceed the upper range, apply the deduplication gate again before outputting.
 
 ---
 
@@ -184,6 +197,17 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
 
 - **High:** State precondition violations, constraint violations that could corrupt data, unauthenticated access, required field representatives
 - **Medium:** Format violations, cross-field validation, numeric bounds, wrong-role access, wrong-state action attempts
+
+---
+
+**WORKFLOW-AWARE FAILURE INJECTION (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- For each workflow that contains a form interaction (terminal action is a submit/save/create/approve button):
+  - Identify the most **critical blocking failure** for that workflow's `conditional_branch`.
+  - If that failure mode is NOT already covered by another workflow's negative test, generate one negative TC for it.
+- **Do NOT generate one negative TC per workflow mechanically.** Apply the existing deduplication gate first — only add a TC if it catches a bug that no other test would catch.
+- Add `"wf_ref": "WF-NNN"` to each TC that maps to a workflow. Set `"wf_ref": null` for generic validation tests.
 
 ---
 
@@ -195,6 +219,7 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
   "test_cases": [
     {
       "tc_id": "N-001",
+      "wf_ref": null,
       "test_case": "Short descriptive name",
       "preconditions": ["precondition 1"],
       "steps": ["1. Step one", "2. Step two"],
@@ -212,7 +237,7 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
 
 
 ------------------------------------------------------------
-[21:41:13] Test-Negative - USER PROMPT
+[15:09:37] Test-Negative - USER PROMPT
 ------------------------------------------------------------
 <module_name>Assignment</module_name>
 
@@ -220,73 +245,69 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
 {
   "module_name": "Assignment",
   "components": {
-    "Assignment_Page": {
-      "type": "page",
-      "fields": {}
+    "Add_Submission_Button": {
+      "type": "button",
+      "element_name": "Add submission",
+      "on_success": "opens Submission_Form"
     },
     "Submission_Form": {
       "type": "form",
-      "description": "Used for Add submission and Edit submission (prefilled when editing). Visible when opened by an action.",
       "fields": {
         "Online_Text_Editor": {
           "type": "unspecified",
-          "visible_when": "Assignment.allows_online_text == true",
-          "required": false
+          "visible_when": "assignment_allows_online_text == true"
         },
         "File_Upload_Area": {
           "type": "file_upload",
-          "visible_when": "Assignment.allows_file_upload == true",
-          "required": false
+          "visible_when": "assignment_allows_file_upload == true"
         }
       },
       "submit_actions": [
         {
           "element_name": "Submit",
-          "on_success": "creates submission with Submission status == Submitted for grading"
-        },
-        {
-          "element_name": "Cancel",
-          "on_success": "closes submission form without saving"
+          "on_success": "creates submission and sets status to Submitted for grading"
         }
       ]
     },
-    "Submission_State_Action_Bar": {
+    "Submission_State_Actions": {
       "type": "state_bound_action_bar",
       "states": {
-        "No submissions have been made yet": {
+        "No_Submission": {
           "available_actions": [
             {
               "action_name": "Add submission",
-              "opens_form": "Submission_Form",
-              "on_success": "creates submission with Submission status == Submitted for grading"
+              "on_success": "opens Submission_Form"
             }
           ]
         },
-        "Submitted for grading": {
+        "Submitted_for_grading": {
           "available_actions": [
             {
               "action_name": "View submission",
-              "type": "link",
-              "on_success": "opens read-only view of the submitted content"
+              "on_success": "displays student's submission"
             },
             {
               "action_name": "Edit submission",
-              "opens_form": "Submission_Form",
               "preconditions": [
-                "due date not passed",
-                "teacher permits resubmission",
-                "grading status == Not graded"
+                "due date has not passed",
+                "teacher permits resubmission"
               ],
-              "on_success": "updates existing submission (keeps Submission status == Submitted for grading)"
+              "on_success": "opens Submission_Form prefilled with student's submission"
             }
           ]
         },
         "Graded": {
           "available_actions": [
             {
+              "action_name": "View feedback",
+              "preconditions": [
+                "status must be Graded"
+              ],
+              "on_success": "displays earned grade and written feedback"
+            },
+            {
               "action_name": "View submission",
-              "type": "link",
-              "on_success": "opens read-only view including earned grade and written feedback"
+              "on_success": "displays student's submission and associated grade/feedback"
             }
           ]
         }
@@ -305,10 +326,23 @@ The Assignment page displays the assignment's Opened date, Due date, and full De
 
 </description>
 
+<workflows>
+WF-001 | Open submission form via Add submission button | actor: <role> | branch: none | terminal: Add submission | on_success: opens Submission_Form
+WF-002 | Submit with both Online Text and File Upload available | actor: <role> | branch: assignment_allows_online_text == true AND assignment_allows_file_upload == true | terminal: Submit | on_success: creates submission and sets status to Submitted for grading
+WF-003 | Submit with only Online Text available | actor: <role> | branch: assignment_allows_online_text == true AND assignment_allows_file_upload == false | terminal: Submit | on_success: creates submission and sets status to Submitted for grading
+WF-004 | Submit with only File Upload available | actor: <role> | branch: assignment_allows_online_text == false AND assignment_allows_file_upload == true | terminal: Submit | on_success: creates submission and sets status to Submitted for grading
+WF-005 | Submit when no input areas are enabled | actor: <role> | branch: assignment_allows_online_text == false AND assignment_allows_file_upload == false | terminal: Submit | on_success: creates submission and sets status to Submitted for grading
+WF-006 | Add submission action from No_Submission state | actor: <role> | branch: entity_state == No_Submission | terminal: Add submission | on_success: opens Submission_Form
+WF-007 | View submission from Submitted_for_grading state | actor: <role> | branch: entity_state == Submitted_for_grading | terminal: View submission | on_success: displays student's submission
+WF-008 | Edit submission from Submitted_for_grading state | actor: <role> | branch: entity_state == Submitted_for_grading | terminal: Edit submission | on_success: opens Submission_Form prefilled with student's submission
+WF-009 | View feedback from Graded state | actor: <role> | branch: entity_state == Graded | terminal: View feedback | on_success: displays earned grade and written feedback
+WF-010 | View submission from Graded state | actor: <role> | branch: entity_state == Graded | terminal: View submission | on_success: displays student's submission and associated grade/feedback
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[21:42:16] Test-Negative - LLM RESPONSE
+[15:11:40] Test-Negative - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Assignment",
@@ -316,96 +350,107 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "N-001",
-      "test_case": "Attempt Edit submission when due date has passed",
+      "wf_ref": "WF-008",
+      "test_case": "Attempt 'Edit submission' after the due date has passed (precondition: due date has not passed violated)",
       "preconditions": [
-        "Student has an existing submission in state 'Submitted for grading'",
-        "Assignment due date is in the past (due date not passed precondition is false)"
+        "<student logged in>",
+        "Assignment exists with entity_state == Submitted_for_grading",
+        "Assignment due date is in the past (i.e., due date has passed)"
       ],
       "steps": [
-        "1. Open the Assignment page for the assignment with the above preconditions",
+        "1. Navigate to the Assignment page for <assignment with due date passed and entity_state == Submitted_for_grading>",
         "2. Click the 'Edit submission' action"
       ],
-      "expected_result": "Edit submission action is blocked: the 'Edit submission' button is not available or is disabled and clicking it does nothing; the existing submission remains in state 'Submitted for grading' (no edit form opens and submission is not updated).",
+      "expected_result": "The Edit submission action is blocked: the 'Edit submission' button is not visible; Submission_Form does not open; submission remains in 'Submitted for grading' state and no edit occurs.",
       "priority": "high"
     },
     {
       "tc_id": "N-002",
-      "test_case": "Attempt Edit submission when teacher forbids resubmission",
+      "wf_ref": "WF-008",
+      "test_case": "Attempt 'Edit submission' when teacher does not permit resubmission (precondition violated)",
       "preconditions": [
-        "Student has an existing submission in state 'Submitted for grading'",
-        "Teacher permission 'permits resubmission' is false"
+        "<student logged in>",
+        "Assignment exists with entity_state == Submitted_for_grading",
+        "Teacher resubmission permission is set to false for this assignment"
       ],
       "steps": [
-        "1. Open the Assignment page for the assignment with the above preconditions",
+        "1. Navigate to the Assignment page for <assignment where teacher_permits_resubmission == false and entity_state == Submitted_for_grading>",
         "2. Click the 'Edit submission' action"
       ],
-      "expected_result": "Edit submission action is blocked: the 'Edit submission' button is not available or is disabled and clicking it does nothing; the existing submission remains unchanged (no edit form opens and submission is not updated).",
+      "expected_result": "The Edit submission action is blocked: the 'Edit submission' button is not visible; Submission_Form does not open; submission remains in 'Submitted for grading' state and no edit occurs.",
       "priority": "high"
     },
     {
       "tc_id": "N-003",
-      "test_case": "Attempt Edit submission when grading status is Graded",
+      "wf_ref": "WF-009",
+      "test_case": "Attempt 'View feedback' when the assignment is not graded (precondition: status must be Graded violated)",
       "preconditions": [
-        "Student has an existing submission whose Grading status == Graded"
+        "<student logged in>",
+        "Assignment exists with entity_state != Graded (e.g., Submitted_for_grading)"
       ],
       "steps": [
-        "1. Open the Assignment page for the assignment with the above precondition",
-        "2. Click the 'Edit submission' action"
+        "1. Navigate to the Assignment page for <assignment with entity_state != Graded>",
+        "2. Click the 'View feedback' action"
       ],
-      "expected_result": "Edit submission action is blocked: the 'Edit submission' button is not available or is disabled and clicking it does nothing; the submission remains in Graded state and is not updated (no edit form opens).",
+      "expected_result": "The View feedback action is blocked: the 'View feedback' button is not visible; clicking does not display earned grade or written feedback; grading status remains unchanged (e.g., 'Not graded' or 'Submitted for grading').",
       "priority": "high"
     },
     {
       "tc_id": "N-004",
-      "test_case": "Attempt Add submission when a submission already exists (state = Submitted for grading)",
+      "wf_ref": "WF-006",
+      "test_case": "Attempt 'View submission' from No_Submission state (wrong-state action)",
       "preconditions": [
-        "Student has an existing submission in state 'Submitted for grading'"
+        "<student logged in>",
+        "Assignment exists with entity_state == No_Submission"
       ],
       "steps": [
-        "1. Open the Assignment page showing Submission status 'Submitted for grading'",
-        "2. Attempt to locate and click the 'Add submission' action"
+        "1. Navigate to the Assignment page for <assignment with entity_state == No_Submission>",
+        "2. Attempt to click 'View submission' (if visible)"
       ],
-      "expected_result": "Add submission action is not available in this state: the 'Add submission' button is not visible (or is disabled) and the user cannot open the submission form; no new submission is created and the existing submission remains unchanged.",
-      "priority": "high"
+      "expected_result": "The View submission action is not available: there is no 'View submission' button; the page displays 'No submissions have been made yet' (or equivalent) and no submission is shown.",
+      "priority": "medium"
     },
     {
       "tc_id": "N-005",
-      "test_case": "Attempt View submission when no submissions have been made yet",
+      "wf_ref": null,
+      "test_case": "Attempt 'Add submission' while in Submitted_for_grading state (wrong-state action)",
       "preconditions": [
-        "Assignment shows Submission status 'No submissions have been made yet'"
+        "<student logged in>",
+        "Assignment exists with entity_state == Submitted_for_grading"
       ],
       "steps": [
-        "1. Open the Assignment page showing 'No submissions have been made yet'",
-        "2. Attempt to locate and click a 'View submission' action"
+        "1. Navigate to the Assignment page for <assignment with entity_state == Submitted_for_grading>",
+        "2. Attempt to click the 'Add submission' button (if visible)"
       ],
-      "expected_result": "View submission action is not available in this state: there is no 'View submission' link or it is disabled; no submission view opens because no submission exists.",
+      "expected_result": "The Add submission action is not available: the 'Add submission' button is not visible (or is disabled); Submission_Form cannot be opened to create a new submission; existing submission remains unchanged.",
       "priority": "medium"
     },
     {
       "tc_id": "N-006",
-      "test_case": "Attempt Edit submission (open form) when one of multiple preconditions fails (combined preconditions enforcement)",
+      "wf_ref": "WF-010",
+      "test_case": "Attempt 'Edit submission' from Graded state (wrong-state action)",
       "preconditions": [
-        "Student has an existing submission in state 'Submitted for grading'",
-        "At least one of the Edit submission preconditions is false (e.g., due date passed OR teacher forbids resubmission OR grading status != 'Not graded')"
+        "<student logged in>",
+        "Assignment exists with entity_state == Graded"
       ],
       "steps": [
-        "1. Open the Assignment page with the above preconditions",
-        "2. Click the 'Edit submission' action"
+        "1. Navigate to the Assignment page for <assignment with entity_state == Graded>",
+        "2. Attempt to click the 'Edit submission' action (if visible)"
       ],
-      "expected_result": "Edit submission action is blocked when any required precondition is not met: the 'Edit submission' button is not available or is disabled and clicking it does nothing; the submission remains unchanged (no edit form opens and no update occurs).",
-      "priority": "high"
+      "expected_result": "The Edit submission action is not available: the 'Edit submission' button is not visible (or is disabled); Submission_Form does not open; the earned grade and written feedback remain displayed and the submission is not modified.",
+      "priority": "medium"
     }
   ],
   "summary": {
     "total": 6,
-    "high_priority": 5,
-    "medium_priority": 1,
+    "high_priority": 3,
+    "medium_priority": 3,
     "low_priority": 0
   }
 }
 
 ------------------------------------------------------------
-[21:42:16] Test-Negative - PARSED JSON
+[15:11:40] Test-Negative - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Assignment",
@@ -413,90 +458,101 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "N-001",
-      "test_case": "Attempt Edit submission when due date has passed",
+      "wf_ref": "WF-008",
+      "test_case": "Attempt 'Edit submission' after the due date has passed (precondition: due date has not passed violated)",
       "preconditions": [
-        "Student has an existing submission in state 'Submitted for grading'",
-        "Assignment due date is in the past (due date not passed precondition is false)"
+        "<student logged in>",
+        "Assignment exists with entity_state == Submitted_for_grading",
+        "Assignment due date is in the past (i.e., due date has passed)"
       ],
       "steps": [
-        "1. Open the Assignment page for the assignment with the above preconditions",
+        "1. Navigate to the Assignment page for <assignment with due date passed and entity_state == Submitted_for_grading>",
         "2. Click the 'Edit submission' action"
       ],
-      "expected_result": "Edit submission action is blocked: the 'Edit submission' button is not available or is disabled and clicking it does nothing; the existing submission remains in state 'Submitted for grading' (no edit form opens and submission is not updated).",
+      "expected_result": "The Edit submission action is blocked: the 'Edit submission' button is not visible; Submission_Form does not open; submission remains in 'Submitted for grading' state and no edit occurs.",
       "priority": "high"
     },
     {
       "tc_id": "N-002",
-      "test_case": "Attempt Edit submission when teacher forbids resubmission",
+      "wf_ref": "WF-008",
+      "test_case": "Attempt 'Edit submission' when teacher does not permit resubmission (precondition violated)",
       "preconditions": [
-        "Student has an existing submission in state 'Submitted for grading'",
-        "Teacher permission 'permits resubmission' is false"
+        "<student logged in>",
+        "Assignment exists with entity_state == Submitted_for_grading",
+        "Teacher resubmission permission is set to false for this assignment"
       ],
       "steps": [
-        "1. Open the Assignment page for the assignment with the above preconditions",
+        "1. Navigate to the Assignment page for <assignment where teacher_permits_resubmission == false and entity_state == Submitted_for_grading>",
         "2. Click the 'Edit submission' action"
       ],
-      "expected_result": "Edit submission action is blocked: the 'Edit submission' button is not available or is disabled and clicking it does nothing; the existing submission remains unchanged (no edit form opens and submission is not updated).",
+      "expected_result": "The Edit submission action is blocked: the 'Edit submission' button is not visible; Submission_Form does not open; submission remains in 'Submitted for grading' state and no edit occurs.",
       "priority": "high"
     },
     {
       "tc_id": "N-003",
-      "test_case": "Attempt Edit submission when grading status is Graded",
+      "wf_ref": "WF-009",
+      "test_case": "Attempt 'View feedback' when the assignment is not graded (precondition: status must be Graded violated)",
       "preconditions": [
-        "Student has an existing submission whose Grading status == Graded"
+        "<student logged in>",
+        "Assignment exists with entity_state != Graded (e.g., Submitted_for_grading)"
       ],
       "steps": [
-        "1. Open the Assignment page for the assignment with the above precondition",
-        "2. Click the 'Edit submission' action"
+        "1. Navigate to the Assignment page for <assignment with entity_state != Graded>",
+        "2. Click the 'View feedback' action"
       ],
-      "expected_result": "Edit submission action is blocked: the 'Edit submission' button is not available or is disabled and clicking it does nothing; the submission remains in Graded state and is not updated (no edit form opens).",
+      "expected_result": "The View feedback action is blocked: the 'View feedback' button is not visible; clicking does not display earned grade or written feedback; grading status remains unchanged (e.g., 'Not graded' or 'Submitted for grading').",
       "priority": "high"
     },
     {
       "tc_id": "N-004",
-      "test_case": "Attempt Add submission when a submission already exists (state = Submitted for grading)",
+      "wf_ref": "WF-006",
+      "test_case": "Attempt 'View submission' from No_Submission state (wrong-state action)",
       "preconditions": [
-        "Student has an existing submission in state 'Submitted for grading'"
+        "<student logged in>",
+        "Assignment exists with entity_state == No_Submission"
       ],
       "steps": [
-        "1. Open the Assignment page showing Submission status 'Submitted for grading'",
-        "2. Attempt to locate and click the 'Add submission' action"
+        "1. Navigate to the Assignment page for <assignment with entity_state == No_Submission>",
+        "2. Attempt to click 'View submission' (if visible)"
       ],
-      "expected_result": "Add submission action is not available in this state: the 'Add submission' button is not visible (or is disabled) and the user cannot open the submission form; no new submission is created and the existing submission remains unchanged.",
-      "priority": "high"
+      "expected_result": "The View submission action is not available: there is no 'View submission' button; the page displays 'No submissions have been made yet' (or equivalent) and no submission is shown.",
+      "priority": "medium"
     },
     {
       "tc_id": "N-005",
-      "test_case": "Attempt View submission when no submissions have been made yet",
+      "wf_ref": null,
+      "test_case": "Attempt 'Add submission' while in Submitted_for_grading state (wrong-state action)",
       "preconditions": [
-        "Assignment shows Submission status 'No submissions have been made yet'"
+        "<student logged in>",
+        "Assignment exists with entity_state == Submitted_for_grading"
       ],
       "steps": [
-        "1. Open the Assignment page showing 'No submissions have been made yet'",
-        "2. Attempt to locate and click a 'View submission' action"
+        "1. Navigate to the Assignment page for <assignment with entity_state == Submitted_for_grading>",
+        "2. Attempt to click the 'Add submission' button (if visible)"
       ],
-      "expected_result": "View submission action is not available in this state: there is no 'View submission' link or it is disabled; no submission view opens because no submission exists.",
+      "expected_result": "The Add submission action is not available: the 'Add submission' button is not visible (or is disabled); Submission_Form cannot be opened to create a new submission; existing submission remains unchanged.",
       "priority": "medium"
     },
     {
       "tc_id": "N-006",
-      "test_case": "Attempt Edit submission (open form) when one of multiple preconditions fails (combined preconditions enforcement)",
+      "wf_ref": "WF-010",
+      "test_case": "Attempt 'Edit submission' from Graded state (wrong-state action)",
       "preconditions": [
-        "Student has an existing submission in state 'Submitted for grading'",
-        "At least one of the Edit submission preconditions is false (e.g., due date passed OR teacher forbids resubmission OR grading status != 'Not graded')"
+        "<student logged in>",
+        "Assignment exists with entity_state == Graded"
       ],
       "steps": [
-        "1. Open the Assignment page with the above preconditions",
-        "2. Click the 'Edit submission' action"
+        "1. Navigate to the Assignment page for <assignment with entity_state == Graded>",
+        "2. Attempt to click the 'Edit submission' action (if visible)"
       ],
-      "expected_result": "Edit submission action is blocked when any required precondition is not met: the 'Edit submission' button is not available or is disabled and clicking it does nothing; the submission remains unchanged (no edit form opens and no update occurs).",
-      "priority": "high"
+      "expected_result": "The Edit submission action is not available: the 'Edit submission' button is not visible (or is disabled); Submission_Form does not open; the earned grade and written feedback remain displayed and the submission is not modified.",
+      "priority": "medium"
     }
   ],
   "summary": {
     "total": 6,
-    "high_priority": 5,
-    "medium_priority": 1,
+    "high_priority": 3,
+    "medium_priority": 3,
     "low_priority": 0
   }
 }

@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-22T21:31:44.628610
+DEBUG SESSION STARTED: 2026-05-25T15:41:24.134448
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[21:31:44] Test-Edge - SYSTEM PROMPT
+[15:41:24] Test-Edge - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Edge Case and Boundary Test Generator. You receive (1) a UI-AST JSON for one module and (2) the original functional description. Your job is to produce ONLY boundary and edge case tests — scenarios at the limits of valid/invalid input and unusual-but-plausible user behaviors.
 
@@ -24,6 +24,10 @@ You are NOT producing happy paths (positive prompt) or standard validation failu
 <description>
 {Original functional description text for this module}
 </description>
+
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
 
 ---
 
@@ -176,6 +180,15 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 
 ---
 
+**WORKFLOW-AWARE BOUNDARY SCOPING (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- For each workflow where `conditional_branch` activates a numeric or date field, check if that field has a boundary (a numeric/date threshold in the AST `constraints` or description).
+- If yes, that workflow's branch is a **candidate for a boundary edge test** — add or confirm a boundary TC exists for it.
+- Add `"wf_ref": "WF-NNN"` to each TC that maps to a specific workflow's boundary. Set `"wf_ref": null` for generic input/interaction edge tests.
+
+---
+
 **OUTPUT — JSON only, no prose, no markdown fencing:**
 
 {
@@ -184,6 +197,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": null,
       "subcategory": "boundary | input_edge | interaction_edge | state_edge | data_edge",
       "test_case": "Short descriptive name",
       "preconditions": ["precondition 1"],
@@ -206,7 +220,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 
 
 ------------------------------------------------------------
-[21:31:44] Test-Edge - USER PROMPT
+[15:41:24] Test-Edge - USER PROMPT
 ------------------------------------------------------------
 <module_name>Update Contact Info</module_name>
 
@@ -214,91 +228,75 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 {
   "module_name": "Update Contact Info",
   "components": {
-    "Contact_Info_Form": {
+    "Contact_Profile_Form": {
       "type": "form",
-      "metadata": {
-        "pre_filled": true
-      },
-      "prefilled_values": {
-        "First_Name": "pre-filled from customer profile",
-        "Last_Name": "pre-filled from customer profile",
-        "Street_Address": "pre-filled from customer profile",
-        "City": "pre-filled from customer profile",
-        "State": "pre-filled from customer profile",
-        "ZIP_Code": "pre-filled from customer profile",
-        "Phone_Number": "pre-filled from customer profile"
-      },
+      "constraints": [
+        "validate all fields on submit"
+      ],
       "fields": {
         "First_Name": {
           "type": "unspecified",
           "required": true,
-          "initial_value": "pre-filled from customer profile",
           "constraints": [
-            "must be present",
-            "must match expected format for a personal name"
+            "required",
+            "must be valid format"
           ]
         },
         "Last_Name": {
           "type": "unspecified",
           "required": true,
-          "initial_value": "pre-filled from customer profile",
           "constraints": [
-            "must be present",
-            "must match expected format for a personal name"
+            "required",
+            "must be valid format"
           ]
         },
         "Street_Address": {
           "type": "unspecified",
           "required": true,
-          "initial_value": "pre-filled from customer profile",
           "constraints": [
-            "must be present",
-            "must match expected format for a street address"
+            "required",
+            "must be valid format"
           ]
         },
         "City": {
           "type": "unspecified",
           "required": true,
-          "initial_value": "pre-filled from customer profile",
           "constraints": [
-            "must be present",
-            "must match expected format for a city name"
+            "required",
+            "must be valid format"
           ]
         },
         "State": {
           "type": "unspecified",
           "required": true,
-          "initial_value": "pre-filled from customer profile",
           "constraints": [
-            "must be present",
-            "must match expected format for a state"
+            "required",
+            "must be valid format"
           ]
         },
         "ZIP_Code": {
           "type": "unspecified",
           "required": true,
-          "initial_value": "pre-filled from customer profile",
           "constraints": [
-            "must be present",
-            "must match expected ZIP/postal code format"
+            "required",
+            "must be valid ZIP/postal code format"
           ]
         },
         "Phone_Number": {
           "type": "unspecified",
           "required": true,
-          "initial_value": "pre-filled from customer profile",
           "constraints": [
-            "must be present",
-            "must match expected phone number format"
+            "required",
+            "must be valid phone number format"
           ]
         }
       },
       "submit_actions": [
         {
           "element_name": "Update Profile",
-          "on_submit": "validates all fields (format and completeness) per-field",
-          "on_success": "Profile updated successfully. Refreshes the data.",
-          "on_failure": "highlights invalid fields and displays inline error banner"
+          "type": "button",
+          "on_success": "Profile updated successfully.; refreshes the data",
+          "on_failure": "highlights invalid fields and displays an inline error banner"
         }
       ]
     }
@@ -312,10 +310,14 @@ The customer profile page offers an editable form pre-filled with First Name, La
 
 </description>
 
+<workflows>
+WF-001 | Update Contact Profile | actor: <role> | branch: none | terminal: Update Profile | on_success: Profile updated successfully.; refreshes the data
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[21:33:07] Test-Edge - LLM RESPONSE
+[15:43:01] Test-Edge - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Update Contact Info",
@@ -323,68 +325,70 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": "WF-001",
       "subcategory": "input_edge",
-      "test_case": "Leading/trailing whitespace in First_Name is trimmed on save",
+      "test_case": "Very long First_Name input (200+ chars)",
       "preconditions": [
-        "User is signed in",
-        "Customer profile page is open with Contact_Info_Form pre-filled"
+        "User is authenticated and on the customer profile page",
+        "Form is pre-filled with existing contact values"
       ],
       "steps": [
-        "1. Focus the First_Name field",
-        "2. Replace the field value with the same name but with leading and trailing spaces (e.g., prepend and append whitespace)",
-        "3. Click the Update Profile button"
+        "1. Replace the First_Name field value with <very long string (200+ characters)>",
+        "2. Click the 'Update Profile' button"
       ],
-      "expected_result": "Form submits successfully; 'Profile updated successfully.' banner appears and the refreshed form displays First_Name without leading or trailing whitespace (succeeds).",
+      "expected_result": "Either: form submission is blocked and the First_Name field is highlighted with an inline error and an inline error banner is displayed (is blocked / error shown); OR: form submits successfully, the \"Profile updated successfully.\" banner is displayed and the refreshed profile shows First_Name exactly as entered (succeeds).",
       "priority": "medium"
     },
     {
       "tc_id": "E-002",
+      "wf_ref": "WF-001",
       "subcategory": "input_edge",
-      "test_case": "Entering only whitespace into required Last_Name is treated as missing",
+      "test_case": "Last_Name containing special characters and emoji",
       "preconditions": [
-        "User is signed in",
-        "Customer profile page is open with Contact_Info_Form pre-filled"
+        "User is authenticated and on the customer profile page",
+        "Form is pre-filled with existing contact values"
       ],
       "steps": [
-        "1. Focus the Last_Name field",
-        "2. Clear the field and enter only whitespace characters",
-        "3. Click the Update Profile button"
+        "1. Replace the Last_Name field value with <text containing special characters and emoji>",
+        "2. Click the 'Update Profile' button"
       ],
-      "expected_result": "Submission is blocked; Last_Name field is highlighted as invalid and an inline error banner is displayed indicating the field must be present (is blocked / error shown).",
+      "expected_result": "Either: submission is blocked and Last_Name is highlighted with an inline format error and an inline error banner is displayed (is blocked / error shown); OR: form submits successfully, the \"Profile updated successfully.\" banner is displayed and the refreshed profile shows Last_Name exactly as entered (succeeds).",
       "priority": "medium"
     },
     {
       "tc_id": "E-003",
+      "wf_ref": "WF-001",
       "subcategory": "input_edge",
-      "test_case": "Very long Street_Address input (200+ characters) triggers format/length handling",
+      "test_case": "Leading/trailing whitespace in Street_Address is submitted",
       "preconditions": [
-        "User is signed in",
-        "Customer profile page is open with Contact_Info_Form pre-filled"
+        "User is authenticated and on the customer profile page",
+        "Form is pre-filled with existing contact values"
       ],
       "steps": [
-        "1. Focus the Street_Address field",
-        "2. Paste a very long string exceeding 200 characters into Street_Address",
-        "3. Click the Update Profile button"
+        "1. Replace the Street_Address field value with <value that has leading and trailing whitespace>",
+        "2. Click the 'Update Profile' button"
       ],
-      "expected_result": "Submission is blocked; Street_Address is highlighted and an inline error banner is displayed indicating the address does not meet allowed format/length (is blocked / error shown).",
-      "priority": "medium"
+      "expected_result": "Either: the system trims leading/trailing whitespace and the form submits successfully; the \"Profile updated successfully.\" banner appears and the refreshed profile displays Street_Address without leading/trailing whitespace (succeeds); OR: submission is blocked, Street_Address is highlighted and an inline error banner is displayed indicating invalid format (is blocked / error shown).",
+      "priority": "low"
     },
     {
       "tc_id": "E-004",
+      "wf_ref": "WF-001",
       "subcategory": "interaction_edge",
-      "test_case": "Browser Back after successful update shows refreshed values (no duplicate update)",
+      "test_case": "Rapid re-submission after successful update using browser back",
       "preconditions": [
-        "User is signed in",
-        "Customer profile page is open with Contact_Info_Form pre-filled"
+        "User is authenticated and on the customer profile page",
+        "Form is pre-filled with existing contact values"
       ],
       "steps": [
-        "1. Change the Phone_Number field to a valid new value",
-        "2. Click the Update Profile button",
-        "3. Confirm the 'Profile updated successfully.' banner appears and the page refreshes showing the updated Phone_Number",
-        "4. Click the browser Back button"
+        "1. Change the Phone_Number field to <a valid different phone number>",
+        "2. Click the 'Update Profile' button",
+        "3. Observe the \"Profile updated successfully.\" banner and that data refresh completes",
+        "4. Press the browser Back button to return to the edit form",
+        "5. Without changing any fields, click the 'Update Profile' button again"
       ],
-      "expected_result": "Navigating back returns to the profile form showing the updated values (reflecting the recent successful update) and no additional automatic success banner appears or duplicate update occurs (succeeds).",
-      "priority": "low"
+      "expected_result": "Preferred: second submit succeeds and the \"Profile updated successfully.\" banner appears; the profile shows the last-submitted Phone_Number and no duplicate profile records are created (succeeds). If the system detects a stale form, the second submit is blocked and an inline error banner is displayed indicating the form cannot be re-submitted (is blocked / error shown).",
+      "priority": "medium"
     }
   ],
   "summary": {
@@ -400,7 +404,7 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
 }
 
 ------------------------------------------------------------
-[21:33:07] Test-Edge - PARSED JSON
+[15:43:01] Test-Edge - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Update Contact Info",
@@ -408,68 +412,70 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": "WF-001",
       "subcategory": "input_edge",
-      "test_case": "Leading/trailing whitespace in First_Name is trimmed on save",
+      "test_case": "Very long First_Name input (200+ chars)",
       "preconditions": [
-        "User is signed in",
-        "Customer profile page is open with Contact_Info_Form pre-filled"
+        "User is authenticated and on the customer profile page",
+        "Form is pre-filled with existing contact values"
       ],
       "steps": [
-        "1. Focus the First_Name field",
-        "2. Replace the field value with the same name but with leading and trailing spaces (e.g., prepend and append whitespace)",
-        "3. Click the Update Profile button"
+        "1. Replace the First_Name field value with <very long string (200+ characters)>",
+        "2. Click the 'Update Profile' button"
       ],
-      "expected_result": "Form submits successfully; 'Profile updated successfully.' banner appears and the refreshed form displays First_Name without leading or trailing whitespace (succeeds).",
+      "expected_result": "Either: form submission is blocked and the First_Name field is highlighted with an inline error and an inline error banner is displayed (is blocked / error shown); OR: form submits successfully, the \"Profile updated successfully.\" banner is displayed and the refreshed profile shows First_Name exactly as entered (succeeds).",
       "priority": "medium"
     },
     {
       "tc_id": "E-002",
+      "wf_ref": "WF-001",
       "subcategory": "input_edge",
-      "test_case": "Entering only whitespace into required Last_Name is treated as missing",
+      "test_case": "Last_Name containing special characters and emoji",
       "preconditions": [
-        "User is signed in",
-        "Customer profile page is open with Contact_Info_Form pre-filled"
+        "User is authenticated and on the customer profile page",
+        "Form is pre-filled with existing contact values"
       ],
       "steps": [
-        "1. Focus the Last_Name field",
-        "2. Clear the field and enter only whitespace characters",
-        "3. Click the Update Profile button"
+        "1. Replace the Last_Name field value with <text containing special characters and emoji>",
+        "2. Click the 'Update Profile' button"
       ],
-      "expected_result": "Submission is blocked; Last_Name field is highlighted as invalid and an inline error banner is displayed indicating the field must be present (is blocked / error shown).",
+      "expected_result": "Either: submission is blocked and Last_Name is highlighted with an inline format error and an inline error banner is displayed (is blocked / error shown); OR: form submits successfully, the \"Profile updated successfully.\" banner is displayed and the refreshed profile shows Last_Name exactly as entered (succeeds).",
       "priority": "medium"
     },
     {
       "tc_id": "E-003",
+      "wf_ref": "WF-001",
       "subcategory": "input_edge",
-      "test_case": "Very long Street_Address input (200+ characters) triggers format/length handling",
+      "test_case": "Leading/trailing whitespace in Street_Address is submitted",
       "preconditions": [
-        "User is signed in",
-        "Customer profile page is open with Contact_Info_Form pre-filled"
+        "User is authenticated and on the customer profile page",
+        "Form is pre-filled with existing contact values"
       ],
       "steps": [
-        "1. Focus the Street_Address field",
-        "2. Paste a very long string exceeding 200 characters into Street_Address",
-        "3. Click the Update Profile button"
+        "1. Replace the Street_Address field value with <value that has leading and trailing whitespace>",
+        "2. Click the 'Update Profile' button"
       ],
-      "expected_result": "Submission is blocked; Street_Address is highlighted and an inline error banner is displayed indicating the address does not meet allowed format/length (is blocked / error shown).",
-      "priority": "medium"
+      "expected_result": "Either: the system trims leading/trailing whitespace and the form submits successfully; the \"Profile updated successfully.\" banner appears and the refreshed profile displays Street_Address without leading/trailing whitespace (succeeds); OR: submission is blocked, Street_Address is highlighted and an inline error banner is displayed indicating invalid format (is blocked / error shown).",
+      "priority": "low"
     },
     {
       "tc_id": "E-004",
+      "wf_ref": "WF-001",
       "subcategory": "interaction_edge",
-      "test_case": "Browser Back after successful update shows refreshed values (no duplicate update)",
+      "test_case": "Rapid re-submission after successful update using browser back",
       "preconditions": [
-        "User is signed in",
-        "Customer profile page is open with Contact_Info_Form pre-filled"
+        "User is authenticated and on the customer profile page",
+        "Form is pre-filled with existing contact values"
       ],
       "steps": [
-        "1. Change the Phone_Number field to a valid new value",
-        "2. Click the Update Profile button",
-        "3. Confirm the 'Profile updated successfully.' banner appears and the page refreshes showing the updated Phone_Number",
-        "4. Click the browser Back button"
+        "1. Change the Phone_Number field to <a valid different phone number>",
+        "2. Click the 'Update Profile' button",
+        "3. Observe the \"Profile updated successfully.\" banner and that data refresh completes",
+        "4. Press the browser Back button to return to the edit form",
+        "5. Without changing any fields, click the 'Update Profile' button again"
       ],
-      "expected_result": "Navigating back returns to the profile form showing the updated values (reflecting the recent successful update) and no additional automatic success banner appears or duplicate update occurs (succeeds).",
-      "priority": "low"
+      "expected_result": "Preferred: second submit succeeds and the \"Profile updated successfully.\" banner appears; the profile shows the last-submitted Phone_Number and no duplicate profile records are created (succeeds). If the system detects a stale form, the second submit is blocked and an inline error banner is displayed indicating the form cannot be re-submitted (is blocked / error shown).",
+      "priority": "medium"
     }
   ],
   "summary": {

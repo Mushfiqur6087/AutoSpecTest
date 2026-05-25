@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-21T22:54:00.264646
+DEBUG SESSION STARTED: 2026-05-25T14:51:20.251677
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[22:54:00] Test-Positive - SYSTEM PROMPT
+[14:51:20] Test-Positive - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Expert UI Test Case Generator. You receive (1) a UI-AST JSON for one specific module and (2) the original functional description for that module.
 
@@ -24,6 +24,10 @@ Your job is to produce ONLY positive/functional UI test cases — tests where va
 <description>
 {Original functional description text for this module}
 </description>
+
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
 
 ---
 
@@ -146,6 +150,13 @@ Because you are testing a module in isolation, establish the required entry stat
 **1. Forms & Wizards (`form`, `wizard`):**
 - Generate ONE happy path per distinct success outcome.
 - *Conditional UI Check:* If a toggle/dropdown reveals new mandatory fields (`visible_when`), generate a separate test for that conditional branch.
+- **Wizard step coverage (CRITICAL):** If a wizard has multiple steps and any step beyond Step 1 contains its own named field group (e.g., "Address Details", "Family Members", "Identifiers"), generate ONE dedicated positive TC per such step. The TC must:
+  - Navigate to that specific step (include the preceding steps as preconditions or brief navigation steps)
+  - Fill the fields described for that step (not just pass through)
+  - Assert the step's content is visible/saved on the detail page after final submission
+  - **Do NOT collapse all wizard steps into one happy-path TC** — if Steps 2, 3, and 4 each have their own named section in the spec, they each need their own TC.
+- **Wizard in-step identifiers/duplicates:** If a wizard step allows adding identifiers, documents, or similar entries that have a uniqueness constraint, include a TC for that wizard step that also verifies the constraint (e.g., attempting to add a duplicate Document Type+Key pair inside the wizard). This is a different code path from adding the same post-creation on the detail page.
+- **Action dialogs:** If a `state_bound_action_bar` action opens a dialog with its own `fields{}` (e.g., Activate requires Activation Date, Reject requires Reason), generate ONE positive TC per such action-dialog — distinct from the state-transition TC. The TC fills the dialog field and completes the action.
 
 **2. State Machines (`state_bound_action_bar`):**
 - For each unique action available in a specific state, generate ONE test performing that action.
@@ -200,6 +211,19 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 
 ---
 
+**WORKFLOW COVERAGE OBLIGATION (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- Your test cases must **collectively cover every workflow** listed.
+- For each `wf_id`, at least one TC must:
+  - Activate the `conditional_branch` (if not null) — i.e. the test must set up the condition described.
+  - Assert the `on_success` as its `expected_result` (verbatim or as the primary basis for the expected result).
+- Add `"wf_ref": "WF-NNN"` to each TC to identify which workflow it covers.
+- If one TC naturally covers multiple workflows (e.g., the base path overlaps), pick the most specific `wf_ref`.
+- If a TC does not map to any workflow (e.g., a navigation-only test), set `"wf_ref": null`.
+
+---
+
 **OUTPUT — JSON only, no prose, no markdown fencing:**
 
 {
@@ -208,6 +232,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
   "test_cases": [
     {
       "tc_id": "P-001",
+      "wf_ref": "WF-001",
       "test_case": "Short descriptive name",
       "preconditions": ["User logged in as <Role>", "<Prerequisite state>"],
       "steps": ["1. Step one", "2. Step two"],
@@ -224,7 +249,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 }
 
 ------------------------------------------------------------
-[22:54:00] Test-Positive - USER PROMPT
+[14:51:20] Test-Positive - USER PROMPT
 ------------------------------------------------------------
 <module_name>Flights Search & Listing</module_name>
 
@@ -245,38 +270,32 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
           ]
         },
         "Departure_City": {
-          "type": "search",
-          "required": true
+          "type": "unspecified",
+          "required": false
         },
         "Arrival_City": {
-          "type": "search",
-          "required": true
+          "type": "unspecified",
+          "required": false
         },
         "Departure_Date": {
           "type": "date",
-          "required": true
+          "required": false
         },
         "Return_Date": {
           "type": "date",
-          "required": false,
-          "visible_when": "Trip_Type == Round-trip"
+          "required": false
         },
-        "Passenger_Count": {
-          "type": "group",
-          "fields": {
-            "Adults": {
-              "type": "number",
-              "required": true
-            },
-            "Children": {
-              "type": "number",
-              "required": false
-            },
-            "Infants": {
-              "type": "number",
-              "required": false
-            }
-          }
+        "Adults": {
+          "type": "number",
+          "required": false
+        },
+        "Children": {
+          "type": "number",
+          "required": false
+        },
+        "Infants": {
+          "type": "number",
+          "required": false
         },
         "Cabin_Class": {
           "type": "dropdown",
@@ -292,76 +311,95 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
       "submit_actions": [
         {
           "element_name": "Search",
-          "on_success": "redirects to listing page"
+          "on_success": "redirects to Flights Results page"
         }
       ]
     },
-    "Sidebar_Filters": {
-      "type": "form",
-      "fields": {
-        "Airlines": {
-          "type": "dropdown",
-          "required": false,
-          "multiple": true
+    "Flights_Results_Page": {
+      "type": "page",
+      "components": {
+        "Sidebar_Filters": {
+          "type": "form",
+          "fields": {
+            "Airlines": {
+              "type": "unspecified",
+              "required": false
+            },
+            "Number_of_Stops": {
+              "type": "unspecified",
+              "required": false,
+              "options": [
+                "Non-stop",
+                "1 stop",
+                "2+ stops"
+              ]
+            },
+            "Departure_Time_Range": {
+              "type": "unspecified",
+              "required": false
+            },
+            "Arrival_Time_Range": {
+              "type": "unspecified",
+              "required": false
+            },
+            "Price_Range": {
+              "type": "unspecified",
+              "required": false
+            }
+          }
         },
-        "Number_of_Stops": {
-          "type": "dropdown",
-          "required": false,
+        "Results_List": {
+          "type": "data_table",
+          "columns": [
+            "Airline",
+            "Departure_Time",
+            "Departure_Airport",
+            "Arrival_Time",
+            "Arrival_Airport",
+            "Duration",
+            "Stops",
+            "Price"
+          ],
+          "sortable_columns": [
+            "Price",
+            "Duration",
+            "Departure_Time",
+            "Arrival_Time"
+          ],
+          "row_actions": [
+            {
+              "action_name": "Select",
+              "type": "button"
+            },
+            {
+              "action_name": "Expand",
+              "type": "button",
+              "fields": {
+                "Baggage_Allowance": {
+                  "type": "unspecified"
+                },
+                "Fare_Rules": {
+                  "type": "unspecified"
+                },
+                "Seat_Availability": {
+                  "type": "unspecified"
+                }
+              },
+              "on_success": "expands result to show baggage allowance, fare rules, and seat availability"
+            }
+          ],
+          "bulk_actions": []
+        },
+        "Sort_Controls": {
+          "type": "sort_controls",
           "options": [
-            "Non-stop",
-            "1 stop",
-            "2+ stops"
+            "Price",
+            "Duration",
+            "Departure_Time",
+            "Arrival_Time"
           ]
-        },
-        "Departure_Time_Range": {
-          "type": "unspecified",
-          "required": false
-        },
-        "Arrival_Time_Range": {
-          "type": "unspecified",
-          "required": false
-        },
-        "Price_Range": {
-          "type": "unspecified",
-          "required": false
         }
-      },
-      "actions": [
-        {
-          "element_name": "Apply Filters",
-          "on_success": "filters applied to listing"
-        },
-        {
-          "element_name": "Clear Filters",
-          "on_success": "filters cleared"
-        }
-      ]
-    },
-    "Flights_Listing": {
-      "type": "data_table",
-      "row_expandable": true,
-      "on_row_expand": "reveals additional flight details (baggage allowance, fare rules, seat availability) as passive display",
-      "row_actions": [
-        {
-          "action_name": "Select",
-          "on_success": "flight selected"
-        }
-      ],
-      "sorting_controls": {
-        "type": "dropdown",
-        "options": [
-          "Price",
-          "Duration",
-          "Departure Time",
-          "Arrival Time"
-        ]
-      },
-      "sortable_columns": [
-        "Price",
-        "Duration",
-        "Departure Time",
-        "Arrival Time"
-      ]
+      }
     }
   }
 }
@@ -376,10 +414,16 @@ The flights search form collects trip type (One-way, Round-trip, Multi-city), de
 
 </description>
 
+<workflows>
+WF-001 | Search flights | actor: <role> | branch: none | terminal: Search | on_success: redirects to Flights Results page
+WF-002 | Select a flight from results | actor: <role> | branch: none | terminal: Select | on_success: navigates to booking flow for selected flight
+WF-003 | Expand flight result details | actor: <role> | branch: none | terminal: Expand | on_success: expands result to show baggage allowance, fare rules, and seat availability
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[22:55:30] Test-Positive - LLM RESPONSE
+[14:52:25] Test-Positive - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Flights Search & Listing",
@@ -387,128 +431,90 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Search One-way trip redirects to listing page",
+      "wf_ref": "WF-001",
+      "test_case": "Search for one-way flights and view results page",
       "preconditions": [
-        "User logged in as <traveler>",
-        "Flights Search page is open"
+        "User on Flights Search page as <role>"
       ],
       "steps": [
         "1. Select 'One-way' from Trip_Type",
-        "2. Enter <Departure City> in the Departure City search field",
-        "3. Enter <Arrival City> in the Arrival City search field",
-        "4. Select <Departure Date> in the Departure Date picker",
-        "5. Enter <Adults> in the Adults field under Passenger Count",
-        "6. Select <Cabin Class> from Cabin_Class dropdown",
-        "7. Click the Search button"
+        "2. Enter <Departure City> in the Departure_City field",
+        "3. Enter <Arrival City> in the Arrival_City field",
+        "4. Enter <Departure Date> in the Departure_Date field",
+        "5. Set Adults to <Adults> and select <Cabin Class> from Cabin_Class",
+        "6. Click the Search button"
       ],
-      "expected_result": "redirects to listing page",
+      "expected_result": "redirects to Flights Results page",
       "priority": "high"
     },
     {
       "tc_id": "P-002",
-      "test_case": "Search Round-trip shows Return Date field and redirects to listing page",
+      "wf_ref": "WF-002",
+      "test_case": "Select a flight from the results to start booking",
       "preconditions": [
-        "User logged in as <traveler>",
-        "Flights Search page is open"
+        "User on Flights Search page as <role>"
       ],
       "steps": [
-        "1. Select 'Round-trip' from Trip_Type",
-        "2. Enter <Departure City> in the Departure City search field",
-        "3. Enter <Arrival City> in the Arrival City search field",
-        "4. Verify the Return Date field is visible",
-        "5. Select <Departure Date> in the Departure Date picker",
-        "6. Select <Return Date> in the Return Date picker",
-        "7. Enter <Adults> in the Adults field under Passenger Count",
-        "8. Click the Search button"
+        "1. Perform a search to open the Flights Results page: enter <Departure City>, <Arrival City>, <Departure Date>, set <Adults>, and click Search",
+        "2. In the Results List, click the Select button on one of the displayed result rows"
       ],
-      "expected_result": "redirects to listing page",
+      "expected_result": "navigates to booking flow for selected flight",
       "priority": "high"
     },
     {
       "tc_id": "P-003",
-      "test_case": "Apply sidebar filters updates the listing",
+      "wf_ref": "WF-003",
+      "test_case": "Expand a flight result to view baggage, fare rules and seat availability",
       "preconditions": [
-        "User logged in as <traveler>",
-        "Listing page is open with search results for <search criteria>"
+        "User on Flights Search page as <role>"
       ],
       "steps": [
-        "1. Open the Sidebar Filters panel",
-        "2. Select one or more <Airlines> from Airlines (multi-select)",
-        "3. Select <Number of Stops> (e.g., 'Non-stop' or '1 stop')",
-        "4. Set <Departure Time Range> and <Arrival Time Range> as needed",
-        "5. Set <Price Range> using the price controls",
-        "6. Click Apply Filters"
+        "1. Perform a search to open the Flights Results page: enter <Departure City>, <Arrival City>, <Departure Date>, set <Adults>, and click Search",
+        "2. In the Results List, click the Expand button on a result row"
       ],
-      "expected_result": "filters applied to listing",
-      "priority": "high"
+      "expected_result": "expands result to show baggage allowance, fare rules, and seat availability",
+      "priority": "medium"
     },
     {
       "tc_id": "P-004",
-      "test_case": "Clear filters restores full listing",
+      "wf_ref": null,
+      "test_case": "Filter results to show only non-stop flights",
       "preconditions": [
-        "User logged in as <traveler>",
-        "Listing page is open with active filters applied"
+        "User on Flights Search page as <role>"
       ],
       "steps": [
-        "1. Open the Sidebar Filters panel",
-        "2. Click Clear Filters"
+        "1. Perform a search to open the Flights Results page: enter <Departure City>, <Arrival City>, <Departure Date>, set <Adults>, and click Search",
+        "2. In Sidebar Filters, set Number_of_Stops to 'Non-stop'",
+        "3. Click Apply Filters on the Sidebar Filters (or trigger filter update)"
       ],
-      "expected_result": "filters cleared",
+      "expected_result": "Results List displays only rows with Stops = Non-stop; unrelated rows are no longer visible",
       "priority": "medium"
     },
     {
       "tc_id": "P-005",
-      "test_case": "Expand a flight row reveals baggage, fare rules and seat availability",
+      "wf_ref": null,
+      "test_case": "Sort results by Price",
       "preconditions": [
-        "User logged in as <traveler>",
-        "Listing page is open with search results for <search criteria>"
+        "User on Flights Search page as <role>"
       ],
       "steps": [
-        "1. Identify a flight row in the Flights Listing",
-        "2. Click the expand control on that flight row"
+        "1. Perform a search to open the Flights Results page: enter <Departure City>, <Arrival City>, <Departure Date>, set <Adults>, and click Search",
+        "2. In Sort_Controls, select 'Price' as the sort option"
       ],
-      "expected_result": "Expanded row displays baggage allowance, fare rules, and seat availability within the row",
-      "priority": "medium"
-    },
-    {
-      "tc_id": "P-006",
-      "test_case": "Select a flight from the listing",
-      "preconditions": [
-        "User logged in as <traveler>",
-        "Listing page is open with search results for <search criteria>"
-      ],
-      "steps": [
-        "1. Locate a flight row showing airline logo, times, stops, and price",
-        "2. Click the Select button for that flight row"
-      ],
-      "expected_result": "flight selected",
-      "priority": "high"
-    },
-    {
-      "tc_id": "P-007",
-      "test_case": "Sort results by Price using sorting controls",
-      "preconditions": [
-        "User logged in as <traveler>",
-        "Listing page is open with search results for <search criteria>"
-      ],
-      "steps": [
-        "1. Open the sorting dropdown on the Flights Listing",
-        "2. Select 'Price' from the sorting options"
-      ],
-      "expected_result": "Listing is reordered by 'Price' and the visible flight rows update to reflect the new order",
+      "expected_result": "Results List is re-ordered by Price with lower-priced options shown earlier in the list",
       "priority": "medium"
     }
   ],
   "summary": {
-    "total": 7,
-    "high_priority": 4,
+    "total": 5,
+    "high_priority": 2,
     "medium_priority": 3,
     "low_priority": 0
   }
 }
 
 ------------------------------------------------------------
-[22:55:30] Test-Positive - PARSED JSON
+[14:52:25] Test-Positive - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Flights Search & Listing",
@@ -516,121 +522,83 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Search One-way trip redirects to listing page",
+      "wf_ref": "WF-001",
+      "test_case": "Search for one-way flights and view results page",
       "preconditions": [
-        "User logged in as <traveler>",
-        "Flights Search page is open"
+        "User on Flights Search page as <role>"
       ],
       "steps": [
         "1. Select 'One-way' from Trip_Type",
-        "2. Enter <Departure City> in the Departure City search field",
-        "3. Enter <Arrival City> in the Arrival City search field",
-        "4. Select <Departure Date> in the Departure Date picker",
-        "5. Enter <Adults> in the Adults field under Passenger Count",
-        "6. Select <Cabin Class> from Cabin_Class dropdown",
-        "7. Click the Search button"
+        "2. Enter <Departure City> in the Departure_City field",
+        "3. Enter <Arrival City> in the Arrival_City field",
+        "4. Enter <Departure Date> in the Departure_Date field",
+        "5. Set Adults to <Adults> and select <Cabin Class> from Cabin_Class",
+        "6. Click the Search button"
       ],
-      "expected_result": "redirects to listing page",
+      "expected_result": "redirects to Flights Results page",
       "priority": "high"
     },
     {
       "tc_id": "P-002",
-      "test_case": "Search Round-trip shows Return Date field and redirects to listing page",
+      "wf_ref": "WF-002",
+      "test_case": "Select a flight from the results to start booking",
       "preconditions": [
-        "User logged in as <traveler>",
-        "Flights Search page is open"
+        "User on Flights Search page as <role>"
       ],
       "steps": [
-        "1. Select 'Round-trip' from Trip_Type",
-        "2. Enter <Departure City> in the Departure City search field",
-        "3. Enter <Arrival City> in the Arrival City search field",
-        "4. Verify the Return Date field is visible",
-        "5. Select <Departure Date> in the Departure Date picker",
-        "6. Select <Return Date> in the Return Date picker",
-        "7. Enter <Adults> in the Adults field under Passenger Count",
-        "8. Click the Search button"
+        "1. Perform a search to open the Flights Results page: enter <Departure City>, <Arrival City>, <Departure Date>, set <Adults>, and click Search",
+        "2. In the Results List, click the Select button on one of the displayed result rows"
       ],
-      "expected_result": "redirects to listing page",
+      "expected_result": "navigates to booking flow for selected flight",
       "priority": "high"
     },
     {
       "tc_id": "P-003",
-      "test_case": "Apply sidebar filters updates the listing",
+      "wf_ref": "WF-003",
+      "test_case": "Expand a flight result to view baggage, fare rules and seat availability",
       "preconditions": [
-        "User logged in as <traveler>",
-        "Listing page is open with search results for <search criteria>"
+        "User on Flights Search page as <role>"
       ],
       "steps": [
-        "1. Open the Sidebar Filters panel",
-        "2. Select one or more <Airlines> from Airlines (multi-select)",
-        "3. Select <Number of Stops> (e.g., 'Non-stop' or '1 stop')",
-        "4. Set <Departure Time Range> and <Arrival Time Range> as needed",
-        "5. Set <Price Range> using the price controls",
-        "6. Click Apply Filters"
+        "1. Perform a search to open the Flights Results page: enter <Departure City>, <Arrival City>, <Departure Date>, set <Adults>, and click Search",
+        "2. In the Results List, click the Expand button on a result row"
       ],
-      "expected_result": "filters applied to listing",
-      "priority": "high"
+      "expected_result": "expands result to show baggage allowance, fare rules, and seat availability",
+      "priority": "medium"
     },
     {
       "tc_id": "P-004",
-      "test_case": "Clear filters restores full listing",
+      "wf_ref": null,
+      "test_case": "Filter results to show only non-stop flights",
       "preconditions": [
-        "User logged in as <traveler>",
-        "Listing page is open with active filters applied"
+        "User on Flights Search page as <role>"
       ],
       "steps": [
-        "1. Open the Sidebar Filters panel",
-        "2. Click Clear Filters"
+        "1. Perform a search to open the Flights Results page: enter <Departure City>, <Arrival City>, <Departure Date>, set <Adults>, and click Search",
+        "2. In Sidebar Filters, set Number_of_Stops to 'Non-stop'",
+        "3. Click Apply Filters on the Sidebar Filters (or trigger filter update)"
       ],
-      "expected_result": "filters cleared",
+      "expected_result": "Results List displays only rows with Stops = Non-stop; unrelated rows are no longer visible",
       "priority": "medium"
     },
     {
       "tc_id": "P-005",
-      "test_case": "Expand a flight row reveals baggage, fare rules and seat availability",
+      "wf_ref": null,
+      "test_case": "Sort results by Price",
       "preconditions": [
-        "User logged in as <traveler>",
-        "Listing page is open with search results for <search criteria>"
+        "User on Flights Search page as <role>"
       ],
       "steps": [
-        "1. Identify a flight row in the Flights Listing",
-        "2. Click the expand control on that flight row"
+        "1. Perform a search to open the Flights Results page: enter <Departure City>, <Arrival City>, <Departure Date>, set <Adults>, and click Search",
+        "2. In Sort_Controls, select 'Price' as the sort option"
       ],
-      "expected_result": "Expanded row displays baggage allowance, fare rules, and seat availability within the row",
-      "priority": "medium"
-    },
-    {
-      "tc_id": "P-006",
-      "test_case": "Select a flight from the listing",
-      "preconditions": [
-        "User logged in as <traveler>",
-        "Listing page is open with search results for <search criteria>"
-      ],
-      "steps": [
-        "1. Locate a flight row showing airline logo, times, stops, and price",
-        "2. Click the Select button for that flight row"
-      ],
-      "expected_result": "flight selected",
-      "priority": "high"
-    },
-    {
-      "tc_id": "P-007",
-      "test_case": "Sort results by Price using sorting controls",
-      "preconditions": [
-        "User logged in as <traveler>",
-        "Listing page is open with search results for <search criteria>"
-      ],
-      "steps": [
-        "1. Open the sorting dropdown on the Flights Listing",
-        "2. Select 'Price' from the sorting options"
-      ],
-      "expected_result": "Listing is reordered by 'Price' and the visible flight rows update to reflect the new order",
+      "expected_result": "Results List is re-ordered by Price with lower-priced options shown earlier in the list",
       "priority": "medium"
     }
   ],
   "summary": {
-    "total": 7,
-    "high_priority": 4,
+    "total": 5,
+    "high_priority": 2,
     "medium_priority": 3,
     "low_priority": 0
   }

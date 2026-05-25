@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-21T22:54:00.271798
+DEBUG SESSION STARTED: 2026-05-25T14:51:20.258296
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[22:54:00] Test-Positive - SYSTEM PROMPT
+[14:51:20] Test-Positive - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Expert UI Test Case Generator. You receive (1) a UI-AST JSON for one specific module and (2) the original functional description for that module.
 
@@ -24,6 +24,10 @@ Your job is to produce ONLY positive/functional UI test cases — tests where va
 <description>
 {Original functional description text for this module}
 </description>
+
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
 
 ---
 
@@ -146,6 +150,13 @@ Because you are testing a module in isolation, establish the required entry stat
 **1. Forms & Wizards (`form`, `wizard`):**
 - Generate ONE happy path per distinct success outcome.
 - *Conditional UI Check:* If a toggle/dropdown reveals new mandatory fields (`visible_when`), generate a separate test for that conditional branch.
+- **Wizard step coverage (CRITICAL):** If a wizard has multiple steps and any step beyond Step 1 contains its own named field group (e.g., "Address Details", "Family Members", "Identifiers"), generate ONE dedicated positive TC per such step. The TC must:
+  - Navigate to that specific step (include the preceding steps as preconditions or brief navigation steps)
+  - Fill the fields described for that step (not just pass through)
+  - Assert the step's content is visible/saved on the detail page after final submission
+  - **Do NOT collapse all wizard steps into one happy-path TC** — if Steps 2, 3, and 4 each have their own named section in the spec, they each need their own TC.
+- **Wizard in-step identifiers/duplicates:** If a wizard step allows adding identifiers, documents, or similar entries that have a uniqueness constraint, include a TC for that wizard step that also verifies the constraint (e.g., attempting to add a duplicate Document Type+Key pair inside the wizard). This is a different code path from adding the same post-creation on the detail page.
+- **Action dialogs:** If a `state_bound_action_bar` action opens a dialog with its own `fields{}` (e.g., Activate requires Activation Date, Reject requires Reason), generate ONE positive TC per such action-dialog — distinct from the state-transition TC. The TC fills the dialog field and completes the action.
 
 **2. State Machines (`state_bound_action_bar`):**
 - For each unique action available in a specific state, generate ONE test performing that action.
@@ -200,6 +211,19 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 
 ---
 
+**WORKFLOW COVERAGE OBLIGATION (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- Your test cases must **collectively cover every workflow** listed.
+- For each `wf_id`, at least one TC must:
+  - Activate the `conditional_branch` (if not null) — i.e. the test must set up the condition described.
+  - Assert the `on_success` as its `expected_result` (verbatim or as the primary basis for the expected result).
+- Add `"wf_ref": "WF-NNN"` to each TC to identify which workflow it covers.
+- If one TC naturally covers multiple workflows (e.g., the base path overlaps), pick the most specific `wf_ref`.
+- If a TC does not map to any workflow (e.g., a navigation-only test), set `"wf_ref": null`.
+
+---
+
 **OUTPUT — JSON only, no prose, no markdown fencing:**
 
 {
@@ -208,6 +232,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
   "test_cases": [
     {
       "tc_id": "P-001",
+      "wf_ref": "WF-001",
       "test_case": "Short descriptive name",
       "preconditions": ["User logged in as <Role>", "<Prerequisite state>"],
       "steps": ["1. Step one", "2. Step two"],
@@ -224,7 +249,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 }
 
 ------------------------------------------------------------
-[22:54:00] Test-Positive - USER PROMPT
+[14:51:20] Test-Positive - USER PROMPT
 ------------------------------------------------------------
 <module_name>Visa Services</module_name>
 
@@ -232,7 +257,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 {
   "module_name": "Visa Services",
   "components": {
-    "Visa_Requirements_Selector": {
+    "Visa_Requirements_Search": {
       "type": "form",
       "fields": {
         "Nationality": {
@@ -247,7 +272,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
       "submit_actions": [
         {
           "element_name": "View Requirements",
-          "on_success": "displays visa requirements for selected Nationality and Destination Country"
+          "on_success": "shows visa requirements (visa type, processing time, required documents, fees) for the selected Nationality and Destination Country"
         }
       ]
     },
@@ -256,27 +281,27 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
       "fields": {
         "Full_Name": {
           "type": "unspecified",
-          "required": true
+          "required": false
         },
         "Passport_Number": {
           "type": "unspecified",
-          "required": true
+          "required": false
         },
         "Passport_Expiry_Date": {
           "type": "date",
-          "required": true
+          "required": false
         },
         "Date_of_Birth": {
           "type": "date",
-          "required": true
+          "required": false
         },
         "Nationality": {
           "type": "dropdown",
-          "required": true
+          "required": false
         },
         "Email": {
           "type": "email",
-          "required": true
+          "required": false
         },
         "Phone": {
           "type": "unspecified",
@@ -294,41 +319,42 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
           "type": "date",
           "required": false
         },
-        "Duration_of_Stay": {
+        "Duration_of_Stay_Days": {
           "type": "number",
           "required": false
         },
-        "Passport_Copy": {
-          "type": "file_upload",
-          "required": true
-        },
-        "Photographs": {
-          "type": "file_upload",
-          "required": true
-        },
-        "Invitation_Letter": {
-          "type": "file_upload",
-          "required": false
-        },
-        "Supporting_Documents": {
-          "type": "repeating_group",
-          "item_fields": {
-            "Document": {
+        "Document_Uploads": {
+          "type": "group",
+          "fields": {
+            "Passport_Copy": {
               "type": "file_upload",
-              "required": true
-            },
-            "Description": {
-              "type": "unspecified",
               "required": false
+            },
+            "Photographs": {
+              "type": "file_upload",
+              "required": false
+            },
+            "Invitation_Letter": {
+              "type": "file_upload",
+              "required": false
+            },
+            "Supporting_Documents": {
+              "type": "repeating_group",
+              "min": 0,
+              "item_fields": {
+                "Document_File": {
+                  "type": "file_upload",
+                  "required": false
+                }
+              }
             }
-          },
-          "min": 0
+          }
         }
       },
       "submit_actions": [
         {
           "element_name": "Submit Application",
-          "on_success": "application submitted and appears in Bookings dashboard for tracking"
+          "on_success": "creates visa application in Pending status and lists the application in Bookings dashboard"
         }
       ]
     },
@@ -337,7 +363,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
       "row_actions": [
         {
           "action_name": "View Application",
-          "on_action": "opens visa application detail for tracking status"
+          "on_success": "opens application detail for tracking status"
         }
       ]
     }
@@ -354,10 +380,16 @@ Users select their Nationality and Destination Country to view visa requirements
 
 </description>
 
+<workflows>
+WF-001 | View Visa Requirements | actor: <role> | branch: none | terminal: View Requirements | on_success: shows visa requirements (visa type, processing time, required documents, fees) for the selected Nationality and Destination Country
+WF-002 | Submit Visa Application | actor: <role> | branch: none | terminal: Submit Application | on_success: creates visa application in Pending status and lists the application in Bookings dashboard
+WF-003 | View Application from Bookings | actor: <role> | branch: none | terminal: View Application | on_success: opens application detail for tracking status
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[22:56:50] Test-Positive - LLM RESPONSE
+[14:53:27] Test-Positive - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Visa Services",
@@ -365,72 +397,95 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "View visa requirements for selected Nationality and Destination Country",
+      "wf_ref": "WF-001",
+      "test_case": "View visa requirements for a selected Nationality and Destination Country",
       "preconditions": [
-        "User logged in as <Traveler>"
+        "User logged in as <role>"
       ],
       "steps": [
-        "1. Navigate to the Visa Services module home page",
-        "2. Select <Nationality> from the Nationality dropdown in the Visa Requirements selector",
+        "1. Open the Visa Services page",
+        "2. In the Visa Requirements search form, select <Nationality> from the Nationality dropdown",
         "3. Select <Destination Country> from the Destination Country dropdown",
         "4. Click the 'View Requirements' button"
       ],
-      "expected_result": "displays visa requirements for selected Nationality and Destination Country",
-      "priority": "medium"
+      "expected_result": "Shows visa requirements (visa type, processing time, required documents, fees) for the selected Nationality and Destination Country",
+      "priority": "high"
     },
     {
       "tc_id": "P-002",
-      "test_case": "Submit a visa application with required personal info, file uploads and one supporting document",
+      "wf_ref": "WF-002",
+      "test_case": "Submit a visa application with passport copy and photographs",
       "preconditions": [
-        "User logged in as <Traveler>"
+        "User logged in as <role>"
       ],
       "steps": [
-        "1. Navigate to the Visa Application form within the Visa Services module",
-        "2. Enter <full name> in the Full Name field",
-        "3. Enter <passport number> in the Passport Number field",
-        "4. Select <passport expiry date> in the Passport Expiry Date field",
-        "5. Select <date of birth> in the Date of Birth field",
-        "6. Select <Nationality> from the Nationality dropdown",
-        "7. Enter <email address> in the Email field",
-        "8. (optional) Enter <phone number> in the Phone field",
-        "9. (optional) Enter <purpose of visit> in the Purpose of Visit field",
-        "10. (optional) Select <intended travel start date> and <intended travel end date>",
-        "11. (optional) Enter <duration of stay> in the Duration of Stay field",
-        "12. Click Upload for Passport Copy and select a <valid passport file> from the OS file dialog",
-        "13. Click Upload for Photographs and select a <valid photograph file> from the OS file dialog",
-        "14. Click Add on Supporting Documents to create a new supporting document row",
-        "15. In the new supporting document row, click Upload for Document and select a <valid supporting document file>, then enter <description> in the Description field",
-        "16. Click the 'Submit Application' button"
+        "1. Open the Visa Services page",
+        "2. Open the Visa Application form",
+        "3. Enter <Full_Name> in the Full Name field",
+        "4. Enter <Passport_Number> in the Passport Number field",
+        "5. Enter <Passport_Expiry_Date> in the Passport Expiry Date field",
+        "6. Enter <Date_of_Birth> in the Date of Birth field",
+        "7. Select <Nationality> from the Nationality dropdown",
+        "8. Enter <Email> in the Email field and <Phone> in the Phone field",
+        "9. Enter <Purpose_of_Visit> in the Purpose of Visit field",
+        "10. Enter <Intended_Travel_Start_Date> and <Intended_Travel_End_Date> in the travel date fields",
+        "11. Upload a <valid passport copy> to Passport_Copy",
+        "12. Upload a <valid photograph file> to Photographs",
+        "13. Click 'Submit Application'"
       ],
-      "expected_result": "application submitted and appears in Bookings dashboard for tracking",
+      "expected_result": "A new row appears in the Bookings table with the entered Full Name (<Full_Name>) and a 'Pending' status badge; the application is listed in the Bookings dashboard",
       "priority": "high"
     },
     {
       "tc_id": "P-003",
-      "test_case": "Open a submitted application from the Bookings dashboard to view application details and status",
+      "wf_ref": "WF-002",
+      "test_case": "Submit a visa application including one supporting document via Add Row",
       "preconditions": [
-        "User logged in as <Traveler>",
-        "A submitted visa application exists in the Bookings dashboard for <applicant>"
+        "User logged in as <role>"
       ],
       "steps": [
-        "1. Navigate to the Bookings section of the Visa Services module",
-        "2. Locate the row for the submitted application for <applicant> in the Bookings table",
-        "3. Click the 'View Application' row action for that application"
+        "1. Open the Visa Services page",
+        "2. Open the Visa Application form",
+        "3. Enter <Full_Name> in the Full Name field",
+        "4. Enter <Passport_Number> in the Passport Number field",
+        "5. Select <Nationality> from the Nationality dropdown",
+        "6. Enter <Email> in the Email field",
+        "7. Upload a <valid passport copy> to Passport_Copy",
+        "8. Click 'Add Row' in Supporting_Documents",
+        "9. In the newly added Supporting Document row, upload a <valid supporting document file> to Document_File",
+        "10. Click 'Submit Application'"
       ],
-      "expected_result": "Visa application detail view opens showing the application summary and current status badge for the selected application",
+      "expected_result": "A new row appears in the Bookings table with the entered Full Name (<Full_Name>) and a 'Pending' status badge; the application is listed in the Bookings dashboard and the supporting document is reflected in the application's document list on the Bookings entry",
       "priority": "high"
+    },
+    {
+      "tc_id": "P-004",
+      "wf_ref": "WF-003",
+      "test_case": "Open application detail from the Bookings table to track status",
+      "preconditions": [
+        "User logged in as <role>",
+        "A visa application exists in Bookings with Full Name <Full_Name> and status <Pending>"
+      ],
+      "steps": [
+        "1. Open the Visa Services page",
+        "2. Open the Bookings dashboard/table",
+        "3. Locate the row for the application with Full Name <Full_Name>",
+        "4. Click the 'View Application' row action for that application"
+      ],
+      "expected_result": "Application detail view opens for the selected application and displays tracking status for that application",
+      "priority": "medium"
     }
   ],
   "summary": {
-    "total": 3,
-    "high_priority": 2,
+    "total": 4,
+    "high_priority": 3,
     "medium_priority": 1,
     "low_priority": 0
   }
 }
 
 ------------------------------------------------------------
-[22:56:50] Test-Positive - PARSED JSON
+[14:53:27] Test-Positive - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Visa Services",
@@ -438,65 +493,88 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "View visa requirements for selected Nationality and Destination Country",
+      "wf_ref": "WF-001",
+      "test_case": "View visa requirements for a selected Nationality and Destination Country",
       "preconditions": [
-        "User logged in as <Traveler>"
+        "User logged in as <role>"
       ],
       "steps": [
-        "1. Navigate to the Visa Services module home page",
-        "2. Select <Nationality> from the Nationality dropdown in the Visa Requirements selector",
+        "1. Open the Visa Services page",
+        "2. In the Visa Requirements search form, select <Nationality> from the Nationality dropdown",
         "3. Select <Destination Country> from the Destination Country dropdown",
         "4. Click the 'View Requirements' button"
       ],
-      "expected_result": "displays visa requirements for selected Nationality and Destination Country",
-      "priority": "medium"
+      "expected_result": "Shows visa requirements (visa type, processing time, required documents, fees) for the selected Nationality and Destination Country",
+      "priority": "high"
     },
     {
       "tc_id": "P-002",
-      "test_case": "Submit a visa application with required personal info, file uploads and one supporting document",
+      "wf_ref": "WF-002",
+      "test_case": "Submit a visa application with passport copy and photographs",
       "preconditions": [
-        "User logged in as <Traveler>"
+        "User logged in as <role>"
       ],
       "steps": [
-        "1. Navigate to the Visa Application form within the Visa Services module",
-        "2. Enter <full name> in the Full Name field",
-        "3. Enter <passport number> in the Passport Number field",
-        "4. Select <passport expiry date> in the Passport Expiry Date field",
-        "5. Select <date of birth> in the Date of Birth field",
-        "6. Select <Nationality> from the Nationality dropdown",
-        "7. Enter <email address> in the Email field",
-        "8. (optional) Enter <phone number> in the Phone field",
-        "9. (optional) Enter <purpose of visit> in the Purpose of Visit field",
-        "10. (optional) Select <intended travel start date> and <intended travel end date>",
-        "11. (optional) Enter <duration of stay> in the Duration of Stay field",
-        "12. Click Upload for Passport Copy and select a <valid passport file> from the OS file dialog",
-        "13. Click Upload for Photographs and select a <valid photograph file> from the OS file dialog",
-        "14. Click Add on Supporting Documents to create a new supporting document row",
-        "15. In the new supporting document row, click Upload for Document and select a <valid supporting document file>, then enter <description> in the Description field",
-        "16. Click the 'Submit Application' button"
+        "1. Open the Visa Services page",
+        "2. Open the Visa Application form",
+        "3. Enter <Full_Name> in the Full Name field",
+        "4. Enter <Passport_Number> in the Passport Number field",
+        "5. Enter <Passport_Expiry_Date> in the Passport Expiry Date field",
+        "6. Enter <Date_of_Birth> in the Date of Birth field",
+        "7. Select <Nationality> from the Nationality dropdown",
+        "8. Enter <Email> in the Email field and <Phone> in the Phone field",
+        "9. Enter <Purpose_of_Visit> in the Purpose of Visit field",
+        "10. Enter <Intended_Travel_Start_Date> and <Intended_Travel_End_Date> in the travel date fields",
+        "11. Upload a <valid passport copy> to Passport_Copy",
+        "12. Upload a <valid photograph file> to Photographs",
+        "13. Click 'Submit Application'"
       ],
-      "expected_result": "application submitted and appears in Bookings dashboard for tracking",
+      "expected_result": "A new row appears in the Bookings table with the entered Full Name (<Full_Name>) and a 'Pending' status badge; the application is listed in the Bookings dashboard",
       "priority": "high"
     },
     {
       "tc_id": "P-003",
-      "test_case": "Open a submitted application from the Bookings dashboard to view application details and status",
+      "wf_ref": "WF-002",
+      "test_case": "Submit a visa application including one supporting document via Add Row",
       "preconditions": [
-        "User logged in as <Traveler>",
-        "A submitted visa application exists in the Bookings dashboard for <applicant>"
+        "User logged in as <role>"
       ],
       "steps": [
-        "1. Navigate to the Bookings section of the Visa Services module",
-        "2. Locate the row for the submitted application for <applicant> in the Bookings table",
-        "3. Click the 'View Application' row action for that application"
+        "1. Open the Visa Services page",
+        "2. Open the Visa Application form",
+        "3. Enter <Full_Name> in the Full Name field",
+        "4. Enter <Passport_Number> in the Passport Number field",
+        "5. Select <Nationality> from the Nationality dropdown",
+        "6. Enter <Email> in the Email field",
+        "7. Upload a <valid passport copy> to Passport_Copy",
+        "8. Click 'Add Row' in Supporting_Documents",
+        "9. In the newly added Supporting Document row, upload a <valid supporting document file> to Document_File",
+        "10. Click 'Submit Application'"
       ],
-      "expected_result": "Visa application detail view opens showing the application summary and current status badge for the selected application",
+      "expected_result": "A new row appears in the Bookings table with the entered Full Name (<Full_Name>) and a 'Pending' status badge; the application is listed in the Bookings dashboard and the supporting document is reflected in the application's document list on the Bookings entry",
       "priority": "high"
+    },
+    {
+      "tc_id": "P-004",
+      "wf_ref": "WF-003",
+      "test_case": "Open application detail from the Bookings table to track status",
+      "preconditions": [
+        "User logged in as <role>",
+        "A visa application exists in Bookings with Full Name <Full_Name> and status <Pending>"
+      ],
+      "steps": [
+        "1. Open the Visa Services page",
+        "2. Open the Bookings dashboard/table",
+        "3. Locate the row for the application with Full Name <Full_Name>",
+        "4. Click the 'View Application' row action for that application"
+      ],
+      "expected_result": "Application detail view opens for the selected application and displays tracking status for that application",
+      "priority": "medium"
     }
   ],
   "summary": {
-    "total": 3,
-    "high_priority": 2,
+    "total": 4,
+    "high_priority": 3,
     "medium_priority": 1,
     "low_priority": 0
   }

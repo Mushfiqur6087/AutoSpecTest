@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-21T22:54:00.281319
+DEBUG SESSION STARTED: 2026-05-25T14:51:20.265507
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[22:54:00] Test-Edge - SYSTEM PROMPT
+[14:51:20] Test-Edge - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Edge Case and Boundary Test Generator. You receive (1) a UI-AST JSON for one module and (2) the original functional description. Your job is to produce ONLY boundary and edge case tests — scenarios at the limits of valid/invalid input and unusual-but-plausible user behaviors.
 
@@ -25,6 +25,10 @@ You are NOT producing happy paths (positive prompt) or standard validation failu
 {Original functional description text for this module}
 </description>
 
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
+
 ---
 
 **UI-AST REFERENCE — How to Read the AST for Edge Testing:**
@@ -35,7 +39,7 @@ You are NOT producing happy paths (positive prompt) or standard validation failu
 | `repeating_group` with `max` | Test adding exactly `max` entries (should succeed) then one more (should block) |
 | `visible_when` / `required_when` | Edge: trigger condition, fill revealed field with boundary value |
 | `state_bound_action_bar` | State edges: rapid consecutive state transitions, transition from a boundary state |
-| `submit_actions[]` with multiple buttons | Interaction edge: double-click a submit button rapidly |
+
 | `type: "date"` fields | Data edges: today, yesterday, far future, Feb 29 leap year |
 | `type: "file_upload"` | Edge: file exactly at size limit, file at 1 byte over limit |
 
@@ -132,7 +136,6 @@ Pick only the ones that apply to field types present in this module's AST:
 
 Pick only the ones that match component types in this module's AST:
 
-- **Double-click submit** (any form/wizard with a submit button): rapidly double-click the submit button → assert only one record is created; no duplicate row appears in the listing table
 - **Rapid re-submission after redirect** (any form that redirects to a detail page on success): after a successful submit, press the browser back button → assert the creation form is shown blank (not pre-filled) OR the user is redirected to the detail page without a second entity being created
 - **Wizard step skip — enforced navigation** (wizard where steps must be completed sequentially): attempt to click a later step tab directly without completing earlier steps → assert navigation is blocked and the earlier step remains active
 - **Wizard step skip — free navigation** (wizard that allows free tab navigation): navigate to a later step without filling earlier steps → assert the later step displays and returning to the earlier step shows fields blank (no data was lost from the later step)
@@ -173,7 +176,16 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 
 - **High:** None — edge tests are secondary to core functionality
 - **Medium:** Boundary tests at thresholds (financial amounts, date ordering, count limits, file size limits)
-- **Low:** Input edge cases (long text, special chars, whitespace, decimal precision), interaction edge cases (double-click, browser back, wizard skip)
+- **Low:** Input edge cases (long text, special chars, whitespace, decimal precision), interaction edge cases (browser back, wizard skip)
+
+---
+
+**WORKFLOW-AWARE BOUNDARY SCOPING (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- For each workflow where `conditional_branch` activates a numeric or date field, check if that field has a boundary (a numeric/date threshold in the AST `constraints` or description).
+- If yes, that workflow's branch is a **candidate for a boundary edge test** — add or confirm a boundary TC exists for it.
+- Add `"wf_ref": "WF-NNN"` to each TC that maps to a specific workflow's boundary. Set `"wf_ref": null` for generic input/interaction edge tests.
 
 ---
 
@@ -185,6 +197,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": null,
       "subcategory": "boundary | input_edge | interaction_edge | state_edge | data_edge",
       "test_case": "Short descriptive name",
       "preconditions": ["precondition 1"],
@@ -207,7 +220,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 
 
 ------------------------------------------------------------
-[22:54:00] Test-Edge - USER PROMPT
+[14:51:20] Test-Edge - USER PROMPT
 ------------------------------------------------------------
 <module_name>Logout</module_name>
 
@@ -215,13 +228,30 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 {
   "module_name": "Logout",
   "components": {
-    "Logout_Button": {
-      "type": "button",
-      "element_name": "Logout",
-      "preconditions": [
-        "user must be logged in"
-      ],
-      "on_success": "terminates current session, clears sensitive session data, redirects to home page; subsequent attempts to access protected pages redirect to the login page"
+    "Logout_Action": {
+      "type": "state_bound_action_bar",
+      "states": {
+        "Authenticated": {
+          "available_actions": [
+            {
+              "action_name": "Logout",
+              "type": "button",
+              "preconditions": [
+                "user must be logged in"
+              ],
+              "on_success": [
+                "terminates current session",
+                "clears sensitive session data",
+                "redirects to home page",
+                "subsequent attempts to access protected pages redirect to login page"
+              ]
+            }
+          ]
+        },
+        "Unauthenticated": {
+          "available_actions": []
+        }
+      }
     }
   }
 }
@@ -233,10 +263,14 @@ Clicking Logout terminates the current session, clears sensitive session data, a
 
 </description>
 
+<workflows>
+WF-001 | Logout from authenticated session | actor: <role> | branch: entity_state == Authenticated | terminal: Logout | on_success: terminates current session; clears sensitive session data; redirects to home page; subsequent attempts to access protected pages redirect to login page
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[22:58:54] Test-Edge - LLM RESPONSE
+[14:54:52] Test-Edge - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Logout",
@@ -244,69 +278,63 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": "WF-001",
       "subcategory": "interaction_edge",
-      "test_case": "Rapid double-click of Logout button",
+      "test_case": "Double-click Logout rapidly (duplicate click race)",
       "preconditions": [
-        "user must be logged in",
-        "user is on an authenticated page in the app"
+        "User is logged in and a Logout button is visible in the UI"
       ],
       "steps": [
-        "1. Click the Logout button",
-        "2. Immediately click the Logout button a second time (within a fraction of a second)",
-        "3. Observe the current page and any redirects",
-        "4. From the current page, navigate to a protected page (e.g., click a link that requires authentication)"
+        "1. From the authenticated session, click the Logout button",
+        "2. Immediately (within milliseconds) click the Logout button again"
       ],
-      "expected_result": "Logout succeeds: user is redirected to the home page (single visible redirect). No duplicate logout UI (no second redirect loop or duplicate confirmation) appears. Subsequent navigation to a protected page is blocked and redirects to the login page.",
+      "expected_result": "First click succeeds: session termination runs, user is redirected to the home page. Second click is ignored (no duplicate logout or error shown). Subsequent navigation attempts to protected pages are blocked and redirect to the login page.",
       "priority": "medium"
     },
     {
       "tc_id": "E-002",
-      "subcategory": "state_edge",
-      "test_case": "Logout then press browser Back to return to previously viewed protected page",
+      "wf_ref": "WF-001",
+      "subcategory": "interaction_edge",
+      "test_case": "Use browser Back after Logout (cached-protected-page edge)",
       "preconditions": [
-        "user must be logged in",
-        "user has a protected page in the browser history (visited while logged in)"
+        "User is logged in and currently on a protected page or any page with Logout available"
       ],
       "steps": [
         "1. Click the Logout button",
-        "2. Confirm the app redirects to the home page",
-        "3. Click the browser Back button once to attempt to return to the previously viewed protected page",
-        "4. Observe the page displayed"
+        "2. After redirect to home completes, press the browser Back button once"
       ],
-      "expected_result": "Access to the previously viewed protected page is blocked: the browser does not display the protected content and instead redirects to the login page (or shows the app's login screen). The protected page content is not visible after using Back.",
+      "expected_result": "Navigation back to a previously viewed protected page is blocked: the UI does not restore an authenticated protected view and instead redirects to the login page (protected page access is blocked). No sensitive content is shown from cache.",
       "priority": "medium"
     },
     {
       "tc_id": "E-003",
+      "wf_ref": "WF-001",
       "subcategory": "state_edge",
-      "test_case": "Logout in one tab while another tab has a protected page open; then attempt actions in the other tab",
+      "test_case": "Logout in one tab then quickly access protected page in another tab",
       "preconditions": [
-        "user must be logged in in both Tab A and Tab B",
-        "Tab B currently has a protected page open (not yet refreshed)"
+        "User is logged in and has at least two browser tabs open in the same session",
+        "Tab A is showing an authenticated page; Tab B is ready to navigate to a protected page"
       ],
       "steps": [
         "1. In Tab A, click the Logout button",
-        "2. In Tab B, attempt to interact with the protected page (e.g., click a link or click Refresh)",
-        "3. Observe the result shown in Tab B"
+        "2. Immediately in Tab B, attempt to navigate to a protected page (click a protected page link or enter its URL)"
       ],
-      "expected_result": "Access from Tab B is blocked: after the logout in Tab A the protected page in Tab B fails to show protected content and redirects to the login page when an action or refresh is attempted. The user cannot perform authenticated actions from Tab B after logout.",
+      "expected_result": "Logout in Tab A succeeds: session is terminated and Tab A redirects to the home page. Access attempt in Tab B is blocked: navigation to the protected page redirects to the login page (no protected content is shown).",
       "priority": "medium"
     },
     {
       "tc_id": "E-004",
-      "subcategory": "interaction_edge",
-      "test_case": "Enter a bookmarked/protected page URL after logout",
+      "wf_ref": "WF-001",
+      "subcategory": "state_edge",
+      "test_case": "Click Logout while a protected page is mid-load (in-flight request)",
       "preconditions": [
-        "user must be logged in",
-        "user has a protected page URL bookmarked or copied"
+        "User is logged in and has started loading a protected page (network request in progress)"
       ],
       "steps": [
-        "1. Click the Logout button",
-        "2. Confirm the app redirects to the home page",
-        "3. In the browser address bar, paste/enter the protected page URL and press Enter",
-        "4. Observe the page displayed"
+        "1. While the protected page is still loading, click the Logout button",
+        "2. Observe whether the protected page finishes rendering any sensitive content"
       ],
-      "expected_result": "Access is blocked: entering the protected page URL after logout redirects the user to the login page and the protected content is not displayed.",
+      "expected_result": "Logout succeeds: session termination and redirect to the home page occur. Any in-flight loading of protected content is effectively canceled or not displayed — no sensitive content from the in-flight request is shown after logout. Subsequent attempts to access protected pages are blocked and redirect to the login page.",
       "priority": "medium"
     }
   ],
@@ -323,7 +351,7 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
 }
 
 ------------------------------------------------------------
-[22:58:54] Test-Edge - PARSED JSON
+[14:54:52] Test-Edge - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Logout",
@@ -331,69 +359,63 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": "WF-001",
       "subcategory": "interaction_edge",
-      "test_case": "Rapid double-click of Logout button",
+      "test_case": "Double-click Logout rapidly (duplicate click race)",
       "preconditions": [
-        "user must be logged in",
-        "user is on an authenticated page in the app"
+        "User is logged in and a Logout button is visible in the UI"
       ],
       "steps": [
-        "1. Click the Logout button",
-        "2. Immediately click the Logout button a second time (within a fraction of a second)",
-        "3. Observe the current page and any redirects",
-        "4. From the current page, navigate to a protected page (e.g., click a link that requires authentication)"
+        "1. From the authenticated session, click the Logout button",
+        "2. Immediately (within milliseconds) click the Logout button again"
       ],
-      "expected_result": "Logout succeeds: user is redirected to the home page (single visible redirect). No duplicate logout UI (no second redirect loop or duplicate confirmation) appears. Subsequent navigation to a protected page is blocked and redirects to the login page.",
+      "expected_result": "First click succeeds: session termination runs, user is redirected to the home page. Second click is ignored (no duplicate logout or error shown). Subsequent navigation attempts to protected pages are blocked and redirect to the login page.",
       "priority": "medium"
     },
     {
       "tc_id": "E-002",
-      "subcategory": "state_edge",
-      "test_case": "Logout then press browser Back to return to previously viewed protected page",
+      "wf_ref": "WF-001",
+      "subcategory": "interaction_edge",
+      "test_case": "Use browser Back after Logout (cached-protected-page edge)",
       "preconditions": [
-        "user must be logged in",
-        "user has a protected page in the browser history (visited while logged in)"
+        "User is logged in and currently on a protected page or any page with Logout available"
       ],
       "steps": [
         "1. Click the Logout button",
-        "2. Confirm the app redirects to the home page",
-        "3. Click the browser Back button once to attempt to return to the previously viewed protected page",
-        "4. Observe the page displayed"
+        "2. After redirect to home completes, press the browser Back button once"
       ],
-      "expected_result": "Access to the previously viewed protected page is blocked: the browser does not display the protected content and instead redirects to the login page (or shows the app's login screen). The protected page content is not visible after using Back.",
+      "expected_result": "Navigation back to a previously viewed protected page is blocked: the UI does not restore an authenticated protected view and instead redirects to the login page (protected page access is blocked). No sensitive content is shown from cache.",
       "priority": "medium"
     },
     {
       "tc_id": "E-003",
+      "wf_ref": "WF-001",
       "subcategory": "state_edge",
-      "test_case": "Logout in one tab while another tab has a protected page open; then attempt actions in the other tab",
+      "test_case": "Logout in one tab then quickly access protected page in another tab",
       "preconditions": [
-        "user must be logged in in both Tab A and Tab B",
-        "Tab B currently has a protected page open (not yet refreshed)"
+        "User is logged in and has at least two browser tabs open in the same session",
+        "Tab A is showing an authenticated page; Tab B is ready to navigate to a protected page"
       ],
       "steps": [
         "1. In Tab A, click the Logout button",
-        "2. In Tab B, attempt to interact with the protected page (e.g., click a link or click Refresh)",
-        "3. Observe the result shown in Tab B"
+        "2. Immediately in Tab B, attempt to navigate to a protected page (click a protected page link or enter its URL)"
       ],
-      "expected_result": "Access from Tab B is blocked: after the logout in Tab A the protected page in Tab B fails to show protected content and redirects to the login page when an action or refresh is attempted. The user cannot perform authenticated actions from Tab B after logout.",
+      "expected_result": "Logout in Tab A succeeds: session is terminated and Tab A redirects to the home page. Access attempt in Tab B is blocked: navigation to the protected page redirects to the login page (no protected content is shown).",
       "priority": "medium"
     },
     {
       "tc_id": "E-004",
-      "subcategory": "interaction_edge",
-      "test_case": "Enter a bookmarked/protected page URL after logout",
+      "wf_ref": "WF-001",
+      "subcategory": "state_edge",
+      "test_case": "Click Logout while a protected page is mid-load (in-flight request)",
       "preconditions": [
-        "user must be logged in",
-        "user has a protected page URL bookmarked or copied"
+        "User is logged in and has started loading a protected page (network request in progress)"
       ],
       "steps": [
-        "1. Click the Logout button",
-        "2. Confirm the app redirects to the home page",
-        "3. In the browser address bar, paste/enter the protected page URL and press Enter",
-        "4. Observe the page displayed"
+        "1. While the protected page is still loading, click the Logout button",
+        "2. Observe whether the protected page finishes rendering any sensitive content"
       ],
-      "expected_result": "Access is blocked: entering the protected page URL after logout redirects the user to the login page and the protected content is not displayed.",
+      "expected_result": "Logout succeeds: session termination and redirect to the home page occur. Any in-flight loading of protected content is effectively canceled or not displayed \u2014 no sensitive content from the in-flight request is shown after logout. Subsequent attempts to access protected pages are blocked and redirect to the login page.",
       "priority": "medium"
     }
   ],

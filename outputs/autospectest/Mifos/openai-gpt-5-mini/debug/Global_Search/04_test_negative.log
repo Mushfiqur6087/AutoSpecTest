@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-21T22:29:06.514486
+DEBUG SESSION STARTED: 2026-05-25T14:24:50.716859
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[22:29:06] Test-Negative - SYSTEM PROMPT
+[14:24:50] Test-Negative - SYSTEM PROMPT
 ------------------------------------------------------------
 You are a Negative Test Case Generator. You receive (1) a UI-AST JSON for one module and (2) the original functional description. Your job is to produce ONLY negative test cases — tests where invalid input is provided or business rules are violated, and the system correctly rejects or blocks the action.
 
@@ -22,6 +22,10 @@ You are a Negative Test Case Generator. You receive (1) a UI-AST JSON for one mo
 <description>
 {Original functional description text for this module}
 </description>
+
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
 
 ---
 
@@ -111,6 +115,9 @@ Group required fields by type: `text/unspecified`, `email`, `password`, `number`
 
 Do NOT generate a separate blank-field test for every required field. If 5 text fields are all required, one representative covers them all.
 
+**Action dialog required fields — NOT subject to cross-form deduplication:**
+If a `state_bound_action_bar` action opens a dialog with its own required `fields{}` (e.g., Activate requires Activation Date, Reject requires a Reason, Withdraw requires a Reason, Close requires a Closure Reason), each such dialog is its own testing scope. Generate ONE "leave the required dialog field blank and submit" test per distinct action dialog. These are HIGH priority — they block state transitions and are common defect sites. Do not suppress them because the main wizard already has a blank-field test.
+
 **2. Format violations:**
 
 For fields with type-specific format rules (from AST type or description):
@@ -143,6 +150,10 @@ For each unique `constraints[]` entry in the AST, and for cross-field rules desc
 
 One test per unique constraint. Do not duplicate the same mechanism.
 
+**Constraint timing tests:** If the spec states an action is blocked by a pre-existing system state (e.g., "cannot close with active accounts", "cannot transfer to the same office"), generate TWO tests:
+1. The standard constraint violation test (user opens the dialog, fills required fields, submits → blocked).
+2. A constraint-timing test: user opens the dialog WITHOUT filling required fields → assert whether the block is shown immediately on dialog open (before the user fills anything) OR only on submit. This distinguishes whether the UI enforces the constraint eagerly or lazily. Steps: open the dialog, observe the state → assert what is visible before any interaction. If the spec is silent on timing, generate only the first test.
+
 **5. Precondition violations (auth, role, and state):**
 
 For each `preconditions[]` entry on any action — and for auth/role rules described in the spec:
@@ -154,18 +165,18 @@ For each `preconditions[]` entry on any action — and for auth/role rules descr
 **6. State-machine violations:**
 
 From `state_bound_action_bar` nodes:
-- For each state where an action is NOT listed in `available_actions`, generate one test attempting that action from that state. Example: attempting "Approve" on an entity already in "Active" state.
+- **Every defined state must have at least one wrong-state test.** For each state, identify at least one action that is NOT in its `available_actions` list and generate a test attempting that action from that state.
 - If a state has an empty `available_actions` array, generate one test verifying no action buttons are visible in that state.
-
-One test per unique wrong-state scenario — do not enumerate every action × every invalid state.
+- **Do not stop after 1–2 representative examples** when the module defines 4+ distinct states. The states Active, Pending, Closed, Rejected, and Withdrawn each have different action sets — each must be independently verified.
+- One test per state is sufficient — pick the most distinct unavailable action for that state. Do not enumerate every action × every state (that would be exponential).
 
 ---
 
 **DEDUPLICATION GATE (run before outputting):**
 
-1. **Required field dedup:** Multiple required text fields → ONE representative test, not one per field.
+1. **Required field dedup:** Multiple required text fields in the **same form or dialog** → ONE representative test, not one per field.
 2. **Sub-rule dedup:** A field with multiple validation sub-rules (e.g., password: length + uppercase + lowercase + number + special char) → ONE representative violation test, not one per sub-rule.
-3. **Cross-form dedup:** If two forms in the same module share the same validation mechanism (e.g., both have a required text field) → test it on the primary form only.
+3. **Cross-form dedup:** If two **main forms** in the same module share the same validation mechanism → test it on the primary form only. **Exception: action dialogs are never suppressed by cross-form dedup** — each action dialog with a required field gets its own blank-field test regardless.
 4. **Uniqueness check:** Before outputting, ask for each TC: "Does this test catch a bug that NO other test in this module would catch?" If no → remove it.
 
 ---
@@ -174,9 +185,11 @@ One test per unique wrong-state scenario — do not enumerate every action × ev
 
 - Simple module (login, single form, display page): **2–4 tests**
 - Medium module (standard CRUD form, form with constraints): **4–8 tests**
-- Complex module (state machine, multi-form, wizard with many constraints): **8–12 tests**
+- Complex module (state machine, multi-form, wizard with many constraints): **10–16 tests**
 
-If you exceed these ranges, you are generating redundant tests. Apply the deduplication gate again before outputting.
+For modules with a `state_bound_action_bar` defining 4+ states, the state-machine violation tests alone will produce 4–5 tests. This is expected and correct — do not suppress them to hit a lower target.
+
+If you exceed the upper range, apply the deduplication gate again before outputting.
 
 ---
 
@@ -184,6 +197,17 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
 
 - **High:** State precondition violations, constraint violations that could corrupt data, unauthenticated access, required field representatives
 - **Medium:** Format violations, cross-field validation, numeric bounds, wrong-role access, wrong-state action attempts
+
+---
+
+**WORKFLOW-AWARE FAILURE INJECTION (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- For each workflow that contains a form interaction (terminal action is a submit/save/create/approve button):
+  - Identify the most **critical blocking failure** for that workflow's `conditional_branch`.
+  - If that failure mode is NOT already covered by another workflow's negative test, generate one negative TC for it.
+- **Do NOT generate one negative TC per workflow mechanically.** Apply the existing deduplication gate first — only add a TC if it catches a bug that no other test would catch.
+- Add `"wf_ref": "WF-NNN"` to each TC that maps to a workflow. Set `"wf_ref": null` for generic validation tests.
 
 ---
 
@@ -195,6 +219,7 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
   "test_cases": [
     {
       "tc_id": "N-001",
+      "wf_ref": null,
       "test_case": "Short descriptive name",
       "preconditions": ["precondition 1"],
       "steps": ["1. Step one", "2. Step two"],
@@ -212,7 +237,7 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
 
 
 ------------------------------------------------------------
-[22:29:06] Test-Negative - USER PROMPT
+[14:24:50] Test-Negative - USER PROMPT
 ------------------------------------------------------------
 <module_name>Global Search</module_name>
 
@@ -220,116 +245,107 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
 {
   "module_name": "Global Search",
   "components": {
-    "Toolbar_Search_Button": {
-      "type": "button",
-      "element_name": "Search Icon",
+    "Global_Search_Widget": {
+      "type": "search_component",
       "preconditions": [
         "user must be logged in"
       ],
-      "on_click": "opens Global_Search"
-    },
-    "Global_Search": {
-      "type": "search",
-      "preconditions": [
-        "user must be logged in"
-      ],
-      "fields": {
-        "Query": {
-          "type": "search",
-          "required": false,
-          "constraints": [
-            "supports partial matching",
-            "case-insensitive"
-          ],
-          "live_search": true
-        }
+      "launcher": {
+        "element_name": "Search Icon",
+        "type": "button",
+        "on_click": "opens Search_Input"
       },
-      "results_dropdown": {
-        "type": "dropdown",
-        "visible_when": "Query != ''",
-        "grouped_by": [
-          "Clients",
-          "Groups",
-          "Loans",
-          "Savings accounts"
+      "Search_Input": {
+        "type": "search",
+        "constraints": [
+          "searches across Clients, Groups, Loans, Savings accounts",
+          "supports partial matching",
+          "case-insensitive"
         ],
-        "groups": [
-          {
-            "group_name": "Clients",
-            "result_item_fields": {
-              "Entity_Name": {
-                "type": "unspecified"
+        "results_dropdown": {
+          "type": "results_dropdown",
+          "grouped_by": [
+            "entity_type"
+          ],
+          "groups": {
+            "Clients": {
+              "item_fields": {
+                "entity_name": {
+                  "type": "unspecified"
+                },
+                "identifier": {
+                  "type": "unspecified"
+                },
+                "status": {
+                  "type": "unspecified"
+                }
               },
-              "Identifier": {
-                "type": "unspecified"
-              },
-              "Status": {
-                "type": "unspecified"
-              }
+              "row_actions": [
+                {
+                  "action_name": "Select",
+                  "on_success": "navigates to {entity_type} detail page"
+                }
+              ]
             },
-            "row_action": {
-              "action_name": "Select Client",
-              "on_select": "navigates to Client detail page"
+            "Groups": {
+              "item_fields": {
+                "entity_name": {
+                  "type": "unspecified"
+                },
+                "identifier": {
+                  "type": "unspecified"
+                },
+                "status": {
+                  "type": "unspecified"
+                }
+              },
+              "row_actions": [
+                {
+                  "action_name": "Select",
+                  "on_success": "navigates to {entity_type} detail page"
+                }
+              ]
+            },
+            "Loans": {
+              "item_fields": {
+                "entity_name": {
+                  "type": "unspecified"
+                },
+                "identifier": {
+                  "type": "unspecified"
+                },
+                "status": {
+                  "type": "unspecified"
+                }
+              },
+              "row_actions": [
+                {
+                  "action_name": "Select",
+                  "on_success": "navigates to {entity_type} detail page"
+                }
+              ]
+            },
+            "Savings accounts": {
+              "item_fields": {
+                "entity_name": {
+                  "type": "unspecified"
+                },
+                "identifier": {
+                  "type": "unspecified"
+                },
+                "status": {
+                  "type": "unspecified"
+                }
+              },
+              "row_actions": [
+                {
+                  "action_name": "Select",
+                  "on_success": "navigates to {entity_type} detail page"
+                }
+              ]
             }
           },
-          {
-            "group_name": "Groups",
-            "result_item_fields": {
-              "Entity_Name": {
-                "type": "unspecified"
-              },
-              "Identifier": {
-                "type": "unspecified"
-              },
-              "Status": {
-                "type": "unspecified"
-              }
-            },
-            "row_action": {
-              "action_name": "Select Group",
-              "on_select": "navigates to Group detail page"
-            }
-          },
-          {
-            "group_name": "Loans",
-            "result_item_fields": {
-              "Entity_Name": {
-                "type": "unspecified"
-              },
-              "Identifier": {
-                "type": "unspecified"
-              },
-              "Status": {
-                "type": "unspecified"
-              }
-            },
-            "row_action": {
-              "action_name": "Select Loan",
-              "on_select": "navigates to Loan detail page"
-            }
-          },
-          {
-            "group_name": "Savings accounts",
-            "result_item_fields": {
-              "Entity_Name": {
-                "type": "unspecified"
-              },
-              "Identifier": {
-                "type": "unspecified"
-              },
-              "Status": {
-                "type": "unspecified"
-              }
-            },
-            "row_action": {
-              "action_name": "Select Savings",
-              "on_select": "navigates to Savings account detail page"
-            }
-          }
-        ],
-        "empty_state": {
-          "message": "No results found",
-          "visible_when": "no_matches"
+          "on_no_results": "displays 'No results found'"
         }
       }
     }
@@ -346,10 +362,16 @@ Global search is accessible from the search icon in the top toolbar from any pag
 
 </description>
 
+<workflows>
+WF-001 | Open search input | actor: <role> | branch: none | terminal: Search Icon | on_success: opens Search_Input
+WF-002 | Select a search result from dropdown | actor: <role> | branch: none | terminal: Select | on_success: navigates to {entity_type} detail page
+WF-003 | Search returns no matches | actor: <role> | branch: none | terminal: displays 'No results found' | on_success: displays 'No results found'
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[22:30:07] Test-Negative - LLM RESPONSE
+[14:25:35] Test-Negative - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Global Search",
@@ -357,63 +379,45 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "N-001",
-      "test_case": "Unauthenticated user attempts to open Global Search via toolbar Search Icon",
-      "preconditions": ["User is logged out / unauthenticated"],
+      "wf_ref": "WF-001",
+      "test_case": "Unauthenticated user cannot open global search",
+      "preconditions": [
+        "User is not logged in"
+      ],
       "steps": [
-        "1. Open the application home page while not logged in",
+        "1. Ensure the user session is logged out",
         "2. Click the Search Icon in the top toolbar"
       ],
-      "expected_result": "Global Search is not opened; the user is redirected to the login page or a login modal is shown; the Global Search input field is not visible",
+      "expected_result": "Search input does not open; user is redirected to the Login page and the Login screen is displayed; the Search_Input field and results dropdown are not shown (global search is not accessible before login).",
       "priority": "high"
     },
     {
       "tc_id": "N-002",
-      "test_case": "Unauthenticated user navigates directly to Global Search page/URL",
-      "preconditions": ["User is logged out / unauthenticated"],
-      "steps": [
-        "1. Ensure the user is logged out",
-        "2. Enter <Global Search direct URL> in the browser address bar and press Enter"
+      "wf_ref": "WF-003",
+      "test_case": "Search shows 'No results found' for a query with no matches",
+      "preconditions": [
+        "User is logged in"
       ],
-      "expected_result": "User is redirected to the login page and the Global Search input is not displayed; Global Search content is not accessible prior to login",
-      "priority": "high"
-    },
-    {
-      "tc_id": "N-003",
-      "test_case": "Attempt to select a search result when Query is blank (results dropdown visibility precondition violated)",
-      "preconditions": ["User is logged in"],
       "steps": [
-        "1. Log in as a valid user",
-        "2. Ensure the Global Search Query field is empty",
-        "3. Attempt to click on a result row or result area in the top toolbar where results would normally appear"
+        "1. Log in as <any valid user>",
+        "2. Click the Search Icon in the top toolbar",
+        "3. Type <query that matches no Clients, Groups, Loans, or Savings accounts> into the Search_Input",
+        "4. Wait for the results dropdown to populate"
       ],
-      "expected_result": "Results dropdown is not visible (since Query = ''); no result rows are clickable; no navigation to any detail page occurs",
-      "priority": "medium"
-    },
-    {
-      "tc_id": "N-004",
-      "test_case": "Type a query that yields no matches and attempt to select the 'No results found' message",
-      "preconditions": ["User is logged in"],
-      "steps": [
-        "1. Log in as a valid user",
-        "2. Click the Search Icon to open Global Search",
-        "3. Enter <query with no matches> into the Query field",
-        "4. Wait for live search to complete and the results dropdown to appear",
-        "5. Click the 'No results found' message in the dropdown"
-      ],
-      "expected_result": "The results dropdown displays the 'No results found' message; clicking the message does not navigate to any detail page and no entity is opened; the search action is blocked",
+      "expected_result": "Results dropdown displays the exact message 'No results found'; no result rows are shown for any entity type; no navigation to a detail page occurs.",
       "priority": "medium"
     }
   ],
   "summary": {
-    "total": 4,
-    "high_priority": 2,
-    "medium_priority": 2,
+    "total": 2,
+    "high_priority": 1,
+    "medium_priority": 1,
     "low_priority": 0
   }
 }
 
 ------------------------------------------------------------
-[22:30:07] Test-Negative - PARSED JSON
+[14:25:35] Test-Negative - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Global Search",
@@ -421,65 +425,39 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "N-001",
-      "test_case": "Unauthenticated user attempts to open Global Search via toolbar Search Icon",
+      "wf_ref": "WF-001",
+      "test_case": "Unauthenticated user cannot open global search",
       "preconditions": [
-        "User is logged out / unauthenticated"
+        "User is not logged in"
       ],
       "steps": [
-        "1. Open the application home page while not logged in",
+        "1. Ensure the user session is logged out",
         "2. Click the Search Icon in the top toolbar"
       ],
-      "expected_result": "Global Search is not opened; the user is redirected to the login page or a login modal is shown; the Global Search input field is not visible",
+      "expected_result": "Search input does not open; user is redirected to the Login page and the Login screen is displayed; the Search_Input field and results dropdown are not shown (global search is not accessible before login).",
       "priority": "high"
     },
     {
       "tc_id": "N-002",
-      "test_case": "Unauthenticated user navigates directly to Global Search page/URL",
-      "preconditions": [
-        "User is logged out / unauthenticated"
-      ],
-      "steps": [
-        "1. Ensure the user is logged out",
-        "2. Enter <Global Search direct URL> in the browser address bar and press Enter"
-      ],
-      "expected_result": "User is redirected to the login page and the Global Search input is not displayed; Global Search content is not accessible prior to login",
-      "priority": "high"
-    },
-    {
-      "tc_id": "N-003",
-      "test_case": "Attempt to select a search result when Query is blank (results dropdown visibility precondition violated)",
+      "wf_ref": "WF-003",
+      "test_case": "Search shows 'No results found' for a query with no matches",
       "preconditions": [
         "User is logged in"
       ],
       "steps": [
-        "1. Log in as a valid user",
-        "2. Ensure the Global Search Query field is empty",
-        "3. Attempt to click on a result row or result area in the top toolbar where results would normally appear"
+        "1. Log in as <any valid user>",
+        "2. Click the Search Icon in the top toolbar",
+        "3. Type <query that matches no Clients, Groups, Loans, or Savings accounts> into the Search_Input",
+        "4. Wait for the results dropdown to populate"
       ],
-      "expected_result": "Results dropdown is not visible (since Query = ''); no result rows are clickable; no navigation to any detail page occurs",
-      "priority": "medium"
-    },
-    {
-      "tc_id": "N-004",
-      "test_case": "Type a query that yields no matches and attempt to select the 'No results found' message",
-      "preconditions": [
-        "User is logged in"
-      ],
-      "steps": [
-        "1. Log in as a valid user",
-        "2. Click the Search Icon to open Global Search",
-        "3. Enter <query with no matches> into the Query field",
-        "4. Wait for live search to complete and the results dropdown to appear",
-        "5. Click the 'No results found' message in the dropdown"
-      ],
-      "expected_result": "The results dropdown displays the 'No results found' message; clicking the message does not navigate to any detail page and no entity is opened; the search action is blocked",
+      "expected_result": "Results dropdown displays the exact message 'No results found'; no result rows are shown for any entity type; no navigation to a detail page occurs.",
       "priority": "medium"
     }
   ],
   "summary": {
-    "total": 4,
-    "high_priority": 2,
-    "medium_priority": 2,
+    "total": 2,
+    "high_priority": 1,
+    "medium_priority": 1,
     "low_priority": 0
   }
 }

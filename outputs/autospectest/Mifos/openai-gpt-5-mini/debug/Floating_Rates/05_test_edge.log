@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-21T22:29:06.534678
+DEBUG SESSION STARTED: 2026-05-25T14:24:50.728891
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[22:29:06] Test-Edge - SYSTEM PROMPT
+[14:24:50] Test-Edge - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Edge Case and Boundary Test Generator. You receive (1) a UI-AST JSON for one module and (2) the original functional description. Your job is to produce ONLY boundary and edge case tests — scenarios at the limits of valid/invalid input and unusual-but-plausible user behaviors.
 
@@ -25,6 +25,10 @@ You are NOT producing happy paths (positive prompt) or standard validation failu
 {Original functional description text for this module}
 </description>
 
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
+
 ---
 
 **UI-AST REFERENCE — How to Read the AST for Edge Testing:**
@@ -35,7 +39,7 @@ You are NOT producing happy paths (positive prompt) or standard validation failu
 | `repeating_group` with `max` | Test adding exactly `max` entries (should succeed) then one more (should block) |
 | `visible_when` / `required_when` | Edge: trigger condition, fill revealed field with boundary value |
 | `state_bound_action_bar` | State edges: rapid consecutive state transitions, transition from a boundary state |
-| `submit_actions[]` with multiple buttons | Interaction edge: double-click a submit button rapidly |
+
 | `type: "date"` fields | Data edges: today, yesterday, far future, Feb 29 leap year |
 | `type: "file_upload"` | Edge: file exactly at size limit, file at 1 byte over limit |
 
@@ -132,7 +136,6 @@ Pick only the ones that apply to field types present in this module's AST:
 
 Pick only the ones that match component types in this module's AST:
 
-- **Double-click submit** (any form/wizard with a submit button): rapidly double-click the submit button → assert only one record is created; no duplicate row appears in the listing table
 - **Rapid re-submission after redirect** (any form that redirects to a detail page on success): after a successful submit, press the browser back button → assert the creation form is shown blank (not pre-filled) OR the user is redirected to the detail page without a second entity being created
 - **Wizard step skip — enforced navigation** (wizard where steps must be completed sequentially): attempt to click a later step tab directly without completing earlier steps → assert navigation is blocked and the earlier step remains active
 - **Wizard step skip — free navigation** (wizard that allows free tab navigation): navigate to a later step without filling earlier steps → assert the later step displays and returning to the earlier step shows fields blank (no data was lost from the later step)
@@ -173,7 +176,16 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 
 - **High:** None — edge tests are secondary to core functionality
 - **Medium:** Boundary tests at thresholds (financial amounts, date ordering, count limits, file size limits)
-- **Low:** Input edge cases (long text, special chars, whitespace, decimal precision), interaction edge cases (double-click, browser back, wizard skip)
+- **Low:** Input edge cases (long text, special chars, whitespace, decimal precision), interaction edge cases (browser back, wizard skip)
+
+---
+
+**WORKFLOW-AWARE BOUNDARY SCOPING (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- For each workflow where `conditional_branch` activates a numeric or date field, check if that field has a boundary (a numeric/date threshold in the AST `constraints` or description).
+- If yes, that workflow's branch is a **candidate for a boundary edge test** — add or confirm a boundary TC exists for it.
+- Add `"wf_ref": "WF-NNN"` to each TC that maps to a specific workflow's boundary. Set `"wf_ref": null` for generic input/interaction edge tests.
 
 ---
 
@@ -185,6 +197,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": null,
       "subcategory": "boundary | input_edge | interaction_edge | state_edge | data_edge",
       "test_case": "Short descriptive name",
       "preconditions": ["precondition 1"],
@@ -207,7 +220,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 
 
 ------------------------------------------------------------
-[22:29:06] Test-Edge - USER PROMPT
+[14:24:50] Test-Edge - USER PROMPT
 ------------------------------------------------------------
 <module_name>Floating Rates</module_name>
 
@@ -223,13 +236,17 @@ If the module has any numeric/date/count threshold in the AST or description, pr
         "Is Active",
         "Created By"
       ],
+      "clickable_columns": [
+        "Floating Rate Name"
+      ],
       "row_actions": [
         {
-          "element_name": "Floating Rate Name",
-          "type": "link",
-          "action": "opens Floating_Rate_Detail"
+          "action_name": "View Details",
+          "trigger": "click Floating Rate Name",
+          "on_success": "navigates to Floating Rate detail view"
         }
-      ]
+      ],
+      "bulk_actions": []
     },
     "Create_Floating_Rate_Button": {
       "type": "button",
@@ -247,7 +264,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
           "type": "checkbox",
           "required": false,
           "constraints": [
-            "only one floating rate may have Is_Base_Lending_Rate == true at any time; submitting when another base rate exists must be rejected or must unset the existing base rate"
+            "only one base rate can exist at a time"
           ]
         },
         "Is_Active": {
@@ -265,34 +282,31 @@ If the module has any numeric/date/count threshold in the AST or description, pr
               "type": "number",
               "required": false,
               "constraints": [
-                "expressed as a percentage value"
+                "percentage"
               ]
             },
             "Is_Differential_Rate": {
               "type": "checkbox",
               "required": false,
               "constraints": [
-                "when checked, this period's rate is applied as a differential (added to or subtracted from the base lending rate) rather than as an absolute rate"
+                "if checked, rate is applied relative to the base lending rate (added to or subtracted from base) rather than used as an absolute rate"
               ]
             }
           },
           "add_row_action": {
             "element_name": "Add Rate Period",
-            "action": "adds a new Rate_Period row to the repeating group"
+            "action": "adds a new Rate_Period row"
           }
         }
       },
       "submit_actions": [
         {
-          "element_name": "Create",
-          "action_name": "Create Floating Rate",
-          "on_success": "creates floating rate; linked loan products (if any) update their interest rates automatically based on the applicable rate period(s)"
+          "on_success": "creates floating rate; linked loan products' interest rates adjust automatically based on applicable rate period"
         }
       ]
     },
-    "Floating_Rate_Detail": {
-      "type": "detail_view",
-      "fields": {},
+    "Floating_Rate_Detail_Actions": {
+      "type": "action_bar",
       "actions": [
         {
           "action_name": "Edit",
@@ -311,7 +325,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
           "type": "checkbox",
           "required": false,
           "constraints": [
-            "only one floating rate may have Is_Base_Lending_Rate == true at any time; saving when another base rate exists must be rejected or must unset the existing base rate"
+            "only one base rate can exist at a time"
           ]
         },
         "Is_Active": {
@@ -329,28 +343,26 @@ If the module has any numeric/date/count threshold in the AST or description, pr
               "type": "number",
               "required": false,
               "constraints": [
-                "expressed as a percentage value"
+                "percentage"
               ]
             },
             "Is_Differential_Rate": {
               "type": "checkbox",
               "required": false,
               "constraints": [
-                "when checked, this period's rate is applied as a differential (added to or subtracted from the base lending rate) rather than as an absolute rate"
+                "if checked, rate is applied relative to the base lending rate (added to or subtracted from base) rather than used as an absolute rate"
               ]
             }
           },
           "add_row_action": {
             "element_name": "Add Rate Period",
-            "action": "adds a new Rate_Period row to the repeating group"
+            "action": "adds a new Rate_Period row"
           }
         }
       },
       "submit_actions": [
         {
-          "element_name": "Save",
-          "action_name": "Save Floating Rate Changes",
-          "on_success": "updates floating rate; linked loan products (if any) update their interest rates automatically based on the applicable rate period(s)"
+          "on_success": "updates floating rate; linked loan products' interest rates adjust automatically based on applicable rate period"
         }
       ]
     }
@@ -367,10 +379,17 @@ The Floating Rates page displays a data table with columns for Floating Rate Nam
 
 </description>
 
+<workflows>
+WF-001 | View Floating Rate Details | actor: <role> | branch: none | terminal: View Details | on_success: navigates to Floating Rate detail view
+WF-002 | Create Floating Rate (submit) | actor: <role> | branch: none | terminal: Create_Floating_Rate_Form.submit | on_success: creates floating rate; linked loan products' interest rates adjust automatically based on applicable rate period
+WF-003 | Open Edit Floating Rate form | actor: <role> | branch: none | terminal: Edit | on_success: opens Edit_Floating_Rate_Form
+WF-004 | Edit Floating Rate (submit) | actor: <role> | branch: none | terminal: Edit_Floating_Rate_Form.submit | on_success: updates floating rate; linked loan products' interest rates adjust automatically based on applicable rate period
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[22:32:29] Test-Edge - LLM RESPONSE
+[14:28:18] Test-Edge - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Floating Rates",
@@ -378,171 +397,131 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "E-001",
-      "subcategory": "boundary",
-      "test_case": "Create first base lending rate when no base exists (should succeed)",
+      "wf_ref": "WF-002",
+      "subcategory": "input_edge",
+      "test_case": "Create: Floating Rate Name accepts very long string (200+ chars)",
       "preconditions": [
-        "No existing floating rate has Is Base Lending Rate == true"
+        "User is logged in",
+        "User is on the Floating Rates page"
       ],
       "steps": [
-        "1. Click + Create Floating Rate",
-        "2. Enter <a valid Floating Rate Name> in the Floating Rate Name field",
-        "3. Check the Is Base Lending Rate checkbox",
-        "4. Click Create"
+        "1. Click the '+ Create Floating Rate' button",
+        "2. Enter <very long string (200+ characters)> into the Floating Rate Name field",
+        "3. Click 'Submit' on the Create Floating Rate form"
       ],
-      "expected_result": "Form submits successfully; creation succeeds and the Floating Rates table displays a new row with Floating Rate Name == <entered name> and Is Base Lending Rate == true",
-      "priority": "medium"
+      "expected_result": "Form submission succeeds; the Floating Rate detail view opens and displays the full Floating Rate Name (the long string) in the detail header (no truncation shown on the detail view)",
+      "priority": "low"
     },
     {
       "tc_id": "E-002",
-      "subcategory": "boundary",
-      "test_case": "Attempt to create a second base lending rate while another base exists — creation rejected behavior",
+      "wf_ref": "WF-002",
+      "subcategory": "input_edge",
+      "test_case": "Create: Floating Rate Name with leading and trailing whitespace is trimmed",
       "preconditions": [
-        "An existing floating rate row is present with Is Base Lending Rate == true"
+        "User is logged in",
+        "User is on the Floating Rates page"
       ],
       "steps": [
-        "1. Click + Create Floating Rate",
-        "2. Enter <a valid Floating Rate Name> in the Floating Rate Name field",
-        "3. Check the Is Base Lending Rate checkbox",
-        "4. Click Create"
+        "1. Click the '+ Create Floating Rate' button",
+        "2. Enter <value with leading and trailing whitespace> into the Floating Rate Name field",
+        "3. Click 'Submit' on the Create Floating Rate form",
+        "4. Open the created Floating Rate detail view (if not auto-opened)"
       ],
-      "expected_result": "Creation is blocked / error shown: submit is rejected and the existing floating rate's Is Base Lending Rate remains checked (UI shows no new row with Is Base Lending Rate == true)",
-      "priority": "medium"
+      "expected_result": "Form submission succeeds; the Floating Rate detail view displays the Floating Rate Name with leading and trailing whitespace trimmed (no visible leading/trailing spaces in the displayed name)",
+      "priority": "low"
     },
     {
       "tc_id": "E-003",
-      "subcategory": "boundary",
-      "test_case": "Attempt to create a second base lending rate while another base exists — existing base is unset behavior",
+      "wf_ref": "WF-004",
+      "subcategory": "data_edge",
+      "test_case": "Edit: Interest Rate entered with more decimal places than supported triggers precision validation",
       "preconditions": [
-        "An existing floating rate row is present with Is Base Lending Rate == true"
+        "An existing Floating Rate exists with at least one Rate Period",
+        "User is logged in",
+        "User is on that Floating Rate's detail view"
       ],
       "steps": [
-        "1. Click + Create Floating Rate",
-        "2. Enter <a valid Floating Rate Name> in the Floating Rate Name field",
-        "3. Check the Is Base Lending Rate checkbox",
-        "4. Click Create"
+        "1. Click the 'Edit' action on the Floating Rate detail action bar",
+        "2. In the Rate Periods repeating group, locate an existing Rate Period row",
+        "3. Enter <a numeric percentage value with more decimal places than the field supports> into the Interest Rate field of that row",
+        "4. Click 'Submit' on the Edit Floating Rate form"
       ],
-      "expected_result": "Form submits successfully; creation succeeds and the Floating Rates table displays the new row with Is Base Lending Rate == true while the previously-existing base rate row now shows Is Base Lending Rate == false (previous base was unset)",
+      "expected_result": "Interest Rate field displays an inline error indicating the value has too many decimal places and submit is blocked / error shown",
       "priority": "medium"
     },
     {
       "tc_id": "E-004",
-      "subcategory": "input_edge",
-      "test_case": "Floating Rate Name: very long string (200+ characters)",
+      "wf_ref": "WF-002",
+      "subcategory": "data_edge",
+      "test_case": "Create: Rate Period From Date set to today's date (boundary) is accepted",
       "preconditions": [
-        "Create Floating Rate form is open"
+        "User is logged in",
+        "User is on the Floating Rates page"
       ],
       "steps": [
-        "1. Enter <a very long string (200+ characters)> in the Floating Rate Name field",
-        "2. Fill any other required fields minimally",
-        "3. Click Create"
+        "1. Click the '+ Create Floating Rate' button",
+        "2. Enter a valid value into the Floating Rate Name field",
+        "3. Click 'Add Rate Period' to add a Rate Period row",
+        "4. Enter <today's date> into the From Date field of the new Rate Period row",
+        "5. Enter a valid percentage into the Interest Rate field of the same row",
+        "6. Click 'Submit' on the Create Floating Rate form"
       ],
-      "expected_result": "Either: form submission succeeds and the detail view / table shows the Floating Rate Name as saved (possibly truncated or trimmed) OR: creation is blocked / error shown with a visible inline validation message indicating the name exceeds length limits",
-      "priority": "low"
+      "expected_result": "Form submission succeeds; the Floating Rate detail view opens and shows the Rate Period with From Date = <today's date> visible in the rate history table",
+      "priority": "medium"
     },
     {
       "tc_id": "E-005",
-      "subcategory": "input_edge",
-      "test_case": "Floating Rate Name: special characters and emoji",
+      "wf_ref": "WF-002",
+      "subcategory": "interaction_edge",
+      "test_case": "Create: Add multiple Rate Period rows then remove all and submit",
       "preconditions": [
-        "Create Floating Rate form is open"
+        "User is logged in",
+        "User is on the Floating Rates page"
       ],
       "steps": [
-        "1. Enter <a string containing emoji and special characters> in the Floating Rate Name field",
-        "2. Fill any other required fields minimally",
-        "3. Click Create"
+        "1. Click the '+ Create Floating Rate' button",
+        "2. Click 'Add Rate Period' three times to add three Rate Period rows",
+        "3. For each added Rate Period row, click the row's remove/delete control until all rows are removed",
+        "4. Enter a valid value into the required Floating Rate Name field",
+        "5. Click 'Submit' on the Create Floating Rate form"
       ],
-      "expected_result": "Either: form submission succeeds and the Floating Rates table / detail view displays the name including the special characters/emoji as entered OR: creation is blocked / error shown with a visible inline validation message about invalid characters",
+      "expected_result": "Form submission succeeds; the Floating Rate detail view opens and shows no Rate Period entries in the rate history table (zero rows visible)",
       "priority": "low"
     },
     {
       "tc_id": "E-006",
-      "subcategory": "input_edge",
-      "test_case": "Floating Rate Name: leading and trailing whitespace handling",
-      "preconditions": [
-        "Create Floating Rate form is open"
-      ],
-      "steps": [
-        "1. Enter <a Floating Rate Name with leading and trailing whitespace> in the Floating Rate Name field",
-        "2. Fill any other required fields minimally",
-        "3. Click Create"
-      ],
-      "expected_result": "Either: form submission succeeds and the saved Floating Rate Name shown in the table/detail view is trimmed (no leading/trailing whitespace) OR: creation is blocked / error shown with a visible inline validation message about whitespace",
-      "priority": "low"
-    },
-    {
-      "tc_id": "E-007",
-      "subcategory": "input_edge",
-      "test_case": "Interest Rate with excessive decimal precision",
-      "preconditions": [
-        "Create Floating Rate form is open"
-      ],
-      "steps": [
-        "1. Click Add Rate Period",
-        "2. In the new Rate Period row, enter <a valid From Date> in the From Date field",
-        "3. Enter <an Interest Rate value with many decimal places> in the Interest Rate field",
-        "4. Click Create"
-      ],
-      "expected_result": "Either: form submission succeeds and the Floating Rate detail displays the Interest Rate rounded to the system's displayed precision (visible rounding) OR: creation is blocked / error shown with a visible inline validation message about numeric precision",
-      "priority": "low"
-    },
-    {
-      "tc_id": "E-008",
+      "wf_ref": "WF-002",
       "subcategory": "interaction_edge",
-      "test_case": "Double-click Create rapidly to check for duplicate creation",
+      "test_case": "Create: Prevent duplicate creation via browser back + resubmit (rapid resubmission after redirect)",
       "preconditions": [
-        "Create Floating Rate form is open and filled with valid minimal values"
+        "User is logged in",
+        "User is on the Floating Rates page"
       ],
       "steps": [
-        "1. Double-click the Create button rapidly (two clicks in quick succession)"
+        "1. Click the '+ Create Floating Rate' button",
+        "2. Enter a valid value into the Floating Rate Name field and add at least one valid Rate Period row (if desired)",
+        "3. Click 'Submit' on the Create Floating Rate form and wait for the success redirect to the Floating Rate detail view",
+        "4. Press the browser Back button once to return to the Create Floating Rate form",
+        "5. Click 'Submit' again without changing form inputs"
       ],
-      "expected_result": "Only one create action is processed; creation succeeds once and only a single new row appears in the Floating Rates table (no duplicate row is created)",
+      "expected_result": "Second submission attempt is blocked / error shown (no duplicate Floating Rate is created); the Floating Rates table shows only one record for that Floating Rate name and the UI displays a visible message or blocks the submit to prevent duplicate creation",
       "priority": "medium"
-    },
-    {
-      "tc_id": "E-009",
-      "subcategory": "interaction_edge",
-      "test_case": "After successful create, press browser Back and attempt re-submit (no duplicate)",
-      "preconditions": [
-        "A floating rate has just been created successfully and the user is on the success/detail page"
-      ],
-      "steps": [
-        "1. Press the browser Back button",
-        "2. If the Create form is shown, attempt to resubmit by clicking Create without changing values"
-      ],
-      "expected_result": "Either: pressing Back returns to a blank Create Floating Rate form OR: a re-submission attempt is blocked / error shown; in either case no second duplicate floating rate is created and the Floating Rates table contains only the single originally-created row",
-      "priority": "medium"
-    },
-    {
-      "tc_id": "E-010",
-      "subcategory": "interaction_edge",
-      "test_case": "Add then remove all Rate Period rows then submit",
-      "preconditions": [
-        "Create Floating Rate form is open"
-      ],
-      "steps": [
-        "1. Click Add Rate Period",
-        "2. In the new row, enter <a valid From Date> in From Date and <a valid Interest Rate> in Interest Rate",
-        "3. Remove the Rate Period row (use the UI control to delete the row)",
-        "4. Click Create"
-      ],
-      "expected_result": "Either: form submission succeeds (no minimum Rate Period required) and a new floating rate is created with zero rate-period rows shown in detail OR: creation is blocked / error shown if the system requires at least one Rate Period (visible validation message indicating at least one period is required)",
-      "priority": "low"
     }
   ],
   "summary": {
-    "total": 10,
-    "boundary": 3,
-    "input_edge": 4,
-    "interaction_edge": 3,
+    "total": 6,
+    "boundary": 0,
+    "input_edge": 2,
+    "interaction_edge": 2,
     "state_edge": 0,
-    "data_edge": 0,
-    "medium_priority": 5,
-    "low_priority": 5
+    "data_edge": 2,
+    "medium_priority": 3,
+    "low_priority": 3
   }
 }
 
 ------------------------------------------------------------
-[22:32:29] Test-Edge - PARSED JSON
+[14:28:18] Test-Edge - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Floating Rates",
@@ -550,165 +529,125 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "E-001",
-      "subcategory": "boundary",
-      "test_case": "Create first base lending rate when no base exists (should succeed)",
+      "wf_ref": "WF-002",
+      "subcategory": "input_edge",
+      "test_case": "Create: Floating Rate Name accepts very long string (200+ chars)",
       "preconditions": [
-        "No existing floating rate has Is Base Lending Rate == true"
+        "User is logged in",
+        "User is on the Floating Rates page"
       ],
       "steps": [
-        "1. Click + Create Floating Rate",
-        "2. Enter <a valid Floating Rate Name> in the Floating Rate Name field",
-        "3. Check the Is Base Lending Rate checkbox",
-        "4. Click Create"
+        "1. Click the '+ Create Floating Rate' button",
+        "2. Enter <very long string (200+ characters)> into the Floating Rate Name field",
+        "3. Click 'Submit' on the Create Floating Rate form"
       ],
-      "expected_result": "Form submits successfully; creation succeeds and the Floating Rates table displays a new row with Floating Rate Name == <entered name> and Is Base Lending Rate == true",
-      "priority": "medium"
+      "expected_result": "Form submission succeeds; the Floating Rate detail view opens and displays the full Floating Rate Name (the long string) in the detail header (no truncation shown on the detail view)",
+      "priority": "low"
     },
     {
       "tc_id": "E-002",
-      "subcategory": "boundary",
-      "test_case": "Attempt to create a second base lending rate while another base exists \u2014 creation rejected behavior",
+      "wf_ref": "WF-002",
+      "subcategory": "input_edge",
+      "test_case": "Create: Floating Rate Name with leading and trailing whitespace is trimmed",
       "preconditions": [
-        "An existing floating rate row is present with Is Base Lending Rate == true"
+        "User is logged in",
+        "User is on the Floating Rates page"
       ],
       "steps": [
-        "1. Click + Create Floating Rate",
-        "2. Enter <a valid Floating Rate Name> in the Floating Rate Name field",
-        "3. Check the Is Base Lending Rate checkbox",
-        "4. Click Create"
+        "1. Click the '+ Create Floating Rate' button",
+        "2. Enter <value with leading and trailing whitespace> into the Floating Rate Name field",
+        "3. Click 'Submit' on the Create Floating Rate form",
+        "4. Open the created Floating Rate detail view (if not auto-opened)"
       ],
-      "expected_result": "Creation is blocked / error shown: submit is rejected and the existing floating rate's Is Base Lending Rate remains checked (UI shows no new row with Is Base Lending Rate == true)",
-      "priority": "medium"
+      "expected_result": "Form submission succeeds; the Floating Rate detail view displays the Floating Rate Name with leading and trailing whitespace trimmed (no visible leading/trailing spaces in the displayed name)",
+      "priority": "low"
     },
     {
       "tc_id": "E-003",
-      "subcategory": "boundary",
-      "test_case": "Attempt to create a second base lending rate while another base exists \u2014 existing base is unset behavior",
+      "wf_ref": "WF-004",
+      "subcategory": "data_edge",
+      "test_case": "Edit: Interest Rate entered with more decimal places than supported triggers precision validation",
       "preconditions": [
-        "An existing floating rate row is present with Is Base Lending Rate == true"
+        "An existing Floating Rate exists with at least one Rate Period",
+        "User is logged in",
+        "User is on that Floating Rate's detail view"
       ],
       "steps": [
-        "1. Click + Create Floating Rate",
-        "2. Enter <a valid Floating Rate Name> in the Floating Rate Name field",
-        "3. Check the Is Base Lending Rate checkbox",
-        "4. Click Create"
+        "1. Click the 'Edit' action on the Floating Rate detail action bar",
+        "2. In the Rate Periods repeating group, locate an existing Rate Period row",
+        "3. Enter <a numeric percentage value with more decimal places than the field supports> into the Interest Rate field of that row",
+        "4. Click 'Submit' on the Edit Floating Rate form"
       ],
-      "expected_result": "Form submits successfully; creation succeeds and the Floating Rates table displays the new row with Is Base Lending Rate == true while the previously-existing base rate row now shows Is Base Lending Rate == false (previous base was unset)",
+      "expected_result": "Interest Rate field displays an inline error indicating the value has too many decimal places and submit is blocked / error shown",
       "priority": "medium"
     },
     {
       "tc_id": "E-004",
-      "subcategory": "input_edge",
-      "test_case": "Floating Rate Name: very long string (200+ characters)",
+      "wf_ref": "WF-002",
+      "subcategory": "data_edge",
+      "test_case": "Create: Rate Period From Date set to today's date (boundary) is accepted",
       "preconditions": [
-        "Create Floating Rate form is open"
+        "User is logged in",
+        "User is on the Floating Rates page"
       ],
       "steps": [
-        "1. Enter <a very long string (200+ characters)> in the Floating Rate Name field",
-        "2. Fill any other required fields minimally",
-        "3. Click Create"
+        "1. Click the '+ Create Floating Rate' button",
+        "2. Enter a valid value into the Floating Rate Name field",
+        "3. Click 'Add Rate Period' to add a Rate Period row",
+        "4. Enter <today's date> into the From Date field of the new Rate Period row",
+        "5. Enter a valid percentage into the Interest Rate field of the same row",
+        "6. Click 'Submit' on the Create Floating Rate form"
       ],
-      "expected_result": "Either: form submission succeeds and the detail view / table shows the Floating Rate Name as saved (possibly truncated or trimmed) OR: creation is blocked / error shown with a visible inline validation message indicating the name exceeds length limits",
-      "priority": "low"
+      "expected_result": "Form submission succeeds; the Floating Rate detail view opens and shows the Rate Period with From Date = <today's date> visible in the rate history table",
+      "priority": "medium"
     },
     {
       "tc_id": "E-005",
-      "subcategory": "input_edge",
-      "test_case": "Floating Rate Name: special characters and emoji",
+      "wf_ref": "WF-002",
+      "subcategory": "interaction_edge",
+      "test_case": "Create: Add multiple Rate Period rows then remove all and submit",
       "preconditions": [
-        "Create Floating Rate form is open"
+        "User is logged in",
+        "User is on the Floating Rates page"
       ],
       "steps": [
-        "1. Enter <a string containing emoji and special characters> in the Floating Rate Name field",
-        "2. Fill any other required fields minimally",
-        "3. Click Create"
+        "1. Click the '+ Create Floating Rate' button",
+        "2. Click 'Add Rate Period' three times to add three Rate Period rows",
+        "3. For each added Rate Period row, click the row's remove/delete control until all rows are removed",
+        "4. Enter a valid value into the required Floating Rate Name field",
+        "5. Click 'Submit' on the Create Floating Rate form"
       ],
-      "expected_result": "Either: form submission succeeds and the Floating Rates table / detail view displays the name including the special characters/emoji as entered OR: creation is blocked / error shown with a visible inline validation message about invalid characters",
+      "expected_result": "Form submission succeeds; the Floating Rate detail view opens and shows no Rate Period entries in the rate history table (zero rows visible)",
       "priority": "low"
     },
     {
       "tc_id": "E-006",
-      "subcategory": "input_edge",
-      "test_case": "Floating Rate Name: leading and trailing whitespace handling",
-      "preconditions": [
-        "Create Floating Rate form is open"
-      ],
-      "steps": [
-        "1. Enter <a Floating Rate Name with leading and trailing whitespace> in the Floating Rate Name field",
-        "2. Fill any other required fields minimally",
-        "3. Click Create"
-      ],
-      "expected_result": "Either: form submission succeeds and the saved Floating Rate Name shown in the table/detail view is trimmed (no leading/trailing whitespace) OR: creation is blocked / error shown with a visible inline validation message about whitespace",
-      "priority": "low"
-    },
-    {
-      "tc_id": "E-007",
-      "subcategory": "input_edge",
-      "test_case": "Interest Rate with excessive decimal precision",
-      "preconditions": [
-        "Create Floating Rate form is open"
-      ],
-      "steps": [
-        "1. Click Add Rate Period",
-        "2. In the new Rate Period row, enter <a valid From Date> in the From Date field",
-        "3. Enter <an Interest Rate value with many decimal places> in the Interest Rate field",
-        "4. Click Create"
-      ],
-      "expected_result": "Either: form submission succeeds and the Floating Rate detail displays the Interest Rate rounded to the system's displayed precision (visible rounding) OR: creation is blocked / error shown with a visible inline validation message about numeric precision",
-      "priority": "low"
-    },
-    {
-      "tc_id": "E-008",
+      "wf_ref": "WF-002",
       "subcategory": "interaction_edge",
-      "test_case": "Double-click Create rapidly to check for duplicate creation",
+      "test_case": "Create: Prevent duplicate creation via browser back + resubmit (rapid resubmission after redirect)",
       "preconditions": [
-        "Create Floating Rate form is open and filled with valid minimal values"
+        "User is logged in",
+        "User is on the Floating Rates page"
       ],
       "steps": [
-        "1. Double-click the Create button rapidly (two clicks in quick succession)"
+        "1. Click the '+ Create Floating Rate' button",
+        "2. Enter a valid value into the Floating Rate Name field and add at least one valid Rate Period row (if desired)",
+        "3. Click 'Submit' on the Create Floating Rate form and wait for the success redirect to the Floating Rate detail view",
+        "4. Press the browser Back button once to return to the Create Floating Rate form",
+        "5. Click 'Submit' again without changing form inputs"
       ],
-      "expected_result": "Only one create action is processed; creation succeeds once and only a single new row appears in the Floating Rates table (no duplicate row is created)",
+      "expected_result": "Second submission attempt is blocked / error shown (no duplicate Floating Rate is created); the Floating Rates table shows only one record for that Floating Rate name and the UI displays a visible message or blocks the submit to prevent duplicate creation",
       "priority": "medium"
-    },
-    {
-      "tc_id": "E-009",
-      "subcategory": "interaction_edge",
-      "test_case": "After successful create, press browser Back and attempt re-submit (no duplicate)",
-      "preconditions": [
-        "A floating rate has just been created successfully and the user is on the success/detail page"
-      ],
-      "steps": [
-        "1. Press the browser Back button",
-        "2. If the Create form is shown, attempt to resubmit by clicking Create without changing values"
-      ],
-      "expected_result": "Either: pressing Back returns to a blank Create Floating Rate form OR: a re-submission attempt is blocked / error shown; in either case no second duplicate floating rate is created and the Floating Rates table contains only the single originally-created row",
-      "priority": "medium"
-    },
-    {
-      "tc_id": "E-010",
-      "subcategory": "interaction_edge",
-      "test_case": "Add then remove all Rate Period rows then submit",
-      "preconditions": [
-        "Create Floating Rate form is open"
-      ],
-      "steps": [
-        "1. Click Add Rate Period",
-        "2. In the new row, enter <a valid From Date> in From Date and <a valid Interest Rate> in Interest Rate",
-        "3. Remove the Rate Period row (use the UI control to delete the row)",
-        "4. Click Create"
-      ],
-      "expected_result": "Either: form submission succeeds (no minimum Rate Period required) and a new floating rate is created with zero rate-period rows shown in detail OR: creation is blocked / error shown if the system requires at least one Rate Period (visible validation message indicating at least one period is required)",
-      "priority": "low"
     }
   ],
   "summary": {
-    "total": 10,
-    "boundary": 3,
-    "input_edge": 4,
-    "interaction_edge": 3,
+    "total": 6,
+    "boundary": 0,
+    "input_edge": 2,
+    "interaction_edge": 2,
     "state_edge": 0,
-    "data_edge": 0,
-    "medium_priority": 5,
-    "low_priority": 5
+    "data_edge": 2,
+    "medium_priority": 3,
+    "low_priority": 3
   }
 }

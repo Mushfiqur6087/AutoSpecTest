@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-21T22:50:10.014207
+DEBUG SESSION STARTED: 2026-05-25T14:45:09.073511
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[22:51:20] Semantic Critic - SYSTEM PROMPT
+[14:46:10] Semantic Critic - SYSTEM PROMPT
 ------------------------------------------------------------
 You are a UI-AST Semantic Critic. You receive (1) a raw functional description and (2) a generated UI-AST JSON.
 
@@ -106,7 +106,7 @@ Output ONLY the JSON object. No explanation, no markdown fencing, no preamble.
 
 
 ------------------------------------------------------------
-[22:51:20] Semantic Critic - USER PROMPT
+[14:46:10] Semantic Critic - USER PROMPT
 ------------------------------------------------------------
 <description>
 
@@ -123,38 +123,58 @@ The dashboard is organized into the following sections. My Bookings displays all
   "components": {
     "My_Bookings": {
       "type": "data_table",
+      "status_values": [
+        "Pending",
+        "Confirmed",
+        "Cancelled"
+      ],
       "row_actions": [
         {
-          "action_name": "View Details"
+          "action_name": "View Details",
+          "type": "link",
+          "on_trigger": "navigates to booking detail"
         },
         {
           "action_name": "Cancel",
+          "type": "button",
           "preconditions": [
-            "booking_type.allows_cancellation",
-            "cancellation_policy.allows_cancellation",
-            "status != Cancelled"
+            "booking_type permits cancellation",
+            "cancellation_policy permits cancellation"
           ],
           "on_success": "cancels booking"
         },
         {
           "action_name": "Modify",
+          "type": "button",
           "preconditions": [
-            "booking_type.allows_modification",
-            "cancellation_policy.allows_modification"
+            "booking_type permits modification",
+            "cancellation_policy permits modification"
           ],
-          "on_success": "opens modification flow"
+          "on_success": "opens booking modification flow"
         },
         {
           "action_name": "Download Confirmation",
-          "on_success": "downloads confirmation document"
+          "type": "button",
+          "preconditions": [
+            "confirmation available"
+          ],
+          "on_success": "downloads confirmation file"
         },
         {
           "action_name": "Download Invoice",
-          "on_success": "downloads invoice document"
+          "type": "button",
+          "preconditions": [
+            "invoice available"
+          ],
+          "on_success": "downloads invoice file"
         },
         {
           "action_name": "Download Voucher",
-          "on_success": "downloads voucher document"
+          "type": "button",
+          "preconditions": [
+            "voucher available"
+          ],
+          "on_success": "downloads voucher file"
         }
       ]
     },
@@ -164,34 +184,268 @@ The dashboard is organized into the following sections. My Bookings displays all
       "actions": [
         {
           "element_name": "Edit",
-          "on_success": "enables profile fields for editing"
+          "type": "button",
+          "on_trigger": "opens Profile_Edit_Form"
         }
-      ],
+      ]
+    },
+    "Profile_Edit_Form": {
+      "type": "form",
+      "fields": {},
       "submit_actions": [
         {
           "element_name": "Save",
-          "on_success": "saves profile changes"
+          "on_success": "updates user profile",
+          "preconditions": [
+            "user must be logged in"
+          ]
         },
         {
           "element_name": "Cancel",
-          "on_success": "cancels profile edit"
+          "on_success": "closes profile editor without saving"
         }
       ]
     },
     "Wallet_Credits": {
-      "type": "data_table",
-      "description": "transaction history table",
-      "row_actions": []
+      "type": "container",
+      "fields": {},
+      "components": {
+        "Transaction_History": {
+          "type": "data_table",
+          "fields": {}
+        }
+      }
     },
     "Wishlist": {
       "type": "data_table",
-      "row_actions": []
+      "fields": {}
     },
     "Reviews": {
       "type": "form",
+      "fields": {
+        "Booking": {
+          "type": "dropdown",
+          "required": true,
+          "constraints": [
+            "must be a completed booking"
+          ]
+        },
+        "Rating": {
+          "type": "unspecified",
+          "required": true
+        },
+        "Review_Text": {
+          "type": "unspecified",
+          "required": false
+        }
+      },
+      "submit_actions": [
+        {
+          "element_name": "Submit Review",
+          "on_success": "posts review",
+          "preconditions": [
+            "user must be logged in",
+            "Booking must be Completed"
+          ]
+        },
+        {
+          "element_name": "Cancel",
+          "on_success": "cancels review composition"
+        }
+      ]
+    },
+    "Settings": {
+      "type": "form",
+      "fields": {
+        "Change_Password": {
+          "type": "group",
+          "fields": {
+            "Current_Password": {
+              "type": "password",
+              "required": true
+            },
+            "New_Password": {
+              "type": "password",
+              "required": true
+            },
+            "Confirm_Password": {
+              "type": "password",
+              "required": true
+            }
+          },
+          "constraints": [
+            "Confirm_Password must match New_Password"
+          ]
+        },
+        "Notification_Preferences": {
+          "type": "group",
+          "fields": {}
+        },
+        "Default_Currency": {
+          "type": "dropdown",
+          "required": false
+        },
+        "Default_Language": {
+          "type": "dropdown",
+          "required": false
+        }
+      },
+      "submit_actions": [
+        {
+          "element_name": "Save Settings",
+          "on_success": "updates user settings",
+          "preconditions": [
+            "user must be logged in"
+          ]
+        },
+        {
+          "element_name": "Cancel",
+          "on_success": "reverts unsaved settings changes"
+        }
+      ]
+    },
+    "Logout": {
+      "type": "button",
+      "element_name": "Logout",
+      "on_trigger": "ends session",
+      "on_success": "ends session",
       "preconditions": [
-        "booking must be Completed"
-      ],
+        "user must be logged in"
+      ]
+    }
+  }
+}
+</ast>
+
+IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
+
+------------------------------------------------------------
+[14:46:43] Semantic Critic - LLM RESPONSE
+------------------------------------------------------------
+{
+  "verdict": "retry",
+  "summary": "AST introduces multiple elements not explicit in the description (notably a separate Profile_Edit_Form component and repeated 'user must be logged in' preconditions) and should be regenerated to remove these phantoms or align them to the description.",
+  "missing": [],
+  "phantoms": [
+    "components.Profile_Edit_Form (separate edit form component not explicitly described; description only names an Edit button)",
+    "components.Profile_Edit_Form.submit_actions[0].preconditions[0] (\"user must be logged in\" precondition not stated in description)",
+    "components.Reviews.submit_actions[0].preconditions[0] (\"user must be logged in\" precondition not stated in description)",
+    "components.Settings.submit_actions[0].preconditions[0] (\"user must be logged in\" precondition not stated in description)",
+    "components.Logout.preconditions[0] (\"user must be logged in\" precondition not stated explicitly)"
+  ],
+  "fixes": [
+    "components.Profile_Edit_Form: Remove this separate component or, if keeping, ensure it's explicitly grounded in the description — otherwise delete components.Profile_Edit_Form entirely and keep only My_Profile.actions with an Edit action (e.g., components.My_Profile.actions[0]) that has no autogenerated form or save/cancel actions.",
+    "components.Profile_Edit_Form.submit_actions[0].preconditions[0]: Remove the 'user must be logged in' precondition (path: components.Profile_Edit_Form.submit_actions[0].preconditions). Only include preconditions that are explicitly mentioned in the description.",
+    "components.Reviews.submit_actions[0].preconditions: Remove 'user must be logged in' from components.Reviews.submit_actions[0].preconditions; keep only 'Booking must be Completed' which is stated by the description.",
+    "components.Settings.submit_actions[0].preconditions: Remove the 'user must be logged in' precondition at components.Settings.submit_actions[0].preconditions unless the description is updated to state this requirement.",
+    "components.Logout.preconditions: Remove the 'user must be logged in' precondition at components.Logout.preconditions (the description does not explicitly require adding this precondition). If an authentication precondition is desired, add a single module-level note rather than repeated per-action preconditions."
+  ]
+}
+
+------------------------------------------------------------
+[14:46:43] Semantic Critic - PARSED JSON
+------------------------------------------------------------
+{
+  "verdict": "retry",
+  "summary": "AST introduces multiple elements not explicit in the description (notably a separate Profile_Edit_Form component and repeated 'user must be logged in' preconditions) and should be regenerated to remove these phantoms or align them to the description.",
+  "missing": [],
+  "phantoms": [
+    "components.Profile_Edit_Form (separate edit form component not explicitly described; description only names an Edit button)",
+    "components.Profile_Edit_Form.submit_actions[0].preconditions[0] (\"user must be logged in\" precondition not stated in description)",
+    "components.Reviews.submit_actions[0].preconditions[0] (\"user must be logged in\" precondition not stated in description)",
+    "components.Settings.submit_actions[0].preconditions[0] (\"user must be logged in\" precondition not stated in description)",
+    "components.Logout.preconditions[0] (\"user must be logged in\" precondition not stated explicitly)"
+  ],
+  "fixes": [
+    "components.Profile_Edit_Form: Remove this separate component or, if keeping, ensure it's explicitly grounded in the description \u2014 otherwise delete components.Profile_Edit_Form entirely and keep only My_Profile.actions with an Edit action (e.g., components.My_Profile.actions[0]) that has no autogenerated form or save/cancel actions.",
+    "components.Profile_Edit_Form.submit_actions[0].preconditions[0]: Remove the 'user must be logged in' precondition (path: components.Profile_Edit_Form.submit_actions[0].preconditions). Only include preconditions that are explicitly mentioned in the description.",
+    "components.Reviews.submit_actions[0].preconditions: Remove 'user must be logged in' from components.Reviews.submit_actions[0].preconditions; keep only 'Booking must be Completed' which is stated by the description.",
+    "components.Settings.submit_actions[0].preconditions: Remove the 'user must be logged in' precondition at components.Settings.submit_actions[0].preconditions unless the description is updated to state this requirement.",
+    "components.Logout.preconditions: Remove the 'user must be logged in' precondition at components.Logout.preconditions (the description does not explicitly require adding this precondition). If an authentication precondition is desired, add a single module-level note rather than repeated per-action preconditions."
+  ]
+}
+
+------------------------------------------------------------
+[14:47:14] Semantic Critic - USER PROMPT
+------------------------------------------------------------
+<description>
+
+The dashboard is organized into the following sections. My Bookings displays all past and upcoming bookings across Hotels, Flights, Tours, and Cars, with booking reference, service type, travel dates, status (Pending, Confirmed, Cancelled), and action buttons for View Details, Cancel, and Modify where the booking type and cancellation policy permit; users can also download confirmations, invoices, or vouchers. My Profile shows personal information with an Edit button. Wallet/Credits shows available credit balance and full transaction history. Wishlist shows saved hotels, tours, or flights. Reviews allows rating and reviewing completed bookings. Settings provides controls for changing password, notification preferences, and default currency and language. Logout ends the session.
+
+---
+
+
+</description>
+
+<ast>
+{
+  "module_name": "User Dashboard",
+  "components": {
+    "My_Bookings": {
+      "type": "data_table",
+      "description": "Lists past and upcoming bookings across service types",
+      "row_actions": [
+        {
+          "action_name": "View Details",
+          "type": "link"
+        },
+        {
+          "action_name": "Cancel",
+          "type": "button",
+          "preconditions": [
+            "booking type and cancellation policy permit"
+          ]
+        },
+        {
+          "action_name": "Modify",
+          "type": "button",
+          "preconditions": [
+            "booking type and cancellation policy permit"
+          ]
+        },
+        {
+          "action_name": "Download Confirmation",
+          "type": "button"
+        },
+        {
+          "action_name": "Download Invoice",
+          "type": "button"
+        },
+        {
+          "action_name": "Download Voucher",
+          "type": "button"
+        }
+      ]
+    },
+    "My_Profile": {
+      "type": "panel",
+      "actions": [
+        {
+          "action_name": "Edit"
+        }
+      ]
+    },
+    "Wallet_Credits": {
+      "type": "container",
+      "components": {
+        "Transaction_History": {
+          "type": "data_table",
+          "description": "Full transaction history"
+        }
+      }
+    },
+    "Wishlist": {
+      "type": "data_table",
+      "description": "Saved hotels, tours, or flights",
+      "row_actions": [
+        {
+          "action_name": "View Details",
+          "type": "link"
+        }
+      ]
+    },
+    "Reviews": {
+      "type": "form",
       "fields": {
         "Rating": {
           "type": "unspecified",
@@ -205,27 +459,30 @@ The dashboard is organized into the following sections. My Bookings displays all
       "submit_actions": [
         {
           "element_name": "Submit Review",
-          "on_success": "creates review for completed booking"
+          "preconditions": [
+            "Booking must be Completed"
+          ],
+          "on_success": "review submitted"
         }
       ]
     },
     "Settings": {
       "type": "form",
       "fields": {
-        "Current_Password": {
+        "Change_Password_Current": {
           "type": "password",
-          "required": true
+          "required": false
         },
-        "New_Password": {
+        "Change_Password_New": {
           "type": "password",
-          "required": true
+          "required": false
         },
-        "Confirm_Password": {
+        "Change_Password_Confirm": {
           "type": "password",
-          "required": true
+          "required": false
         },
         "Notification_Preferences": {
-          "type": "checkbox",
+          "type": "unspecified",
           "required": false
         },
         "Default_Currency": {
@@ -238,201 +495,14 @@ The dashboard is organized into the following sections. My Bookings displays all
         }
       },
       "constraints": [
-        "Confirm_Password must match New_Password"
+        "Change_Password_Confirm must match Change_Password_New"
       ],
       "submit_actions": [
         {
-          "element_name": "Save Changes",
-          "on_success": "saves settings"
-        },
-        {
-          "element_name": "Cancel",
-          "on_success": "reverts unsaved settings changes"
+          "element_name": "Save Settings",
+          "on_success": "settings saved"
         }
       ]
-    },
-    "Logout": {
-      "type": "button",
-      "element_name": "Logout",
-      "on_success": "ends session"
-    }
-  }
-}
-</ast>
-
-IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
-
-------------------------------------------------------------
-[22:52:03] Semantic Critic - LLM RESPONSE
-------------------------------------------------------------
-{
-  "verdict": "retry",
-  "summary": "AST contains multiple inferred/phantom interactive elements not present in the description (several Save/Cancel actions, a status check precondition, and an explicit password-match constraint); please remove or justify these extras and regenerate.",
-  "missing": []
-  ,
-  "phantoms": [
-    "components.My_Profile.submit_actions[0] (Save button not mentioned in description)",
-    "components.My_Profile.submit_actions[1] (Cancel button not mentioned in description)",
-    "components.My_Bookings.row_actions[1].preconditions[2] (\"status != Cancelled\" precondition is not specified in the description)",
-    "components.Settings.submit_actions[0] (Save Changes button not mentioned explicitly)",
-    "components.Settings.submit_actions[1] (Cancel button not mentioned explicitly)",
-    "components.Settings.constraints[0] (\"Confirm_Password must match New_Password\" constraint is an inferred validation not stated)",
-    "components.Reviews.fields.Rating.required (required flag inferred but not specified)",
-    "components.Reviews.fields.Review_Text.required (required flag inferred but not specified)"
-  ],
-  "fixes": [
-    "Remove or justify My_Profile.submit_actions: delete components.My_Profile.submit_actions entirely unless Save/Cancel were explicitly described. If an edit flow is intended, update the description to include Save and Cancel actions.",
-    "Remove the inferred booking status precondition: delete components.My_Bookings.row_actions[1].preconditions[2] (the 'status != Cancelled' entry) unless the description is updated to explicitly require it.",
-    "Remove or justify Settings.submit_actions: delete components.Settings.submit_actions[*] entries unless Save/Cancel were described; alternatively, add explicit mention of these actions to the description.",
-    "Remove or justify the password-match constraint: delete components.Settings.constraints[0] unless the description explicitly requires Confirm_Password to match New_Password (or update the description to state this validation).",
-    "Unset explicit required flags on Reviews fields or justify them: remove components.Reviews.fields.Rating.required and components.Reviews.fields.Review_Text.required (or update the description to state whether rating and/or review text are required)."
-  ]
-}
-
-------------------------------------------------------------
-[22:52:03] Semantic Critic - PARSED JSON
-------------------------------------------------------------
-{
-  "verdict": "retry",
-  "summary": "AST contains multiple inferred/phantom interactive elements not present in the description (several Save/Cancel actions, a status check precondition, and an explicit password-match constraint); please remove or justify these extras and regenerate.",
-  "missing": [],
-  "phantoms": [
-    "components.My_Profile.submit_actions[0] (Save button not mentioned in description)",
-    "components.My_Profile.submit_actions[1] (Cancel button not mentioned in description)",
-    "components.My_Bookings.row_actions[1].preconditions[2] (\"status != Cancelled\" precondition is not specified in the description)",
-    "components.Settings.submit_actions[0] (Save Changes button not mentioned explicitly)",
-    "components.Settings.submit_actions[1] (Cancel button not mentioned explicitly)",
-    "components.Settings.constraints[0] (\"Confirm_Password must match New_Password\" constraint is an inferred validation not stated)",
-    "components.Reviews.fields.Rating.required (required flag inferred but not specified)",
-    "components.Reviews.fields.Review_Text.required (required flag inferred but not specified)"
-  ],
-  "fixes": [
-    "Remove or justify My_Profile.submit_actions: delete components.My_Profile.submit_actions entirely unless Save/Cancel were explicitly described. If an edit flow is intended, update the description to include Save and Cancel actions.",
-    "Remove the inferred booking status precondition: delete components.My_Bookings.row_actions[1].preconditions[2] (the 'status != Cancelled' entry) unless the description is updated to explicitly require it.",
-    "Remove or justify Settings.submit_actions: delete components.Settings.submit_actions[*] entries unless Save/Cancel were described; alternatively, add explicit mention of these actions to the description.",
-    "Remove or justify the password-match constraint: delete components.Settings.constraints[0] unless the description explicitly requires Confirm_Password to match New_Password (or update the description to state this validation).",
-    "Unset explicit required flags on Reviews fields or justify them: remove components.Reviews.fields.Rating.required and components.Reviews.fields.Review_Text.required (or update the description to state whether rating and/or review text are required)."
-  ]
-}
-
-------------------------------------------------------------
-[22:52:35] Semantic Critic - USER PROMPT
-------------------------------------------------------------
-<description>
-
-The dashboard is organized into the following sections. My Bookings displays all past and upcoming bookings across Hotels, Flights, Tours, and Cars, with booking reference, service type, travel dates, status (Pending, Confirmed, Cancelled), and action buttons for View Details, Cancel, and Modify where the booking type and cancellation policy permit; users can also download confirmations, invoices, or vouchers. My Profile shows personal information with an Edit button. Wallet/Credits shows available credit balance and full transaction history. Wishlist shows saved hotels, tours, or flights. Reviews allows rating and reviewing completed bookings. Settings provides controls for changing password, notification preferences, and default currency and language. Logout ends the session.
-
----
-
-
-</description>
-
-<ast>
-{
-  "module_name": "User Dashboard",
-  "components": {
-    "My_Bookings": {
-      "type": "data_table",
-      "row_actions": [
-        {
-          "action_name": "View Details"
-        },
-        {
-          "action_name": "Cancel",
-          "preconditions": [
-            "booking type permits cancellation",
-            "cancellation policy permits cancellation"
-          ],
-          "on_success": "cancels booking",
-          "state_transition": "to Cancelled"
-        },
-        {
-          "action_name": "Modify",
-          "preconditions": [
-            "booking type permits modification",
-            "cancellation policy permits modification"
-          ],
-          "on_success": "opens modification flow"
-        },
-        {
-          "action_name": "Download Confirmation",
-          "on_success": "downloads confirmation"
-        },
-        {
-          "action_name": "Download Invoice",
-          "on_success": "downloads invoice"
-        },
-        {
-          "action_name": "Download Voucher",
-          "on_success": "downloads voucher"
-        }
-      ]
-    },
-    "My_Profile": {
-      "type": "component",
-      "actions": [
-        {
-          "action_name": "Edit",
-          "on_success": "opens profile edit mode"
-        }
-      ]
-    },
-    "Wallet": {
-      "type": "component",
-      "components": {
-        "Wallet_Transactions": {
-          "type": "data_table",
-          "row_actions": []
-        }
-      }
-    },
-    "Wishlist": {
-      "type": "data_table",
-      "row_actions": [
-        {
-          "action_name": "View Details"
-        }
-      ]
-    },
-    "Reviews": {
-      "type": "form",
-      "fields": {
-        "Rating": {
-          "type": "unspecified"
-        },
-        "Review_Text": {
-          "type": "unspecified"
-        }
-      },
-      "submit_actions": [
-        {
-          "element_name": "Submit Review",
-          "on_success": "submits review",
-          "preconditions": [
-            "booking must be completed"
-          ]
-        }
-      ]
-    },
-    "Settings": {
-      "type": "form",
-      "fields": {
-        "Current_Password": {
-          "type": "password"
-        },
-        "New_Password": {
-          "type": "password"
-        },
-        "Notification_Preferences": {
-          "type": "unspecified"
-        },
-        "Default_Currency": {
-          "type": "dropdown"
-        },
-        "Default_Language": {
-          "type": "dropdown"
-        }
-      }
     },
     "Logout": {
       "type": "button",
@@ -446,61 +516,45 @@ The dashboard is organized into the following sections. My Bookings displays all
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[22:53:07] Semantic Critic - LLM RESPONSE
+[14:47:35] Semantic Critic - LLM RESPONSE
 ------------------------------------------------------------
 {
   "verdict": "retry",
-  "summary": "AST contains multiple phantom/inferred elements (several on_success/state_transition entries, an unstated Wishlist action, and a named Submit button for reviews) that are not explicitly present in the description; please remove or align them with the text.",
+  "summary": "AST adds several elements not present in the description (phantoms); remove or align them with the description before reuse.",
   "missing": [],
   "phantoms": [
-    "My_Bookings.row_actions[1].on_success (cancels booking — consequence text not stated in description)",
-    "My_Bookings.row_actions[1].state_transition (to Cancelled — explicit state transition not stated in description)",
-    "My_Bookings.row_actions[2].on_success (opens modification flow — consequence text not stated in description)",
-    "My_Bookings.row_actions[3].on_success (downloads confirmation — inferred consequence text not stated in description)",
-    "My_Bookings.row_actions[4].on_success (downloads invoice — inferred consequence text not stated in description)",
-    "My_Bookings.row_actions[5].on_success (downloads voucher — inferred consequence text not stated in description)",
-    "My_Profile.actions[0].on_success (opens profile edit mode — inferred consequence not stated in description)",
-    "Wishlist.row_actions[0] (View Details button not mentioned in description; Wishlist only described as showing saved items)",
-    "Reviews.submit_actions[0].element_name (Submit Review button label is not specified in the description)",
-    "Reviews.submit_actions[0].on_success (submits review — inferred consequence text not explicitly stated)"
+    "components.Wishlist.row_actions[0] (View Details link not mentioned in the description)",
+    "components.Settings.fields.Change_Password_Confirm (Confirm password field was not specified in the description)",
+    "components.Settings.constraints[0] (Password confirmation constraint was not specified in the description)"
   ],
   "fixes": [
-    "Remove inferred consequence fields from My_Bookings row actions: delete My_Bookings.row_actions[1].on_success and My_Bookings.row_actions[1].state_transition; delete My_Bookings.row_actions[2].on_success; delete My_Bookings.row_actions[3].on_success; delete My_Bookings.row_actions[4].on_success; delete My_Bookings.row_actions[5].on_success. Keep only the action_name and the explicit preconditions as provided in the description.",
-    "Remove inferred on_success from My_Profile action: delete My_Profile.actions[0].on_success so only the 'Edit' action_name remains (the Edit button is described but its exact consequence text is not).",
-    "Remove the unstated Wishlist action: delete Wishlist.row_actions[0] entirely (description only mentions that Wishlist shows saved items, no actions were specified).",
-    "Adjust Reviews submit action to match the description: remove Reviews.submit_actions[0].element_name and Reviews.submit_actions[0].on_success, leaving a submit action placeholder or a note that a submit action exists conditioned by 'booking must be completed' (i.e., keep the precondition but do not invent the exact button label or consequence)."
+    "Remove components.Wishlist.row_actions[0] or only include wishlist row actions if the description explicitly names them; regenerate without the View Details action under Wishlist.",
+    "Remove components.Settings.fields.Change_Password_Confirm from the AST unless the description explicitly requires a password confirmation field; regenerate without this field.",
+    "Remove components.Settings.constraints[0] (the 'Change_Password_Confirm must match Change_Password_New' constraint) unless the description explicitly states a confirmation requirement; regenerate without this constraint."
   ]
 }
 
 ------------------------------------------------------------
-[22:53:07] Semantic Critic - PARSED JSON
+[14:47:35] Semantic Critic - PARSED JSON
 ------------------------------------------------------------
 {
   "verdict": "retry",
-  "summary": "AST contains multiple phantom/inferred elements (several on_success/state_transition entries, an unstated Wishlist action, and a named Submit button for reviews) that are not explicitly present in the description; please remove or align them with the text.",
+  "summary": "AST adds several elements not present in the description (phantoms); remove or align them with the description before reuse.",
   "missing": [],
   "phantoms": [
-    "My_Bookings.row_actions[1].on_success (cancels booking \u2014 consequence text not stated in description)",
-    "My_Bookings.row_actions[1].state_transition (to Cancelled \u2014 explicit state transition not stated in description)",
-    "My_Bookings.row_actions[2].on_success (opens modification flow \u2014 consequence text not stated in description)",
-    "My_Bookings.row_actions[3].on_success (downloads confirmation \u2014 inferred consequence text not stated in description)",
-    "My_Bookings.row_actions[4].on_success (downloads invoice \u2014 inferred consequence text not stated in description)",
-    "My_Bookings.row_actions[5].on_success (downloads voucher \u2014 inferred consequence text not stated in description)",
-    "My_Profile.actions[0].on_success (opens profile edit mode \u2014 inferred consequence not stated in description)",
-    "Wishlist.row_actions[0] (View Details button not mentioned in description; Wishlist only described as showing saved items)",
-    "Reviews.submit_actions[0].element_name (Submit Review button label is not specified in the description)",
-    "Reviews.submit_actions[0].on_success (submits review \u2014 inferred consequence text not explicitly stated)"
+    "components.Wishlist.row_actions[0] (View Details link not mentioned in the description)",
+    "components.Settings.fields.Change_Password_Confirm (Confirm password field was not specified in the description)",
+    "components.Settings.constraints[0] (Password confirmation constraint was not specified in the description)"
   ],
   "fixes": [
-    "Remove inferred consequence fields from My_Bookings row actions: delete My_Bookings.row_actions[1].on_success and My_Bookings.row_actions[1].state_transition; delete My_Bookings.row_actions[2].on_success; delete My_Bookings.row_actions[3].on_success; delete My_Bookings.row_actions[4].on_success; delete My_Bookings.row_actions[5].on_success. Keep only the action_name and the explicit preconditions as provided in the description.",
-    "Remove inferred on_success from My_Profile action: delete My_Profile.actions[0].on_success so only the 'Edit' action_name remains (the Edit button is described but its exact consequence text is not).",
-    "Remove the unstated Wishlist action: delete Wishlist.row_actions[0] entirely (description only mentions that Wishlist shows saved items, no actions were specified).",
-    "Adjust Reviews submit action to match the description: remove Reviews.submit_actions[0].element_name and Reviews.submit_actions[0].on_success, leaving a submit action placeholder or a note that a submit action exists conditioned by 'booking must be completed' (i.e., keep the precondition but do not invent the exact button label or consequence)."
+    "Remove components.Wishlist.row_actions[0] or only include wishlist row actions if the description explicitly names them; regenerate without the View Details action under Wishlist.",
+    "Remove components.Settings.fields.Change_Password_Confirm from the AST unless the description explicitly requires a password confirmation field; regenerate without this field.",
+    "Remove components.Settings.constraints[0] (the 'Change_Password_Confirm must match Change_Password_New' constraint) unless the description explicitly states a confirmation requirement; regenerate without this constraint."
   ]
 }
 
 ------------------------------------------------------------
-[22:53:39] Semantic Critic - USER PROMPT
+[14:48:18] Semantic Critic - USER PROMPT
 ------------------------------------------------------------
 <description>
 
@@ -517,110 +571,200 @@ The dashboard is organized into the following sections. My Bookings displays all
   "components": {
     "My_Bookings": {
       "type": "data_table",
-      "row_actions": [
-        {
-          "action_name": "View Details"
-        },
-        {
-          "action_name": "Cancel",
-          "preconditions": [
-            "cancellation policy permits",
-            "booking type permits cancellation"
-          ]
-        },
-        {
-          "action_name": "Modify",
-          "preconditions": [
-            "booking type permits modification",
-            "modification policy permits"
-          ]
-        },
-        {
-          "action_name": "Download Confirmation"
-        },
-        {
-          "action_name": "Download Invoice"
-        },
-        {
-          "action_name": "Download Voucher"
+      "description": "Table of user's past and upcoming bookings (interactive row actions are defined in row_state_actions)",
+      "row_state_actions": {
+        "type": "state_bound_action_bar",
+        "states": {
+          "Pending": {
+            "available_actions": [
+              {
+                "action_name": "View Details",
+                "on_success": "navigates to booking detail"
+              },
+              {
+                "action_name": "Cancel",
+                "preconditions": [
+                  "cancellation_policy_allows_cancellation",
+                  "status != Cancelled"
+                ],
+                "on_success": "changes status to Cancelled"
+              },
+              {
+                "action_name": "Modify",
+                "preconditions": [
+                  "booking_type_allows_modification",
+                  "cancellation_policy_allows_modification"
+                ],
+                "on_success": "initiates modification flow"
+              },
+              {
+                "action_name": "Download Confirmation",
+                "on_success": "downloads confirmation document"
+              },
+              {
+                "action_name": "Download Invoice",
+                "on_success": "downloads invoice"
+              },
+              {
+                "action_name": "Download Voucher",
+                "on_success": "downloads voucher"
+              }
+            ]
+          },
+          "Confirmed": {
+            "available_actions": [
+              {
+                "action_name": "View Details",
+                "on_success": "navigates to booking detail"
+              },
+              {
+                "action_name": "Cancel",
+                "preconditions": [
+                  "cancellation_policy_allows_cancellation",
+                  "status != Cancelled"
+                ],
+                "on_success": "changes status to Cancelled"
+              },
+              {
+                "action_name": "Modify",
+                "preconditions": [
+                  "booking_type_allows_modification",
+                  "cancellation_policy_allows_modification"
+                ],
+                "on_success": "initiates modification flow"
+              },
+              {
+                "action_name": "Download Confirmation",
+                "on_success": "downloads confirmation document"
+              },
+              {
+                "action_name": "Download Invoice",
+                "on_success": "downloads invoice"
+              },
+              {
+                "action_name": "Download Voucher",
+                "on_success": "downloads voucher"
+              }
+            ]
+          },
+          "Cancelled": {
+            "available_actions": [
+              {
+                "action_name": "View Details",
+                "on_success": "navigates to booking detail"
+              },
+              {
+                "action_name": "Download Invoice",
+                "on_success": "downloads invoice"
+              },
+              {
+                "action_name": "Download Voucher",
+                "on_success": "downloads voucher"
+              }
+            ]
+          }
         }
-      ]
+      }
     },
     "My_Profile": {
-      "type": "component",
+      "type": "form",
+      "fields": {},
       "actions": [
         {
-          "action_name": "Edit"
+          "element_name": "Edit",
+          "on_success": "enables profile edit mode"
+        }
+      ],
+      "submit_actions": [
+        {
+          "element_name": "Save",
+          "on_success": "updates profile"
+        },
+        {
+          "element_name": "Cancel",
+          "on_success": "cancels profile edit"
         }
       ]
     },
     "Wallet_Credits": {
       "type": "data_table",
-      "description": "transaction history for wallet/credits",
-      "row_actions": [],
-      "bulk_actions": []
+      "description": "Transaction history (available credit balance is a read-only value and not represented here)",
+      "fields": {},
+      "row_actions": []
     },
     "Wishlist": {
-      "type": "list",
-      "fields": {}
+      "type": "data_table",
+      "description": "Saved hotels, tours, or flights",
+      "fields": {},
+      "row_actions": []
     },
     "Reviews": {
+      "type": "data_table",
+      "description": "Listings of completed bookings eligible for review",
+      "fields": {},
+      "row_actions": [
+        {
+          "action_name": "Write Review",
+          "preconditions": [
+            "booking status must be Completed"
+          ],
+          "on_success": "opens Review_Form"
+        }
+      ]
+    },
+    "Review_Form": {
       "type": "form",
       "fields": {
         "Rating": {
-          "type": "number",
-          "visible_when": "booking_status == Completed",
-          "constraints": [
-            "min 1",
-            "max 5"
-          ]
+          "type": "unspecified",
+          "required": true
         },
         "Review_Text": {
           "type": "unspecified",
-          "visible_when": "booking_status == Completed"
+          "required": true
         }
       },
       "submit_actions": [
         {
-          "preconditions": [
-            "booking must be completed"
-          ]
+          "element_name": "Submit Review",
+          "on_success": "saves review"
+        },
+        {
+          "element_name": "Cancel",
+          "on_success": "cancels review entry"
         }
       ]
     },
     "Settings": {
       "type": "form",
       "fields": {
-        "Change_Password": {
-          "type": "form",
-          "fields": {
-            "Old_Password": {
-              "type": "password",
-              "required": true
-            },
-            "New_Password": {
-              "type": "password",
-              "required": true
-            },
-            "Confirm_Password": {
-              "type": "password",
-              "required": true,
-              "constraints": [
-                "must match New_Password"
-              ]
-            }
-          }
+        "Change_Password_Current": {
+          "type": "password",
+          "required": true
+        },
+        "Change_Password_New": {
+          "type": "password",
+          "required": true
         },
         "Notification_Preferences": {
-          "type": "unspecified"
+          "type": "unspecified",
+          "required": false
         },
         "Default_Currency": {
-          "type": "dropdown"
+          "type": "dropdown",
+          "required": false
         },
         "Default_Language": {
-          "type": "dropdown"
+          "type": "dropdown",
+          "required": false
         }
-      }
+      },
+      "submit_actions": [
+        {
+          "element_name": "Save Settings",
+          "on_success": "updates user settings"
+        }
+      ]
     },
     "Logout": {
       "type": "button",
@@ -634,43 +778,51 @@ The dashboard is organized into the following sections. My Bookings displays all
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[22:54:00] Semantic Critic - LLM RESPONSE
+[14:48:41] Semantic Critic - LLM RESPONSE
 ------------------------------------------------------------
 {
   "verdict": "retry",
-  "summary": "The AST broadly covers the described components and actions but includes multiple inferred constraints/conditions not present in the description and one incorrect precondition for Modify, so it should be regenerated with those phantoms removed or corrected.",
+  "summary": "AST includes several inferred actions/fields and extra constraints not explicitly present in the description (multiple phantom items); regenerate after removing or justifying these inferred elements.",
   "missing": [],
   "phantoms": [
-    "components.My_Bookings.row_actions[2].preconditions[1] (\"modification policy permits\" — not stated in description; description referenced booking type and cancellation policy)",
-    "components.Reviews.fields.Rating.constraints[0] (\"min 1\" — rating bounds were inferred, not specified)",
-    "components.Reviews.fields.Rating.constraints[1] (\"max 5\" — rating bounds were inferred, not specified)",
-    "components.Settings.fields.Change_Password.fields.Confirm_Password.constraints[0] (\"must match New_Password\" — validation constraint inferred, not explicitly stated)"
+    "components.My_Profile.submit_actions[0] (Save button not mentioned in description)",
+    "components.My_Profile.submit_actions[1] (Cancel button not mentioned in description)",
+    "components.Review_Form.submit_actions[1] (Cancel button not mentioned in description)",
+    "components.Settings.fields.Change_Password_Current (description only states 'change password' — current/new fields inferred)",
+    "components.Settings.fields.Change_Password_New (description only states 'change password' — current/new fields inferred)",
+    "components.My_Bookings.row_state_actions.states.Pending.available_actions[*].preconditions (contains 'status != Cancelled' which is an inferred constraint)",
+    "components.My_Bookings.row_state_actions.states.Confirmed.available_actions[*].preconditions (contains 'status != Cancelled' which is an inferred constraint)"
   ],
   "fixes": [
-    "components.My_Bookings.row_actions[2].preconditions — replace or remove the second precondition: change \"modification policy permits\" to the explicitly described constraint \"cancellation policy permits\" if Modify is intended to be governed by the same cancellation rule, or remove the inferred precondition entirely.",
-    "components.Reviews.fields.Rating — remove the constraints array (delete components.Reviews.fields.Rating.constraints) since rating bounds were not specified in the description.",
-    "components.Reviews.fields.Rating.visible_when — keep the visibility condition (booking must be Completed) as it is described; no change.",
-    "components.Settings.fields.Change_Password.fields.Confirm_Password.constraints[0] — remove the \"must match New_Password\" constraint since the description only states change-password controls, without specifying this validation."
+    "Remove components.My_Profile.submit_actions array or move those actions to a nested 'edit' mode object — the description only mentions an Edit button, not Save/Cancel at the top level. Change: set components.My_Profile.submit_actions = [] or nest under components.My_Profile.edit_mode.",
+    "Remove components.Review_Form.submit_actions[1] (Cancel). Keep only the explicit Submit action unless the description is updated to mention a Cancel button. Change: remove the Cancel entry from components.Review_Form.submit_actions.",
+    "Replace components.Settings.fields.Change_Password_Current and components.Settings.fields.Change_Password_New with a single field anchored to the description (e.g., components.Settings.fields.Change_Password) or make the password fields unspecified if more detail is provided. Change: delete the two specific password fields and add components.Settings.fields.Change_Password with type 'password' (or leave as unspecified if preferred).",
+    "Remove the inferred 'status != Cancelled' precondition from all relevant actions under components.My_Bookings.row_state_actions.states.Pending.available_actions and components.My_Bookings.row_state_actions.states.Confirmed.available_actions unless the description explicitly requires it. Change: delete any 'status != Cancelled' entries from the preconditions arrays under those states.",
+    "Ensure downloads (Confirmation, Invoice, Voucher) reflect only what the description explicitly states. The description says users can download confirmations, invoices, or vouchers (no per-state restriction); either add Download Confirmation to components.My_Bookings.row_state_actions.states.Cancelled.available_actions or document that downloads are available globally. Change option A: add Download Confirmation action to components.My_Bookings.row_state_actions.states.Cancelled.available_actions; Change option B: move download actions to a global per-row download menu instead of state-bound actions."
   ]
 }
 
 ------------------------------------------------------------
-[22:54:00] Semantic Critic - PARSED JSON
+[14:48:41] Semantic Critic - PARSED JSON
 ------------------------------------------------------------
 {
   "verdict": "retry",
-  "summary": "The AST broadly covers the described components and actions but includes multiple inferred constraints/conditions not present in the description and one incorrect precondition for Modify, so it should be regenerated with those phantoms removed or corrected.",
+  "summary": "AST includes several inferred actions/fields and extra constraints not explicitly present in the description (multiple phantom items); regenerate after removing or justifying these inferred elements.",
   "missing": [],
   "phantoms": [
-    "components.My_Bookings.row_actions[2].preconditions[1] (\"modification policy permits\" \u2014 not stated in description; description referenced booking type and cancellation policy)",
-    "components.Reviews.fields.Rating.constraints[0] (\"min 1\" \u2014 rating bounds were inferred, not specified)",
-    "components.Reviews.fields.Rating.constraints[1] (\"max 5\" \u2014 rating bounds were inferred, not specified)",
-    "components.Settings.fields.Change_Password.fields.Confirm_Password.constraints[0] (\"must match New_Password\" \u2014 validation constraint inferred, not explicitly stated)"
+    "components.My_Profile.submit_actions[0] (Save button not mentioned in description)",
+    "components.My_Profile.submit_actions[1] (Cancel button not mentioned in description)",
+    "components.Review_Form.submit_actions[1] (Cancel button not mentioned in description)",
+    "components.Settings.fields.Change_Password_Current (description only states 'change password' \u2014 current/new fields inferred)",
+    "components.Settings.fields.Change_Password_New (description only states 'change password' \u2014 current/new fields inferred)",
+    "components.My_Bookings.row_state_actions.states.Pending.available_actions[*].preconditions (contains 'status != Cancelled' which is an inferred constraint)",
+    "components.My_Bookings.row_state_actions.states.Confirmed.available_actions[*].preconditions (contains 'status != Cancelled' which is an inferred constraint)"
   ],
   "fixes": [
-    "components.My_Bookings.row_actions[2].preconditions \u2014 replace or remove the second precondition: change \"modification policy permits\" to the explicitly described constraint \"cancellation policy permits\" if Modify is intended to be governed by the same cancellation rule, or remove the inferred precondition entirely.",
-    "components.Reviews.fields.Rating \u2014 remove the constraints array (delete components.Reviews.fields.Rating.constraints) since rating bounds were not specified in the description.",
-    "components.Reviews.fields.Rating.visible_when \u2014 keep the visibility condition (booking must be Completed) as it is described; no change.",
-    "components.Settings.fields.Change_Password.fields.Confirm_Password.constraints[0] \u2014 remove the \"must match New_Password\" constraint since the description only states change-password controls, without specifying this validation."
+    "Remove components.My_Profile.submit_actions array or move those actions to a nested 'edit' mode object \u2014 the description only mentions an Edit button, not Save/Cancel at the top level. Change: set components.My_Profile.submit_actions = [] or nest under components.My_Profile.edit_mode.",
+    "Remove components.Review_Form.submit_actions[1] (Cancel). Keep only the explicit Submit action unless the description is updated to mention a Cancel button. Change: remove the Cancel entry from components.Review_Form.submit_actions.",
+    "Replace components.Settings.fields.Change_Password_Current and components.Settings.fields.Change_Password_New with a single field anchored to the description (e.g., components.Settings.fields.Change_Password) or make the password fields unspecified if more detail is provided. Change: delete the two specific password fields and add components.Settings.fields.Change_Password with type 'password' (or leave as unspecified if preferred).",
+    "Remove the inferred 'status != Cancelled' precondition from all relevant actions under components.My_Bookings.row_state_actions.states.Pending.available_actions and components.My_Bookings.row_state_actions.states.Confirmed.available_actions unless the description explicitly requires it. Change: delete any 'status != Cancelled' entries from the preconditions arrays under those states.",
+    "Ensure downloads (Confirmation, Invoice, Voucher) reflect only what the description explicitly states. The description says users can download confirmations, invoices, or vouchers (no per-state restriction); either add Download Confirmation to components.My_Bookings.row_state_actions.states.Cancelled.available_actions or document that downloads are available globally. Change option A: add Download Confirmation action to components.My_Bookings.row_state_actions.states.Cancelled.available_actions; Change option B: move download actions to a global per-row download menu instead of state-bound actions."
   ]
 }

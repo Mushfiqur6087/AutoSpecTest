@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-22T21:31:44.613322
+DEBUG SESSION STARTED: 2026-05-25T15:41:24.121471
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[21:31:44] Test-Negative - SYSTEM PROMPT
+[15:41:24] Test-Negative - SYSTEM PROMPT
 ------------------------------------------------------------
 You are a Negative Test Case Generator. You receive (1) a UI-AST JSON for one module and (2) the original functional description. Your job is to produce ONLY negative test cases — tests where invalid input is provided or business rules are violated, and the system correctly rejects or blocks the action.
 
@@ -22,6 +22,10 @@ You are a Negative Test Case Generator. You receive (1) a UI-AST JSON for one mo
 <description>
 {Original functional description text for this module}
 </description>
+
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
 
 ---
 
@@ -111,6 +115,9 @@ Group required fields by type: `text/unspecified`, `email`, `password`, `number`
 
 Do NOT generate a separate blank-field test for every required field. If 5 text fields are all required, one representative covers them all.
 
+**Action dialog required fields — NOT subject to cross-form deduplication:**
+If a `state_bound_action_bar` action opens a dialog with its own required `fields{}` (e.g., Activate requires Activation Date, Reject requires a Reason, Withdraw requires a Reason, Close requires a Closure Reason), each such dialog is its own testing scope. Generate ONE "leave the required dialog field blank and submit" test per distinct action dialog. These are HIGH priority — they block state transitions and are common defect sites. Do not suppress them because the main wizard already has a blank-field test.
+
 **2. Format violations:**
 
 For fields with type-specific format rules (from AST type or description):
@@ -143,6 +150,10 @@ For each unique `constraints[]` entry in the AST, and for cross-field rules desc
 
 One test per unique constraint. Do not duplicate the same mechanism.
 
+**Constraint timing tests:** If the spec states an action is blocked by a pre-existing system state (e.g., "cannot close with active accounts", "cannot transfer to the same office"), generate TWO tests:
+1. The standard constraint violation test (user opens the dialog, fills required fields, submits → blocked).
+2. A constraint-timing test: user opens the dialog WITHOUT filling required fields → assert whether the block is shown immediately on dialog open (before the user fills anything) OR only on submit. This distinguishes whether the UI enforces the constraint eagerly or lazily. Steps: open the dialog, observe the state → assert what is visible before any interaction. If the spec is silent on timing, generate only the first test.
+
 **5. Precondition violations (auth, role, and state):**
 
 For each `preconditions[]` entry on any action — and for auth/role rules described in the spec:
@@ -154,18 +165,18 @@ For each `preconditions[]` entry on any action — and for auth/role rules descr
 **6. State-machine violations:**
 
 From `state_bound_action_bar` nodes:
-- For each state where an action is NOT listed in `available_actions`, generate one test attempting that action from that state. Example: attempting "Approve" on an entity already in "Active" state.
+- **Every defined state must have at least one wrong-state test.** For each state, identify at least one action that is NOT in its `available_actions` list and generate a test attempting that action from that state.
 - If a state has an empty `available_actions` array, generate one test verifying no action buttons are visible in that state.
-
-One test per unique wrong-state scenario — do not enumerate every action × every invalid state.
+- **Do not stop after 1–2 representative examples** when the module defines 4+ distinct states. The states Active, Pending, Closed, Rejected, and Withdrawn each have different action sets — each must be independently verified.
+- One test per state is sufficient — pick the most distinct unavailable action for that state. Do not enumerate every action × every state (that would be exponential).
 
 ---
 
 **DEDUPLICATION GATE (run before outputting):**
 
-1. **Required field dedup:** Multiple required text fields → ONE representative test, not one per field.
+1. **Required field dedup:** Multiple required text fields in the **same form or dialog** → ONE representative test, not one per field.
 2. **Sub-rule dedup:** A field with multiple validation sub-rules (e.g., password: length + uppercase + lowercase + number + special char) → ONE representative violation test, not one per sub-rule.
-3. **Cross-form dedup:** If two forms in the same module share the same validation mechanism (e.g., both have a required text field) → test it on the primary form only.
+3. **Cross-form dedup:** If two **main forms** in the same module share the same validation mechanism → test it on the primary form only. **Exception: action dialogs are never suppressed by cross-form dedup** — each action dialog with a required field gets its own blank-field test regardless.
 4. **Uniqueness check:** Before outputting, ask for each TC: "Does this test catch a bug that NO other test in this module would catch?" If no → remove it.
 
 ---
@@ -174,9 +185,11 @@ One test per unique wrong-state scenario — do not enumerate every action × ev
 
 - Simple module (login, single form, display page): **2–4 tests**
 - Medium module (standard CRUD form, form with constraints): **4–8 tests**
-- Complex module (state machine, multi-form, wizard with many constraints): **8–12 tests**
+- Complex module (state machine, multi-form, wizard with many constraints): **10–16 tests**
 
-If you exceed these ranges, you are generating redundant tests. Apply the deduplication gate again before outputting.
+For modules with a `state_bound_action_bar` defining 4+ states, the state-machine violation tests alone will produce 4–5 tests. This is expected and correct — do not suppress them to hit a lower target.
+
+If you exceed the upper range, apply the deduplication gate again before outputting.
 
 ---
 
@@ -184,6 +197,17 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
 
 - **High:** State precondition violations, constraint violations that could corrupt data, unauthenticated access, required field representatives
 - **Medium:** Format violations, cross-field validation, numeric bounds, wrong-role access, wrong-state action attempts
+
+---
+
+**WORKFLOW-AWARE FAILURE INJECTION (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- For each workflow that contains a form interaction (terminal action is a submit/save/create/approve button):
+  - Identify the most **critical blocking failure** for that workflow's `conditional_branch`.
+  - If that failure mode is NOT already covered by another workflow's negative test, generate one negative TC for it.
+- **Do NOT generate one negative TC per workflow mechanically.** Apply the existing deduplication gate first — only add a TC if it catches a bug that no other test would catch.
+- Add `"wf_ref": "WF-NNN"` to each TC that maps to a workflow. Set `"wf_ref": null` for generic validation tests.
 
 ---
 
@@ -195,6 +219,7 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
   "test_cases": [
     {
       "tc_id": "N-001",
+      "wf_ref": null,
       "test_case": "Short descriptive name",
       "preconditions": ["precondition 1"],
       "steps": ["1. Step one", "2. Step two"],
@@ -212,7 +237,7 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
 
 
 ------------------------------------------------------------
-[21:31:44] Test-Negative - USER PROMPT
+[15:41:24] Test-Negative - USER PROMPT
 ------------------------------------------------------------
 <module_name>Register</module_name>
 
@@ -225,19 +250,23 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
       "fields": {
         "First_Name": {
           "type": "unspecified",
-          "required": true
+          "required": true,
+          "constraints": []
         },
         "Last_Name": {
           "type": "unspecified",
-          "required": true
+          "required": true,
+          "constraints": []
         },
         "Street_Address": {
           "type": "unspecified",
-          "required": true
+          "required": true,
+          "constraints": []
         },
         "City": {
           "type": "unspecified",
-          "required": true
+          "required": true,
+          "constraints": []
         },
         "State": {
           "type": "dropdown",
@@ -292,33 +321,35 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
             "Washington",
             "West Virginia",
             "Wisconsin",
-            "Wyoming"
-          ]
+            "Wyoming",
+            "District of Columbia"
+          ],
+          "constraints": []
         },
         "ZIP_Code": {
           "type": "unspecified",
           "required": true,
           "constraints": [
-            "must match 5-digit or 5+4 format (12345 or 12345-6789)",
-            "pattern: ^\\d{5}(-\\d{4})?$"
+            "must match 5-digit or 5+4 format (e.g. 12345 or 12345-6789)",
+            "pattern: ^(\\d{5}|\\d{5}-\\d{4})$"
           ]
         },
         "Phone_Number": {
           "type": "unspecified",
           "required": true,
           "constraints": [
-            "must match pattern (123) 456-7890",
+            "must follow format (123) 456-7890",
             "pattern: ^\\(\\d{3}\\) \\d{3}-\\d{4}$",
-            "autoformat on input to (123) 456-7890"
+            "automatic formatting applied as user types to (123) 456-7890"
           ]
         },
-        "Social_Security_Number": {
+        "SSN": {
           "type": "unspecified",
           "required": true,
           "constraints": [
-            "must match pattern 123-45-6789",
+            "must follow format 123-45-6789",
             "pattern: ^\\d{3}-\\d{2}-\\d{4}$",
-            "autoformat on input to 123-45-6789"
+            "automatic formatting applied as user types to 123-45-6789"
           ]
         },
         "Username": {
@@ -332,8 +363,7 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
           "type": "password",
           "required": true,
           "constraints": [
-            "minimum length 8",
-            "min_length: 8"
+            "minimum length 8 characters"
           ]
         },
         "Confirm_Password": {
@@ -344,18 +374,18 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
           ]
         }
       },
-      "constraints": [
-        "on submit validate required fields are present",
-        "on submit validate each field pattern conformance",
-        "on submit validate Password and Confirm_Password match"
-      ],
       "submit_actions": [
         {
           "element_name": "Register",
           "type": "button",
+          "constraints": [
+            "on submit validate field completeness",
+            "on submit validate pattern conformance for ZIP_Code, Phone_Number, SSN, Username",
+            "on submit validate Password and Confirm_Password match"
+          ],
           "on_success": "Account created successfully \u2014 please sign in",
-          "on_success_redirect": "Login page",
-          "on_failure": "displays field-level errors for correction"
+          "redirect_to": "Login page",
+          "on_error": "displays specific field-level errors for correction"
         }
       ]
     }
@@ -369,10 +399,14 @@ The registration page presents a comprehensive sign-up form with required inputs
 
 </description>
 
+<workflows>
+WF-001 | Register new account (all required fields valid) | actor: <role> | branch: none | terminal: Register | on_success: Account created successfully — please sign in
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[21:32:25] Test-Negative - LLM RESPONSE
+[15:42:20] Test-Negative - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Register",
@@ -380,189 +414,221 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "N-001",
-      "test_case": "Leave required text field (First Name) blank and submit",
-      "preconditions": [
-        "User is on the Registration page"
-      ],
-      "steps": [
-        "1. Leave the First Name field blank",
-        "2. Enter <valid last name> in the Last Name field",
-        "3. Enter <valid street address> in the Street Address field",
-        "4. Enter <valid city> in the City field",
-        "5. Select <valid state> in the State dropdown",
-        "6. Enter <valid ZIP in 5-digit or 5+4 format> in the ZIP Code field",
-        "7. Enter <valid phone in (123) 456-7890 format> in the Phone Number field",
-        "8. Enter <valid SSN in 123-45-6789 format> in the Social Security Number field",
-        "9. Enter <valid email> in the Username field",
-        "10. Enter <valid password of at least 8 characters> in the Password field",
-        "11. Enter the same <valid password of at least 8 characters> in the Confirm Password field",
-        "12. Click the Register button"
-      ],
-      "expected_result": "First Name field displays an inline validation error indicating it is required; form does not submit; account is not created",
-      "priority": "high"
-    },
-    {
-      "tc_id": "N-002",
+      "wf_ref": "WF-001",
       "test_case": "Submit with ALL required fields empty",
       "preconditions": [
         "User is on the Registration page"
       ],
       "steps": [
-        "1. Ensure all fields are empty (leave First Name, Last Name, Street Address, City, State, ZIP Code, Phone Number, Social Security Number, Username, Password, and Confirm Password blank)",
+        "1. Ensure every field on the Registration form is empty or unselected",
         "2. Click the Register button"
       ],
-      "expected_result": "Each required field displays an inline validation error indicating it is required (First Name, Last Name, Street Address, City, State, ZIP Code, Phone Number, Social Security Number, Username, Password, Confirm Password); form does not submit; account is not created",
+      "expected_result": "Inline validation errors appear for each required field (First_Name, Last_Name, Street_Address, City, State, ZIP_Code, Phone_Number, SSN, Username, Password, Confirm_Password) indicating they are required; form does not submit; no redirect occurs; account is not created.",
+      "priority": "high"
+    },
+    {
+      "tc_id": "N-002",
+      "wf_ref": "WF-001",
+      "test_case": "Leave a representative text field (First Name) blank and submit",
+      "preconditions": [
+        "User is on the Registration page"
+      ],
+      "steps": [
+        "1. Leave the First_Name field blank",
+        "2. Enter <valid last name> in Last_Name",
+        "3. Enter <valid street address> in Street_Address",
+        "4. Enter <valid city> in City",
+        "5. Select <valid state> in State",
+        "6. Enter <valid ZIP code matching pattern> in ZIP_Code",
+        "7. Enter <valid phone matching (123) 456-7890 format> in Phone_Number",
+        "8. Enter <valid SSN matching 123-45-6789 format> in SSN",
+        "9. Enter <valid email> in Username",
+        "10. Enter <valid password meeting length requirement> in Password",
+        "11. Enter matching <valid password meeting length requirement> in Confirm_Password",
+        "12. Click the Register button"
+      ],
+      "expected_result": "First_Name field displays an inline validation error indicating it is required; form does not submit; no redirect to Login page; account is not created.",
       "priority": "high"
     },
     {
       "tc_id": "N-003",
+      "wf_ref": "WF-001",
       "test_case": "Leave State dropdown unselected and submit",
       "preconditions": [
         "User is on the Registration page"
       ],
       "steps": [
-        "1. Enter <valid first name> in the First Name field",
-        "2. Enter <valid last name> in the Last Name field",
-        "3. Enter <valid street address> in the Street Address field",
-        "4. Enter <valid city> in the City field",
-        "5. Leave the State dropdown unselected",
-        "6. Enter <valid ZIP in 5-digit or 5+4 format> in the ZIP Code field",
-        "7. Enter <valid phone in (123) 456-7890 format> in the Phone Number field",
-        "8. Enter <valid SSN in 123-45-6789 format> in the Social Security Number field",
-        "9. Enter <valid email> in the Username field",
-        "10. Enter <valid password of at least 8 characters> in the Password field",
-        "11. Enter the same <valid password of at least 8 characters> in the Confirm Password field",
+        "1. Leave State unselected",
+        "2. Enter <valid first name> in First_Name",
+        "3. Enter <valid last name> in Last_Name",
+        "4. Enter <valid street address> in Street_Address",
+        "5. Enter <valid city> in City",
+        "6. Enter <valid ZIP code matching pattern> in ZIP_Code",
+        "7. Enter <valid phone matching (123) 456-7890 format> in Phone_Number",
+        "8. Enter <valid SSN matching 123-45-6789 format> in SSN",
+        "9. Enter <valid email> in Username",
+        "10. Enter <valid password meeting length requirement> in Password",
+        "11. Enter matching <valid password meeting length requirement> in Confirm_Password",
         "12. Click the Register button"
       ],
-      "expected_result": "State field displays an inline validation error indicating a selection is required; form does not submit; account is not created",
+      "expected_result": "State field displays an inline validation error indicating it is required / must be selected; form does not submit; no redirect to Login page; account is not created.",
       "priority": "high"
     },
     {
       "tc_id": "N-004",
-      "test_case": "Username (email) with invalid format",
+      "wf_ref": "WF-001",
+      "test_case": "ZIP Code pattern violation (invalid format)",
       "preconditions": [
         "User is on the Registration page"
       ],
       "steps": [
-        "1. Enter <invalid email format> in the Username field",
-        "2. Enter <valid first name> in the First Name field",
-        "3. Enter <valid last name> in the Last Name field",
-        "4. Enter <valid street address> in the Street Address field",
-        "5. Enter <valid city> in the City field",
-        "6. Select <valid state> in the State dropdown",
-        "7. Enter <valid ZIP in 5-digit or 5+4 format> in the ZIP Code field",
-        "8. Enter <valid phone in (123) 456-7890 format> in the Phone Number field",
-        "9. Enter <valid SSN in 123-45-6789 format> in the Social Security Number field",
-        "10. Enter <valid password of at least 8 characters> in the Password field",
-        "11. Enter the same <valid password of at least 8 characters> in the Confirm Password field",
+        "1. Enter <invalid ZIP format> in ZIP_Code",
+        "2. Enter <valid first name> in First_Name",
+        "3. Enter <valid last name> in Last_Name",
+        "4. Enter <valid street address> in Street_Address",
+        "5. Enter <valid city> in City",
+        "6. Select <valid state> in State",
+        "7. Enter <valid phone matching (123) 456-7890 format> in Phone_Number",
+        "8. Enter <valid SSN matching 123-45-6789 format> in SSN",
+        "9. Enter <valid email> in Username",
+        "10. Enter <valid password meeting length requirement> in Password",
+        "11. Enter matching <valid password meeting length requirement> in Confirm_Password",
         "12. Click the Register button"
       ],
-      "expected_result": "Username field displays an inline validation error indicating it must be a valid email format; form does not submit; account is not created",
+      "expected_result": "ZIP_Code field displays an inline validation error: \"must match 5-digit or 5+4 format (e.g. 12345 or 12345-6789)\"; form does not submit; no redirect to Login page; account is not created.",
       "priority": "medium"
     },
     {
       "tc_id": "N-005",
-      "test_case": "Password shorter than minimum length (min 8) and submit",
+      "wf_ref": "WF-001",
+      "test_case": "Phone Number pattern violation (invalid format / breaks automatic formatting)",
       "preconditions": [
         "User is on the Registration page"
       ],
       "steps": [
-        "1. Enter <password shorter than minimum length> in the Password field",
-        "2. Enter the same <password shorter than minimum length> in the Confirm Password field",
-        "3. Enter <valid first name> in the First Name field",
-        "4. Enter <valid last name> in the Last Name field",
-        "5. Enter <valid street address> in the Street Address field",
-        "6. Enter <valid city> in the City field",
-        "7. Select <valid state> in the State dropdown",
-        "8. Enter <valid ZIP in 5-digit or 5+4 format> in the ZIP Code field",
-        "9. Enter <valid phone in (123) 456-7890 format> in the Phone Number field",
-        "10. Enter <valid SSN in 123-45-6789 format> in the Social Security Number field",
-        "11. Enter <valid email> in the Username field",
+        "1. Enter <invalid phone format not matching (123) 456-7890> in Phone_Number",
+        "2. Enter <valid first name> in First_Name",
+        "3. Enter <valid last name> in Last_Name",
+        "4. Enter <valid street address> in Street_Address",
+        "5. Enter <valid city> in City",
+        "6. Select <valid state> in State",
+        "7. Enter <valid ZIP code matching pattern> in ZIP_Code",
+        "8. Enter <valid SSN matching 123-45-6789 format> in SSN",
+        "9. Enter <valid email> in Username",
+        "10. Enter <valid password meeting length requirement> in Password",
+        "11. Enter matching <valid password meeting length requirement> in Confirm_Password",
         "12. Click the Register button"
       ],
-      "expected_result": "Password field displays an inline validation error indicating minimum length 8 (password too short); form does not submit; account is not created",
-      "priority": "high"
+      "expected_result": "Phone_Number field displays an inline validation error: \"must follow format (123) 456-7890\" (automatic formatting does not correct the invalid input); form does not submit; no redirect to Login page; account is not created.",
+      "priority": "medium"
     },
     {
       "tc_id": "N-006",
+      "wf_ref": "WF-001",
+      "test_case": "SSN pattern violation (invalid format / breaks automatic formatting)",
+      "preconditions": [
+        "User is on the Registration page"
+      ],
+      "steps": [
+        "1. Enter <invalid SSN format not matching 123-45-6789> in SSN",
+        "2. Enter <valid first name> in First_Name",
+        "3. Enter <valid last name> in Last_Name",
+        "4. Enter <valid street address> in Street_Address",
+        "5. Enter <valid city> in City",
+        "6. Select <valid state> in State",
+        "7. Enter <valid ZIP code matching pattern> in ZIP_Code",
+        "8. Enter <valid phone matching (123) 456-7890 format> in Phone_Number",
+        "9. Enter <valid email> in Username",
+        "10. Enter <valid password meeting length requirement> in Password",
+        "11. Enter matching <valid password meeting length requirement> in Confirm_Password",
+        "12. Click the Register button"
+      ],
+      "expected_result": "SSN field displays an inline validation error: \"must follow format 123-45-6789\" (automatic formatting does not correct the invalid input); form does not submit; no redirect to Login page; account is not created.",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "N-007",
+      "wf_ref": "WF-001",
+      "test_case": "Username (email) invalid format",
+      "preconditions": [
+        "User is on the Registration page"
+      ],
+      "steps": [
+        "1. Enter <invalid email format> in Username",
+        "2. Enter <valid first name> in First_Name",
+        "3. Enter <valid last name> in Last_Name",
+        "4. Enter <valid street address> in Street_Address",
+        "5. Enter <valid city> in City",
+        "6. Select <valid state> in State",
+        "7. Enter <valid ZIP code matching pattern> in ZIP_Code",
+        "8. Enter <valid phone matching (123) 456-7890 format> in Phone_Number",
+        "9. Enter <valid SSN matching 123-45-6789 format> in SSN",
+        "10. Enter <valid password meeting length requirement> in Password",
+        "11. Enter matching <valid password meeting length requirement> in Confirm_Password",
+        "12. Click the Register button"
+      ],
+      "expected_result": "Username field displays an inline validation error: \"must be a valid email format\"; form does not submit; no redirect to Login page; account is not created.",
+      "priority": "high"
+    },
+    {
+      "tc_id": "N-008",
+      "wf_ref": "WF-001",
+      "test_case": "Password shorter than minimum length (password policy violation)",
+      "preconditions": [
+        "User is on the Registration page"
+      ],
+      "steps": [
+        "1. Enter <valid first name> in First_Name",
+        "2. Enter <valid last name> in Last_Name",
+        "3. Enter <valid street address> in Street_Address",
+        "4. Enter <valid city> in City",
+        "5. Select <valid state> in State",
+        "6. Enter <valid ZIP code matching pattern> in ZIP_Code",
+        "7. Enter <valid phone matching (123) 456-7890 format> in Phone_Number",
+        "8. Enter <valid SSN matching 123-45-6789 format> in SSN",
+        "9. Enter <valid email> in Username",
+        "10. Enter <password shorter than minimum length> in Password",
+        "11. Enter the same <password shorter than minimum length> in Confirm_Password",
+        "12. Click the Register button"
+      ],
+      "expected_result": "Password field displays an inline validation error: \"minimum length 8 characters\"; form does not submit; no redirect to Login page; account is not created.",
+      "priority": "high"
+    },
+    {
+      "tc_id": "N-009",
+      "wf_ref": "WF-001",
       "test_case": "Confirm Password does not match Password",
       "preconditions": [
         "User is on the Registration page"
       ],
       "steps": [
-        "1. Enter <valid password of at least 8 characters> in the Password field",
-        "2. Enter <different password> in the Confirm Password field",
-        "3. Enter <valid first name> in the First Name field",
-        "4. Enter <valid last name> in the Last Name field",
-        "5. Enter <valid street address> in the Street Address field",
-        "6. Enter <valid city> in the City field",
-        "7. Select <valid state> in the State dropdown",
-        "8. Enter <valid ZIP in 5-digit or 5+4 format> in the ZIP Code field",
-        "9. Enter <valid phone in (123) 456-7890 format> in the Phone Number field",
-        "10. Enter <valid SSN in 123-45-6789 format> in the Social Security Number field",
-        "11. Enter <valid email> in the Username field",
+        "1. Enter <valid first name> in First_Name",
+        "2. Enter <valid last name> in Last_Name",
+        "3. Enter <valid street address> in Street_Address",
+        "4. Enter <valid city> in City",
+        "5. Select <valid state> in State",
+        "6. Enter <valid ZIP code matching pattern> in ZIP_Code",
+        "7. Enter <valid phone matching (123) 456-7890 format> in Phone_Number",
+        "8. Enter <valid SSN matching 123-45-6789 format> in SSN",
+        "9. Enter <valid email> in Username",
+        "10. Enter <valid password meeting length requirement> in Password",
+        "11. Enter <different value than Password> in Confirm_Password",
         "12. Click the Register button"
       ],
-      "expected_result": "Confirm Password field displays an inline validation error indicating it must match the Password field; form does not submit; account is not created",
+      "expected_result": "Confirm_Password field displays an inline validation error: \"must match Password\"; form does not submit; no redirect to Login page; account is not created.",
       "priority": "high"
-    },
-    {
-      "tc_id": "N-007",
-      "test_case": "ZIP Code with invalid format",
-      "preconditions": [
-        "User is on the Registration page"
-      ],
-      "steps": [
-        "1. Enter <invalid ZIP format> in the ZIP Code field",
-        "2. Enter <valid first name> in the First Name field",
-        "3. Enter <valid last name> in the Last Name field",
-        "4. Enter <valid street address> in the Street Address field",
-        "5. Enter <valid city> in the City field",
-        "6. Select <valid state> in the State dropdown",
-        "7. Enter <valid phone in (123) 456-7890 format> in the Phone Number field",
-        "8. Enter <valid SSN in 123-45-6789 format> in the Social Security Number field",
-        "9. Enter <valid email> in the Username field",
-        "10. Enter <valid password of at least 8 characters> in the Password field",
-        "11. Enter the same <valid password of at least 8 characters> in the Confirm Password field",
-        "12. Click the Register button"
-      ],
-      "expected_result": "ZIP Code field displays an inline validation error indicating it must match 5-digit or 5+4 format (12345 or 12345-6789); form does not submit; account is not created",
-      "priority": "medium"
-    },
-    {
-      "tc_id": "N-008",
-      "test_case": "Phone Number with invalid format",
-      "preconditions": [
-        "User is on the Registration page"
-      ],
-      "steps": [
-        "1. Enter <invalid phone format> in the Phone Number field",
-        "2. Enter <valid first name> in the First Name field",
-        "3. Enter <valid last name> in the Last Name field",
-        "4. Enter <valid street address> in the Street Address field",
-        "5. Enter <valid city> in the City field",
-        "6. Select <valid state> in the State dropdown",
-        "7. Enter <valid ZIP in 5-digit or 5+4 format> in the ZIP Code field",
-        "8. Enter <valid SSN in 123-45-6789 format> in the Social Security Number field",
-        "9. Enter <valid email> in the Username field",
-        "10. Enter <valid password of at least 8 characters> in the Password field",
-        "11. Enter the same <valid password of at least 8 characters> in the Confirm Password field",
-        "12. Click the Register button"
-      ],
-      "expected_result": "Phone Number field displays an inline validation error indicating it must match the pattern (123) 456-7890; form does not submit; account is not created",
-      "priority": "medium"
     }
   ],
   "summary": {
-    "total": 8,
-    "high_priority": 5,
+    "total": 9,
+    "high_priority": 6,
     "medium_priority": 3,
     "low_priority": 0
   }
 }
 
 ------------------------------------------------------------
-[21:32:25] Test-Negative - PARSED JSON
+[15:42:20] Test-Negative - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Register",
@@ -570,182 +636,214 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "N-001",
-      "test_case": "Leave required text field (First Name) blank and submit",
-      "preconditions": [
-        "User is on the Registration page"
-      ],
-      "steps": [
-        "1. Leave the First Name field blank",
-        "2. Enter <valid last name> in the Last Name field",
-        "3. Enter <valid street address> in the Street Address field",
-        "4. Enter <valid city> in the City field",
-        "5. Select <valid state> in the State dropdown",
-        "6. Enter <valid ZIP in 5-digit or 5+4 format> in the ZIP Code field",
-        "7. Enter <valid phone in (123) 456-7890 format> in the Phone Number field",
-        "8. Enter <valid SSN in 123-45-6789 format> in the Social Security Number field",
-        "9. Enter <valid email> in the Username field",
-        "10. Enter <valid password of at least 8 characters> in the Password field",
-        "11. Enter the same <valid password of at least 8 characters> in the Confirm Password field",
-        "12. Click the Register button"
-      ],
-      "expected_result": "First Name field displays an inline validation error indicating it is required; form does not submit; account is not created",
-      "priority": "high"
-    },
-    {
-      "tc_id": "N-002",
+      "wf_ref": "WF-001",
       "test_case": "Submit with ALL required fields empty",
       "preconditions": [
         "User is on the Registration page"
       ],
       "steps": [
-        "1. Ensure all fields are empty (leave First Name, Last Name, Street Address, City, State, ZIP Code, Phone Number, Social Security Number, Username, Password, and Confirm Password blank)",
+        "1. Ensure every field on the Registration form is empty or unselected",
         "2. Click the Register button"
       ],
-      "expected_result": "Each required field displays an inline validation error indicating it is required (First Name, Last Name, Street Address, City, State, ZIP Code, Phone Number, Social Security Number, Username, Password, Confirm Password); form does not submit; account is not created",
+      "expected_result": "Inline validation errors appear for each required field (First_Name, Last_Name, Street_Address, City, State, ZIP_Code, Phone_Number, SSN, Username, Password, Confirm_Password) indicating they are required; form does not submit; no redirect occurs; account is not created.",
+      "priority": "high"
+    },
+    {
+      "tc_id": "N-002",
+      "wf_ref": "WF-001",
+      "test_case": "Leave a representative text field (First Name) blank and submit",
+      "preconditions": [
+        "User is on the Registration page"
+      ],
+      "steps": [
+        "1. Leave the First_Name field blank",
+        "2. Enter <valid last name> in Last_Name",
+        "3. Enter <valid street address> in Street_Address",
+        "4. Enter <valid city> in City",
+        "5. Select <valid state> in State",
+        "6. Enter <valid ZIP code matching pattern> in ZIP_Code",
+        "7. Enter <valid phone matching (123) 456-7890 format> in Phone_Number",
+        "8. Enter <valid SSN matching 123-45-6789 format> in SSN",
+        "9. Enter <valid email> in Username",
+        "10. Enter <valid password meeting length requirement> in Password",
+        "11. Enter matching <valid password meeting length requirement> in Confirm_Password",
+        "12. Click the Register button"
+      ],
+      "expected_result": "First_Name field displays an inline validation error indicating it is required; form does not submit; no redirect to Login page; account is not created.",
       "priority": "high"
     },
     {
       "tc_id": "N-003",
+      "wf_ref": "WF-001",
       "test_case": "Leave State dropdown unselected and submit",
       "preconditions": [
         "User is on the Registration page"
       ],
       "steps": [
-        "1. Enter <valid first name> in the First Name field",
-        "2. Enter <valid last name> in the Last Name field",
-        "3. Enter <valid street address> in the Street Address field",
-        "4. Enter <valid city> in the City field",
-        "5. Leave the State dropdown unselected",
-        "6. Enter <valid ZIP in 5-digit or 5+4 format> in the ZIP Code field",
-        "7. Enter <valid phone in (123) 456-7890 format> in the Phone Number field",
-        "8. Enter <valid SSN in 123-45-6789 format> in the Social Security Number field",
-        "9. Enter <valid email> in the Username field",
-        "10. Enter <valid password of at least 8 characters> in the Password field",
-        "11. Enter the same <valid password of at least 8 characters> in the Confirm Password field",
+        "1. Leave State unselected",
+        "2. Enter <valid first name> in First_Name",
+        "3. Enter <valid last name> in Last_Name",
+        "4. Enter <valid street address> in Street_Address",
+        "5. Enter <valid city> in City",
+        "6. Enter <valid ZIP code matching pattern> in ZIP_Code",
+        "7. Enter <valid phone matching (123) 456-7890 format> in Phone_Number",
+        "8. Enter <valid SSN matching 123-45-6789 format> in SSN",
+        "9. Enter <valid email> in Username",
+        "10. Enter <valid password meeting length requirement> in Password",
+        "11. Enter matching <valid password meeting length requirement> in Confirm_Password",
         "12. Click the Register button"
       ],
-      "expected_result": "State field displays an inline validation error indicating a selection is required; form does not submit; account is not created",
+      "expected_result": "State field displays an inline validation error indicating it is required / must be selected; form does not submit; no redirect to Login page; account is not created.",
       "priority": "high"
     },
     {
       "tc_id": "N-004",
-      "test_case": "Username (email) with invalid format",
+      "wf_ref": "WF-001",
+      "test_case": "ZIP Code pattern violation (invalid format)",
       "preconditions": [
         "User is on the Registration page"
       ],
       "steps": [
-        "1. Enter <invalid email format> in the Username field",
-        "2. Enter <valid first name> in the First Name field",
-        "3. Enter <valid last name> in the Last Name field",
-        "4. Enter <valid street address> in the Street Address field",
-        "5. Enter <valid city> in the City field",
-        "6. Select <valid state> in the State dropdown",
-        "7. Enter <valid ZIP in 5-digit or 5+4 format> in the ZIP Code field",
-        "8. Enter <valid phone in (123) 456-7890 format> in the Phone Number field",
-        "9. Enter <valid SSN in 123-45-6789 format> in the Social Security Number field",
-        "10. Enter <valid password of at least 8 characters> in the Password field",
-        "11. Enter the same <valid password of at least 8 characters> in the Confirm Password field",
+        "1. Enter <invalid ZIP format> in ZIP_Code",
+        "2. Enter <valid first name> in First_Name",
+        "3. Enter <valid last name> in Last_Name",
+        "4. Enter <valid street address> in Street_Address",
+        "5. Enter <valid city> in City",
+        "6. Select <valid state> in State",
+        "7. Enter <valid phone matching (123) 456-7890 format> in Phone_Number",
+        "8. Enter <valid SSN matching 123-45-6789 format> in SSN",
+        "9. Enter <valid email> in Username",
+        "10. Enter <valid password meeting length requirement> in Password",
+        "11. Enter matching <valid password meeting length requirement> in Confirm_Password",
         "12. Click the Register button"
       ],
-      "expected_result": "Username field displays an inline validation error indicating it must be a valid email format; form does not submit; account is not created",
+      "expected_result": "ZIP_Code field displays an inline validation error: \"must match 5-digit or 5+4 format (e.g. 12345 or 12345-6789)\"; form does not submit; no redirect to Login page; account is not created.",
       "priority": "medium"
     },
     {
       "tc_id": "N-005",
-      "test_case": "Password shorter than minimum length (min 8) and submit",
+      "wf_ref": "WF-001",
+      "test_case": "Phone Number pattern violation (invalid format / breaks automatic formatting)",
       "preconditions": [
         "User is on the Registration page"
       ],
       "steps": [
-        "1. Enter <password shorter than minimum length> in the Password field",
-        "2. Enter the same <password shorter than minimum length> in the Confirm Password field",
-        "3. Enter <valid first name> in the First Name field",
-        "4. Enter <valid last name> in the Last Name field",
-        "5. Enter <valid street address> in the Street Address field",
-        "6. Enter <valid city> in the City field",
-        "7. Select <valid state> in the State dropdown",
-        "8. Enter <valid ZIP in 5-digit or 5+4 format> in the ZIP Code field",
-        "9. Enter <valid phone in (123) 456-7890 format> in the Phone Number field",
-        "10. Enter <valid SSN in 123-45-6789 format> in the Social Security Number field",
-        "11. Enter <valid email> in the Username field",
+        "1. Enter <invalid phone format not matching (123) 456-7890> in Phone_Number",
+        "2. Enter <valid first name> in First_Name",
+        "3. Enter <valid last name> in Last_Name",
+        "4. Enter <valid street address> in Street_Address",
+        "5. Enter <valid city> in City",
+        "6. Select <valid state> in State",
+        "7. Enter <valid ZIP code matching pattern> in ZIP_Code",
+        "8. Enter <valid SSN matching 123-45-6789 format> in SSN",
+        "9. Enter <valid email> in Username",
+        "10. Enter <valid password meeting length requirement> in Password",
+        "11. Enter matching <valid password meeting length requirement> in Confirm_Password",
         "12. Click the Register button"
       ],
-      "expected_result": "Password field displays an inline validation error indicating minimum length 8 (password too short); form does not submit; account is not created",
-      "priority": "high"
+      "expected_result": "Phone_Number field displays an inline validation error: \"must follow format (123) 456-7890\" (automatic formatting does not correct the invalid input); form does not submit; no redirect to Login page; account is not created.",
+      "priority": "medium"
     },
     {
       "tc_id": "N-006",
+      "wf_ref": "WF-001",
+      "test_case": "SSN pattern violation (invalid format / breaks automatic formatting)",
+      "preconditions": [
+        "User is on the Registration page"
+      ],
+      "steps": [
+        "1. Enter <invalid SSN format not matching 123-45-6789> in SSN",
+        "2. Enter <valid first name> in First_Name",
+        "3. Enter <valid last name> in Last_Name",
+        "4. Enter <valid street address> in Street_Address",
+        "5. Enter <valid city> in City",
+        "6. Select <valid state> in State",
+        "7. Enter <valid ZIP code matching pattern> in ZIP_Code",
+        "8. Enter <valid phone matching (123) 456-7890 format> in Phone_Number",
+        "9. Enter <valid email> in Username",
+        "10. Enter <valid password meeting length requirement> in Password",
+        "11. Enter matching <valid password meeting length requirement> in Confirm_Password",
+        "12. Click the Register button"
+      ],
+      "expected_result": "SSN field displays an inline validation error: \"must follow format 123-45-6789\" (automatic formatting does not correct the invalid input); form does not submit; no redirect to Login page; account is not created.",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "N-007",
+      "wf_ref": "WF-001",
+      "test_case": "Username (email) invalid format",
+      "preconditions": [
+        "User is on the Registration page"
+      ],
+      "steps": [
+        "1. Enter <invalid email format> in Username",
+        "2. Enter <valid first name> in First_Name",
+        "3. Enter <valid last name> in Last_Name",
+        "4. Enter <valid street address> in Street_Address",
+        "5. Enter <valid city> in City",
+        "6. Select <valid state> in State",
+        "7. Enter <valid ZIP code matching pattern> in ZIP_Code",
+        "8. Enter <valid phone matching (123) 456-7890 format> in Phone_Number",
+        "9. Enter <valid SSN matching 123-45-6789 format> in SSN",
+        "10. Enter <valid password meeting length requirement> in Password",
+        "11. Enter matching <valid password meeting length requirement> in Confirm_Password",
+        "12. Click the Register button"
+      ],
+      "expected_result": "Username field displays an inline validation error: \"must be a valid email format\"; form does not submit; no redirect to Login page; account is not created.",
+      "priority": "high"
+    },
+    {
+      "tc_id": "N-008",
+      "wf_ref": "WF-001",
+      "test_case": "Password shorter than minimum length (password policy violation)",
+      "preconditions": [
+        "User is on the Registration page"
+      ],
+      "steps": [
+        "1. Enter <valid first name> in First_Name",
+        "2. Enter <valid last name> in Last_Name",
+        "3. Enter <valid street address> in Street_Address",
+        "4. Enter <valid city> in City",
+        "5. Select <valid state> in State",
+        "6. Enter <valid ZIP code matching pattern> in ZIP_Code",
+        "7. Enter <valid phone matching (123) 456-7890 format> in Phone_Number",
+        "8. Enter <valid SSN matching 123-45-6789 format> in SSN",
+        "9. Enter <valid email> in Username",
+        "10. Enter <password shorter than minimum length> in Password",
+        "11. Enter the same <password shorter than minimum length> in Confirm_Password",
+        "12. Click the Register button"
+      ],
+      "expected_result": "Password field displays an inline validation error: \"minimum length 8 characters\"; form does not submit; no redirect to Login page; account is not created.",
+      "priority": "high"
+    },
+    {
+      "tc_id": "N-009",
+      "wf_ref": "WF-001",
       "test_case": "Confirm Password does not match Password",
       "preconditions": [
         "User is on the Registration page"
       ],
       "steps": [
-        "1. Enter <valid password of at least 8 characters> in the Password field",
-        "2. Enter <different password> in the Confirm Password field",
-        "3. Enter <valid first name> in the First Name field",
-        "4. Enter <valid last name> in the Last Name field",
-        "5. Enter <valid street address> in the Street Address field",
-        "6. Enter <valid city> in the City field",
-        "7. Select <valid state> in the State dropdown",
-        "8. Enter <valid ZIP in 5-digit or 5+4 format> in the ZIP Code field",
-        "9. Enter <valid phone in (123) 456-7890 format> in the Phone Number field",
-        "10. Enter <valid SSN in 123-45-6789 format> in the Social Security Number field",
-        "11. Enter <valid email> in the Username field",
+        "1. Enter <valid first name> in First_Name",
+        "2. Enter <valid last name> in Last_Name",
+        "3. Enter <valid street address> in Street_Address",
+        "4. Enter <valid city> in City",
+        "5. Select <valid state> in State",
+        "6. Enter <valid ZIP code matching pattern> in ZIP_Code",
+        "7. Enter <valid phone matching (123) 456-7890 format> in Phone_Number",
+        "8. Enter <valid SSN matching 123-45-6789 format> in SSN",
+        "9. Enter <valid email> in Username",
+        "10. Enter <valid password meeting length requirement> in Password",
+        "11. Enter <different value than Password> in Confirm_Password",
         "12. Click the Register button"
       ],
-      "expected_result": "Confirm Password field displays an inline validation error indicating it must match the Password field; form does not submit; account is not created",
+      "expected_result": "Confirm_Password field displays an inline validation error: \"must match Password\"; form does not submit; no redirect to Login page; account is not created.",
       "priority": "high"
-    },
-    {
-      "tc_id": "N-007",
-      "test_case": "ZIP Code with invalid format",
-      "preconditions": [
-        "User is on the Registration page"
-      ],
-      "steps": [
-        "1. Enter <invalid ZIP format> in the ZIP Code field",
-        "2. Enter <valid first name> in the First Name field",
-        "3. Enter <valid last name> in the Last Name field",
-        "4. Enter <valid street address> in the Street Address field",
-        "5. Enter <valid city> in the City field",
-        "6. Select <valid state> in the State dropdown",
-        "7. Enter <valid phone in (123) 456-7890 format> in the Phone Number field",
-        "8. Enter <valid SSN in 123-45-6789 format> in the Social Security Number field",
-        "9. Enter <valid email> in the Username field",
-        "10. Enter <valid password of at least 8 characters> in the Password field",
-        "11. Enter the same <valid password of at least 8 characters> in the Confirm Password field",
-        "12. Click the Register button"
-      ],
-      "expected_result": "ZIP Code field displays an inline validation error indicating it must match 5-digit or 5+4 format (12345 or 12345-6789); form does not submit; account is not created",
-      "priority": "medium"
-    },
-    {
-      "tc_id": "N-008",
-      "test_case": "Phone Number with invalid format",
-      "preconditions": [
-        "User is on the Registration page"
-      ],
-      "steps": [
-        "1. Enter <invalid phone format> in the Phone Number field",
-        "2. Enter <valid first name> in the First Name field",
-        "3. Enter <valid last name> in the Last Name field",
-        "4. Enter <valid street address> in the Street Address field",
-        "5. Enter <valid city> in the City field",
-        "6. Select <valid state> in the State dropdown",
-        "7. Enter <valid ZIP in 5-digit or 5+4 format> in the ZIP Code field",
-        "8. Enter <valid SSN in 123-45-6789 format> in the Social Security Number field",
-        "9. Enter <valid email> in the Username field",
-        "10. Enter <valid password of at least 8 characters> in the Password field",
-        "11. Enter the same <valid password of at least 8 characters> in the Confirm Password field",
-        "12. Click the Register button"
-      ],
-      "expected_result": "Phone Number field displays an inline validation error indicating it must match the pattern (123) 456-7890; form does not submit; account is not created",
-      "priority": "medium"
     }
   ],
   "summary": {
-    "total": 8,
-    "high_priority": 5,
+    "total": 9,
+    "high_priority": 6,
     "medium_priority": 3,
     "low_priority": 0
   }

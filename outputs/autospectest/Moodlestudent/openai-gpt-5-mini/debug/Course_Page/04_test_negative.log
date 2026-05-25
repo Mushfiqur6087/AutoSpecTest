@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-22T21:41:13.080692
+DEBUG SESSION STARTED: 2026-05-25T15:09:37.490394
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[21:41:13] Test-Negative - SYSTEM PROMPT
+[15:09:37] Test-Negative - SYSTEM PROMPT
 ------------------------------------------------------------
 You are a Negative Test Case Generator. You receive (1) a UI-AST JSON for one module and (2) the original functional description. Your job is to produce ONLY negative test cases — tests where invalid input is provided or business rules are violated, and the system correctly rejects or blocks the action.
 
@@ -22,6 +22,10 @@ You are a Negative Test Case Generator. You receive (1) a UI-AST JSON for one mo
 <description>
 {Original functional description text for this module}
 </description>
+
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
 
 ---
 
@@ -111,6 +115,9 @@ Group required fields by type: `text/unspecified`, `email`, `password`, `number`
 
 Do NOT generate a separate blank-field test for every required field. If 5 text fields are all required, one representative covers them all.
 
+**Action dialog required fields — NOT subject to cross-form deduplication:**
+If a `state_bound_action_bar` action opens a dialog with its own required `fields{}` (e.g., Activate requires Activation Date, Reject requires a Reason, Withdraw requires a Reason, Close requires a Closure Reason), each such dialog is its own testing scope. Generate ONE "leave the required dialog field blank and submit" test per distinct action dialog. These are HIGH priority — they block state transitions and are common defect sites. Do not suppress them because the main wizard already has a blank-field test.
+
 **2. Format violations:**
 
 For fields with type-specific format rules (from AST type or description):
@@ -143,6 +150,10 @@ For each unique `constraints[]` entry in the AST, and for cross-field rules desc
 
 One test per unique constraint. Do not duplicate the same mechanism.
 
+**Constraint timing tests:** If the spec states an action is blocked by a pre-existing system state (e.g., "cannot close with active accounts", "cannot transfer to the same office"), generate TWO tests:
+1. The standard constraint violation test (user opens the dialog, fills required fields, submits → blocked).
+2. A constraint-timing test: user opens the dialog WITHOUT filling required fields → assert whether the block is shown immediately on dialog open (before the user fills anything) OR only on submit. This distinguishes whether the UI enforces the constraint eagerly or lazily. Steps: open the dialog, observe the state → assert what is visible before any interaction. If the spec is silent on timing, generate only the first test.
+
 **5. Precondition violations (auth, role, and state):**
 
 For each `preconditions[]` entry on any action — and for auth/role rules described in the spec:
@@ -154,18 +165,18 @@ For each `preconditions[]` entry on any action — and for auth/role rules descr
 **6. State-machine violations:**
 
 From `state_bound_action_bar` nodes:
-- For each state where an action is NOT listed in `available_actions`, generate one test attempting that action from that state. Example: attempting "Approve" on an entity already in "Active" state.
+- **Every defined state must have at least one wrong-state test.** For each state, identify at least one action that is NOT in its `available_actions` list and generate a test attempting that action from that state.
 - If a state has an empty `available_actions` array, generate one test verifying no action buttons are visible in that state.
-
-One test per unique wrong-state scenario — do not enumerate every action × every invalid state.
+- **Do not stop after 1–2 representative examples** when the module defines 4+ distinct states. The states Active, Pending, Closed, Rejected, and Withdrawn each have different action sets — each must be independently verified.
+- One test per state is sufficient — pick the most distinct unavailable action for that state. Do not enumerate every action × every state (that would be exponential).
 
 ---
 
 **DEDUPLICATION GATE (run before outputting):**
 
-1. **Required field dedup:** Multiple required text fields → ONE representative test, not one per field.
+1. **Required field dedup:** Multiple required text fields in the **same form or dialog** → ONE representative test, not one per field.
 2. **Sub-rule dedup:** A field with multiple validation sub-rules (e.g., password: length + uppercase + lowercase + number + special char) → ONE representative violation test, not one per sub-rule.
-3. **Cross-form dedup:** If two forms in the same module share the same validation mechanism (e.g., both have a required text field) → test it on the primary form only.
+3. **Cross-form dedup:** If two **main forms** in the same module share the same validation mechanism → test it on the primary form only. **Exception: action dialogs are never suppressed by cross-form dedup** — each action dialog with a required field gets its own blank-field test regardless.
 4. **Uniqueness check:** Before outputting, ask for each TC: "Does this test catch a bug that NO other test in this module would catch?" If no → remove it.
 
 ---
@@ -174,9 +185,11 @@ One test per unique wrong-state scenario — do not enumerate every action × ev
 
 - Simple module (login, single form, display page): **2–4 tests**
 - Medium module (standard CRUD form, form with constraints): **4–8 tests**
-- Complex module (state machine, multi-form, wizard with many constraints): **8–12 tests**
+- Complex module (state machine, multi-form, wizard with many constraints): **10–16 tests**
 
-If you exceed these ranges, you are generating redundant tests. Apply the deduplication gate again before outputting.
+For modules with a `state_bound_action_bar` defining 4+ states, the state-machine violation tests alone will produce 4–5 tests. This is expected and correct — do not suppress them to hit a lower target.
+
+If you exceed the upper range, apply the deduplication gate again before outputting.
 
 ---
 
@@ -184,6 +197,17 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
 
 - **High:** State precondition violations, constraint violations that could corrupt data, unauthenticated access, required field representatives
 - **Medium:** Format violations, cross-field validation, numeric bounds, wrong-role access, wrong-state action attempts
+
+---
+
+**WORKFLOW-AWARE FAILURE INJECTION (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- For each workflow that contains a form interaction (terminal action is a submit/save/create/approve button):
+  - Identify the most **critical blocking failure** for that workflow's `conditional_branch`.
+  - If that failure mode is NOT already covered by another workflow's negative test, generate one negative TC for it.
+- **Do NOT generate one negative TC per workflow mechanically.** Apply the existing deduplication gate first — only add a TC if it catches a bug that no other test would catch.
+- Add `"wf_ref": "WF-NNN"` to each TC that maps to a workflow. Set `"wf_ref": null` for generic validation tests.
 
 ---
 
@@ -195,6 +219,7 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
   "test_cases": [
     {
       "tc_id": "N-001",
+      "wf_ref": null,
       "test_case": "Short descriptive name",
       "preconditions": ["precondition 1"],
       "steps": ["1. Step one", "2. Step two"],
@@ -212,7 +237,7 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
 
 
 ------------------------------------------------------------
-[21:41:13] Test-Negative - USER PROMPT
+[15:09:37] Test-Negative - USER PROMPT
 ------------------------------------------------------------
 <module_name>Course Page</module_name>
 
@@ -224,41 +249,42 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
       "type": "tab_container",
       "tabs": []
     },
-    "Collapse_All_Link": {
+    "Course_Sections": {
+      "type": "repeating_group",
+      "item_fields": {
+        "Collapsed": {
+          "type": "checkbox",
+          "required": false,
+          "on_change": "toggles section collapsed state"
+        },
+        "Items": {
+          "type": "repeating_group",
+          "item_fields": {
+            "Name": {
+              "type": "link",
+              "required": true,
+              "on_click": "navigates to activity or resource"
+            }
+          }
+        }
+      }
+    },
+    "Collapse_All": {
       "type": "link",
       "element_name": "Collapse all",
       "on_click": "collapses all sections",
       "on_success": "all sections collapsed"
     },
-    "Enable_Edit_Mode": {
+    "Edit_Mode_Toggle": {
       "type": "button",
-      "element_name": "Enable Edit Mode",
+      "element_name": "Enable Edit mode",
       "preconditions": [
-        "requires teacher role"
+        "role must not be Student"
       ],
-      "on_success": "edit mode enabled"
-    },
-    "Sections": {
-      "type": "repeating_group",
-      "item_fields": {
-        "Toggle_Section_Collapse": {
-          "type": "button",
-          "element_name": "Toggle section collapse",
-          "on_click": "toggles this section collapsed state",
-          "on_success": "section collapsed state toggled"
-        },
-        "Section_Items": {
-          "type": "repeating_group",
-          "item_fields": {
-            "Item_Link": {
-              "type": "link",
-              "element_name": "Activity or Resource",
-              "on_click": "navigates to activity/resource page",
-              "on_success": "opens activity/resource"
-            }
-          }
-        }
-      }
+      "on_success": "enter edit mode",
+      "constraints": [
+        "students cannot enable Edit mode on course pages"
+      ]
     }
   }
 }
@@ -273,10 +299,17 @@ The Course page displays the full course content organized into collapsible sect
 
 </description>
 
+<workflows>
+WF-001 | Collapse all sections | actor: <role> | branch: none | terminal: Collapse all | on_success: all sections collapsed
+WF-002 | Enable Edit mode (preconditioned) | actor: <role> | branch: precondition: role must not be Student | terminal: Enable Edit mode | on_success: enter edit mode
+WF-003 | Toggle a section's collapsed state | actor: <role> | branch: none | terminal: toggles section collapsed state | on_success: section collapsed state toggled
+WF-004 | Open an activity or resource from a section item | actor: <role> | branch: none | terminal: navigates to activity or resource | on_success: navigated to activity or resource
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[21:41:57] Test-Negative - LLM RESPONSE
+[15:10:51] Test-Negative - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Course Page",
@@ -284,45 +317,86 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "N-001",
-      "test_case": "Student user cannot enable Edit Mode (role precondition)",
+      "wf_ref": "WF-002",
+      "test_case": "Student attempts to enable Edit mode (precondition violation)",
       "preconditions": [
-        "User is authenticated with Student role",
-        "Course Page contains at least one section"
+        "User is authenticated as <Student>",
+        "Course Page is loaded with sections"
       ],
       "steps": [
-        "1. Log in as a user with the Student role",
+        "1. Login as <Student>",
         "2. Navigate to the Course Page",
-        "3. Look for the 'Enable Edit Mode' control",
-        "4. If the control is present, attempt to click 'Enable Edit Mode'"
+        "3. Click the 'Enable Edit mode' button"
       ],
-      "expected_result": "The 'Enable Edit Mode' control is not available to the Student role: the control is not visible on the Course Page (or is rendered disabled). Clicking it does not enable edit mode; no edit UI or editing controls appear and the page remains in view-only mode. (The attempted action is blocked by role precondition.)",
+      "expected_result": "Action is blocked: the page displays the constraint message 'students cannot enable Edit mode on course pages' (from the Edit_Mode_Toggle constraint) and the UI remains in view mode (no edit controls appear); course content is unchanged.",
       "priority": "high"
     },
     {
       "tc_id": "N-002",
-      "test_case": "Unauthenticated user cannot enable Edit Mode (requires authenticated teacher role)",
+      "wf_ref": null,
+      "test_case": "In Edit mode, attempt to save an activity/resource with the Name field left blank (required field)",
       "preconditions": [
-        "User is not authenticated"
+        "User is authenticated as a non-Student role (e.g., <Instructor>)",
+        "Course Page contains at least one activity/resource",
+        "Edit mode can be enabled by this role"
       ],
       "steps": [
-        "1. Ensure the user is logged out",
+        "1. Login as <Instructor>",
         "2. Navigate to the Course Page",
-        "3. Attempt to access or activate 'Enable Edit Mode' (click if visible or attempt the control's URL)"
+        "3. Click 'Enable Edit mode'",
+        "4. Open the edit dialog for an existing activity/resource in a section",
+        "5. Clear the Name field so it is left blank",
+        "6. Click 'Save' in the activity/resource edit dialog"
       ],
-      "expected_result": "Access to 'Enable Edit Mode' is blocked for unauthenticated users: the user is redirected to the Login page or shown a login prompt when attempting the action; edit mode is not enabled and no edit UI is shown on the Course Page.",
+      "expected_result": "Save is blocked; the Name field displays an inline validation error indicating it is required (Name field shows required validation); the activity/resource name is not changed and the editor remains open.",
+      "priority": "high"
+    },
+    {
+      "tc_id": "N-003",
+      "wf_ref": "WF-004",
+      "test_case": "Attempt to open an activity/resource that has an empty/missing Name (required link missing)",
+      "preconditions": [
+        "Course Page contains at least one activity/resource with an empty or missing Name (<blank> item)"
+      ],
+      "steps": [
+        "1. Login as <Student>",
+        "2. Navigate to the Course Page that contains the item with an empty Name",
+        "3. Attempt to click the item's name/link area"
+      ],
+      "expected_result": "No navigation occurs; the item is not clickable and the UI shows an inline validation indicator on the item (Name field displays an error indicating it is required); the user remains on the Course Page.",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "N-004",
+      "wf_ref": null,
+      "test_case": "Attempt to add a new activity/resource while leaving all required fields empty (submit-all-required-empty)",
+      "preconditions": [
+        "User is authenticated as a non-Student role (e.g., <Instructor>)",
+        "Course Page has at least one section",
+        "User can enter Edit mode"
+      ],
+      "steps": [
+        "1. Login as <Instructor>",
+        "2. Navigate to the Course Page",
+        "3. Click 'Enable Edit mode'",
+        "4. Start 'Add new activity/resource' in a section",
+        "5. Leave all required fields blank (e.g., Name left blank)",
+        "6. Click 'Save' or 'Add' to submit the new activity/resource"
+      ],
+      "expected_result": "Creation is blocked; the Name field displays an inline validation error indicating it is required; no new activity/resource is created and the add dialog remains open.",
       "priority": "high"
     }
   ],
   "summary": {
-    "total": 2,
-    "high_priority": 2,
-    "medium_priority": 0,
+    "total": 4,
+    "high_priority": 3,
+    "medium_priority": 1,
     "low_priority": 0
   }
 }
 
 ------------------------------------------------------------
-[21:41:57] Test-Negative - PARSED JSON
+[15:10:51] Test-Negative - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Course Page",
@@ -330,39 +404,80 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "N-001",
-      "test_case": "Student user cannot enable Edit Mode (role precondition)",
+      "wf_ref": "WF-002",
+      "test_case": "Student attempts to enable Edit mode (precondition violation)",
       "preconditions": [
-        "User is authenticated with Student role",
-        "Course Page contains at least one section"
+        "User is authenticated as <Student>",
+        "Course Page is loaded with sections"
       ],
       "steps": [
-        "1. Log in as a user with the Student role",
+        "1. Login as <Student>",
         "2. Navigate to the Course Page",
-        "3. Look for the 'Enable Edit Mode' control",
-        "4. If the control is present, attempt to click 'Enable Edit Mode'"
+        "3. Click the 'Enable Edit mode' button"
       ],
-      "expected_result": "The 'Enable Edit Mode' control is not available to the Student role: the control is not visible on the Course Page (or is rendered disabled). Clicking it does not enable edit mode; no edit UI or editing controls appear and the page remains in view-only mode. (The attempted action is blocked by role precondition.)",
+      "expected_result": "Action is blocked: the page displays the constraint message 'students cannot enable Edit mode on course pages' (from the Edit_Mode_Toggle constraint) and the UI remains in view mode (no edit controls appear); course content is unchanged.",
       "priority": "high"
     },
     {
       "tc_id": "N-002",
-      "test_case": "Unauthenticated user cannot enable Edit Mode (requires authenticated teacher role)",
+      "wf_ref": null,
+      "test_case": "In Edit mode, attempt to save an activity/resource with the Name field left blank (required field)",
       "preconditions": [
-        "User is not authenticated"
+        "User is authenticated as a non-Student role (e.g., <Instructor>)",
+        "Course Page contains at least one activity/resource",
+        "Edit mode can be enabled by this role"
       ],
       "steps": [
-        "1. Ensure the user is logged out",
+        "1. Login as <Instructor>",
         "2. Navigate to the Course Page",
-        "3. Attempt to access or activate 'Enable Edit Mode' (click if visible or attempt the control's URL)"
+        "3. Click 'Enable Edit mode'",
+        "4. Open the edit dialog for an existing activity/resource in a section",
+        "5. Clear the Name field so it is left blank",
+        "6. Click 'Save' in the activity/resource edit dialog"
       ],
-      "expected_result": "Access to 'Enable Edit Mode' is blocked for unauthenticated users: the user is redirected to the Login page or shown a login prompt when attempting the action; edit mode is not enabled and no edit UI is shown on the Course Page.",
+      "expected_result": "Save is blocked; the Name field displays an inline validation error indicating it is required (Name field shows required validation); the activity/resource name is not changed and the editor remains open.",
+      "priority": "high"
+    },
+    {
+      "tc_id": "N-003",
+      "wf_ref": "WF-004",
+      "test_case": "Attempt to open an activity/resource that has an empty/missing Name (required link missing)",
+      "preconditions": [
+        "Course Page contains at least one activity/resource with an empty or missing Name (<blank> item)"
+      ],
+      "steps": [
+        "1. Login as <Student>",
+        "2. Navigate to the Course Page that contains the item with an empty Name",
+        "3. Attempt to click the item's name/link area"
+      ],
+      "expected_result": "No navigation occurs; the item is not clickable and the UI shows an inline validation indicator on the item (Name field displays an error indicating it is required); the user remains on the Course Page.",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "N-004",
+      "wf_ref": null,
+      "test_case": "Attempt to add a new activity/resource while leaving all required fields empty (submit-all-required-empty)",
+      "preconditions": [
+        "User is authenticated as a non-Student role (e.g., <Instructor>)",
+        "Course Page has at least one section",
+        "User can enter Edit mode"
+      ],
+      "steps": [
+        "1. Login as <Instructor>",
+        "2. Navigate to the Course Page",
+        "3. Click 'Enable Edit mode'",
+        "4. Start 'Add new activity/resource' in a section",
+        "5. Leave all required fields blank (e.g., Name left blank)",
+        "6. Click 'Save' or 'Add' to submit the new activity/resource"
+      ],
+      "expected_result": "Creation is blocked; the Name field displays an inline validation error indicating it is required; no new activity/resource is created and the add dialog remains open.",
       "priority": "high"
     }
   ],
   "summary": {
-    "total": 2,
-    "high_priority": 2,
-    "medium_priority": 0,
+    "total": 4,
+    "high_priority": 3,
+    "medium_priority": 1,
     "low_priority": 0
   }
 }

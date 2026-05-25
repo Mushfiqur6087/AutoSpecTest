@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-21T22:29:06.533508
+DEBUG SESSION STARTED: 2026-05-25T14:24:50.728251
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[22:29:06] Test-Positive - SYSTEM PROMPT
+[14:24:50] Test-Positive - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Expert UI Test Case Generator. You receive (1) a UI-AST JSON for one specific module and (2) the original functional description for that module.
 
@@ -24,6 +24,10 @@ Your job is to produce ONLY positive/functional UI test cases — tests where va
 <description>
 {Original functional description text for this module}
 </description>
+
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
 
 ---
 
@@ -146,6 +150,13 @@ Because you are testing a module in isolation, establish the required entry stat
 **1. Forms & Wizards (`form`, `wizard`):**
 - Generate ONE happy path per distinct success outcome.
 - *Conditional UI Check:* If a toggle/dropdown reveals new mandatory fields (`visible_when`), generate a separate test for that conditional branch.
+- **Wizard step coverage (CRITICAL):** If a wizard has multiple steps and any step beyond Step 1 contains its own named field group (e.g., "Address Details", "Family Members", "Identifiers"), generate ONE dedicated positive TC per such step. The TC must:
+  - Navigate to that specific step (include the preceding steps as preconditions or brief navigation steps)
+  - Fill the fields described for that step (not just pass through)
+  - Assert the step's content is visible/saved on the detail page after final submission
+  - **Do NOT collapse all wizard steps into one happy-path TC** — if Steps 2, 3, and 4 each have their own named section in the spec, they each need their own TC.
+- **Wizard in-step identifiers/duplicates:** If a wizard step allows adding identifiers, documents, or similar entries that have a uniqueness constraint, include a TC for that wizard step that also verifies the constraint (e.g., attempting to add a duplicate Document Type+Key pair inside the wizard). This is a different code path from adding the same post-creation on the detail page.
+- **Action dialogs:** If a `state_bound_action_bar` action opens a dialog with its own `fields{}` (e.g., Activate requires Activation Date, Reject requires Reason), generate ONE positive TC per such action-dialog — distinct from the state-transition TC. The TC fills the dialog field and completes the action.
 
 **2. State Machines (`state_bound_action_bar`):**
 - For each unique action available in a specific state, generate ONE test performing that action.
@@ -200,6 +211,19 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 
 ---
 
+**WORKFLOW COVERAGE OBLIGATION (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- Your test cases must **collectively cover every workflow** listed.
+- For each `wf_id`, at least one TC must:
+  - Activate the `conditional_branch` (if not null) — i.e. the test must set up the condition described.
+  - Assert the `on_success` as its `expected_result` (verbatim or as the primary basis for the expected result).
+- Add `"wf_ref": "WF-NNN"` to each TC to identify which workflow it covers.
+- If one TC naturally covers multiple workflows (e.g., the base path overlaps), pick the most specific `wf_ref`.
+- If a TC does not map to any workflow (e.g., a navigation-only test), set `"wf_ref": null`.
+
+---
+
 **OUTPUT — JSON only, no prose, no markdown fencing:**
 
 {
@@ -208,6 +232,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
   "test_cases": [
     {
       "tc_id": "P-001",
+      "wf_ref": "WF-001",
       "test_case": "Short descriptive name",
       "preconditions": ["User logged in as <Role>", "<Prerequisite state>"],
       "steps": ["1. Step one", "2. Step two"],
@@ -224,7 +249,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 }
 
 ------------------------------------------------------------
-[22:29:06] Test-Positive - USER PROMPT
+[14:24:50] Test-Positive - USER PROMPT
 ------------------------------------------------------------
 <module_name>Floating Rates</module_name>
 
@@ -240,13 +265,17 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
         "Is Active",
         "Created By"
       ],
+      "clickable_columns": [
+        "Floating Rate Name"
+      ],
       "row_actions": [
         {
-          "element_name": "Floating Rate Name",
-          "type": "link",
-          "action": "opens Floating_Rate_Detail"
+          "action_name": "View Details",
+          "trigger": "click Floating Rate Name",
+          "on_success": "navigates to Floating Rate detail view"
         }
-      ]
+      ],
+      "bulk_actions": []
     },
     "Create_Floating_Rate_Button": {
       "type": "button",
@@ -264,7 +293,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
           "type": "checkbox",
           "required": false,
           "constraints": [
-            "only one floating rate may have Is_Base_Lending_Rate == true at any time; submitting when another base rate exists must be rejected or must unset the existing base rate"
+            "only one base rate can exist at a time"
           ]
         },
         "Is_Active": {
@@ -282,34 +311,31 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
               "type": "number",
               "required": false,
               "constraints": [
-                "expressed as a percentage value"
+                "percentage"
               ]
             },
             "Is_Differential_Rate": {
               "type": "checkbox",
               "required": false,
               "constraints": [
-                "when checked, this period's rate is applied as a differential (added to or subtracted from the base lending rate) rather than as an absolute rate"
+                "if checked, rate is applied relative to the base lending rate (added to or subtracted from base) rather than used as an absolute rate"
               ]
             }
           },
           "add_row_action": {
             "element_name": "Add Rate Period",
-            "action": "adds a new Rate_Period row to the repeating group"
+            "action": "adds a new Rate_Period row"
           }
         }
       },
       "submit_actions": [
         {
-          "element_name": "Create",
-          "action_name": "Create Floating Rate",
-          "on_success": "creates floating rate; linked loan products (if any) update their interest rates automatically based on the applicable rate period(s)"
+          "on_success": "creates floating rate; linked loan products' interest rates adjust automatically based on applicable rate period"
         }
       ]
     },
-    "Floating_Rate_Detail": {
-      "type": "detail_view",
-      "fields": {},
+    "Floating_Rate_Detail_Actions": {
+      "type": "action_bar",
       "actions": [
         {
           "action_name": "Edit",
@@ -328,7 +354,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
           "type": "checkbox",
           "required": false,
           "constraints": [
-            "only one floating rate may have Is_Base_Lending_Rate == true at any time; saving when another base rate exists must be rejected or must unset the existing base rate"
+            "only one base rate can exist at a time"
           ]
         },
         "Is_Active": {
@@ -346,28 +372,26 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
               "type": "number",
               "required": false,
               "constraints": [
-                "expressed as a percentage value"
+                "percentage"
               ]
             },
             "Is_Differential_Rate": {
               "type": "checkbox",
               "required": false,
               "constraints": [
-                "when checked, this period's rate is applied as a differential (added to or subtracted from the base lending rate) rather than as an absolute rate"
+                "if checked, rate is applied relative to the base lending rate (added to or subtracted from base) rather than used as an absolute rate"
               ]
             }
           },
           "add_row_action": {
             "element_name": "Add Rate Period",
-            "action": "adds a new Rate_Period row to the repeating group"
+            "action": "adds a new Rate_Period row"
           }
         }
       },
       "submit_actions": [
         {
-          "element_name": "Save",
-          "action_name": "Save Floating Rate Changes",
-          "on_success": "updates floating rate; linked loan products (if any) update their interest rates automatically based on the applicable rate period(s)"
+          "on_success": "updates floating rate; linked loan products' interest rates adjust automatically based on applicable rate period"
         }
       ]
     }
@@ -384,10 +408,17 @@ The Floating Rates page displays a data table with columns for Floating Rate Nam
 
 </description>
 
+<workflows>
+WF-001 | View Floating Rate Details | actor: <role> | branch: none | terminal: View Details | on_success: navigates to Floating Rate detail view
+WF-002 | Create Floating Rate (submit) | actor: <role> | branch: none | terminal: Create_Floating_Rate_Form.submit | on_success: creates floating rate; linked loan products' interest rates adjust automatically based on applicable rate period
+WF-003 | Open Edit Floating Rate form | actor: <role> | branch: none | terminal: Edit | on_success: opens Edit_Floating_Rate_Form
+WF-004 | Edit Floating Rate (submit) | actor: <role> | branch: none | terminal: Edit_Floating_Rate_Form.submit | on_success: updates floating rate; linked loan products' interest rates adjust automatically based on applicable rate period
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[22:32:29] Test-Positive - LLM RESPONSE
+[14:27:56] Test-Positive - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Floating Rates",
@@ -395,90 +426,91 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Open Floating Rate detail from table",
+      "wf_ref": "WF-001",
+      "test_case": "View Floating Rate details from table",
       "preconditions": [
-        "User logged in as <Admin>",
-        "Floating Rates page is open with at least one existing floating rate"
+        "User logged in as <role>",
+        "At least one <existing floating rate> is present in the Floating Rates table"
       ],
       "steps": [
-        "1. Click the <Floating Rate Name> link for an existing floating rate in the Floating Rates table"
+        "1. On the Floating Rates page, click the <existing floating rate> name in the Floating Rate Name column"
       ],
-      "expected_result": "Floating Rate detail page opens showing the selected Floating Rate Name, the list of Rate Periods with each row's From Date, Interest Rate and Is Differential Rate indicator, and an Edit action/button is visible",
-      "priority": "medium"
+      "expected_result": "navigates to Floating Rate detail view",
+      "priority": "high"
     },
     {
       "tc_id": "P-002",
-      "test_case": "Create new Floating Rate with one Rate Period",
+      "wf_ref": "WF-002",
+      "test_case": "Create a new Floating Rate and mark it as the base lending rate",
       "preconditions": [
-        "User logged in as <Admin>",
-        "Floating Rates page is open"
+        "User logged in as <role>",
+        "No existing base lending rate is required for this positive path (or tester ensures the intended base state)"
       ],
       "steps": [
-        "1. Click the '+ Create Floating Rate' button",
-        "2. Enter <valid floating rate name> in the Floating Rate Name field",
-        "3. (optional) Check or leave unchecked the <Is Base Lending Rate> checkbox",
-        "4. Check the <Is Active> checkbox",
-        "5. Click 'Add Rate Period' to add a Rate Period row",
-        "6. Enter <From Date> in the new Rate Period's From Date field",
-        "7. Enter <valid percentage> in the new Rate Period's Interest Rate field",
-        "8. (optional) Check or leave unchecked the <Is Differential Rate> checkbox for the period",
-        "9. Click the 'Create' button"
+        "1. Click the \"+ Create Floating Rate\" button",
+        "2. Enter <floating rate name> in the Floating Rate Name field",
+        "3. Check the Is Base Lending Rate checkbox",
+        "4. (Optional) Check or leave Is Active as desired",
+        "5. Click \"Add Rate Period\" to add a Rate Period row",
+        "6. In the new Rate Period row, enter <from date> in From Date",
+        "7. Enter <interest rate percentage> in Interest Rate",
+        "8. Leave Is Differential Rate unchecked",
+        "9. Click Submit on the Create Floating Rate form"
       ],
-      "expected_result": "A new row appears in the Floating Rates table with the entered Floating Rate Name and the displayed Is Active status; clicking that Floating Rate Name opens the detail page which lists the created Rate Period showing the entered From Date, Interest Rate and whether the period is marked as Differential",
+      "expected_result": "creates floating rate; linked loan products' interest rates adjust automatically based on applicable rate period",
       "priority": "high"
     },
     {
       "tc_id": "P-003",
-      "test_case": "Add multiple Rate Period rows in Create form",
+      "wf_ref": "WF-002",
+      "test_case": "Create a Floating Rate with multiple Rate Period rows including a differential rate",
       "preconditions": [
-        "User logged in as <Admin>",
-        "Floating Rates page is open"
+        "User logged in as <role>"
       ],
       "steps": [
-        "1. Click the '+ Create Floating Rate' button",
-        "2. Enter <valid floating rate name> in the Floating Rate Name field",
-        "3. Click 'Add Rate Period'",
-        "4. Enter <From Date> and <valid percentage> in the first Rate Period row",
-        "5. Click 'Add Rate Period' again",
-        "6. Enter <From Date> and <valid percentage> in the second Rate Period row",
-        "7. Verify both Rate Period rows show their respective From Date and Interest Rate values in the form"
+        "1. Click the \"+ Create Floating Rate\" button",
+        "2. Enter <floating rate name> in the Floating Rate Name field",
+        "3. Click \"Add Rate Period\" to add the first Rate Period row",
+        "4. In the first Rate Period row, enter <from date> in From Date and enter <interest rate percentage> in Interest Rate and leave Is Differential Rate unchecked",
+        "5. Click \"Add Rate Period\" to add a second Rate Period row",
+        "6. In the second Rate Period row, enter <from date> in From Date and enter <interest rate percentage> in Interest Rate and check Is Differential Rate",
+        "7. Click Submit on the Create Floating Rate form"
       ],
-      "expected_result": "The Create Floating Rate form displays two Rate Period rows with the entered From Dates and Interest Rates and each row's Is Differential Rate checkbox state visible for each period",
+      "expected_result": "creates floating rate; linked loan products' interest rates adjust automatically based on applicable rate period",
       "priority": "medium"
     },
     {
       "tc_id": "P-004",
-      "test_case": "Edit Floating Rate: change active status and add a Rate Period",
+      "wf_ref": "WF-003",
+      "test_case": "Open Edit Floating Rate form from detail view",
       "preconditions": [
-        "User logged in as <Admin>",
-        "Floating Rates page is open with at least one existing floating rate"
+        "User logged in as <role>",
+        "A Floating Rate exists and is visible in the Floating Rates table as <existing floating rate>"
       ],
       "steps": [
-        "1. Click the <Floating Rate Name> link for an existing floating rate to open its detail page",
-        "2. Click the 'Edit' action on the Floating Rate detail page",
-        "3. Toggle the <Is Active> checkbox to the opposite state",
-        "4. Click 'Add Rate Period' inside the Edit form",
-        "5. Enter <From Date> and <valid percentage> for the new Rate Period and set or leave the <Is Differential Rate> checkbox as appropriate",
-        "6. Click the 'Save' button"
+        "1. In the Floating Rates table, click the <existing floating rate> name to open its detail view",
+        "2. In the Floating Rate detail view, click the Edit action in the action bar"
       ],
-      "expected_result": "Floating Rate detail page displays with the updated Is Active status and lists the newly added Rate Period showing the entered From Date, Interest Rate and the Is Differential Rate state",
-      "priority": "high"
+      "expected_result": "opens Edit_Floating_Rate_Form",
+      "priority": "medium"
     },
     {
       "tc_id": "P-005",
-      "test_case": "Set Is Base Lending Rate when another base rate exists",
+      "wf_ref": "WF-004",
+      "test_case": "Edit an existing Floating Rate and add a new Rate Period then submit",
       "preconditions": [
-        "User logged in as <Admin>",
-        "Floating Rates page is open",
-        "There is an existing floating rate (<existing base rate>) currently marked as Is Base Lending Rate"
+        "User logged in as <role>",
+        "A Floating Rate exists and its detail view is accessible for <existing floating rate>"
       ],
       "steps": [
-        "1. Click the '+ Create Floating Rate' button",
-        "2. Enter <valid floating rate name> in the Floating Rate Name field",
-        "3. Check the <Is Base Lending Rate> checkbox for the new floating rate",
-        "4. Click the 'Create' button"
+        "1. In the Floating Rates table, click the <existing floating rate> name to open its detail view",
+        "2. Click the Edit action in the action bar to open the Edit Floating Rate form",
+        "3. In the Edit form, enter <updated floating rate name> in Floating Rate Name (or leave unchanged)",
+        "4. Click \"Add Rate Period\" to add a new Rate Period row",
+        "5. In the new Rate Period row, enter <from date> in From Date and enter <interest rate percentage> in Interest Rate and set Is Differential Rate as desired",
+        "6. Click Submit on the Edit Floating Rate form"
       ],
-      "expected_result": "The Floating Rates table shows the newly created floating rate with Is Base Lending Rate indicated, and the previously base-designated floating rate no longer shows the Is Base Lending Rate indication",
+      "expected_result": "updates floating rate; linked loan products' interest rates adjust automatically based on applicable rate period",
       "priority": "high"
     }
   ],
@@ -491,7 +523,7 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
 }
 
 ------------------------------------------------------------
-[22:32:29] Test-Positive - PARSED JSON
+[14:27:56] Test-Positive - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Floating Rates",
@@ -499,90 +531,91 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Open Floating Rate detail from table",
+      "wf_ref": "WF-001",
+      "test_case": "View Floating Rate details from table",
       "preconditions": [
-        "User logged in as <Admin>",
-        "Floating Rates page is open with at least one existing floating rate"
+        "User logged in as <role>",
+        "At least one <existing floating rate> is present in the Floating Rates table"
       ],
       "steps": [
-        "1. Click the <Floating Rate Name> link for an existing floating rate in the Floating Rates table"
+        "1. On the Floating Rates page, click the <existing floating rate> name in the Floating Rate Name column"
       ],
-      "expected_result": "Floating Rate detail page opens showing the selected Floating Rate Name, the list of Rate Periods with each row's From Date, Interest Rate and Is Differential Rate indicator, and an Edit action/button is visible",
-      "priority": "medium"
+      "expected_result": "navigates to Floating Rate detail view",
+      "priority": "high"
     },
     {
       "tc_id": "P-002",
-      "test_case": "Create new Floating Rate with one Rate Period",
+      "wf_ref": "WF-002",
+      "test_case": "Create a new Floating Rate and mark it as the base lending rate",
       "preconditions": [
-        "User logged in as <Admin>",
-        "Floating Rates page is open"
+        "User logged in as <role>",
+        "No existing base lending rate is required for this positive path (or tester ensures the intended base state)"
       ],
       "steps": [
-        "1. Click the '+ Create Floating Rate' button",
-        "2. Enter <valid floating rate name> in the Floating Rate Name field",
-        "3. (optional) Check or leave unchecked the <Is Base Lending Rate> checkbox",
-        "4. Check the <Is Active> checkbox",
-        "5. Click 'Add Rate Period' to add a Rate Period row",
-        "6. Enter <From Date> in the new Rate Period's From Date field",
-        "7. Enter <valid percentage> in the new Rate Period's Interest Rate field",
-        "8. (optional) Check or leave unchecked the <Is Differential Rate> checkbox for the period",
-        "9. Click the 'Create' button"
+        "1. Click the \"+ Create Floating Rate\" button",
+        "2. Enter <floating rate name> in the Floating Rate Name field",
+        "3. Check the Is Base Lending Rate checkbox",
+        "4. (Optional) Check or leave Is Active as desired",
+        "5. Click \"Add Rate Period\" to add a Rate Period row",
+        "6. In the new Rate Period row, enter <from date> in From Date",
+        "7. Enter <interest rate percentage> in Interest Rate",
+        "8. Leave Is Differential Rate unchecked",
+        "9. Click Submit on the Create Floating Rate form"
       ],
-      "expected_result": "A new row appears in the Floating Rates table with the entered Floating Rate Name and the displayed Is Active status; clicking that Floating Rate Name opens the detail page which lists the created Rate Period showing the entered From Date, Interest Rate and whether the period is marked as Differential",
+      "expected_result": "creates floating rate; linked loan products' interest rates adjust automatically based on applicable rate period",
       "priority": "high"
     },
     {
       "tc_id": "P-003",
-      "test_case": "Add multiple Rate Period rows in Create form",
+      "wf_ref": "WF-002",
+      "test_case": "Create a Floating Rate with multiple Rate Period rows including a differential rate",
       "preconditions": [
-        "User logged in as <Admin>",
-        "Floating Rates page is open"
+        "User logged in as <role>"
       ],
       "steps": [
-        "1. Click the '+ Create Floating Rate' button",
-        "2. Enter <valid floating rate name> in the Floating Rate Name field",
-        "3. Click 'Add Rate Period'",
-        "4. Enter <From Date> and <valid percentage> in the first Rate Period row",
-        "5. Click 'Add Rate Period' again",
-        "6. Enter <From Date> and <valid percentage> in the second Rate Period row",
-        "7. Verify both Rate Period rows show their respective From Date and Interest Rate values in the form"
+        "1. Click the \"+ Create Floating Rate\" button",
+        "2. Enter <floating rate name> in the Floating Rate Name field",
+        "3. Click \"Add Rate Period\" to add the first Rate Period row",
+        "4. In the first Rate Period row, enter <from date> in From Date and enter <interest rate percentage> in Interest Rate and leave Is Differential Rate unchecked",
+        "5. Click \"Add Rate Period\" to add a second Rate Period row",
+        "6. In the second Rate Period row, enter <from date> in From Date and enter <interest rate percentage> in Interest Rate and check Is Differential Rate",
+        "7. Click Submit on the Create Floating Rate form"
       ],
-      "expected_result": "The Create Floating Rate form displays two Rate Period rows with the entered From Dates and Interest Rates and each row's Is Differential Rate checkbox state visible for each period",
+      "expected_result": "creates floating rate; linked loan products' interest rates adjust automatically based on applicable rate period",
       "priority": "medium"
     },
     {
       "tc_id": "P-004",
-      "test_case": "Edit Floating Rate: change active status and add a Rate Period",
+      "wf_ref": "WF-003",
+      "test_case": "Open Edit Floating Rate form from detail view",
       "preconditions": [
-        "User logged in as <Admin>",
-        "Floating Rates page is open with at least one existing floating rate"
+        "User logged in as <role>",
+        "A Floating Rate exists and is visible in the Floating Rates table as <existing floating rate>"
       ],
       "steps": [
-        "1. Click the <Floating Rate Name> link for an existing floating rate to open its detail page",
-        "2. Click the 'Edit' action on the Floating Rate detail page",
-        "3. Toggle the <Is Active> checkbox to the opposite state",
-        "4. Click 'Add Rate Period' inside the Edit form",
-        "5. Enter <From Date> and <valid percentage> for the new Rate Period and set or leave the <Is Differential Rate> checkbox as appropriate",
-        "6. Click the 'Save' button"
+        "1. In the Floating Rates table, click the <existing floating rate> name to open its detail view",
+        "2. In the Floating Rate detail view, click the Edit action in the action bar"
       ],
-      "expected_result": "Floating Rate detail page displays with the updated Is Active status and lists the newly added Rate Period showing the entered From Date, Interest Rate and the Is Differential Rate state",
-      "priority": "high"
+      "expected_result": "opens Edit_Floating_Rate_Form",
+      "priority": "medium"
     },
     {
       "tc_id": "P-005",
-      "test_case": "Set Is Base Lending Rate when another base rate exists",
+      "wf_ref": "WF-004",
+      "test_case": "Edit an existing Floating Rate and add a new Rate Period then submit",
       "preconditions": [
-        "User logged in as <Admin>",
-        "Floating Rates page is open",
-        "There is an existing floating rate (<existing base rate>) currently marked as Is Base Lending Rate"
+        "User logged in as <role>",
+        "A Floating Rate exists and its detail view is accessible for <existing floating rate>"
       ],
       "steps": [
-        "1. Click the '+ Create Floating Rate' button",
-        "2. Enter <valid floating rate name> in the Floating Rate Name field",
-        "3. Check the <Is Base Lending Rate> checkbox for the new floating rate",
-        "4. Click the 'Create' button"
+        "1. In the Floating Rates table, click the <existing floating rate> name to open its detail view",
+        "2. Click the Edit action in the action bar to open the Edit Floating Rate form",
+        "3. In the Edit form, enter <updated floating rate name> in Floating Rate Name (or leave unchanged)",
+        "4. Click \"Add Rate Period\" to add a new Rate Period row",
+        "5. In the new Rate Period row, enter <from date> in From Date and enter <interest rate percentage> in Interest Rate and set Is Differential Rate as desired",
+        "6. Click Submit on the Edit Floating Rate form"
       ],
-      "expected_result": "The Floating Rates table shows the newly created floating rate with Is Base Lending Rate indicated, and the previously base-designated floating rate no longer shows the Is Base Lending Rate indication",
+      "expected_result": "updates floating rate; linked loan products' interest rates adjust automatically based on applicable rate period",
       "priority": "high"
     }
   ],

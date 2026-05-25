@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-21T22:54:00.273642
+DEBUG SESSION STARTED: 2026-05-25T14:51:20.260420
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[22:54:00] Test-Positive - SYSTEM PROMPT
+[14:51:20] Test-Positive - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Expert UI Test Case Generator. You receive (1) a UI-AST JSON for one specific module and (2) the original functional description for that module.
 
@@ -24,6 +24,10 @@ Your job is to produce ONLY positive/functional UI test cases — tests where va
 <description>
 {Original functional description text for this module}
 </description>
+
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
 
 ---
 
@@ -146,6 +150,13 @@ Because you are testing a module in isolation, establish the required entry stat
 **1. Forms & Wizards (`form`, `wizard`):**
 - Generate ONE happy path per distinct success outcome.
 - *Conditional UI Check:* If a toggle/dropdown reveals new mandatory fields (`visible_when`), generate a separate test for that conditional branch.
+- **Wizard step coverage (CRITICAL):** If a wizard has multiple steps and any step beyond Step 1 contains its own named field group (e.g., "Address Details", "Family Members", "Identifiers"), generate ONE dedicated positive TC per such step. The TC must:
+  - Navigate to that specific step (include the preceding steps as preconditions or brief navigation steps)
+  - Fill the fields described for that step (not just pass through)
+  - Assert the step's content is visible/saved on the detail page after final submission
+  - **Do NOT collapse all wizard steps into one happy-path TC** — if Steps 2, 3, and 4 each have their own named section in the spec, they each need their own TC.
+- **Wizard in-step identifiers/duplicates:** If a wizard step allows adding identifiers, documents, or similar entries that have a uniqueness constraint, include a TC for that wizard step that also verifies the constraint (e.g., attempting to add a duplicate Document Type+Key pair inside the wizard). This is a different code path from adding the same post-creation on the detail page.
+- **Action dialogs:** If a `state_bound_action_bar` action opens a dialog with its own `fields{}` (e.g., Activate requires Activation Date, Reject requires Reason), generate ONE positive TC per such action-dialog — distinct from the state-transition TC. The TC fills the dialog field and completes the action.
 
 **2. State Machines (`state_bound_action_bar`):**
 - For each unique action available in a specific state, generate ONE test performing that action.
@@ -200,6 +211,19 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 
 ---
 
+**WORKFLOW COVERAGE OBLIGATION (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- Your test cases must **collectively cover every workflow** listed.
+- For each `wf_id`, at least one TC must:
+  - Activate the `conditional_branch` (if not null) — i.e. the test must set up the condition described.
+  - Assert the `on_success` as its `expected_result` (verbatim or as the primary basis for the expected result).
+- Add `"wf_ref": "WF-NNN"` to each TC to identify which workflow it covers.
+- If one TC naturally covers multiple workflows (e.g., the base path overlaps), pick the most specific `wf_ref`.
+- If a TC does not map to any workflow (e.g., a navigation-only test), set `"wf_ref": null`.
+
+---
+
 **OUTPUT — JSON only, no prose, no markdown fencing:**
 
 {
@@ -208,6 +232,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
   "test_cases": [
     {
       "tc_id": "P-001",
+      "wf_ref": "WF-001",
       "test_case": "Short descriptive name",
       "preconditions": ["User logged in as <Role>", "<Prerequisite state>"],
       "steps": ["1. Step one", "2. Step two"],
@@ -224,7 +249,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 }
 
 ------------------------------------------------------------
-[22:54:00] Test-Positive - USER PROMPT
+[14:51:20] Test-Positive - USER PROMPT
 ------------------------------------------------------------
 <module_name>Booking Management</module_name>
 
@@ -232,70 +257,67 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 {
   "module_name": "Booking Management",
   "components": {
-    "Booking_Detail_Action_Bar": {
-      "type": "action_bar",
-      "available_actions": [
-        {
-          "action_name": "Modify",
-          "preconditions": [
-            "booking type permits modification",
-            "cancellation policy permits modification"
-          ],
-          "fields": {
-            "Travel_Date_Changes": {
-              "type": "repeating_group",
-              "item_fields": {
-                "New_Date": {
+    "Booking_Detail_Actions": {
+      "type": "state_bound_action_bar",
+      "states": {
+        "default": {
+          "available_actions": [
+            {
+              "action_name": "Modify",
+              "preconditions": [
+                "booking type permits modification",
+                "cancellation policy permits modification"
+              ],
+              "fields": {
+                "Travel_Dates": {
                   "type": "date",
-                  "required": true
+                  "required": false
+                },
+                "Special_Requests": {
+                  "type": "textarea",
+                  "required": false
+                },
+                "Traveler_Updates": {
+                  "type": "repeating_group",
+                  "item_fields": {}
                 }
               },
               "constraints": [
-                "subject to availability",
+                "changes subject to availability",
                 "applicable fees may apply"
+              ],
+              "submit_actions": [
+                {
+                  "required": true,
+                  "on_success": "applies requested modifications, charges applicable fees as needed, updates booking, and sends modification email notification"
+                }
               ]
             },
-            "Special_Requests": {
-              "type": "unspecified",
-              "required": false
-            },
-            "Traveler_Updates": {
-              "type": "repeating_group",
-              "item_fields": {}
-            }
-          },
-          "submit_actions": [
             {
-              "on_success": "applies changes, charges applicable fees, updates booking and sends modification email"
+              "action_name": "Cancel",
+              "preconditions": [
+                "cancellation policy permits cancellation"
+              ],
+              "confirmation_flow": {
+                "display_fields": {
+                  "Refund_Amount": {
+                    "type": "number",
+                    "display_only": true,
+                    "note": "value is calculated based on cancellation policy and applicable fees"
+                  }
+                }
+              },
+              "submit_actions": [
+                {
+                  "element_name": "Confirm Cancellation",
+                  "required": true,
+                  "on_success": "processes cancellation, initiates refund to the original payment method, changes booking status to Cancelled, and sends cancellation email notification"
+                }
+              ]
             }
           ]
-        },
-        {
-          "action_name": "Cancel",
-          "preconditions": [
-            "cancellation policy permits cancellation"
-          ],
-          "constraints": [
-            "user must explicitly confirm cancellation"
-          ],
-          "confirmation_flow": {
-            "fields": {
-              "Refund_Amount": {
-                "type": "number"
-              },
-              "Confirm_Cancellation": {
-                "type": "checkbox",
-                "required": true
-              }
-            },
-            "submit_actions": [
-              {
-                "on_success": "cancels booking, initiates refund to original payment method, sends cancellation email"
-              }
-            ]
-          }
         }
-      ]
+      }
     }
   }
 }
@@ -310,10 +332,15 @@ Each booking's detail view shows confirmation number, full service information, 
 
 </description>
 
+<workflows>
+WF-001 | Modify booking | actor: <role> | branch: entity_state == default | terminal: Modify | on_success: applies requested modifications, charges applicable fees as needed, updates booking, and sends modification email notification
+WF-002 | Cancel booking | actor: <role> | branch: entity_state == default | terminal: Cancel | on_success: processes cancellation, initiates refund to the original payment method, changes booking status to Cancelled, and sends cancellation email notification
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[22:57:13] Test-Positive - LLM RESPONSE
+[14:53:36] Test-Positive - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Booking Management",
@@ -321,85 +348,52 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Modify booking — change single travel date and add special request",
+      "wf_ref": "WF-001",
+      "test_case": "Modify booking - change travel dates, add special requests and traveler update",
       "preconditions": [
-        "User logged in as <User>",
-        "Booking exists and is modifiable (booking type permits modification and cancellation policy permits modification)"
+        "User logged in as <Role>",
+        "Booking exists in 'default' state and booking type and cancellation policy permit modification",
+        "Required availability exists for the requested new travel dates"
       ],
       "steps": [
-        "1. Navigate to Booking Detail for <booking>",
-        "2. Click the Modify action in the Booking Detail action bar",
-        "3. Click 'Add Row' in Travel_Date_Changes",
-        "4. Enter <new travel date> in New_Date for the newly added Travel_Date_Changes row",
-        "5. Enter <special request text> in Special_Requests",
-        "6. Click Save/Submit on the Modify dialog"
+        "1. Open the Booking detail page for <existing booking in default state>",
+        "2. Click the 'Modify' action/button in the action bar",
+        "3. Enter <new travel dates> in the Travel_Dates field",
+        "4. Enter <special requests> in the Special_Requests field",
+        "5. Click 'Add' in the Traveler_Updates repeating section and enter <traveler update details> for the new row",
+        "6. Click the 'Save' or 'Submit' button to apply modifications"
       ],
-      "expected_result": "A success notification is displayed stating \"applies changes, charges applicable fees, updates booking and sends modification email\" and the Booking Detail itinerary shows the entered <new travel date> as an updated travel date",
-      "priority": "medium"
-    },
-    {
-      "tc_id": "P-002",
-      "test_case": "Modify booking — add multiple travel date changes in one modification",
-      "preconditions": [
-        "User logged in as <User>",
-        "Booking exists and is modifiable (booking type permits modification and cancellation policy permits modification)"
-      ],
-      "steps": [
-        "1. Navigate to Booking Detail for <booking>",
-        "2. Click the Modify action in the Booking Detail action bar",
-        "3. Click 'Add Row' in Travel_Date_Changes",
-        "4. Enter <new travel date 1> in New_Date for the first Travel_Date_Changes row",
-        "5. Click 'Add Row' again in Travel_Date_Changes",
-        "6. Enter <new travel date 2> in New_Date for the second Travel_Date_Changes row",
-        "7. Click Save/Submit on the Modify dialog"
-      ],
-      "expected_result": "A success notification is displayed stating \"applies changes, charges applicable fees, updates booking and sends modification email\" and the Booking Detail itinerary shows both entered <new travel date 1> and <new travel date 2> as updated travel dates",
-      "priority": "medium"
-    },
-    {
-      "tc_id": "P-003",
-      "test_case": "Cancel booking — view refund amount, confirm checkbox, and complete cancellation",
-      "preconditions": [
-        "User logged in as <User>",
-        "Booking exists and is cancellable (cancellation policy permits cancellation)"
-      ],
-      "steps": [
-        "1. Navigate to Booking Detail for <booking>",
-        "2. Click the Cancel action in the Booking Detail action bar",
-        "3. Observe the cancellation confirmation dialog and note the displayed Refund_Amount",
-        "4. Check the Confirm_Cancellation checkbox in the cancellation confirmation dialog",
-        "5. Click Confirm on the cancellation confirmation dialog"
-      ],
-      "expected_result": "The cancellation confirmation dialog showed a Refund_Amount value; after confirming, a success notification is displayed stating \"cancels booking, initiates refund to original payment method, sends cancellation email\" and the Booking Status badge on the Booking Detail page updates to \"Cancelled\"",
+      "expected_result": "Booking detail page shows the updated travel dates and a visible fee line item reflecting applicable fees; a success notification is displayed with text 'applies requested modifications, charges applicable fees as needed, updates booking, and sends modification email notification'",
       "priority": "high"
     },
     {
-      "tc_id": "P-004",
-      "test_case": "Modify booking — entering a new date shows availability/fees notice on Modify panel",
+      "tc_id": "P-002",
+      "wf_ref": "WF-002",
+      "test_case": "Cancel booking - confirm cancellation and show refund amount",
       "preconditions": [
-        "User logged in as <User>",
-        "Booking exists and is modifiable (booking type permits modification and cancellation policy permits modification)"
+        "User logged in as <Role>",
+        "Booking exists in 'default' state and cancellation policy permits cancellation"
       ],
       "steps": [
-        "1. Navigate to Booking Detail for <booking>",
-        "2. Click the Modify action in the Booking Detail action bar",
-        "3. Click 'Add Row' in Travel_Date_Changes",
-        "4. Enter <new travel date> in New_Date for the new Travel_Date_Changes row"
+        "1. Open the Booking detail page for <existing booking in default state>",
+        "2. Click the 'Cancel' action/button in the action bar",
+        "3. Observe the cancellation confirmation flow displays a Refund_Amount field showing the calculated refund",
+        "4. Click 'Confirm Cancellation' in the confirmation dialog"
       ],
-      "expected_result": "On the Modify panel an inline notice is visible stating \"subject to availability; applicable fees may apply\" next to the Travel_Date_Changes entries",
-      "priority": "low"
+      "expected_result": "Booking detail page shows the booking status badge updated to 'Cancelled'; the cancellation confirmation displayed the Refund_Amount; and a success notification is displayed with text 'processes cancellation, initiates refund to the original payment method, changes booking status to Cancelled, and sends cancellation email notification'",
+      "priority": "high"
     }
   ],
   "summary": {
-    "total": 4,
-    "high_priority": 1,
-    "medium_priority": 2,
-    "low_priority": 1
+    "total": 2,
+    "high_priority": 2,
+    "medium_priority": 0,
+    "low_priority": 0
   }
 }
 
 ------------------------------------------------------------
-[22:57:13] Test-Positive - PARSED JSON
+[14:53:36] Test-Positive - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Booking Management",
@@ -407,79 +401,46 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Modify booking \u2014 change single travel date and add special request",
+      "wf_ref": "WF-001",
+      "test_case": "Modify booking - change travel dates, add special requests and traveler update",
       "preconditions": [
-        "User logged in as <User>",
-        "Booking exists and is modifiable (booking type permits modification and cancellation policy permits modification)"
+        "User logged in as <Role>",
+        "Booking exists in 'default' state and booking type and cancellation policy permit modification",
+        "Required availability exists for the requested new travel dates"
       ],
       "steps": [
-        "1. Navigate to Booking Detail for <booking>",
-        "2. Click the Modify action in the Booking Detail action bar",
-        "3. Click 'Add Row' in Travel_Date_Changes",
-        "4. Enter <new travel date> in New_Date for the newly added Travel_Date_Changes row",
-        "5. Enter <special request text> in Special_Requests",
-        "6. Click Save/Submit on the Modify dialog"
+        "1. Open the Booking detail page for <existing booking in default state>",
+        "2. Click the 'Modify' action/button in the action bar",
+        "3. Enter <new travel dates> in the Travel_Dates field",
+        "4. Enter <special requests> in the Special_Requests field",
+        "5. Click 'Add' in the Traveler_Updates repeating section and enter <traveler update details> for the new row",
+        "6. Click the 'Save' or 'Submit' button to apply modifications"
       ],
-      "expected_result": "A success notification is displayed stating \"applies changes, charges applicable fees, updates booking and sends modification email\" and the Booking Detail itinerary shows the entered <new travel date> as an updated travel date",
-      "priority": "medium"
-    },
-    {
-      "tc_id": "P-002",
-      "test_case": "Modify booking \u2014 add multiple travel date changes in one modification",
-      "preconditions": [
-        "User logged in as <User>",
-        "Booking exists and is modifiable (booking type permits modification and cancellation policy permits modification)"
-      ],
-      "steps": [
-        "1. Navigate to Booking Detail for <booking>",
-        "2. Click the Modify action in the Booking Detail action bar",
-        "3. Click 'Add Row' in Travel_Date_Changes",
-        "4. Enter <new travel date 1> in New_Date for the first Travel_Date_Changes row",
-        "5. Click 'Add Row' again in Travel_Date_Changes",
-        "6. Enter <new travel date 2> in New_Date for the second Travel_Date_Changes row",
-        "7. Click Save/Submit on the Modify dialog"
-      ],
-      "expected_result": "A success notification is displayed stating \"applies changes, charges applicable fees, updates booking and sends modification email\" and the Booking Detail itinerary shows both entered <new travel date 1> and <new travel date 2> as updated travel dates",
-      "priority": "medium"
-    },
-    {
-      "tc_id": "P-003",
-      "test_case": "Cancel booking \u2014 view refund amount, confirm checkbox, and complete cancellation",
-      "preconditions": [
-        "User logged in as <User>",
-        "Booking exists and is cancellable (cancellation policy permits cancellation)"
-      ],
-      "steps": [
-        "1. Navigate to Booking Detail for <booking>",
-        "2. Click the Cancel action in the Booking Detail action bar",
-        "3. Observe the cancellation confirmation dialog and note the displayed Refund_Amount",
-        "4. Check the Confirm_Cancellation checkbox in the cancellation confirmation dialog",
-        "5. Click Confirm on the cancellation confirmation dialog"
-      ],
-      "expected_result": "The cancellation confirmation dialog showed a Refund_Amount value; after confirming, a success notification is displayed stating \"cancels booking, initiates refund to original payment method, sends cancellation email\" and the Booking Status badge on the Booking Detail page updates to \"Cancelled\"",
+      "expected_result": "Booking detail page shows the updated travel dates and a visible fee line item reflecting applicable fees; a success notification is displayed with text 'applies requested modifications, charges applicable fees as needed, updates booking, and sends modification email notification'",
       "priority": "high"
     },
     {
-      "tc_id": "P-004",
-      "test_case": "Modify booking \u2014 entering a new date shows availability/fees notice on Modify panel",
+      "tc_id": "P-002",
+      "wf_ref": "WF-002",
+      "test_case": "Cancel booking - confirm cancellation and show refund amount",
       "preconditions": [
-        "User logged in as <User>",
-        "Booking exists and is modifiable (booking type permits modification and cancellation policy permits modification)"
+        "User logged in as <Role>",
+        "Booking exists in 'default' state and cancellation policy permits cancellation"
       ],
       "steps": [
-        "1. Navigate to Booking Detail for <booking>",
-        "2. Click the Modify action in the Booking Detail action bar",
-        "3. Click 'Add Row' in Travel_Date_Changes",
-        "4. Enter <new travel date> in New_Date for the new Travel_Date_Changes row"
+        "1. Open the Booking detail page for <existing booking in default state>",
+        "2. Click the 'Cancel' action/button in the action bar",
+        "3. Observe the cancellation confirmation flow displays a Refund_Amount field showing the calculated refund",
+        "4. Click 'Confirm Cancellation' in the confirmation dialog"
       ],
-      "expected_result": "On the Modify panel an inline notice is visible stating \"subject to availability; applicable fees may apply\" next to the Travel_Date_Changes entries",
-      "priority": "low"
+      "expected_result": "Booking detail page shows the booking status badge updated to 'Cancelled'; the cancellation confirmation displayed the Refund_Amount; and a success notification is displayed with text 'processes cancellation, initiates refund to the original payment method, changes booking status to Cancelled, and sends cancellation email notification'",
+      "priority": "high"
     }
   ],
   "summary": {
-    "total": 4,
-    "high_priority": 1,
-    "medium_priority": 2,
-    "low_priority": 1
+    "total": 2,
+    "high_priority": 2,
+    "medium_priority": 0,
+    "low_priority": 0
   }
 }

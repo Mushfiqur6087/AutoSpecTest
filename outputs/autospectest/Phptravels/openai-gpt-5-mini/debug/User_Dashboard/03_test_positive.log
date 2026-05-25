@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-21T22:54:00.272772
+DEBUG SESSION STARTED: 2026-05-25T14:51:20.259252
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[22:54:00] Test-Positive - SYSTEM PROMPT
+[14:51:20] Test-Positive - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Expert UI Test Case Generator. You receive (1) a UI-AST JSON for one specific module and (2) the original functional description for that module.
 
@@ -24,6 +24,10 @@ Your job is to produce ONLY positive/functional UI test cases — tests where va
 <description>
 {Original functional description text for this module}
 </description>
+
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
 
 ---
 
@@ -146,6 +150,13 @@ Because you are testing a module in isolation, establish the required entry stat
 **1. Forms & Wizards (`form`, `wizard`):**
 - Generate ONE happy path per distinct success outcome.
 - *Conditional UI Check:* If a toggle/dropdown reveals new mandatory fields (`visible_when`), generate a separate test for that conditional branch.
+- **Wizard step coverage (CRITICAL):** If a wizard has multiple steps and any step beyond Step 1 contains its own named field group (e.g., "Address Details", "Family Members", "Identifiers"), generate ONE dedicated positive TC per such step. The TC must:
+  - Navigate to that specific step (include the preceding steps as preconditions or brief navigation steps)
+  - Fill the fields described for that step (not just pass through)
+  - Assert the step's content is visible/saved on the detail page after final submission
+  - **Do NOT collapse all wizard steps into one happy-path TC** — if Steps 2, 3, and 4 each have their own named section in the spec, they each need their own TC.
+- **Wizard in-step identifiers/duplicates:** If a wizard step allows adding identifiers, documents, or similar entries that have a uniqueness constraint, include a TC for that wizard step that also verifies the constraint (e.g., attempting to add a duplicate Document Type+Key pair inside the wizard). This is a different code path from adding the same post-creation on the detail page.
+- **Action dialogs:** If a `state_bound_action_bar` action opens a dialog with its own `fields{}` (e.g., Activate requires Activation Date, Reject requires Reason), generate ONE positive TC per such action-dialog — distinct from the state-transition TC. The TC fills the dialog field and completes the action.
 
 **2. State Machines (`state_bound_action_bar`):**
 - For each unique action available in a specific state, generate ONE test performing that action.
@@ -200,6 +211,19 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 
 ---
 
+**WORKFLOW COVERAGE OBLIGATION (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- Your test cases must **collectively cover every workflow** listed.
+- For each `wf_id`, at least one TC must:
+  - Activate the `conditional_branch` (if not null) — i.e. the test must set up the condition described.
+  - Assert the `on_success` as its `expected_result` (verbatim or as the primary basis for the expected result).
+- Add `"wf_ref": "WF-NNN"` to each TC to identify which workflow it covers.
+- If one TC naturally covers multiple workflows (e.g., the base path overlaps), pick the most specific `wf_ref`.
+- If a TC does not map to any workflow (e.g., a navigation-only test), set `"wf_ref": null`.
+
+---
+
 **OUTPUT — JSON only, no prose, no markdown fencing:**
 
 {
@@ -208,6 +232,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
   "test_cases": [
     {
       "tc_id": "P-001",
+      "wf_ref": "WF-001",
       "test_case": "Short descriptive name",
       "preconditions": ["User logged in as <Role>", "<Prerequisite state>"],
       "steps": ["1. Step one", "2. Step two"],
@@ -224,7 +249,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 }
 
 ------------------------------------------------------------
-[22:54:00] Test-Positive - USER PROMPT
+[14:51:20] Test-Positive - USER PROMPT
 ------------------------------------------------------------
 <module_name>User Dashboard</module_name>
 
@@ -234,110 +259,200 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
   "components": {
     "My_Bookings": {
       "type": "data_table",
-      "row_actions": [
-        {
-          "action_name": "View Details"
-        },
-        {
-          "action_name": "Cancel",
-          "preconditions": [
-            "cancellation policy permits",
-            "booking type permits cancellation"
-          ]
-        },
-        {
-          "action_name": "Modify",
-          "preconditions": [
-            "booking type permits modification",
-            "modification policy permits"
-          ]
-        },
-        {
-          "action_name": "Download Confirmation"
-        },
-        {
-          "action_name": "Download Invoice"
-        },
-        {
-          "action_name": "Download Voucher"
+      "description": "Table of user's past and upcoming bookings (interactive row actions are defined in row_state_actions)",
+      "row_state_actions": {
+        "type": "state_bound_action_bar",
+        "states": {
+          "Pending": {
+            "available_actions": [
+              {
+                "action_name": "View Details",
+                "on_success": "navigates to booking detail"
+              },
+              {
+                "action_name": "Cancel",
+                "preconditions": [
+                  "cancellation_policy_allows_cancellation",
+                  "status != Cancelled"
+                ],
+                "on_success": "changes status to Cancelled"
+              },
+              {
+                "action_name": "Modify",
+                "preconditions": [
+                  "booking_type_allows_modification",
+                  "cancellation_policy_allows_modification"
+                ],
+                "on_success": "initiates modification flow"
+              },
+              {
+                "action_name": "Download Confirmation",
+                "on_success": "downloads confirmation document"
+              },
+              {
+                "action_name": "Download Invoice",
+                "on_success": "downloads invoice"
+              },
+              {
+                "action_name": "Download Voucher",
+                "on_success": "downloads voucher"
+              }
+            ]
+          },
+          "Confirmed": {
+            "available_actions": [
+              {
+                "action_name": "View Details",
+                "on_success": "navigates to booking detail"
+              },
+              {
+                "action_name": "Cancel",
+                "preconditions": [
+                  "cancellation_policy_allows_cancellation",
+                  "status != Cancelled"
+                ],
+                "on_success": "changes status to Cancelled"
+              },
+              {
+                "action_name": "Modify",
+                "preconditions": [
+                  "booking_type_allows_modification",
+                  "cancellation_policy_allows_modification"
+                ],
+                "on_success": "initiates modification flow"
+              },
+              {
+                "action_name": "Download Confirmation",
+                "on_success": "downloads confirmation document"
+              },
+              {
+                "action_name": "Download Invoice",
+                "on_success": "downloads invoice"
+              },
+              {
+                "action_name": "Download Voucher",
+                "on_success": "downloads voucher"
+              }
+            ]
+          },
+          "Cancelled": {
+            "available_actions": [
+              {
+                "action_name": "View Details",
+                "on_success": "navigates to booking detail"
+              },
+              {
+                "action_name": "Download Invoice",
+                "on_success": "downloads invoice"
+              },
+              {
+                "action_name": "Download Voucher",
+                "on_success": "downloads voucher"
+              }
+            ]
+          }
         }
-      ]
+      }
     },
     "My_Profile": {
-      "type": "component",
+      "type": "form",
+      "fields": {},
       "actions": [
         {
-          "action_name": "Edit"
+          "element_name": "Edit",
+          "on_success": "enables profile edit mode"
+        }
+      ],
+      "submit_actions": [
+        {
+          "element_name": "Save",
+          "on_success": "updates profile"
+        },
+        {
+          "element_name": "Cancel",
+          "on_success": "cancels profile edit"
         }
       ]
     },
     "Wallet_Credits": {
       "type": "data_table",
-      "description": "transaction history for wallet/credits",
-      "row_actions": [],
-      "bulk_actions": []
+      "description": "Transaction history (available credit balance is a read-only value and not represented here)",
+      "fields": {},
+      "row_actions": []
     },
     "Wishlist": {
-      "type": "list",
-      "fields": {}
+      "type": "data_table",
+      "description": "Saved hotels, tours, or flights",
+      "fields": {},
+      "row_actions": []
     },
     "Reviews": {
+      "type": "data_table",
+      "description": "Listings of completed bookings eligible for review",
+      "fields": {},
+      "row_actions": [
+        {
+          "action_name": "Write Review",
+          "preconditions": [
+            "booking status must be Completed"
+          ],
+          "on_success": "opens Review_Form"
+        }
+      ]
+    },
+    "Review_Form": {
       "type": "form",
       "fields": {
         "Rating": {
-          "type": "number",
-          "visible_when": "booking_status == Completed",
-          "constraints": [
-            "min 1",
-            "max 5"
-          ]
+          "type": "unspecified",
+          "required": true
         },
         "Review_Text": {
           "type": "unspecified",
-          "visible_when": "booking_status == Completed"
+          "required": true
         }
       },
       "submit_actions": [
         {
-          "preconditions": [
-            "booking must be completed"
-          ]
+          "element_name": "Submit Review",
+          "on_success": "saves review"
+        },
+        {
+          "element_name": "Cancel",
+          "on_success": "cancels review entry"
         }
       ]
     },
     "Settings": {
       "type": "form",
       "fields": {
-        "Change_Password": {
-          "type": "form",
-          "fields": {
-            "Old_Password": {
-              "type": "password",
-              "required": true
-            },
-            "New_Password": {
-              "type": "password",
-              "required": true
-            },
-            "Confirm_Password": {
-              "type": "password",
-              "required": true,
-              "constraints": [
-                "must match New_Password"
-              ]
-            }
-          }
+        "Change_Password_Current": {
+          "type": "password",
+          "required": true
+        },
+        "Change_Password_New": {
+          "type": "password",
+          "required": true
         },
         "Notification_Preferences": {
-          "type": "unspecified"
+          "type": "unspecified",
+          "required": false
         },
         "Default_Currency": {
-          "type": "dropdown"
+          "type": "dropdown",
+          "required": false
         },
         "Default_Language": {
-          "type": "dropdown"
+          "type": "dropdown",
+          "required": false
         }
-      }
+      },
+      "submit_actions": [
+        {
+          "element_name": "Save Settings",
+          "on_success": "updates user settings"
+        }
+      ]
     },
     "Logout": {
       "type": "button",
@@ -357,10 +472,36 @@ The dashboard is organized into the following sections. My Bookings displays all
 
 </description>
 
+<workflows>
+WF-001 | My Bookings - Pending - View Details | actor: <role> | branch: entity_state == Pending | terminal: View Details | on_success: navigates to booking detail
+WF-002 | My Bookings - Pending - Cancel | actor: <role> | branch: entity_state == Pending AND cancellation_policy_allows_cancellation AND status != Cancelled | terminal: Cancel | on_success: changes status to Cancelled
+WF-003 | My Bookings - Pending - Modify | actor: <role> | branch: entity_state == Pending AND booking_type_allows_modification AND cancellation_policy_allows_modification | terminal: Modify | on_success: initiates modification flow
+WF-004 | My Bookings - Pending - Download Confirmation | actor: <role> | branch: entity_state == Pending | terminal: Download Confirmation | on_success: downloads confirmation document
+WF-005 | My Bookings - Pending - Download Invoice | actor: <role> | branch: entity_state == Pending | terminal: Download Invoice | on_success: downloads invoice
+WF-006 | My Bookings - Pending - Download Voucher | actor: <role> | branch: entity_state == Pending | terminal: Download Voucher | on_success: downloads voucher
+WF-007 | My Bookings - Confirmed - View Details | actor: <role> | branch: entity_state == Confirmed | terminal: View Details | on_success: navigates to booking detail
+WF-008 | My Bookings - Confirmed - Cancel | actor: <role> | branch: entity_state == Confirmed AND cancellation_policy_allows_cancellation AND status != Cancelled | terminal: Cancel | on_success: changes status to Cancelled
+WF-009 | My Bookings - Confirmed - Modify | actor: <role> | branch: entity_state == Confirmed AND booking_type_allows_modification AND cancellation_policy_allows_modification | terminal: Modify | on_success: initiates modification flow
+WF-010 | My Bookings - Confirmed - Download Confirmation | actor: <role> | branch: entity_state == Confirmed | terminal: Download Confirmation | on_success: downloads confirmation document
+WF-011 | My Bookings - Confirmed - Download Invoice | actor: <role> | branch: entity_state == Confirmed | terminal: Download Invoice | on_success: downloads invoice
+WF-012 | My Bookings - Confirmed - Download Voucher | actor: <role> | branch: entity_state == Confirmed | terminal: Download Voucher | on_success: downloads voucher
+WF-013 | My Bookings - Cancelled - View Details | actor: <role> | branch: entity_state == Cancelled | terminal: View Details | on_success: navigates to booking detail
+WF-014 | My Bookings - Cancelled - Download Invoice | actor: <role> | branch: entity_state == Cancelled | terminal: Download Invoice | on_success: downloads invoice
+WF-015 | My Bookings - Cancelled - Download Voucher | actor: <role> | branch: entity_state == Cancelled | terminal: Download Voucher | on_success: downloads voucher
+WF-016 | My Profile - Edit | actor: <role> | branch: none | terminal: Edit | on_success: enables profile edit mode
+WF-017 | My Profile - Save | actor: <role> | branch: none | terminal: Save | on_success: updates profile
+WF-018 | My Profile - Cancel Edit | actor: <role> | branch: none | terminal: Cancel | on_success: cancels profile edit
+WF-019 | Reviews - Write Review (eligible completed booking) | actor: <role> | branch: booking status must be Completed | terminal: Write Review | on_success: opens Review_Form
+WF-020 | Review Form - Submit Review | actor: <role> | branch: none | terminal: Submit Review | on_success: saves review
+WF-021 | Review Form - Cancel | actor: <role> | branch: none | terminal: Cancel | on_success: cancels review entry
+WF-022 | Settings - Save Settings | actor: <role> | branch: none | terminal: Save Settings | on_success: updates user settings
+WF-023 | Logout - End Session | actor: <role> | branch: none | terminal: Logout | on_success: ends session
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[22:57:18] Test-Positive - LLM RESPONSE
+[14:53:52] Test-Positive - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "User Dashboard",
@@ -368,208 +509,382 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "View booking details from My Bookings",
+      "wf_ref": "WF-001",
+      "test_case": "My Bookings (Pending) - View Details opens booking detail",
       "preconditions": [
-        "User logged in as <User>",
-        "Dashboard is open with at least one booking in My Bookings"
+        "User logged in as <role>",
+        "User is on the User Dashboard",
+        "A booking exists in <Pending> state in My Bookings"
       ],
       "steps": [
-        "1. In the My Bookings table, locate a booking row",
-        "2. Click 'View Details' on that booking row"
+        "1. In the My Bookings table, locate the row for <the Pending booking>",
+        "2. Click the 'View Details' action for that row"
       ],
-      "expected_result": "A booking details panel opens showing the booking reference, service type, travel dates, and current status for that booking",
-      "priority": "medium"
+      "expected_result": "Booking Detail page is displayed for the selected booking (navigates to booking detail)",
+      "priority": "high"
     },
     {
       "tc_id": "P-002",
-      "test_case": "Cancel a cancellable booking from My Bookings",
+      "wf_ref": "WF-002",
+      "test_case": "My Bookings (Pending) - Cancel booking updates status to Cancelled",
       "preconditions": [
-        "User logged in as <User>",
-        "Dashboard is open with a booking in My Bookings for which cancellation policy permits and booking type permits cancellation"
+        "User logged in as <role>",
+        "User is on the User Dashboard",
+        "A booking exists in <Pending> state where <cancellation_policy_allows_cancellation> and status != Cancelled"
       ],
       "steps": [
-        "1. In the My Bookings table, locate the cancellable booking row",
-        "2. Click 'Cancel' on that booking row",
+        "1. In the My Bookings table, locate the row for <the Pending booking that allows cancellation>",
+        "2. Click the 'Cancel' action for that row",
         "3. Click Confirm on the Cancel confirmation dialog"
       ],
-      "expected_result": "The booking row in My Bookings updates its Status column to 'Cancelled'",
+      "expected_result": "The booking row in My Bookings shows a status badge 'Cancelled' (changes status to Cancelled)",
       "priority": "high"
     },
     {
       "tc_id": "P-003",
-      "test_case": "Modify a modifiable booking from My Bookings",
+      "wf_ref": "WF-003",
+      "test_case": "My Bookings (Pending) - Modify initiates modification flow",
       "preconditions": [
-        "User logged in as <User>",
-        "Dashboard is open with a booking in My Bookings where booking type permits modification and modification policy permits"
+        "User logged in as <role>",
+        "User is on the User Dashboard",
+        "A booking exists in <Pending> state where <booking_type_allows_modification> and <cancellation_policy_allows_modification>"
       ],
       "steps": [
-        "1. In the My Bookings table, locate the modifiable booking row",
-        "2. Click 'Modify' on that booking row",
-        "3. In the Modify booking dialog/panel, enter <new travel dates> and other permitted changes",
-        "4. Click Save (or Submit) on the Modify booking dialog/panel"
+        "1. In the My Bookings table, locate the row for <the Pending booking that allows modification>",
+        "2. Click the 'Modify' action for that row"
       ],
-      "expected_result": "The My Bookings row for the booking displays the updated travel dates that were entered",
+      "expected_result": "A modification flow/modal is displayed for the selected booking (initiates modification flow)",
       "priority": "high"
     },
     {
       "tc_id": "P-004",
-      "test_case": "Download booking confirmation from My Bookings",
+      "wf_ref": "WF-004",
+      "test_case": "My Bookings (Pending) - Download Confirmation triggers confirmation download",
       "preconditions": [
-        "User logged in as <User>",
-        "Dashboard is open with at least one booking in My Bookings"
+        "User logged in as <role>",
+        "User is on the User Dashboard",
+        "A booking exists in <Pending> state"
       ],
       "steps": [
-        "1. In the My Bookings table, locate a booking row",
-        "2. Click 'Download Confirmation' for that booking"
+        "1. In the My Bookings table, locate the row for <the Pending booking>",
+        "2. Click 'Download Confirmation' for that row"
       ],
-      "expected_result": "A booking confirmation file download is triggered in the browser for that booking",
-      "priority": "high"
+      "expected_result": "A file download is triggered for the confirmation document (downloads confirmation document)",
+      "priority": "medium"
     },
     {
       "tc_id": "P-005",
-      "test_case": "Download booking invoice from My Bookings",
+      "wf_ref": "WF-005",
+      "test_case": "My Bookings (Pending) - Download Invoice triggers invoice download",
       "preconditions": [
-        "User logged in as <User>",
-        "Dashboard is open with at least one booking in My Bookings that has an invoice available"
+        "User logged in as <role>",
+        "User is on the User Dashboard",
+        "A booking exists in <Pending> state"
       ],
       "steps": [
-        "1. In the My Bookings table, locate the booking row with an invoice",
-        "2. Click 'Download Invoice' for that booking"
+        "1. In the My Bookings table, locate the row for <the Pending booking>",
+        "2. Click 'Download Invoice' for that row"
       ],
-      "expected_result": "An invoice file download is triggered in the browser for that booking",
-      "priority": "high"
+      "expected_result": "A file download is triggered for the invoice (downloads invoice)",
+      "priority": "medium"
     },
     {
       "tc_id": "P-006",
-      "test_case": "Download booking voucher from My Bookings",
+      "wf_ref": "WF-006",
+      "test_case": "My Bookings (Pending) - Download Voucher triggers voucher download",
       "preconditions": [
-        "User logged in as <User>",
-        "Dashboard is open with at least one booking in My Bookings that has a voucher available"
+        "User logged in as <role>",
+        "User is on the User Dashboard",
+        "A booking exists in <Pending> state"
       ],
       "steps": [
-        "1. In the My Bookings table, locate the booking row with a voucher",
-        "2. Click 'Download Voucher' for that booking"
+        "1. In the My Bookings table, locate the row for <the Pending booking>",
+        "2. Click 'Download Voucher' for that row"
       ],
-      "expected_result": "A voucher file download is triggered in the browser for that booking",
-      "priority": "high"
+      "expected_result": "A file download is triggered for the voucher (downloads voucher)",
+      "priority": "medium"
     },
     {
       "tc_id": "P-007",
-      "test_case": "Filter My Bookings to show only matching results",
+      "wf_ref": "WF-007",
+      "test_case": "My Bookings (Confirmed) - View Details opens booking detail",
       "preconditions": [
-        "User logged in as <User>",
-        "Dashboard is open with multiple bookings in My Bookings including at least one matching <filter criterion> and at least one non-matching booking"
+        "User logged in as <role>",
+        "User is on the User Dashboard",
+        "A booking exists in <Confirmed> state in My Bookings"
       ],
       "steps": [
-        "1. Enter <filter criterion> into the My Bookings search or filter control",
-        "2. Apply the filter/search"
+        "1. In the My Bookings table, locate the row for <the Confirmed booking>",
+        "2. Click the 'View Details' action for that row"
       ],
-      "expected_result": "My Bookings displays only rows matching <filter criterion>; unrelated bookings are no longer visible",
-      "priority": "medium"
+      "expected_result": "Booking Detail page is displayed for the selected booking (navigates to booking detail)",
+      "priority": "high"
     },
     {
       "tc_id": "P-008",
-      "test_case": "Edit personal information in My Profile",
+      "wf_ref": "WF-008",
+      "test_case": "My Bookings (Confirmed) - Cancel booking updates status to Cancelled",
       "preconditions": [
-        "User logged in as <User>",
-        "Dashboard is open and My Profile section is visible"
+        "User logged in as <role>",
+        "User is on the User Dashboard",
+        "A booking exists in <Confirmed> state where <cancellation_policy_allows_cancellation> and status != Cancelled"
       ],
       "steps": [
-        "1. In the My Profile section, click 'Edit'",
-        "2. Update one or more personal information fields with valid values (e.g., enter <new contact info>)",
-        "3. Click Save (or Apply) to persist changes"
+        "1. In the My Bookings table, locate the row for <the Confirmed booking that allows cancellation>",
+        "2. Click the 'Cancel' action for that row",
+        "3. Click Confirm on the Cancel confirmation dialog"
       ],
-      "expected_result": "My Profile displays the updated personal information fields with the newly entered values",
-      "priority": "medium"
+      "expected_result": "The booking row in My Bookings shows a status badge 'Cancelled' (changes status to Cancelled)",
+      "priority": "high"
     },
     {
       "tc_id": "P-009",
-      "test_case": "View wallet credit balance and transaction history",
+      "wf_ref": "WF-009",
+      "test_case": "My Bookings (Confirmed) - Modify initiates modification flow",
       "preconditions": [
-        "User logged in as <User>",
-        "Dashboard is open and Wallet/Credits section contains transaction history and an available credit balance"
+        "User logged in as <role>",
+        "User is on the User Dashboard",
+        "A booking exists in <Confirmed> state where <booking_type_allows_modification> and <cancellation_policy_allows_modification>"
       ],
       "steps": [
-        "1. Navigate to the Wallet/Credits section on the Dashboard",
-        "2. Observe the available credit balance and the transaction history table"
+        "1. In the My Bookings table, locate the row for <the Confirmed booking that allows modification>",
+        "2. Click the 'Modify' action for that row"
       ],
-      "expected_result": "Available credit balance displays <available credit> and the transaction history table lists transactions with date, amount, and type",
-      "priority": "medium"
+      "expected_result": "A modification flow/modal is displayed for the selected booking (initiates modification flow)",
+      "priority": "high"
     },
     {
       "tc_id": "P-010",
-      "test_case": "Submit a review and rating for a completed booking",
+      "wf_ref": "WF-010",
+      "test_case": "My Bookings (Confirmed) - Download Confirmation triggers confirmation download",
       "preconditions": [
-        "User logged in as <User>",
-        "Dashboard is open with at least one booking in My Bookings in status 'Completed' and Reviews form available"
+        "User logged in as <role>",
+        "User is on the User Dashboard",
+        "A booking exists in <Confirmed> state"
       ],
       "steps": [
-        "1. Open the Reviews form for a completed booking",
-        "2. Enter a <valid rating> (between 1 and 5) in the Rating field",
-        "3. Enter <review text> in the Review_Text field",
-        "4. Click Submit on the Reviews form"
+        "1. In the My Bookings table, locate the row for <the Confirmed booking>",
+        "2. Click 'Download Confirmation' for that row"
       ],
-      "expected_result": "A success notification is displayed and the submitted review appears in the Reviews list showing the entered Rating and Review_Text",
-      "priority": "high"
+      "expected_result": "A file download is triggered for the confirmation document (downloads confirmation document)",
+      "priority": "medium"
     },
     {
       "tc_id": "P-011",
-      "test_case": "Change password in Settings with matching confirmation",
+      "wf_ref": "WF-011",
+      "test_case": "My Bookings (Confirmed) - Download Invoice triggers invoice download",
       "preconditions": [
-        "User logged in as <User>",
-        "Dashboard is open and Settings > Change Password is accessible",
-        "Tester knows the <Old_Password> for the account"
+        "User logged in as <role>",
+        "User is on the User Dashboard",
+        "A booking exists in <Confirmed> state"
       ],
       "steps": [
-        "1. Open Settings and expand Change Password",
-        "2. Enter <Old_Password> in Old_Password",
-        "3. Enter <New_Password> in New_Password",
-        "4. Enter the same <New_Password> in Confirm_Password",
-        "5. Click Save (or Change Password)"
+        "1. In the My Bookings table, locate the row for <the Confirmed booking>",
+        "2. Click 'Download Invoice' for that row"
       ],
-      "expected_result": "A success notification is displayed and the Change Password form closes (Settings shows no password error), indicating the password change was accepted",
-      "priority": "high"
+      "expected_result": "A file download is triggered for the invoice (downloads invoice)",
+      "priority": "medium"
     },
     {
       "tc_id": "P-012",
-      "test_case": "Update default currency and language in Settings",
+      "wf_ref": "WF-012",
+      "test_case": "My Bookings (Confirmed) - Download Voucher triggers voucher download",
       "preconditions": [
-        "User logged in as <User>",
-        "Dashboard is open and Settings is accessible"
+        "User logged in as <role>",
+        "User is on the User Dashboard",
+        "A booking exists in <Confirmed> state"
       ],
       "steps": [
-        "1. Open Settings",
-        "2. Select <currency choice> from Default_Currency dropdown",
-        "3. Select <language choice> from Default_Language dropdown",
-        "4. Click Save (or Apply) to persist settings"
+        "1. In the My Bookings table, locate the row for <the Confirmed booking>",
+        "2. Click 'Download Voucher' for that row"
       ],
-      "expected_result": "Settings displays Default Currency as <currency choice> and Default Language as <language choice>",
+      "expected_result": "A file download is triggered for the voucher (downloads voucher)",
       "priority": "medium"
     },
     {
       "tc_id": "P-013",
-      "test_case": "Logout ends the session and returns to login",
+      "wf_ref": "WF-013",
+      "test_case": "My Bookings (Cancelled) - View Details opens booking detail",
       "preconditions": [
-        "User logged in as <User>",
-        "Dashboard is open"
+        "User logged in as <role>",
+        "User is on the User Dashboard",
+        "A booking exists in <Cancelled> state in My Bookings"
       ],
       "steps": [
-        "1. Click the Logout button on the Dashboard"
+        "1. In the My Bookings table, locate the row for <the Cancelled booking>",
+        "2. Click the 'View Details' action for that row"
       ],
-      "expected_result": "User is redirected to the login page and the dashboard session is ended",
+      "expected_result": "Booking Detail page is displayed for the selected booking (navigates to booking detail)",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-014",
+      "wf_ref": "WF-014",
+      "test_case": "My Bookings (Cancelled) - Download Invoice triggers invoice download",
+      "preconditions": [
+        "User logged in as <role>",
+        "User is on the User Dashboard",
+        "A booking exists in <Cancelled> state"
+      ],
+      "steps": [
+        "1. In the My Bookings table, locate the row for <the Cancelled booking>",
+        "2. Click 'Download Invoice' for that row"
+      ],
+      "expected_result": "A file download is triggered for the invoice (downloads invoice)",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-015",
+      "wf_ref": "WF-015",
+      "test_case": "My Bookings (Cancelled) - Download Voucher triggers voucher download",
+      "preconditions": [
+        "User logged in as <role>",
+        "User is on the User Dashboard",
+        "A booking exists in <Cancelled> state"
+      ],
+      "steps": [
+        "1. In the My Bookings table, locate the row for <the Cancelled booking>",
+        "2. Click 'Download Voucher' for that row"
+      ],
+      "expected_result": "A file download is triggered for the voucher (downloads voucher)",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-016",
+      "wf_ref": "WF-016",
+      "test_case": "My Profile - Edit enables profile edit mode",
+      "preconditions": [
+        "User logged in as <role>",
+        "User is on the User Dashboard",
+        "My Profile section is visible"
+      ],
+      "steps": [
+        "1. In the My Profile section, click the 'Edit' button"
+      ],
+      "expected_result": "Profile fields become editable and edit controls are visible (enables profile edit mode)",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-017",
+      "wf_ref": "WF-017",
+      "test_case": "My Profile - Save persists changes and exits edit mode",
+      "preconditions": [
+        "User logged in as <role>",
+        "User is on the User Dashboard",
+        "My Profile is in edit mode with editable fields"
+      ],
+      "steps": [
+        "1. Edit one or more profile fields with valid values (e.g., enter <valid value> into an editable field)",
+        "2. Click the 'Save' button in My Profile"
+      ],
+      "expected_result": "Profile displays the updated values and the section exits edit mode (updates profile)",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-018",
+      "wf_ref": "WF-018",
+      "test_case": "My Profile - Cancel edit reverts unsaved changes and exits edit mode",
+      "preconditions": [
+        "User logged in as <role>",
+        "User is on the User Dashboard",
+        "My Profile is in edit mode with unsaved changes"
+      ],
+      "steps": [
+        "1. Make a change to a profile field (enter <temporary value>)",
+        "2. Click the 'Cancel' action in My Profile"
+      ],
+      "expected_result": "Profile exits edit mode and the previously saved values are shown (cancels profile edit)",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-019",
+      "wf_ref": "WF-019",
+      "test_case": "Reviews - Write Review opens the review form for a completed booking",
+      "preconditions": [
+        "User logged in as <role>",
+        "User is on the User Dashboard",
+        "A booking exists in Reviews list with status <Completed>"
+      ],
+      "steps": [
+        "1. In the Reviews table, locate the row for <the Completed booking>",
+        "2. Click 'Write Review' for that row"
+      ],
+      "expected_result": "The Review form is displayed for that booking (opens Review_Form)",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-020",
+      "wf_ref": "WF-020",
+      "test_case": "Review Form - Submit Review saves the review and shows it in list",
+      "preconditions": [
+        "User logged in as <role>",
+        "User is on the User Dashboard",
+        "The Review form is open"
+      ],
+      "steps": [
+        "1. Enter <valid rating> in the Rating field",
+        "2. Enter <valid review text> in the Review_Text field",
+        "3. Click 'Submit Review'"
+      ],
+      "expected_result": "The new review appears in the Reviews list for the booking and any confirmation UI is visible (saves review)",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-021",
+      "wf_ref": "WF-021",
+      "test_case": "Review Form - Cancel closes the review form without saving",
+      "preconditions": [
+        "User logged in as <role>",
+        "User is on the User Dashboard",
+        "The Review form is open with unsaved input"
+      ],
+      "steps": [
+        "1. Click the 'Cancel' action in the Review form"
+      ],
+      "expected_result": "The Review form is closed and no new review appears in the Reviews list (cancels review entry)",
+      "priority": "low"
+    },
+    {
+      "tc_id": "P-022",
+      "wf_ref": "WF-022",
+      "test_case": "Settings - Save Settings persists updated preferences",
+      "preconditions": [
+        "User logged in as <role>",
+        "User is on the User Dashboard",
+        "Settings section is visible"
+      ],
+      "steps": [
+        "1. Change one or more settings (e.g., select <Default_Currency> and <Default_Language> and adjust <Notification_Preferences>)",
+        "2. Click 'Save Settings'"
+      ],
+      "expected_result": "Settings page displays the updated preference values and a visible confirmation that settings were saved (updates user settings)",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-023",
+      "wf_ref": "WF-023",
+      "test_case": "Logout ends the session and returns to login",
+      "preconditions": [
+        "User logged in as <role>",
+        "User is on the User Dashboard"
+      ],
+      "steps": [
+        "1. Click the 'Logout' button in the dashboard"
+      ],
+      "expected_result": "The user is redirected away from the dashboard to the login screen and no dashboard content is accessible (ends session)",
       "priority": "high"
     }
   ],
   "summary": {
-    "total": 13,
-    "high_priority": 8,
-    "medium_priority": 5,
-    "low_priority": 0
+    "total": 23,
+    "high_priority": 7,
+    "medium_priority": 12,
+    "low_priority": 4
   }
 }
 
 ------------------------------------------------------------
-[22:57:18] Test-Positive - PARSED JSON
+[14:53:52] Test-Positive - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "User Dashboard",
@@ -577,202 +892,376 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "View booking details from My Bookings",
+      "wf_ref": "WF-001",
+      "test_case": "My Bookings (Pending) - View Details opens booking detail",
       "preconditions": [
-        "User logged in as <User>",
-        "Dashboard is open with at least one booking in My Bookings"
+        "User logged in as <role>",
+        "User is on the User Dashboard",
+        "A booking exists in <Pending> state in My Bookings"
       ],
       "steps": [
-        "1. In the My Bookings table, locate a booking row",
-        "2. Click 'View Details' on that booking row"
+        "1. In the My Bookings table, locate the row for <the Pending booking>",
+        "2. Click the 'View Details' action for that row"
       ],
-      "expected_result": "A booking details panel opens showing the booking reference, service type, travel dates, and current status for that booking",
-      "priority": "medium"
+      "expected_result": "Booking Detail page is displayed for the selected booking (navigates to booking detail)",
+      "priority": "high"
     },
     {
       "tc_id": "P-002",
-      "test_case": "Cancel a cancellable booking from My Bookings",
+      "wf_ref": "WF-002",
+      "test_case": "My Bookings (Pending) - Cancel booking updates status to Cancelled",
       "preconditions": [
-        "User logged in as <User>",
-        "Dashboard is open with a booking in My Bookings for which cancellation policy permits and booking type permits cancellation"
+        "User logged in as <role>",
+        "User is on the User Dashboard",
+        "A booking exists in <Pending> state where <cancellation_policy_allows_cancellation> and status != Cancelled"
       ],
       "steps": [
-        "1. In the My Bookings table, locate the cancellable booking row",
-        "2. Click 'Cancel' on that booking row",
+        "1. In the My Bookings table, locate the row for <the Pending booking that allows cancellation>",
+        "2. Click the 'Cancel' action for that row",
         "3. Click Confirm on the Cancel confirmation dialog"
       ],
-      "expected_result": "The booking row in My Bookings updates its Status column to 'Cancelled'",
+      "expected_result": "The booking row in My Bookings shows a status badge 'Cancelled' (changes status to Cancelled)",
       "priority": "high"
     },
     {
       "tc_id": "P-003",
-      "test_case": "Modify a modifiable booking from My Bookings",
+      "wf_ref": "WF-003",
+      "test_case": "My Bookings (Pending) - Modify initiates modification flow",
       "preconditions": [
-        "User logged in as <User>",
-        "Dashboard is open with a booking in My Bookings where booking type permits modification and modification policy permits"
+        "User logged in as <role>",
+        "User is on the User Dashboard",
+        "A booking exists in <Pending> state where <booking_type_allows_modification> and <cancellation_policy_allows_modification>"
       ],
       "steps": [
-        "1. In the My Bookings table, locate the modifiable booking row",
-        "2. Click 'Modify' on that booking row",
-        "3. In the Modify booking dialog/panel, enter <new travel dates> and other permitted changes",
-        "4. Click Save (or Submit) on the Modify booking dialog/panel"
+        "1. In the My Bookings table, locate the row for <the Pending booking that allows modification>",
+        "2. Click the 'Modify' action for that row"
       ],
-      "expected_result": "The My Bookings row for the booking displays the updated travel dates that were entered",
+      "expected_result": "A modification flow/modal is displayed for the selected booking (initiates modification flow)",
       "priority": "high"
     },
     {
       "tc_id": "P-004",
-      "test_case": "Download booking confirmation from My Bookings",
+      "wf_ref": "WF-004",
+      "test_case": "My Bookings (Pending) - Download Confirmation triggers confirmation download",
       "preconditions": [
-        "User logged in as <User>",
-        "Dashboard is open with at least one booking in My Bookings"
+        "User logged in as <role>",
+        "User is on the User Dashboard",
+        "A booking exists in <Pending> state"
       ],
       "steps": [
-        "1. In the My Bookings table, locate a booking row",
-        "2. Click 'Download Confirmation' for that booking"
+        "1. In the My Bookings table, locate the row for <the Pending booking>",
+        "2. Click 'Download Confirmation' for that row"
       ],
-      "expected_result": "A booking confirmation file download is triggered in the browser for that booking",
-      "priority": "high"
+      "expected_result": "A file download is triggered for the confirmation document (downloads confirmation document)",
+      "priority": "medium"
     },
     {
       "tc_id": "P-005",
-      "test_case": "Download booking invoice from My Bookings",
+      "wf_ref": "WF-005",
+      "test_case": "My Bookings (Pending) - Download Invoice triggers invoice download",
       "preconditions": [
-        "User logged in as <User>",
-        "Dashboard is open with at least one booking in My Bookings that has an invoice available"
+        "User logged in as <role>",
+        "User is on the User Dashboard",
+        "A booking exists in <Pending> state"
       ],
       "steps": [
-        "1. In the My Bookings table, locate the booking row with an invoice",
-        "2. Click 'Download Invoice' for that booking"
+        "1. In the My Bookings table, locate the row for <the Pending booking>",
+        "2. Click 'Download Invoice' for that row"
       ],
-      "expected_result": "An invoice file download is triggered in the browser for that booking",
-      "priority": "high"
+      "expected_result": "A file download is triggered for the invoice (downloads invoice)",
+      "priority": "medium"
     },
     {
       "tc_id": "P-006",
-      "test_case": "Download booking voucher from My Bookings",
+      "wf_ref": "WF-006",
+      "test_case": "My Bookings (Pending) - Download Voucher triggers voucher download",
       "preconditions": [
-        "User logged in as <User>",
-        "Dashboard is open with at least one booking in My Bookings that has a voucher available"
+        "User logged in as <role>",
+        "User is on the User Dashboard",
+        "A booking exists in <Pending> state"
       ],
       "steps": [
-        "1. In the My Bookings table, locate the booking row with a voucher",
-        "2. Click 'Download Voucher' for that booking"
+        "1. In the My Bookings table, locate the row for <the Pending booking>",
+        "2. Click 'Download Voucher' for that row"
       ],
-      "expected_result": "A voucher file download is triggered in the browser for that booking",
-      "priority": "high"
+      "expected_result": "A file download is triggered for the voucher (downloads voucher)",
+      "priority": "medium"
     },
     {
       "tc_id": "P-007",
-      "test_case": "Filter My Bookings to show only matching results",
+      "wf_ref": "WF-007",
+      "test_case": "My Bookings (Confirmed) - View Details opens booking detail",
       "preconditions": [
-        "User logged in as <User>",
-        "Dashboard is open with multiple bookings in My Bookings including at least one matching <filter criterion> and at least one non-matching booking"
+        "User logged in as <role>",
+        "User is on the User Dashboard",
+        "A booking exists in <Confirmed> state in My Bookings"
       ],
       "steps": [
-        "1. Enter <filter criterion> into the My Bookings search or filter control",
-        "2. Apply the filter/search"
+        "1. In the My Bookings table, locate the row for <the Confirmed booking>",
+        "2. Click the 'View Details' action for that row"
       ],
-      "expected_result": "My Bookings displays only rows matching <filter criterion>; unrelated bookings are no longer visible",
-      "priority": "medium"
+      "expected_result": "Booking Detail page is displayed for the selected booking (navigates to booking detail)",
+      "priority": "high"
     },
     {
       "tc_id": "P-008",
-      "test_case": "Edit personal information in My Profile",
+      "wf_ref": "WF-008",
+      "test_case": "My Bookings (Confirmed) - Cancel booking updates status to Cancelled",
       "preconditions": [
-        "User logged in as <User>",
-        "Dashboard is open and My Profile section is visible"
+        "User logged in as <role>",
+        "User is on the User Dashboard",
+        "A booking exists in <Confirmed> state where <cancellation_policy_allows_cancellation> and status != Cancelled"
       ],
       "steps": [
-        "1. In the My Profile section, click 'Edit'",
-        "2. Update one or more personal information fields with valid values (e.g., enter <new contact info>)",
-        "3. Click Save (or Apply) to persist changes"
+        "1. In the My Bookings table, locate the row for <the Confirmed booking that allows cancellation>",
+        "2. Click the 'Cancel' action for that row",
+        "3. Click Confirm on the Cancel confirmation dialog"
       ],
-      "expected_result": "My Profile displays the updated personal information fields with the newly entered values",
-      "priority": "medium"
+      "expected_result": "The booking row in My Bookings shows a status badge 'Cancelled' (changes status to Cancelled)",
+      "priority": "high"
     },
     {
       "tc_id": "P-009",
-      "test_case": "View wallet credit balance and transaction history",
+      "wf_ref": "WF-009",
+      "test_case": "My Bookings (Confirmed) - Modify initiates modification flow",
       "preconditions": [
-        "User logged in as <User>",
-        "Dashboard is open and Wallet/Credits section contains transaction history and an available credit balance"
+        "User logged in as <role>",
+        "User is on the User Dashboard",
+        "A booking exists in <Confirmed> state where <booking_type_allows_modification> and <cancellation_policy_allows_modification>"
       ],
       "steps": [
-        "1. Navigate to the Wallet/Credits section on the Dashboard",
-        "2. Observe the available credit balance and the transaction history table"
+        "1. In the My Bookings table, locate the row for <the Confirmed booking that allows modification>",
+        "2. Click the 'Modify' action for that row"
       ],
-      "expected_result": "Available credit balance displays <available credit> and the transaction history table lists transactions with date, amount, and type",
-      "priority": "medium"
+      "expected_result": "A modification flow/modal is displayed for the selected booking (initiates modification flow)",
+      "priority": "high"
     },
     {
       "tc_id": "P-010",
-      "test_case": "Submit a review and rating for a completed booking",
+      "wf_ref": "WF-010",
+      "test_case": "My Bookings (Confirmed) - Download Confirmation triggers confirmation download",
       "preconditions": [
-        "User logged in as <User>",
-        "Dashboard is open with at least one booking in My Bookings in status 'Completed' and Reviews form available"
+        "User logged in as <role>",
+        "User is on the User Dashboard",
+        "A booking exists in <Confirmed> state"
       ],
       "steps": [
-        "1. Open the Reviews form for a completed booking",
-        "2. Enter a <valid rating> (between 1 and 5) in the Rating field",
-        "3. Enter <review text> in the Review_Text field",
-        "4. Click Submit on the Reviews form"
+        "1. In the My Bookings table, locate the row for <the Confirmed booking>",
+        "2. Click 'Download Confirmation' for that row"
       ],
-      "expected_result": "A success notification is displayed and the submitted review appears in the Reviews list showing the entered Rating and Review_Text",
-      "priority": "high"
+      "expected_result": "A file download is triggered for the confirmation document (downloads confirmation document)",
+      "priority": "medium"
     },
     {
       "tc_id": "P-011",
-      "test_case": "Change password in Settings with matching confirmation",
+      "wf_ref": "WF-011",
+      "test_case": "My Bookings (Confirmed) - Download Invoice triggers invoice download",
       "preconditions": [
-        "User logged in as <User>",
-        "Dashboard is open and Settings > Change Password is accessible",
-        "Tester knows the <Old_Password> for the account"
+        "User logged in as <role>",
+        "User is on the User Dashboard",
+        "A booking exists in <Confirmed> state"
       ],
       "steps": [
-        "1. Open Settings and expand Change Password",
-        "2. Enter <Old_Password> in Old_Password",
-        "3. Enter <New_Password> in New_Password",
-        "4. Enter the same <New_Password> in Confirm_Password",
-        "5. Click Save (or Change Password)"
+        "1. In the My Bookings table, locate the row for <the Confirmed booking>",
+        "2. Click 'Download Invoice' for that row"
       ],
-      "expected_result": "A success notification is displayed and the Change Password form closes (Settings shows no password error), indicating the password change was accepted",
-      "priority": "high"
+      "expected_result": "A file download is triggered for the invoice (downloads invoice)",
+      "priority": "medium"
     },
     {
       "tc_id": "P-012",
-      "test_case": "Update default currency and language in Settings",
+      "wf_ref": "WF-012",
+      "test_case": "My Bookings (Confirmed) - Download Voucher triggers voucher download",
       "preconditions": [
-        "User logged in as <User>",
-        "Dashboard is open and Settings is accessible"
+        "User logged in as <role>",
+        "User is on the User Dashboard",
+        "A booking exists in <Confirmed> state"
       ],
       "steps": [
-        "1. Open Settings",
-        "2. Select <currency choice> from Default_Currency dropdown",
-        "3. Select <language choice> from Default_Language dropdown",
-        "4. Click Save (or Apply) to persist settings"
+        "1. In the My Bookings table, locate the row for <the Confirmed booking>",
+        "2. Click 'Download Voucher' for that row"
       ],
-      "expected_result": "Settings displays Default Currency as <currency choice> and Default Language as <language choice>",
+      "expected_result": "A file download is triggered for the voucher (downloads voucher)",
       "priority": "medium"
     },
     {
       "tc_id": "P-013",
-      "test_case": "Logout ends the session and returns to login",
+      "wf_ref": "WF-013",
+      "test_case": "My Bookings (Cancelled) - View Details opens booking detail",
       "preconditions": [
-        "User logged in as <User>",
-        "Dashboard is open"
+        "User logged in as <role>",
+        "User is on the User Dashboard",
+        "A booking exists in <Cancelled> state in My Bookings"
       ],
       "steps": [
-        "1. Click the Logout button on the Dashboard"
+        "1. In the My Bookings table, locate the row for <the Cancelled booking>",
+        "2. Click the 'View Details' action for that row"
       ],
-      "expected_result": "User is redirected to the login page and the dashboard session is ended",
+      "expected_result": "Booking Detail page is displayed for the selected booking (navigates to booking detail)",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-014",
+      "wf_ref": "WF-014",
+      "test_case": "My Bookings (Cancelled) - Download Invoice triggers invoice download",
+      "preconditions": [
+        "User logged in as <role>",
+        "User is on the User Dashboard",
+        "A booking exists in <Cancelled> state"
+      ],
+      "steps": [
+        "1. In the My Bookings table, locate the row for <the Cancelled booking>",
+        "2. Click 'Download Invoice' for that row"
+      ],
+      "expected_result": "A file download is triggered for the invoice (downloads invoice)",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-015",
+      "wf_ref": "WF-015",
+      "test_case": "My Bookings (Cancelled) - Download Voucher triggers voucher download",
+      "preconditions": [
+        "User logged in as <role>",
+        "User is on the User Dashboard",
+        "A booking exists in <Cancelled> state"
+      ],
+      "steps": [
+        "1. In the My Bookings table, locate the row for <the Cancelled booking>",
+        "2. Click 'Download Voucher' for that row"
+      ],
+      "expected_result": "A file download is triggered for the voucher (downloads voucher)",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-016",
+      "wf_ref": "WF-016",
+      "test_case": "My Profile - Edit enables profile edit mode",
+      "preconditions": [
+        "User logged in as <role>",
+        "User is on the User Dashboard",
+        "My Profile section is visible"
+      ],
+      "steps": [
+        "1. In the My Profile section, click the 'Edit' button"
+      ],
+      "expected_result": "Profile fields become editable and edit controls are visible (enables profile edit mode)",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-017",
+      "wf_ref": "WF-017",
+      "test_case": "My Profile - Save persists changes and exits edit mode",
+      "preconditions": [
+        "User logged in as <role>",
+        "User is on the User Dashboard",
+        "My Profile is in edit mode with editable fields"
+      ],
+      "steps": [
+        "1. Edit one or more profile fields with valid values (e.g., enter <valid value> into an editable field)",
+        "2. Click the 'Save' button in My Profile"
+      ],
+      "expected_result": "Profile displays the updated values and the section exits edit mode (updates profile)",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-018",
+      "wf_ref": "WF-018",
+      "test_case": "My Profile - Cancel edit reverts unsaved changes and exits edit mode",
+      "preconditions": [
+        "User logged in as <role>",
+        "User is on the User Dashboard",
+        "My Profile is in edit mode with unsaved changes"
+      ],
+      "steps": [
+        "1. Make a change to a profile field (enter <temporary value>)",
+        "2. Click the 'Cancel' action in My Profile"
+      ],
+      "expected_result": "Profile exits edit mode and the previously saved values are shown (cancels profile edit)",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-019",
+      "wf_ref": "WF-019",
+      "test_case": "Reviews - Write Review opens the review form for a completed booking",
+      "preconditions": [
+        "User logged in as <role>",
+        "User is on the User Dashboard",
+        "A booking exists in Reviews list with status <Completed>"
+      ],
+      "steps": [
+        "1. In the Reviews table, locate the row for <the Completed booking>",
+        "2. Click 'Write Review' for that row"
+      ],
+      "expected_result": "The Review form is displayed for that booking (opens Review_Form)",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-020",
+      "wf_ref": "WF-020",
+      "test_case": "Review Form - Submit Review saves the review and shows it in list",
+      "preconditions": [
+        "User logged in as <role>",
+        "User is on the User Dashboard",
+        "The Review form is open"
+      ],
+      "steps": [
+        "1. Enter <valid rating> in the Rating field",
+        "2. Enter <valid review text> in the Review_Text field",
+        "3. Click 'Submit Review'"
+      ],
+      "expected_result": "The new review appears in the Reviews list for the booking and any confirmation UI is visible (saves review)",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-021",
+      "wf_ref": "WF-021",
+      "test_case": "Review Form - Cancel closes the review form without saving",
+      "preconditions": [
+        "User logged in as <role>",
+        "User is on the User Dashboard",
+        "The Review form is open with unsaved input"
+      ],
+      "steps": [
+        "1. Click the 'Cancel' action in the Review form"
+      ],
+      "expected_result": "The Review form is closed and no new review appears in the Reviews list (cancels review entry)",
+      "priority": "low"
+    },
+    {
+      "tc_id": "P-022",
+      "wf_ref": "WF-022",
+      "test_case": "Settings - Save Settings persists updated preferences",
+      "preconditions": [
+        "User logged in as <role>",
+        "User is on the User Dashboard",
+        "Settings section is visible"
+      ],
+      "steps": [
+        "1. Change one or more settings (e.g., select <Default_Currency> and <Default_Language> and adjust <Notification_Preferences>)",
+        "2. Click 'Save Settings'"
+      ],
+      "expected_result": "Settings page displays the updated preference values and a visible confirmation that settings were saved (updates user settings)",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-023",
+      "wf_ref": "WF-023",
+      "test_case": "Logout ends the session and returns to login",
+      "preconditions": [
+        "User logged in as <role>",
+        "User is on the User Dashboard"
+      ],
+      "steps": [
+        "1. Click the 'Logout' button in the dashboard"
+      ],
+      "expected_result": "The user is redirected away from the dashboard to the login screen and no dashboard content is accessible (ends session)",
       "priority": "high"
     }
   ],
   "summary": {
-    "total": 13,
-    "high_priority": 8,
-    "medium_priority": 5,
-    "low_priority": 0
+    "total": 23,
+    "high_priority": 7,
+    "medium_priority": 12,
+    "low_priority": 4
   }
 }

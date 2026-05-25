@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-21T22:50:10.001752
+DEBUG SESSION STARTED: 2026-05-25T14:45:09.064026
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[22:50:34] Semantic Critic - SYSTEM PROMPT
+[14:45:21] Semantic Critic - SYSTEM PROMPT
 ------------------------------------------------------------
 You are a UI-AST Semantic Critic. You receive (1) a raw functional description and (2) a generated UI-AST JSON.
 
@@ -106,7 +106,7 @@ Output ONLY the JSON object. No explanation, no markdown fencing, no preamble.
 
 
 ------------------------------------------------------------
-[22:50:34] Semantic Critic - USER PROMPT
+[14:45:21] Semantic Critic - USER PROMPT
 ------------------------------------------------------------
 <description>
 
@@ -132,24 +132,12 @@ The page presents an Email field and a Reset Password button. If the email exist
       "submit_actions": [
         {
           "element_name": "Reset Password",
-          "type": "button",
-          "on_success": "sends reset link to provided email and shows confirmation message",
+          "on_success": "sends reset link to that address and shows confirmation message",
           "constraints": [
             "reset link expires after 24 hours"
           ],
-          "on_failure": "shows error 'email not found' and leaves form editable"
+          "on_failure": "shows error and form remains editable"
         }
-      ]
-    },
-    "Password_Reset_Link": {
-      "type": "link",
-      "element_name": "Password Reset Link",
-      "preconditions": [
-        "link must be valid (not expired)"
-      ],
-      "on_success": "navigates to Password_Reset_Page",
-      "constraints": [
-        "expires after 24 hours"
       ]
     },
     "Password_Reset_Page": {
@@ -170,12 +158,15 @@ The page presents an Email field and a Reset Password button. If the email exist
       "submit_actions": [
         {
           "element_name": "Change Password",
-          "type": "button",
           "preconditions": [
-            "reset link must be valid (not expired)"
+            "reset link must be valid",
+            "reset link must not be expired"
           ],
-          "on_success": "changes password and redirects to login page with success message",
-          "on_failure": "shows error and allows retry"
+          "constraints": [
+            "reset link expires after 24 hours"
+          ],
+          "on_success": "updates password and redirects to login page with success message",
+          "on_failure": "shows error and keeps password fields editable"
         }
       ]
     }
@@ -186,23 +177,33 @@ The page presents an Email field and a Reset Password button. If the email exist
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[22:51:17] Semantic Critic - LLM RESPONSE
+[14:46:04] Semantic Critic - LLM RESPONSE
 ------------------------------------------------------------
 {
   "verdict": "yes",
-  "summary": "The AST correctly captures the email field and Reset Password button, the success/failure behaviors, the reset link (with expiry), and the password reset page with new/confirm password fields and submit action.",
-  "missing": [],
-  "phantoms": [],
+  "summary": "AST correctly models the forgot-password flow (email field + reset action, reset-link expiry, reset page with new/confirm password and success/failure outcomes); missing only an explicit reset-link element and contains two minor inferred items.",
+  "missing": [
+    "components.Reset_Link (explicit link element or navigation action representing the emailed reset link that the user clicks to reach Password_Reset_Page)"
+  ],
+  "phantoms": [
+    "components.Password_Reset_Page.fields.Confirm_Password.constraints[0] (\"must match New_Password\" is inferred but not explicitly stated)",
+    "components.Password_Reset_Page.submit_actions[0].element_name (\"Change Password\" button label is not explicitly named in the description)"
+  ],
   "fixes": []
 }
 
 ------------------------------------------------------------
-[22:51:17] Semantic Critic - PARSED JSON
+[14:46:04] Semantic Critic - PARSED JSON
 ------------------------------------------------------------
 {
   "verdict": "yes",
-  "summary": "The AST correctly captures the email field and Reset Password button, the success/failure behaviors, the reset link (with expiry), and the password reset page with new/confirm password fields and submit action.",
-  "missing": [],
-  "phantoms": [],
+  "summary": "AST correctly models the forgot-password flow (email field + reset action, reset-link expiry, reset page with new/confirm password and success/failure outcomes); missing only an explicit reset-link element and contains two minor inferred items.",
+  "missing": [
+    "components.Reset_Link (explicit link element or navigation action representing the emailed reset link that the user clicks to reach Password_Reset_Page)"
+  ],
+  "phantoms": [
+    "components.Password_Reset_Page.fields.Confirm_Password.constraints[0] (\"must match New_Password\" is inferred but not explicitly stated)",
+    "components.Password_Reset_Page.submit_actions[0].element_name (\"Change Password\" button label is not explicitly named in the description)"
+  ],
   "fixes": []
 }

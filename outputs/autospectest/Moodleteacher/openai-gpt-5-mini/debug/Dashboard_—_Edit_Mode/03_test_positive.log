@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-22T21:47:19.034729
+DEBUG SESSION STARTED: 2026-05-25T15:28:46.000400
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[21:47:19] Test-Positive - SYSTEM PROMPT
+[15:28:46] Test-Positive - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Expert UI Test Case Generator. You receive (1) a UI-AST JSON for one specific module and (2) the original functional description for that module.
 
@@ -24,6 +24,10 @@ Your job is to produce ONLY positive/functional UI test cases — tests where va
 <description>
 {Original functional description text for this module}
 </description>
+
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
 
 ---
 
@@ -146,6 +150,13 @@ Because you are testing a module in isolation, establish the required entry stat
 **1. Forms & Wizards (`form`, `wizard`):**
 - Generate ONE happy path per distinct success outcome.
 - *Conditional UI Check:* If a toggle/dropdown reveals new mandatory fields (`visible_when`), generate a separate test for that conditional branch.
+- **Wizard step coverage (CRITICAL):** If a wizard has multiple steps and any step beyond Step 1 contains its own named field group (e.g., "Address Details", "Family Members", "Identifiers"), generate ONE dedicated positive TC per such step. The TC must:
+  - Navigate to that specific step (include the preceding steps as preconditions or brief navigation steps)
+  - Fill the fields described for that step (not just pass through)
+  - Assert the step's content is visible/saved on the detail page after final submission
+  - **Do NOT collapse all wizard steps into one happy-path TC** — if Steps 2, 3, and 4 each have their own named section in the spec, they each need their own TC.
+- **Wizard in-step identifiers/duplicates:** If a wizard step allows adding identifiers, documents, or similar entries that have a uniqueness constraint, include a TC for that wizard step that also verifies the constraint (e.g., attempting to add a duplicate Document Type+Key pair inside the wizard). This is a different code path from adding the same post-creation on the detail page.
+- **Action dialogs:** If a `state_bound_action_bar` action opens a dialog with its own `fields{}` (e.g., Activate requires Activation Date, Reject requires Reason), generate ONE positive TC per such action-dialog — distinct from the state-transition TC. The TC fills the dialog field and completes the action.
 
 **2. State Machines (`state_bound_action_bar`):**
 - For each unique action available in a specific state, generate ONE test performing that action.
@@ -200,6 +211,19 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 
 ---
 
+**WORKFLOW COVERAGE OBLIGATION (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- Your test cases must **collectively cover every workflow** listed.
+- For each `wf_id`, at least one TC must:
+  - Activate the `conditional_branch` (if not null) — i.e. the test must set up the condition described.
+  - Assert the `on_success` as its `expected_result` (verbatim or as the primary basis for the expected result).
+- Add `"wf_ref": "WF-NNN"` to each TC to identify which workflow it covers.
+- If one TC naturally covers multiple workflows (e.g., the base path overlaps), pick the most specific `wf_ref`.
+- If a TC does not map to any workflow (e.g., a navigation-only test), set `"wf_ref": null`.
+
+---
+
 **OUTPUT — JSON only, no prose, no markdown fencing:**
 
 {
@@ -208,6 +232,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
   "test_cases": [
     {
       "tc_id": "P-001",
+      "wf_ref": "WF-001",
       "test_case": "Short descriptive name",
       "preconditions": ["User logged in as <Role>", "<Prerequisite state>"],
       "steps": ["1. Step one", "2. Step two"],
@@ -224,109 +249,96 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 }
 
 ------------------------------------------------------------
-[21:47:19] Test-Positive - USER PROMPT
+[15:28:46] Test-Positive - USER PROMPT
 ------------------------------------------------------------
 <module_name>Dashboard — Edit Mode</module_name>
 
 <ast>
 {
-  "module_name": "Dashboard \u2014 Edit Mode",
+  "module_name": "Dashboard - Edit Mode",
   "components": {
     "Edit_Mode_Toggle": {
       "type": "checkbox",
-      "element_name": "Edit mode",
+      "element_name": "Edit Mode",
       "required": false
     },
-    "Reset_Page_to_Default_Button": {
+    "Reset_Page_To_Default_Button": {
       "type": "button",
       "element_name": "Reset page to default",
-      "visible_when": "Edit mode == on",
-      "preconditions": [
-        "Edit mode == on"
-      ],
-      "on_success": "reverts layout to default for current user"
+      "visible_when": "Edit_Mode == true",
+      "on_trigger": "reverts layout to default for user",
+      "on_success": "reverts layout to default for user"
     },
-    "Add_a_block_Button": {
+    "Add_Block_Button": {
       "type": "button",
       "element_name": "+ Add a block",
-      "visible_when": "Edit mode == on",
-      "preconditions": [
-        "Edit mode == on"
-      ],
-      "on_click": "navigates to Add_a_block_Page"
+      "visible_when": "Edit_Mode == true",
+      "on_trigger": "opens Add_Block_Page"
     },
-    "Add_a_block_Page": {
-      "type": "data_table",
-      "element_name": "Add a block",
-      "rows": [
-        "Comments",
-        "Course overview",
-        "Latest announcements",
-        "Latest badges",
-        "Learning plans",
-        "Logged in user",
-        "Mentees",
-        "Online users",
-        "Private files",
-        "Random glossary entry",
-        "Recently accessed courses",
-        "Starred courses",
-        "Tags",
-        "Text",
-        "Upcoming events"
-      ],
-      "row_actions": [
-        {
-          "action_name": "Add",
-          "on_success": "adds block of the selected type to the dashboard and persists layout changes per user",
-          "preconditions": [
-            "Edit mode == on"
-          ]
-        }
-      ],
-      "links": [
-        {
-          "element_name": "Cancel",
+    "Add_Block_Page": {
+      "type": "form",
+      "visible_when": "Edit_Mode == true",
+      "fields": {
+        "Block_Type": {
+          "type": "dropdown",
+          "required": true,
+          "options": [
+            "Comments",
+            "Course overview",
+            "Latest announcements",
+            "Latest badges",
+            "Learning plans",
+            "Logged in user",
+            "Mentees",
+            "Online users",
+            "Private files",
+            "Random glossary entry",
+            "Recently accessed courses",
+            "Starred courses",
+            "Tags",
+            "Text",
+            "Upcoming events"
+          ],
+          "on_select": "adds selected block to user's layout and persists layout; closes Add_Block_Page",
+          "on_success": "adds selected block to user's layout and persists layout; closes Add_Block_Page"
+        },
+        "Cancel": {
           "type": "link",
-          "on_click": "navigates back to Dashboard without adding a block"
+          "element_name": "Cancel",
+          "on_trigger": "closes Add_Block_Page without adding a block"
         }
-      ]
+      }
     },
-    "Dashboard_Blocks": {
+    "Blocks_Layout": {
       "type": "repeating_group",
       "item_fields": {
         "Move_Handle": {
           "type": "button",
-          "element_name": "move handle (drag)",
-          "visible_when": "Edit mode == on",
-          "preconditions": [
-            "Edit mode == on"
-          ],
-          "actions": [
-            {
-              "action_name": "Drag_Move",
-              "on_success": "persists layout changes per user"
-            }
-          ]
+          "element_name": "Move icon",
+          "visible_when": "Edit_Mode == true",
+          "on_trigger": "initiates drag-and-drop reorder for this block",
+          "on_success": "persists layout per user"
         },
         "Options_Menu": {
-          "type": "unspecified",
-          "visible_when": "Edit mode == on",
-          "preconditions": [
-            "Edit mode == on"
-          ],
-          "actions": [
+          "type": "menu",
+          "visible_when": "Edit_Mode == true",
+          "item_actions": [
             {
               "action_name": "Configure",
-              "on_success": "opens configuration UI for the block"
+              "action_type": "link",
+              "on_trigger": "opens configuration UI for this block"
             },
             {
               "action_name": "Move",
-              "on_success": "persists layout changes per user"
+              "action_type": "button",
+              "on_trigger": "initiates move operation for this block (alternative to drag handle)",
+              "on_success": "persists layout per user"
             },
             {
               "action_name": "Delete",
-              "on_success": "removes block from dashboard and persists layout changes per user"
+              "action_type": "button",
+              "on_trigger": "removes this block from user's layout",
+              "on_success": "persists layout per user"
             }
           ]
         }
@@ -345,10 +357,37 @@ When Edit mode is toggled on, a "Reset page to default" button appears at the to
 
 </description>
 
+<workflows>
+WF-001 | Enable Edit Mode | actor: <role> | branch: none | terminal: Edit Mode | on_success: Edit mode enabled; edit controls (Reset, + Add a block, move icons, options menus) become visible
+WF-002 | Disable Edit Mode | actor: <role> | branch: none | terminal: Edit Mode | on_success: Edit mode disabled; edit controls hidden
+WF-003 | Reset page to default (while in Edit Mode) | actor: <role> | branch: Edit_Mode == true | terminal: Reset page to default | on_success: reverts layout to default for user
+WF-004 | Open Add a block page (while in Edit Mode) | actor: <role> | branch: Edit_Mode == true | terminal: + Add a block | on_success: opens Add_Block_Page
+WF-005 | Add 'Comments' block (while in Edit Mode) | actor: <role> | branch: Edit_Mode == true AND Block_Type == Comments | terminal: Comments | on_success: adds selected block to user's layout and persists layout; closes Add_Block_Page
+WF-006 | Add 'Course overview' block (while in Edit Mode) | actor: <role> | branch: Edit_Mode == true AND Block_Type == Course overview | terminal: Course overview | on_success: adds selected block to user's layout and persists layout; closes Add_Block_Page
+WF-007 | Add 'Latest announcements' block (while in Edit Mode) | actor: <role> | branch: Edit_Mode == true AND Block_Type == Latest announcements | terminal: Latest announcements | on_success: adds selected block to user's layout and persists layout; closes Add_Block_Page
+WF-008 | Add 'Latest badges' block (while in Edit Mode) | actor: <role> | branch: Edit_Mode == true AND Block_Type == Latest badges | terminal: Latest badges | on_success: adds selected block to user's layout and persists layout; closes Add_Block_Page
+WF-009 | Add 'Learning plans' block (while in Edit Mode) | actor: <role> | branch: Edit_Mode == true AND Block_Type == Learning plans | terminal: Learning plans | on_success: adds selected block to user's layout and persists layout; closes Add_Block_Page
+WF-010 | Add 'Logged in user' block (while in Edit Mode) | actor: <role> | branch: Edit_Mode == true AND Block_Type == Logged in user | terminal: Logged in user | on_success: adds selected block to user's layout and persists layout; closes Add_Block_Page
+WF-011 | Add 'Mentees' block (while in Edit Mode) | actor: <role> | branch: Edit_Mode == true AND Block_Type == Mentees | terminal: Mentees | on_success: adds selected block to user's layout and persists layout; closes Add_Block_Page
+WF-012 | Add 'Online users' block (while in Edit Mode) | actor: <role> | branch: Edit_Mode == true AND Block_Type == Online users | terminal: Online users | on_success: adds selected block to user's layout and persists layout; closes Add_Block_Page
+WF-013 | Add 'Private files' block (while in Edit Mode) | actor: <role> | branch: Edit_Mode == true AND Block_Type == Private files | terminal: Private files | on_success: adds selected block to user's layout and persists layout; closes Add_Block_Page
+WF-014 | Add 'Random glossary entry' block (while in Edit Mode) | actor: <role> | branch: Edit_Mode == true AND Block_Type == Random glossary entry | terminal: Random glossary entry | on_success: adds selected block to user's layout and persists layout; closes Add_Block_Page
+WF-015 | Add 'Recently accessed courses' block (while in Edit Mode) | actor: <role> | branch: Edit_Mode == true AND Block_Type == Recently accessed courses | terminal: Recently accessed courses | on_success: adds selected block to user's layout and persists layout; closes Add_Block_Page
+WF-016 | Add 'Starred courses' block (while in Edit Mode) | actor: <role> | branch: Edit_Mode == true AND Block_Type == Starred courses | terminal: Starred courses | on_success: adds selected block to user's layout and persists layout; closes Add_Block_Page
+WF-017 | Add 'Tags' block (while in Edit Mode) | actor: <role> | branch: Edit_Mode == true AND Block_Type == Tags | terminal: Tags | on_success: adds selected block to user's layout and persists layout; closes Add_Block_Page
+WF-018 | Add 'Text' block (while in Edit Mode) | actor: <role> | branch: Edit_Mode == true AND Block_Type == Text | terminal: Text | on_success: adds selected block to user's layout and persists layout; closes Add_Block_Page
+WF-019 | Add 'Upcoming events' block (while in Edit Mode) | actor: <role> | branch: Edit_Mode == true AND Block_Type == Upcoming events | terminal: Upcoming events | on_success: adds selected block to user's layout and persists layout; closes Add_Block_Page
+WF-020 | Cancel Add a block (while in Edit Mode) | actor: <role> | branch: Edit_Mode == true | terminal: Cancel | on_success: closes Add_Block_Page without adding a block
+WF-021 | Initiate drag-and-drop to move a block (while in Edit Mode) | actor: <role> | branch: Edit_Mode == true | terminal: Move icon | on_success: persists layout per user
+WF-022 | Open Configure for a block (while in Edit Mode) | actor: <role> | branch: Edit_Mode == true | terminal: Configure | on_success: opens configuration UI for this block
+WF-023 | Move a block via Options menu (while in Edit Mode) | actor: <role> | branch: Edit_Mode == true | terminal: Move | on_success: persists layout per user
+WF-024 | Delete a block via Options menu (while in Edit Mode) | actor: <role> | branch: Edit_Mode == true | terminal: Delete | on_success: persists layout per user
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[21:48:06] Test-Positive - LLM RESPONSE
+[15:29:52] Test-Positive - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Dashboard — Edit Mode",
@@ -356,166 +395,401 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Enable Edit mode shows edit controls",
+      "wf_ref": "WF-001",
+      "test_case": "Enable Edit Mode and verify edit controls appear",
       "preconditions": [
-        "User logged in as <User>",
-        "Dashboard is open"
+        "User logged in as <role>",
+        "Dashboard is open",
+        "Edit Mode is disabled"
       ],
       "steps": [
-        "1. Check the Edit mode checkbox"
+        "1. Click the Edit Mode checkbox to enable Edit Mode"
       ],
-      "expected_result": "The 'Reset page to default' button is visible in the top-right, the '+ Add a block' button is visible below the Dashboard heading, and each dashboard block shows a move handle and an options menu.",
+      "expected_result": "Edit mode enabled; edit controls (Reset, + Add a block, move icons, options menus) become visible",
       "priority": "high"
     },
     {
       "tc_id": "P-002",
-      "test_case": "Disable Edit mode hides edit controls",
+      "wf_ref": "WF-002",
+      "test_case": "Disable Edit Mode and verify edit controls are hidden",
       "preconditions": [
-        "User logged in as <User>",
-        "Dashboard is open"
+        "User logged in as <role>",
+        "Dashboard is open",
+        "Edit Mode is enabled"
       ],
       "steps": [
-        "1. Check the Edit mode checkbox to enable Edit mode",
-        "2. Uncheck the Edit mode checkbox to disable Edit mode"
+        "1. Click the Edit Mode checkbox to disable Edit Mode"
       ],
-      "expected_result": "The 'Reset page to default' button and the '+ Add a block' button are no longer visible, and move handles and options menus are not visible on dashboard blocks.",
+      "expected_result": "Edit mode disabled; edit controls hidden",
       "priority": "medium"
     },
     {
       "tc_id": "P-003",
-      "test_case": "Open Add a block page from + Add a block button",
+      "wf_ref": "WF-003",
+      "test_case": "Reset page to default while in Edit Mode",
       "preconditions": [
-        "User logged in as <User>",
+        "User logged in as <role>",
         "Dashboard is open",
-        "Edit mode == on"
-      ],
-      "steps": [
-        "1. Click the '+ Add a block' button"
-      ],
-      "expected_result": "The 'Add a block' page is displayed listing: Comments, Course overview, Latest announcements, Latest badges, Learning plans, Logged in user, Mentees, Online users, Private files, Random glossary entry, Recently accessed courses, Starred courses, Tags, Text, and Upcoming events.",
-      "priority": "high"
-    },
-    {
-      "tc_id": "P-004",
-      "test_case": "Add a 'Text' block via Add action",
-      "preconditions": [
-        "User logged in as <User>",
-        "Dashboard is open",
-        "Edit mode == on"
-      ],
-      "steps": [
-        "1. Click the '+ Add a block' button",
-        "2. On the Add a block page, click Add next to 'Text'"
-      ],
-      "expected_result": "A 'Text' block appears on the Dashboard in the current layout.",
-      "priority": "high"
-    },
-    {
-      "tc_id": "P-005",
-      "test_case": "Cancel from Add a block returns to Dashboard without adding",
-      "preconditions": [
-        "User logged in as <User>",
-        "Dashboard is open",
-        "Edit mode == on"
-      ],
-      "steps": [
-        "1. Click the '+ Add a block' button",
-        "2. Click the Cancel link on the Add a block page"
-      ],
-      "expected_result": "The Add a block page closes and the Dashboard is displayed with no new block added.",
-      "priority": "medium"
-    },
-    {
-      "tc_id": "P-006",
-      "test_case": "Reset page to default reverts a customized layout",
-      "preconditions": [
-        "User logged in as <User>",
-        "Dashboard is open",
-        "Edit mode == on",
+        "Edit Mode is enabled",
         "Dashboard has a user-customized layout"
       ],
       "steps": [
         "1. Click the 'Reset page to default' button"
       ],
-      "expected_result": "reverts layout to default for current user",
+      "expected_result": "reverts layout to default for user",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-004",
+      "wf_ref": "WF-004",
+      "test_case": "Open Add a block page from Edit Mode",
+      "preconditions": [
+        "User logged in as <role>",
+        "Dashboard is open",
+        "Edit Mode is enabled"
+      ],
+      "steps": [
+        "1. Click the '+ Add a block' button"
+      ],
+      "expected_result": "opens Add_Block_Page",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-005",
+      "wf_ref": "WF-005",
+      "test_case": "Add 'Comments' block while in Edit Mode",
+      "preconditions": [
+        "User logged in as <role>",
+        "Dashboard is open",
+        "Edit Mode is enabled"
+      ],
+      "steps": [
+        "1. Click the '+ Add a block' button",
+        "2. Select 'Comments' from the Block Type dropdown"
+      ],
+      "expected_result": "adds selected block to user's layout and persists layout; closes Add_Block_Page",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-006",
+      "wf_ref": "WF-006",
+      "test_case": "Add 'Course overview' block while in Edit Mode",
+      "preconditions": [
+        "User logged in as <role>",
+        "Dashboard is open",
+        "Edit Mode is enabled"
+      ],
+      "steps": [
+        "1. Click the '+ Add a block' button",
+        "2. Select 'Course overview' from the Block Type dropdown"
+      ],
+      "expected_result": "adds selected block to user's layout and persists layout; closes Add_Block_Page",
       "priority": "high"
     },
     {
       "tc_id": "P-007",
-      "test_case": "Reorder a block by dragging its move handle",
+      "wf_ref": "WF-007",
+      "test_case": "Add 'Latest announcements' block while in Edit Mode",
       "preconditions": [
-        "User logged in as <User>",
+        "User logged in as <role>",
         "Dashboard is open",
-        "Edit mode == on",
-        "There are multiple blocks on the Dashboard"
+        "Edit Mode is enabled"
       ],
       "steps": [
-        "1. Drag the move handle of <target block> to a new position within the Dashboard"
+        "1. Click the '+ Add a block' button",
+        "2. Select 'Latest announcements' from the Block Type dropdown"
       ],
-      "expected_result": "<target block> is displayed in the new position in the Dashboard.",
-      "priority": "medium"
+      "expected_result": "adds selected block to user's layout and persists layout; closes Add_Block_Page",
+      "priority": "high"
     },
     {
       "tc_id": "P-008",
-      "test_case": "Open Configure from a block's options menu",
+      "wf_ref": "WF-008",
+      "test_case": "Add 'Latest badges' block while in Edit Mode",
       "preconditions": [
-        "User logged in as <User>",
+        "User logged in as <role>",
         "Dashboard is open",
-        "Edit mode == on",
-        "There is a <target block> on the Dashboard"
+        "Edit Mode is enabled"
       ],
       "steps": [
-        "1. Click the options menu on <target block>",
-        "2. Click Configure in the options menu"
+        "1. Click the '+ Add a block' button",
+        "2. Select 'Latest badges' from the Block Type dropdown"
       ],
-      "expected_result": "The configuration UI for <target block> is displayed.",
-      "priority": "medium"
+      "expected_result": "adds selected block to user's layout and persists layout; closes Add_Block_Page",
+      "priority": "high"
     },
     {
       "tc_id": "P-009",
-      "test_case": "Delete a block via the options menu",
+      "wf_ref": "WF-009",
+      "test_case": "Add 'Learning plans' block while in Edit Mode",
       "preconditions": [
-        "User logged in as <User>",
+        "User logged in as <role>",
         "Dashboard is open",
-        "Edit mode == on",
-        "There is a <target block> on the Dashboard"
+        "Edit Mode is enabled"
       ],
       "steps": [
-        "1. Click the options menu on <target block>",
-        "2. Click Delete in the options menu",
-        "3. Click Confirm on the Delete dialog"
+        "1. Click the '+ Add a block' button",
+        "2. Select 'Learning plans' from the Block Type dropdown"
       ],
-      "expected_result": "<target block> is no longer present on the Dashboard.",
+      "expected_result": "adds selected block to user's layout and persists layout; closes Add_Block_Page",
       "priority": "high"
     },
     {
       "tc_id": "P-010",
-      "test_case": "Move a block using the options menu Move action",
+      "wf_ref": "WF-010",
+      "test_case": "Add 'Logged in user' block while in Edit Mode",
       "preconditions": [
-        "User logged in as <User>",
+        "User logged in as <role>",
         "Dashboard is open",
-        "Edit mode == on",
-        "There are multiple blocks on the Dashboard"
+        "Edit Mode is enabled"
       ],
       "steps": [
-        "1. Click the options menu on <target block>",
-        "2. Click Move in the options menu",
-        "3. Use the Move UI to place <target block> in the desired new position and apply the change"
+        "1. Click the '+ Add a block' button",
+        "2. Select 'Logged in user' from the Block Type dropdown"
       ],
-      "expected_result": "<target block> is displayed in the selected new position in the Dashboard.",
+      "expected_result": "adds selected block to user's layout and persists layout; closes Add_Block_Page",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-011",
+      "wf_ref": "WF-011",
+      "test_case": "Add 'Mentees' block while in Edit Mode",
+      "preconditions": [
+        "User logged in as <role>",
+        "Dashboard is open",
+        "Edit Mode is enabled"
+      ],
+      "steps": [
+        "1. Click the '+ Add a block' button",
+        "2. Select 'Mentees' from the Block Type dropdown"
+      ],
+      "expected_result": "adds selected block to user's layout and persists layout; closes Add_Block_Page",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-012",
+      "wf_ref": "WF-012",
+      "test_case": "Add 'Online users' block while in Edit Mode",
+      "preconditions": [
+        "User logged in as <role>",
+        "Dashboard is open",
+        "Edit Mode is enabled"
+      ],
+      "steps": [
+        "1. Click the '+ Add a block' button",
+        "2. Select 'Online users' from the Block Type dropdown"
+      ],
+      "expected_result": "adds selected block to user's layout and persists layout; closes Add_Block_Page",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-013",
+      "wf_ref": "WF-013",
+      "test_case": "Add 'Private files' block while in Edit Mode",
+      "preconditions": [
+        "User logged in as <role>",
+        "Dashboard is open",
+        "Edit Mode is enabled"
+      ],
+      "steps": [
+        "1. Click the '+ Add a block' button",
+        "2. Select 'Private files' from the Block Type dropdown"
+      ],
+      "expected_result": "adds selected block to user's layout and persists layout; closes Add_Block_Page",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-014",
+      "wf_ref": "WF-014",
+      "test_case": "Add 'Random glossary entry' block while in Edit Mode",
+      "preconditions": [
+        "User logged in as <role>",
+        "Dashboard is open",
+        "Edit Mode is enabled"
+      ],
+      "steps": [
+        "1. Click the '+ Add a block' button",
+        "2. Select 'Random glossary entry' from the Block Type dropdown"
+      ],
+      "expected_result": "adds selected block to user's layout and persists layout; closes Add_Block_Page",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-015",
+      "wf_ref": "WF-015",
+      "test_case": "Add 'Recently accessed courses' block while in Edit Mode",
+      "preconditions": [
+        "User logged in as <role>",
+        "Dashboard is open",
+        "Edit Mode is enabled"
+      ],
+      "steps": [
+        "1. Click the '+ Add a block' button",
+        "2. Select 'Recently accessed courses' from the Block Type dropdown"
+      ],
+      "expected_result": "adds selected block to user's layout and persists layout; closes Add_Block_Page",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-016",
+      "wf_ref": "WF-016",
+      "test_case": "Add 'Starred courses' block while in Edit Mode",
+      "preconditions": [
+        "User logged in as <role>",
+        "Dashboard is open",
+        "Edit Mode is enabled"
+      ],
+      "steps": [
+        "1. Click the '+ Add a block' button",
+        "2. Select 'Starred courses' from the Block Type dropdown"
+      ],
+      "expected_result": "adds selected block to user's layout and persists layout; closes Add_Block_Page",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-017",
+      "wf_ref": "WF-017",
+      "test_case": "Add 'Tags' block while in Edit Mode",
+      "preconditions": [
+        "User logged in as <role>",
+        "Dashboard is open",
+        "Edit Mode is enabled"
+      ],
+      "steps": [
+        "1. Click the '+ Add a block' button",
+        "2. Select 'Tags' from the Block Type dropdown"
+      ],
+      "expected_result": "adds selected block to user's layout and persists layout; closes Add_Block_Page",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-018",
+      "wf_ref": "WF-018",
+      "test_case": "Add 'Text' block while in Edit Mode",
+      "preconditions": [
+        "User logged in as <role>",
+        "Dashboard is open",
+        "Edit Mode is enabled"
+      ],
+      "steps": [
+        "1. Click the '+ Add a block' button",
+        "2. Select 'Text' from the Block Type dropdown"
+      ],
+      "expected_result": "adds selected block to user's layout and persists layout; closes Add_Block_Page",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-019",
+      "wf_ref": "WF-019",
+      "test_case": "Add 'Upcoming events' block while in Edit Mode",
+      "preconditions": [
+        "User logged in as <role>",
+        "Dashboard is open",
+        "Edit Mode is enabled"
+      ],
+      "steps": [
+        "1. Click the '+ Add a block' button",
+        "2. Select 'Upcoming events' from the Block Type dropdown"
+      ],
+      "expected_result": "adds selected block to user's layout and persists layout; closes Add_Block_Page",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-020",
+      "wf_ref": "WF-020",
+      "test_case": "Cancel Add a block and return to Dashboard without adding a block",
+      "preconditions": [
+        "User logged in as <role>",
+        "Dashboard is open",
+        "Edit Mode is enabled"
+      ],
+      "steps": [
+        "1. Click the '+ Add a block' button",
+        "2. Click the 'Cancel' link on the Add a block page"
+      ],
+      "expected_result": "closes Add_Block_Page without adding a block",
       "priority": "medium"
+    },
+    {
+      "tc_id": "P-021",
+      "wf_ref": "WF-021",
+      "test_case": "Initiate drag-and-drop to move a block in Edit Mode",
+      "preconditions": [
+        "User logged in as <role>",
+        "Dashboard is open",
+        "Edit Mode is enabled",
+        "Dashboard contains at least two blocks"
+      ],
+      "steps": [
+        "1. Click and hold the Move icon for <target block>",
+        "2. Drag <target block> to a new position in the Blocks Layout",
+        "3. Release to drop <target block> in the new position"
+      ],
+      "expected_result": "persists layout per user",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-022",
+      "wf_ref": "WF-022",
+      "test_case": "Open Configure for a block from the options menu",
+      "preconditions": [
+        "User logged in as <role>",
+        "Dashboard is open",
+        "Edit Mode is enabled",
+        "Dashboard contains at least one block"
+      ],
+      "steps": [
+        "1. Click the Options menu for <target block>",
+        "2. Click 'Configure' in the Options menu"
+      ],
+      "expected_result": "opens configuration UI for this block",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-023",
+      "wf_ref": "WF-023",
+      "test_case": "Move a block via the Options menu",
+      "preconditions": [
+        "User logged in as <role>",
+        "Dashboard is open",
+        "Edit Mode is enabled",
+        "Dashboard contains at least two blocks"
+      ],
+      "steps": [
+        "1. Click the Options menu for <target block>",
+        "2. Click 'Move' in the Options menu"
+      ],
+      "expected_result": "persists layout per user",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-024",
+      "wf_ref": "WF-024",
+      "test_case": "Delete a block via the Options menu",
+      "preconditions": [
+        "User logged in as <role>",
+        "Dashboard is open",
+        "Edit Mode is enabled",
+        "Dashboard contains the <target block>"
+      ],
+      "steps": [
+        "1. Click the Options menu for <target block>",
+        "2. Click 'Delete' in the Options menu"
+      ],
+      "expected_result": "persists layout per user",
+      "priority": "high"
     }
   ],
   "summary": {
-    "total": 10,
-    "high_priority": 5,
-    "medium_priority": 5,
+    "total": 24,
+    "high_priority": 20,
+    "medium_priority": 4,
     "low_priority": 0
   }
 }
 
 ------------------------------------------------------------
-[21:48:06] Test-Positive - PARSED JSON
+[15:29:52] Test-Positive - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Dashboard \u2014 Edit Mode",
@@ -523,160 +797,395 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Enable Edit mode shows edit controls",
+      "wf_ref": "WF-001",
+      "test_case": "Enable Edit Mode and verify edit controls appear",
       "preconditions": [
-        "User logged in as <User>",
-        "Dashboard is open"
+        "User logged in as <role>",
+        "Dashboard is open",
+        "Edit Mode is disabled"
       ],
       "steps": [
-        "1. Check the Edit mode checkbox"
+        "1. Click the Edit Mode checkbox to enable Edit Mode"
       ],
-      "expected_result": "The 'Reset page to default' button is visible in the top-right, the '+ Add a block' button is visible below the Dashboard heading, and each dashboard block shows a move handle and an options menu.",
+      "expected_result": "Edit mode enabled; edit controls (Reset, + Add a block, move icons, options menus) become visible",
       "priority": "high"
     },
     {
       "tc_id": "P-002",
-      "test_case": "Disable Edit mode hides edit controls",
+      "wf_ref": "WF-002",
+      "test_case": "Disable Edit Mode and verify edit controls are hidden",
       "preconditions": [
-        "User logged in as <User>",
-        "Dashboard is open"
+        "User logged in as <role>",
+        "Dashboard is open",
+        "Edit Mode is enabled"
       ],
       "steps": [
-        "1. Check the Edit mode checkbox to enable Edit mode",
-        "2. Uncheck the Edit mode checkbox to disable Edit mode"
+        "1. Click the Edit Mode checkbox to disable Edit Mode"
       ],
-      "expected_result": "The 'Reset page to default' button and the '+ Add a block' button are no longer visible, and move handles and options menus are not visible on dashboard blocks.",
+      "expected_result": "Edit mode disabled; edit controls hidden",
       "priority": "medium"
     },
     {
       "tc_id": "P-003",
-      "test_case": "Open Add a block page from + Add a block button",
+      "wf_ref": "WF-003",
+      "test_case": "Reset page to default while in Edit Mode",
       "preconditions": [
-        "User logged in as <User>",
+        "User logged in as <role>",
         "Dashboard is open",
-        "Edit mode == on"
-      ],
-      "steps": [
-        "1. Click the '+ Add a block' button"
-      ],
-      "expected_result": "The 'Add a block' page is displayed listing: Comments, Course overview, Latest announcements, Latest badges, Learning plans, Logged in user, Mentees, Online users, Private files, Random glossary entry, Recently accessed courses, Starred courses, Tags, Text, and Upcoming events.",
-      "priority": "high"
-    },
-    {
-      "tc_id": "P-004",
-      "test_case": "Add a 'Text' block via Add action",
-      "preconditions": [
-        "User logged in as <User>",
-        "Dashboard is open",
-        "Edit mode == on"
-      ],
-      "steps": [
-        "1. Click the '+ Add a block' button",
-        "2. On the Add a block page, click Add next to 'Text'"
-      ],
-      "expected_result": "A 'Text' block appears on the Dashboard in the current layout.",
-      "priority": "high"
-    },
-    {
-      "tc_id": "P-005",
-      "test_case": "Cancel from Add a block returns to Dashboard without adding",
-      "preconditions": [
-        "User logged in as <User>",
-        "Dashboard is open",
-        "Edit mode == on"
-      ],
-      "steps": [
-        "1. Click the '+ Add a block' button",
-        "2. Click the Cancel link on the Add a block page"
-      ],
-      "expected_result": "The Add a block page closes and the Dashboard is displayed with no new block added.",
-      "priority": "medium"
-    },
-    {
-      "tc_id": "P-006",
-      "test_case": "Reset page to default reverts a customized layout",
-      "preconditions": [
-        "User logged in as <User>",
-        "Dashboard is open",
-        "Edit mode == on",
+        "Edit Mode is enabled",
         "Dashboard has a user-customized layout"
       ],
       "steps": [
         "1. Click the 'Reset page to default' button"
       ],
-      "expected_result": "reverts layout to default for current user",
+      "expected_result": "reverts layout to default for user",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-004",
+      "wf_ref": "WF-004",
+      "test_case": "Open Add a block page from Edit Mode",
+      "preconditions": [
+        "User logged in as <role>",
+        "Dashboard is open",
+        "Edit Mode is enabled"
+      ],
+      "steps": [
+        "1. Click the '+ Add a block' button"
+      ],
+      "expected_result": "opens Add_Block_Page",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-005",
+      "wf_ref": "WF-005",
+      "test_case": "Add 'Comments' block while in Edit Mode",
+      "preconditions": [
+        "User logged in as <role>",
+        "Dashboard is open",
+        "Edit Mode is enabled"
+      ],
+      "steps": [
+        "1. Click the '+ Add a block' button",
+        "2. Select 'Comments' from the Block Type dropdown"
+      ],
+      "expected_result": "adds selected block to user's layout and persists layout; closes Add_Block_Page",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-006",
+      "wf_ref": "WF-006",
+      "test_case": "Add 'Course overview' block while in Edit Mode",
+      "preconditions": [
+        "User logged in as <role>",
+        "Dashboard is open",
+        "Edit Mode is enabled"
+      ],
+      "steps": [
+        "1. Click the '+ Add a block' button",
+        "2. Select 'Course overview' from the Block Type dropdown"
+      ],
+      "expected_result": "adds selected block to user's layout and persists layout; closes Add_Block_Page",
       "priority": "high"
     },
     {
       "tc_id": "P-007",
-      "test_case": "Reorder a block by dragging its move handle",
+      "wf_ref": "WF-007",
+      "test_case": "Add 'Latest announcements' block while in Edit Mode",
       "preconditions": [
-        "User logged in as <User>",
+        "User logged in as <role>",
         "Dashboard is open",
-        "Edit mode == on",
-        "There are multiple blocks on the Dashboard"
+        "Edit Mode is enabled"
       ],
       "steps": [
-        "1. Drag the move handle of <target block> to a new position within the Dashboard"
+        "1. Click the '+ Add a block' button",
+        "2. Select 'Latest announcements' from the Block Type dropdown"
       ],
-      "expected_result": "<target block> is displayed in the new position in the Dashboard.",
-      "priority": "medium"
+      "expected_result": "adds selected block to user's layout and persists layout; closes Add_Block_Page",
+      "priority": "high"
     },
     {
       "tc_id": "P-008",
-      "test_case": "Open Configure from a block's options menu",
+      "wf_ref": "WF-008",
+      "test_case": "Add 'Latest badges' block while in Edit Mode",
       "preconditions": [
-        "User logged in as <User>",
+        "User logged in as <role>",
         "Dashboard is open",
-        "Edit mode == on",
-        "There is a <target block> on the Dashboard"
+        "Edit Mode is enabled"
       ],
       "steps": [
-        "1. Click the options menu on <target block>",
-        "2. Click Configure in the options menu"
+        "1. Click the '+ Add a block' button",
+        "2. Select 'Latest badges' from the Block Type dropdown"
       ],
-      "expected_result": "The configuration UI for <target block> is displayed.",
-      "priority": "medium"
+      "expected_result": "adds selected block to user's layout and persists layout; closes Add_Block_Page",
+      "priority": "high"
     },
     {
       "tc_id": "P-009",
-      "test_case": "Delete a block via the options menu",
+      "wf_ref": "WF-009",
+      "test_case": "Add 'Learning plans' block while in Edit Mode",
       "preconditions": [
-        "User logged in as <User>",
+        "User logged in as <role>",
         "Dashboard is open",
-        "Edit mode == on",
-        "There is a <target block> on the Dashboard"
+        "Edit Mode is enabled"
       ],
       "steps": [
-        "1. Click the options menu on <target block>",
-        "2. Click Delete in the options menu",
-        "3. Click Confirm on the Delete dialog"
+        "1. Click the '+ Add a block' button",
+        "2. Select 'Learning plans' from the Block Type dropdown"
       ],
-      "expected_result": "<target block> is no longer present on the Dashboard.",
+      "expected_result": "adds selected block to user's layout and persists layout; closes Add_Block_Page",
       "priority": "high"
     },
     {
       "tc_id": "P-010",
-      "test_case": "Move a block using the options menu Move action",
+      "wf_ref": "WF-010",
+      "test_case": "Add 'Logged in user' block while in Edit Mode",
       "preconditions": [
-        "User logged in as <User>",
+        "User logged in as <role>",
         "Dashboard is open",
-        "Edit mode == on",
-        "There are multiple blocks on the Dashboard"
+        "Edit Mode is enabled"
       ],
       "steps": [
-        "1. Click the options menu on <target block>",
-        "2. Click Move in the options menu",
-        "3. Use the Move UI to place <target block> in the desired new position and apply the change"
+        "1. Click the '+ Add a block' button",
+        "2. Select 'Logged in user' from the Block Type dropdown"
       ],
-      "expected_result": "<target block> is displayed in the selected new position in the Dashboard.",
+      "expected_result": "adds selected block to user's layout and persists layout; closes Add_Block_Page",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-011",
+      "wf_ref": "WF-011",
+      "test_case": "Add 'Mentees' block while in Edit Mode",
+      "preconditions": [
+        "User logged in as <role>",
+        "Dashboard is open",
+        "Edit Mode is enabled"
+      ],
+      "steps": [
+        "1. Click the '+ Add a block' button",
+        "2. Select 'Mentees' from the Block Type dropdown"
+      ],
+      "expected_result": "adds selected block to user's layout and persists layout; closes Add_Block_Page",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-012",
+      "wf_ref": "WF-012",
+      "test_case": "Add 'Online users' block while in Edit Mode",
+      "preconditions": [
+        "User logged in as <role>",
+        "Dashboard is open",
+        "Edit Mode is enabled"
+      ],
+      "steps": [
+        "1. Click the '+ Add a block' button",
+        "2. Select 'Online users' from the Block Type dropdown"
+      ],
+      "expected_result": "adds selected block to user's layout and persists layout; closes Add_Block_Page",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-013",
+      "wf_ref": "WF-013",
+      "test_case": "Add 'Private files' block while in Edit Mode",
+      "preconditions": [
+        "User logged in as <role>",
+        "Dashboard is open",
+        "Edit Mode is enabled"
+      ],
+      "steps": [
+        "1. Click the '+ Add a block' button",
+        "2. Select 'Private files' from the Block Type dropdown"
+      ],
+      "expected_result": "adds selected block to user's layout and persists layout; closes Add_Block_Page",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-014",
+      "wf_ref": "WF-014",
+      "test_case": "Add 'Random glossary entry' block while in Edit Mode",
+      "preconditions": [
+        "User logged in as <role>",
+        "Dashboard is open",
+        "Edit Mode is enabled"
+      ],
+      "steps": [
+        "1. Click the '+ Add a block' button",
+        "2. Select 'Random glossary entry' from the Block Type dropdown"
+      ],
+      "expected_result": "adds selected block to user's layout and persists layout; closes Add_Block_Page",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-015",
+      "wf_ref": "WF-015",
+      "test_case": "Add 'Recently accessed courses' block while in Edit Mode",
+      "preconditions": [
+        "User logged in as <role>",
+        "Dashboard is open",
+        "Edit Mode is enabled"
+      ],
+      "steps": [
+        "1. Click the '+ Add a block' button",
+        "2. Select 'Recently accessed courses' from the Block Type dropdown"
+      ],
+      "expected_result": "adds selected block to user's layout and persists layout; closes Add_Block_Page",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-016",
+      "wf_ref": "WF-016",
+      "test_case": "Add 'Starred courses' block while in Edit Mode",
+      "preconditions": [
+        "User logged in as <role>",
+        "Dashboard is open",
+        "Edit Mode is enabled"
+      ],
+      "steps": [
+        "1. Click the '+ Add a block' button",
+        "2. Select 'Starred courses' from the Block Type dropdown"
+      ],
+      "expected_result": "adds selected block to user's layout and persists layout; closes Add_Block_Page",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-017",
+      "wf_ref": "WF-017",
+      "test_case": "Add 'Tags' block while in Edit Mode",
+      "preconditions": [
+        "User logged in as <role>",
+        "Dashboard is open",
+        "Edit Mode is enabled"
+      ],
+      "steps": [
+        "1. Click the '+ Add a block' button",
+        "2. Select 'Tags' from the Block Type dropdown"
+      ],
+      "expected_result": "adds selected block to user's layout and persists layout; closes Add_Block_Page",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-018",
+      "wf_ref": "WF-018",
+      "test_case": "Add 'Text' block while in Edit Mode",
+      "preconditions": [
+        "User logged in as <role>",
+        "Dashboard is open",
+        "Edit Mode is enabled"
+      ],
+      "steps": [
+        "1. Click the '+ Add a block' button",
+        "2. Select 'Text' from the Block Type dropdown"
+      ],
+      "expected_result": "adds selected block to user's layout and persists layout; closes Add_Block_Page",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-019",
+      "wf_ref": "WF-019",
+      "test_case": "Add 'Upcoming events' block while in Edit Mode",
+      "preconditions": [
+        "User logged in as <role>",
+        "Dashboard is open",
+        "Edit Mode is enabled"
+      ],
+      "steps": [
+        "1. Click the '+ Add a block' button",
+        "2. Select 'Upcoming events' from the Block Type dropdown"
+      ],
+      "expected_result": "adds selected block to user's layout and persists layout; closes Add_Block_Page",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-020",
+      "wf_ref": "WF-020",
+      "test_case": "Cancel Add a block and return to Dashboard without adding a block",
+      "preconditions": [
+        "User logged in as <role>",
+        "Dashboard is open",
+        "Edit Mode is enabled"
+      ],
+      "steps": [
+        "1. Click the '+ Add a block' button",
+        "2. Click the 'Cancel' link on the Add a block page"
+      ],
+      "expected_result": "closes Add_Block_Page without adding a block",
       "priority": "medium"
+    },
+    {
+      "tc_id": "P-021",
+      "wf_ref": "WF-021",
+      "test_case": "Initiate drag-and-drop to move a block in Edit Mode",
+      "preconditions": [
+        "User logged in as <role>",
+        "Dashboard is open",
+        "Edit Mode is enabled",
+        "Dashboard contains at least two blocks"
+      ],
+      "steps": [
+        "1. Click and hold the Move icon for <target block>",
+        "2. Drag <target block> to a new position in the Blocks Layout",
+        "3. Release to drop <target block> in the new position"
+      ],
+      "expected_result": "persists layout per user",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-022",
+      "wf_ref": "WF-022",
+      "test_case": "Open Configure for a block from the options menu",
+      "preconditions": [
+        "User logged in as <role>",
+        "Dashboard is open",
+        "Edit Mode is enabled",
+        "Dashboard contains at least one block"
+      ],
+      "steps": [
+        "1. Click the Options menu for <target block>",
+        "2. Click 'Configure' in the Options menu"
+      ],
+      "expected_result": "opens configuration UI for this block",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-023",
+      "wf_ref": "WF-023",
+      "test_case": "Move a block via the Options menu",
+      "preconditions": [
+        "User logged in as <role>",
+        "Dashboard is open",
+        "Edit Mode is enabled",
+        "Dashboard contains at least two blocks"
+      ],
+      "steps": [
+        "1. Click the Options menu for <target block>",
+        "2. Click 'Move' in the Options menu"
+      ],
+      "expected_result": "persists layout per user",
+      "priority": "medium"
+    },
+    {
+      "tc_id": "P-024",
+      "wf_ref": "WF-024",
+      "test_case": "Delete a block via the Options menu",
+      "preconditions": [
+        "User logged in as <role>",
+        "Dashboard is open",
+        "Edit Mode is enabled",
+        "Dashboard contains the <target block>"
+      ],
+      "steps": [
+        "1. Click the Options menu for <target block>",
+        "2. Click 'Delete' in the Options menu"
+      ],
+      "expected_result": "persists layout per user",
+      "priority": "high"
     }
   ],
   "summary": {
-    "total": 10,
-    "high_priority": 5,
-    "medium_priority": 5,
+    "total": 24,
+    "high_priority": 20,
+    "medium_priority": 4,
     "low_priority": 0
   }
 }

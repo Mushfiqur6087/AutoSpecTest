@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-21T22:29:06.544896
+DEBUG SESSION STARTED: 2026-05-25T14:24:50.736798
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[22:29:06] Test-Edge - SYSTEM PROMPT
+[14:24:50] Test-Edge - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Edge Case and Boundary Test Generator. You receive (1) a UI-AST JSON for one module and (2) the original functional description. Your job is to produce ONLY boundary and edge case tests — scenarios at the limits of valid/invalid input and unusual-but-plausible user behaviors.
 
@@ -25,6 +25,10 @@ You are NOT producing happy paths (positive prompt) or standard validation failu
 {Original functional description text for this module}
 </description>
 
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
+
 ---
 
 **UI-AST REFERENCE — How to Read the AST for Edge Testing:**
@@ -35,7 +39,7 @@ You are NOT producing happy paths (positive prompt) or standard validation failu
 | `repeating_group` with `max` | Test adding exactly `max` entries (should succeed) then one more (should block) |
 | `visible_when` / `required_when` | Edge: trigger condition, fill revealed field with boundary value |
 | `state_bound_action_bar` | State edges: rapid consecutive state transitions, transition from a boundary state |
-| `submit_actions[]` with multiple buttons | Interaction edge: double-click a submit button rapidly |
+
 | `type: "date"` fields | Data edges: today, yesterday, far future, Feb 29 leap year |
 | `type: "file_upload"` | Edge: file exactly at size limit, file at 1 byte over limit |
 
@@ -132,7 +136,6 @@ Pick only the ones that apply to field types present in this module's AST:
 
 Pick only the ones that match component types in this module's AST:
 
-- **Double-click submit** (any form/wizard with a submit button): rapidly double-click the submit button → assert only one record is created; no duplicate row appears in the listing table
 - **Rapid re-submission after redirect** (any form that redirects to a detail page on success): after a successful submit, press the browser back button → assert the creation form is shown blank (not pre-filled) OR the user is redirected to the detail page without a second entity being created
 - **Wizard step skip — enforced navigation** (wizard where steps must be completed sequentially): attempt to click a later step tab directly without completing earlier steps → assert navigation is blocked and the earlier step remains active
 - **Wizard step skip — free navigation** (wizard that allows free tab navigation): navigate to a later step without filling earlier steps → assert the later step displays and returning to the earlier step shows fields blank (no data was lost from the later step)
@@ -173,7 +176,16 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 
 - **High:** None — edge tests are secondary to core functionality
 - **Medium:** Boundary tests at thresholds (financial amounts, date ordering, count limits, file size limits)
-- **Low:** Input edge cases (long text, special chars, whitespace, decimal precision), interaction edge cases (double-click, browser back, wizard skip)
+- **Low:** Input edge cases (long text, special chars, whitespace, decimal precision), interaction edge cases (browser back, wizard skip)
+
+---
+
+**WORKFLOW-AWARE BOUNDARY SCOPING (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- For each workflow where `conditional_branch` activates a numeric or date field, check if that field has a boundary (a numeric/date threshold in the AST `constraints` or description).
+- If yes, that workflow's branch is a **candidate for a boundary edge test** — add or confirm a boundary TC exists for it.
+- Add `"wf_ref": "WF-NNN"` to each TC that maps to a specific workflow's boundary. Set `"wf_ref": null` for generic input/interaction edge tests.
 
 ---
 
@@ -185,6 +197,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": null,
       "subcategory": "boundary | input_edge | interaction_edge | state_edge | data_edge",
       "test_case": "Short descriptive name",
       "preconditions": ["precondition 1"],
@@ -207,7 +220,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 
 
 ------------------------------------------------------------
-[22:29:06] Test-Edge - USER PROMPT
+[14:24:50] Test-Edge - USER PROMPT
 ------------------------------------------------------------
 <module_name>Accounting — Journal Entries & Closures</module_name>
 
@@ -227,41 +240,36 @@ If the module has any numeric/date/count threshold in the AST or description, pr
         "GL Account",
         "Amount"
       ],
-      "filter_bar": {
-        "fields": {
-          "Office": {
-            "type": "dropdown",
-            "required": false
-          },
-          "GL_Account": {
-            "type": "dropdown",
-            "required": false
-          },
-          "Date_From": {
-            "type": "date",
-            "required": false
-          },
-          "Date_To": {
-            "type": "date",
-            "required": false
-          },
-          "Transaction_ID": {
-            "type": "search",
-            "required": false
-          },
-          "Entry_Type": {
-            "type": "dropdown",
-            "required": false,
-            "options": [
-              "Debit",
-              "Credit"
-            ]
-          }
+      "filters": {
+        "Office": {
+          "type": "unspecified",
+          "required": false
+        },
+        "GL_Account": {
+          "type": "unspecified",
+          "required": false
+        },
+        "Date_Range": {
+          "type": "date_range",
+          "required": false
+        },
+        "Transaction_ID": {
+          "type": "unspecified",
+          "required": false
+        },
+        "Entry_Type": {
+          "type": "dropdown",
+          "required": false,
+          "options": [
+            "Debit",
+            "Credit"
+          ]
         }
       },
-      "actions": [
+      "toolbar_actions": [
         {
-          "element_name": "+ Add Journal Entry",
+          "action_name": "+ Add Journal Entry",
+          "purpose": "opens Add_Journal_Entry_Form",
           "opens_form": "Add_Journal_Entry_Form"
         }
       ]
@@ -270,11 +278,11 @@ If the module has any numeric/date/count threshold in the AST or description, pr
       "type": "form",
       "fields": {
         "Office": {
-          "type": "dropdown",
+          "type": "unspecified",
           "required": true
         },
         "Currency": {
-          "type": "dropdown",
+          "type": "unspecified",
           "required": true
         },
         "Reference_Number": {
@@ -286,7 +294,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
           "required": true
         },
         "Payment_Type": {
-          "type": "dropdown",
+          "type": "unspecified",
           "required": false
         },
         "Payment_Details": {
@@ -295,23 +303,20 @@ If the module has any numeric/date/count threshold in the AST or description, pr
         },
         "Entry_Lines": {
           "type": "repeating_group",
+          "min": 1,
           "item_fields": {
             "GL_Account": {
               "type": "dropdown",
               "required": true
             },
-            "Type": {
-              "type": "dropdown",
-              "required": true,
-              "options": [
-                "Debit",
-                "Credit"
-              ]
-            },
             "Amount": {
               "type": "number",
               "required": true
             }
+          },
+          "add_row_action": {
+            "action_name": "Add Row",
+            "purpose": "adds another entry line"
           }
         },
         "Comments": {
@@ -320,14 +325,18 @@ If the module has any numeric/date/count threshold in the AST or description, pr
         }
       },
       "constraints": [
-        "sum(Entry_Lines where Type == Debit).Amount == sum(Entry_Lines where Type == Credit).Amount"
+        "total_debits must equal total_credits",
+        "Transaction_Date must be after latest closing date for the selected Office"
       ],
       "submit_actions": [
         {
-          "element_name": "Create Journal Entry",
+          "element_name": "unspecified",
           "on_success": "creates journal entry",
           "preconditions": [
-            "Transaction_Date must be after the latest closure date for the selected Office"
+            "Transaction_Date must be after latest closing date for the selected Office"
+          ],
+          "constraints": [
+            "total_debits must equal total_credits"
           ]
         }
       ]
@@ -340,9 +349,10 @@ If the module has any numeric/date/count threshold in the AST or description, pr
         "Created Date",
         "Comments"
       ],
-      "actions": [
+      "toolbar_actions": [
         {
-          "element_name": "+ Create Closure",
+          "action_name": "+ Create Closure",
+          "purpose": "opens Create_Closure_Form",
           "opens_form": "Create_Closure_Form"
         }
       ]
@@ -351,7 +361,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
       "type": "form",
       "fields": {
         "Office": {
-          "type": "dropdown",
+          "type": "unspecified",
           "required": true
         },
         "Closing_Date": {
@@ -365,8 +375,8 @@ If the module has any numeric/date/count threshold in the AST or description, pr
       },
       "submit_actions": [
         {
-          "element_name": "Create Closure",
-          "on_success": "prevents journal entries from being posted for dates on or before the closing date (protects completed accounting periods)"
+          "element_name": "unspecified",
+          "on_success": "creates closure and prevents journal entries from being posted for dates on or before the closing date"
         }
       ]
     }
@@ -385,10 +395,15 @@ The Closing Entries page displays a table with columns for Office, Closing Date,
 
 </description>
 
+<workflows>
+WF-001 | Add Journal Entry — submit form | actor: <role> | branch: none | terminal: unspecified | on_success: creates journal entry
+WF-002 | Create Closure — submit form | actor: <role> | branch: none | terminal: unspecified | on_success: creates closure and prevents journal entries from being posted for dates on or before the closing date
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[22:34:20] Test-Edge - LLM RESPONSE
+[14:30:13] Test-Edge - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Accounting — Journal Entries & Closures",
@@ -396,232 +411,179 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": "WF-001",
       "subcategory": "boundary",
-      "test_case": "Journal entry allowed when Transaction Date is one day after latest closure date for the Office",
+      "test_case": "Transaction_Date = one day after latest closing date (boundary pass)",
       "preconditions": [
-        "User is on Closing Entries page",
-        "No closure exists for the target Office with a date after <latest closure date>"
+        "An Office exists with a most recent closing date identified as <latest_closing_date>",
+        "User has permission to create journal entries"
       ],
       "steps": [
-        "1. Click \"+ Create Closure\"",
-        "2. Select Office = <Office A>",
-        "3. Set Closing_Date = <latest closure date>",
-        "4. Click \"Create Closure\"",
-        "5. Navigate to Journal Entries page",
-        "6. Click \"+ Add Journal Entry\"",
-        "7. Select Office = <Office A>",
-        "8. Select Currency = <valid currency>",
-        "9. Set Transaction_Date = <one day after latest closure date>",
-        "10. In Entry_Lines row 1: select GL_Account = <account 1>",
-        "11. In Entry_Lines row 1: set Type = Debit",
-        "12. In Entry_Lines row 1: set Amount = <some amount>",
-        "13. Click \"Add Row\"",
-        "14. In Entry_Lines row 2: select GL_Account = <account 2>",
-        "15. In Entry_Lines row 2: set Type = Credit",
-        "16. In Entry_Lines row 2: set Amount = <same amount as row 1>",
-        "17. Click \"Create Journal Entry\""
+        "1. Click + Add Journal Entry",
+        "2. In Office field, select the Office with <latest_closing_date>",
+        "3. In Currency field, select a valid Currency",
+        "4. In Transaction_Date, enter <latest_closing_date + 1 day>",
+        "5. In the first Entry_Lines row, select a GL_Account that posts as a debit",
+        "6. In the first Entry_Lines row, enter an Amount such that total_debits will equal total_credits after step 8",
+        "7. Click Add Row",
+        "8. In the second Entry_Lines row, select a GL_Account that posts as a credit",
+        "9. In the second Entry_Lines row, enter an Amount that makes total_credits equal total_debits",
+        "10. Click Submit"
       ],
-      "expected_result": "Form submits successfully; journal entry is created (succeeds). A new row appears in the Journal Entries table with Transaction Date = <one day after latest closure date> and the running totals show Debit total == Credit total.",
+      "expected_result": "Form submits successfully; a journal entry is created (confirmation shown) and the Journal Entries table shows a new row with Transaction Date = <latest_closing_date + 1 day>. Running totals show zero difference; creation succeeds.",
       "priority": "medium"
     },
     {
       "tc_id": "E-002",
+      "wf_ref": "WF-001",
       "subcategory": "boundary",
-      "test_case": "Journal entry blocked when Transaction Date equals latest closure date (must be after)",
+      "test_case": "Transaction_Date = latest closing date (boundary fail — must be after)",
       "preconditions": [
-        "A closure exists for <Office B> with Closing_Date = <latest closure date>"
+        "An Office exists with a most recent closing date identified as <latest_closing_date>",
+        "User has permission to create journal entries"
       ],
       "steps": [
-        "1. Navigate to Journal Entries page",
-        "2. Click \"+ Add Journal Entry\"",
-        "3. Select Office = <Office B>",
-        "4. Select Currency = <valid currency>",
-        "5. Set Transaction_Date = <latest closure date>",
-        "6. In Entry_Lines row 1: select GL_Account = <account 1>",
-        "7. In Entry_Lines row 1: set Type = Debit",
-        "8. In Entry_Lines row 1: set Amount = <some amount>",
-        "9. Click \"Add Row\"",
-        "10. In Entry_Lines row 2: select GL_Account = <account 2>",
-        "11. In Entry_Lines row 2: set Type = Credit",
-        "12. In Entry_Lines row 2: set Amount = <same amount as row 1>",
-        "13. Click \"Create Journal Entry\""
+        "1. Click + Add Journal Entry",
+        "2. In Office field, select the Office with <latest_closing_date>",
+        "3. In Currency field, select a valid Currency",
+        "4. In Transaction_Date, enter <latest_closing_date>",
+        "5. In the first Entry_Lines row, select a GL_Account",
+        "6. In the first Entry_Lines row, enter an Amount",
+        "7. Ensure totals are balanced (total_debits = total_credits) or set up lines to be balanced",
+        "8. Click Submit"
       ],
-      "expected_result": "Submission is blocked / error shown. An inline validation error is displayed near Transaction Date (or as a form-level error) stating: \"Transaction_Date must be after the latest closure date for the selected Office\" (submission is blocked). No new journal entry row is created.",
+      "expected_result": "Submission is blocked / error shown; the Transaction_Date field displays an inline error indicating the date must be after the latest closing date for the selected Office, and the journal entry is not created.",
       "priority": "medium"
     },
     {
       "tc_id": "E-003",
-      "subcategory": "boundary",
-      "test_case": "Form accepts entry when Debit total equals Credit total exactly",
+      "wf_ref": "WF-002",
+      "subcategory": "state_edge",
+      "test_case": "Create closure then attempt journal entry on same closing date (closure prevents posting on or before closing date)",
       "preconditions": [
-        "No closure exists that blocks Transaction_Date used in the test"
+        "An Office exists without a closure on <new_closing_date>",
+        "User has permission to create closures and journal entries"
       ],
       "steps": [
-        "1. Navigate to Journal Entries page",
-        "2. Click \"+ Add Journal Entry\"",
-        "3. Select Office = <Office C>",
-        "4. Select Currency = <valid currency>",
-        "5. Set Transaction_Date = <valid date after latest closure>",
-        "6. In Entry_Lines row 1: select GL_Account = <account 1>",
-        "7. In Entry_Lines row 1: set Type = Debit",
-        "8. In Entry_Lines row 1: set Amount = <amount A>",
-        "9. Click \"Add Row\"",
-        "10. In Entry_Lines row 2: select GL_Account = <account 2>",
-        "11. In Entry_Lines row 2: set Type = Credit",
-        "12. In Entry_Lines row 2: set Amount = <same amount A as row 1>",
-        "13. Click \"Create Journal Entry\""
+        "1. Click + Create Closure",
+        "2. In Office field, select the target Office",
+        "3. In Closing_Date, enter <new_closing_date>",
+        "4. Click Submit to create the closure",
+        "5. Click + Add Journal Entry",
+        "6. In Office field, select the same Office",
+        "7. In Currency field, select a valid Currency",
+        "8. In Transaction_Date, enter <new_closing_date>",
+        "9. In the first Entry_Lines row, select a GL_Account",
+        "10. In the first Entry_Lines row, enter an Amount",
+        "11. Ensure totals are balanced (total_debits = total_credits)",
+        "12. Click Submit"
       ],
-      "expected_result": "Form submits successfully; journal entry is created (succeeds). The UI running totals show Debit total == Credit total and Difference = 0; the created entry appears in the Journal Entries table.",
+      "expected_result": "Closure creation succeeds (confirmation shown). The subsequent journal entry submission is blocked / error shown; the Transaction_Date field or a global form banner indicates journal entries cannot be posted for dates on or before the closing date, and the journal entry is not created.",
       "priority": "medium"
     },
     {
       "tc_id": "E-004",
+      "wf_ref": "WF-001",
       "subcategory": "boundary",
-      "test_case": "Submission blocked when Debit and Credit totals differ by one smallest currency unit",
+      "test_case": "Entry lines totals exactly equal (total_debits == total_credits) — balanced submission succeeds",
       "preconditions": [
-        "No closure exists that blocks Transaction_Date used in the test"
+        "User has permission to create journal entries",
+        "Selected Office has a latest closing date earlier than the Transaction_Date to be used"
       ],
       "steps": [
-        "1. Navigate to Journal Entries page",
-        "2. Click \"+ Add Journal Entry\"",
-        "3. Select Office = <Office D>",
-        "4. Select Currency = <valid currency>",
-        "5. Set Transaction_Date = <valid date after latest closure>",
-        "6. In Entry_Lines row 1: select GL_Account = <account 1>",
-        "7. In Entry_Lines row 1: set Type = Debit",
-        "8. In Entry_Lines row 1: set Amount = <amount A>",
-        "9. Click \"Add Row\"",
-        "10. In Entry_Lines row 2: select GL_Account = <account 2>",
-        "11. In Entry_Lines row 2: set Type = Credit",
-        "12. In Entry_Lines row 2: set Amount = <amount A minus one smallest currency unit>",
-        "13. Click \"Create Journal Entry\""
+        "1. Click + Add Journal Entry",
+        "2. In Office field, select an Office with no conflicting closing date",
+        "3. In Currency field, select a valid Currency",
+        "4. In Transaction_Date, enter a date after the Office's latest closing date",
+        "5. In the first Entry_Lines row, select a GL_Account and enter Amount = <A>",
+        "6. Click Add Row",
+        "7. In the second Entry_Lines row, select a GL_Account and enter Amount = <A>",
+        "8. Verify running totals show total_debits = total_credits",
+        "9. Click Submit"
       ],
-      "expected_result": "Submission is blocked / error shown. An inline validation error is displayed near the Entry Lines or running totals indicating the debit and credit totals do not match (e.g. \"Total debits must equal total credits\"); no journal entry is created.",
+      "expected_result": "Form submits successfully; journal entry is created (confirmation shown) and the running totals display zero difference. The new entry appears in the Journal Entries table. Creation succeeds.",
       "priority": "medium"
     },
     {
       "tc_id": "E-005",
-      "subcategory": "input_edge",
-      "test_case": "Very long Comments (>200 characters) saved without truncation",
+      "wf_ref": "WF-001",
+      "subcategory": "boundary",
+      "test_case": "Entry lines totals differ by one smallest unit (off-by-one) — submission blocked",
       "preconditions": [
-        "No closure exists that blocks Transaction_Date used in the test"
+        "User has permission to create journal entries",
+        "Selected Office has a latest closing date earlier than the Transaction_Date to be used"
       ],
       "steps": [
-        "1. Navigate to Journal Entries page",
-        "2. Click \"+ Add Journal Entry\"",
-        "3. Select Office = <Office E>",
-        "4. Select Currency = <valid currency>",
-        "5. Set Transaction_Date = <valid date after latest closure>",
-        "6. In Entry_Lines row 1: select GL_Account = <account 1>",
-        "7. In Entry_Lines row 1: set Type = Debit",
-        "8. In Entry_Lines row 1: set Amount = <amount A>",
-        "9. Click \"Add Row\"",
-        "10. In Entry_Lines row 2: select GL_Account = <account 2>",
-        "11. In Entry_Lines row 2: set Type = Credit",
-        "12. In Entry_Lines row 2: set Amount = <same amount A as row 1>",
-        "13. Enter Comments = <very long string >200 characters>",
-        "14. Click \"Create Journal Entry\""
+        "1. Click + Add Journal Entry",
+        "2. In Office field, select an Office with no conflicting closing date",
+        "3. In Currency field, select a valid Currency",
+        "4. In Transaction_Date, enter a date after the Office's latest closing date",
+        "5. In the first Entry_Lines row, select a GL_Account and enter Amount = <X>",
+        "6. Click Add Row",
+        "7. In the second Entry_Lines row, select a GL_Account and enter Amount = <X plus one unit>",
+        "8. Verify running totals show a non-zero difference of one unit",
+        "9. Click Submit"
       ],
-      "expected_result": "Form submits successfully; journal entry is created (succeeds). Saved journal entry detail displays the full Comments field containing the entire entered string (verifies no truncation in UI).",
-      "priority": "low"
+      "expected_result": "Submission is blocked / error shown; a running totals difference indicator and an inline validation message indicate total_debits must equal total_credits. The journal entry is not created.",
+      "priority": "medium"
     },
     {
       "tc_id": "E-006",
-      "subcategory": "input_edge",
-      "test_case": "Reference Number and Payment Details accept special characters and emoji",
+      "wf_ref": "WF-001",
+      "subcategory": "boundary",
+      "test_case": "Remove the only entry line (repeating_group min = 1) — submission blocked",
       "preconditions": [
-        "No closure exists that blocks Transaction_Date used in the test"
+        "User has permission to create journal entries"
       ],
       "steps": [
-        "1. Navigate to Journal Entries page",
-        "2. Click \"+ Add Journal Entry\"",
-        "3. Select Office = <Office F>",
-        "4. Select Currency = <valid currency>",
-        "5. Set Transaction_Date = <valid date after latest closure>",
-        "6. Enter Reference_Number = <string containing special characters and emoji>",
-        "7. Enter Payment_Details = <string containing special characters and emoji>",
-        "8. In Entry_Lines row 1: select GL_Account = <account 1>",
-        "9. In Entry_Lines row 1: set Type = Debit",
-        "10. In Entry_Lines row 1: set Amount = <amount A>",
-        "11. Click \"Add Row\"",
-        "12. In Entry_Lines row 2: select GL_Account = <account 2>",
-        "13. In Entry_Lines row 2: set Type = Credit",
-        "14. In Entry_Lines row 2: set Amount = <same amount A as row 1>",
-        "15. Click \"Create Journal Entry\""
+        "1. Click + Add Journal Entry",
+        "2. In Office field, select an Office",
+        "3. In Currency field, select a valid Currency",
+        "4. In Transaction_Date, enter a date after the Office's latest closing date",
+        "5. If only one Entry_Lines row is present, click the action to remove that row",
+        "6. Click Submit"
       ],
-      "expected_result": "Form submits successfully; journal entry is created (succeeds). Saved journal entry detail displays Reference Number and Payment Details with the same special characters and emoji (no loss or sanitization that removes characters).",
-      "priority": "low"
+      "expected_result": "Submission is blocked / error shown; the Entry_Lines area displays an inline error indicating at least 1 entry line is required (or prevents removal of the last row), and the journal entry is not created.",
+      "priority": "medium"
     },
     {
       "tc_id": "E-007",
-      "subcategory": "interaction_edge",
-      "test_case": "Rapid double-click on Create Journal Entry creates only one journal entry",
+      "wf_ref": null,
+      "subcategory": "input_edge",
+      "test_case": "Leading and trailing whitespace in Office field is trimmed in saved record",
       "preconditions": [
-        "No closure exists that blocks Transaction_Date used in the test",
-        "Add Journal Entry form is filled completely and balanced up to the final click"
+        "An Office exists and the user can select it from the Office dropdown",
+        "User has permission to create journal entries"
       ],
       "steps": [
-        "1. Navigate to Journal Entries page",
-        "2. Click \"+ Add Journal Entry\"",
-        "3. Select Office = <Office G>",
-        "4. Select Currency = <valid currency>",
-        "5. Set Transaction_Date = <valid date after latest closure>",
-        "6. In Entry_Lines row 1: select GL_Account = <account 1>",
-        "7. In Entry_Lines row 1: set Type = Debit",
-        "8. In Entry_Lines row 1: set Amount = <amount A>",
-        "9. Click \"Add Row\"",
-        "10. In Entry_Lines row 2: select GL_Account = <account 2>",
-        "11. In Entry_Lines row 2: set Type = Credit",
-        "12. In Entry_Lines row 2: set Amount = <same amount A as row 1>",
-        "13. Double-click \"Create Journal Entry\" rapidly (two clicks within ~200ms)"
+        "1. Click + Add Journal Entry",
+        "2. In Office field, type the Office name with leading and trailing whitespace surrounding the exact Office label (e.g., ' <OfficeName> ')",
+        "3. In Currency field, select a valid Currency",
+        "4. In Transaction_Date, enter a date after the Office's latest closing date",
+        "5. In the first Entry_Lines row, select a GL_Account and enter an Amount",
+        "6. Click Add Row",
+        "7. In the second Entry_Lines row, select a GL_Account and enter an Amount to balance totals",
+        "8. Click Submit",
+        "9. Open the created journal entry's detail view or find it in the Journal Entries table"
       ],
-      "expected_result": "Only one journal entry is created (succeeds); the system prevents a duplicate creation from the rapid second click. The Journal Entries table shows a single new row for the created entry and no duplicate row appears.",
-      "priority": "medium"
-    },
-    {
-      "tc_id": "E-008",
-      "subcategory": "state_edge",
-      "test_case": "Journal entry blocked for a Transaction Date one day before the closure date (closing prevents on or before)",
-      "preconditions": [
-        "No closure exists for <Office H> later than <closing date being created>"
-      ],
-      "steps": [
-        "1. Click \"+ Create Closure\"",
-        "2. Select Office = <Office H>",
-        "3. Set Closing_Date = <closing date>",
-        "4. Click \"Create Closure\"",
-        "5. Navigate to Journal Entries page",
-        "6. Click \"+ Add Journal Entry\"",
-        "7. Select Office = <Office H>",
-        "8. Select Currency = <valid currency>",
-        "9. Set Transaction_Date = <one day before closing date>",
-        "10. In Entry_Lines row 1: select GL_Account = <account 1>",
-        "11. In Entry_Lines row 1: set Type = Debit",
-        "12. In Entry_Lines row 1: set Amount = <amount A>",
-        "13. Click \"Add Row\"",
-        "14. In Entry_Lines row 2: select GL_Account = <account 2>",
-        "15. In Entry_Lines row 2: set Type = Credit",
-        "16. In Entry_Lines row 2: set Amount = <same amount A as row 1>",
-        "17. Click \"Create Journal Entry\""
-      ],
-      "expected_result": "Submission is blocked / error shown. An inline or form-level error is displayed stating that journal entries cannot be posted for dates on or before the closing date (submission is blocked). No new journal entry is created.",
-      "priority": "medium"
+      "expected_result": "Form submits successfully; journal entry is created. In the Journal Entries table and the entry detail view, the Office value is displayed without leading or trailing whitespace (whitespace is trimmed) and creation succeeds.",
+      "priority": "low"
     }
   ],
   "summary": {
-    "total": 8,
-    "boundary": 4,
-    "input_edge": 2,
-    "interaction_edge": 1,
+    "total": 7,
+    "boundary": 5,
+    "input_edge": 1,
+    "interaction_edge": 0,
     "state_edge": 1,
     "data_edge": 0,
     "medium_priority": 6,
-    "low_priority": 2
+    "low_priority": 1
   }
 }
 
 ------------------------------------------------------------
-[22:34:20] Test-Edge - PARSED JSON
+[14:30:13] Test-Edge - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Accounting \u2014 Journal Entries & Closures",
@@ -629,226 +591,173 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": "WF-001",
       "subcategory": "boundary",
-      "test_case": "Journal entry allowed when Transaction Date is one day after latest closure date for the Office",
+      "test_case": "Transaction_Date = one day after latest closing date (boundary pass)",
       "preconditions": [
-        "User is on Closing Entries page",
-        "No closure exists for the target Office with a date after <latest closure date>"
+        "An Office exists with a most recent closing date identified as <latest_closing_date>",
+        "User has permission to create journal entries"
       ],
       "steps": [
-        "1. Click \"+ Create Closure\"",
-        "2. Select Office = <Office A>",
-        "3. Set Closing_Date = <latest closure date>",
-        "4. Click \"Create Closure\"",
-        "5. Navigate to Journal Entries page",
-        "6. Click \"+ Add Journal Entry\"",
-        "7. Select Office = <Office A>",
-        "8. Select Currency = <valid currency>",
-        "9. Set Transaction_Date = <one day after latest closure date>",
-        "10. In Entry_Lines row 1: select GL_Account = <account 1>",
-        "11. In Entry_Lines row 1: set Type = Debit",
-        "12. In Entry_Lines row 1: set Amount = <some amount>",
-        "13. Click \"Add Row\"",
-        "14. In Entry_Lines row 2: select GL_Account = <account 2>",
-        "15. In Entry_Lines row 2: set Type = Credit",
-        "16. In Entry_Lines row 2: set Amount = <same amount as row 1>",
-        "17. Click \"Create Journal Entry\""
+        "1. Click + Add Journal Entry",
+        "2. In Office field, select the Office with <latest_closing_date>",
+        "3. In Currency field, select a valid Currency",
+        "4. In Transaction_Date, enter <latest_closing_date + 1 day>",
+        "5. In the first Entry_Lines row, select a GL_Account that posts as a debit",
+        "6. In the first Entry_Lines row, enter an Amount such that total_debits will equal total_credits after step 8",
+        "7. Click Add Row",
+        "8. In the second Entry_Lines row, select a GL_Account that posts as a credit",
+        "9. In the second Entry_Lines row, enter an Amount that makes total_credits equal total_debits",
+        "10. Click Submit"
       ],
-      "expected_result": "Form submits successfully; journal entry is created (succeeds). A new row appears in the Journal Entries table with Transaction Date = <one day after latest closure date> and the running totals show Debit total == Credit total.",
+      "expected_result": "Form submits successfully; a journal entry is created (confirmation shown) and the Journal Entries table shows a new row with Transaction Date = <latest_closing_date + 1 day>. Running totals show zero difference; creation succeeds.",
       "priority": "medium"
     },
     {
       "tc_id": "E-002",
+      "wf_ref": "WF-001",
       "subcategory": "boundary",
-      "test_case": "Journal entry blocked when Transaction Date equals latest closure date (must be after)",
+      "test_case": "Transaction_Date = latest closing date (boundary fail \u2014 must be after)",
       "preconditions": [
-        "A closure exists for <Office B> with Closing_Date = <latest closure date>"
+        "An Office exists with a most recent closing date identified as <latest_closing_date>",
+        "User has permission to create journal entries"
       ],
       "steps": [
-        "1. Navigate to Journal Entries page",
-        "2. Click \"+ Add Journal Entry\"",
-        "3. Select Office = <Office B>",
-        "4. Select Currency = <valid currency>",
-        "5. Set Transaction_Date = <latest closure date>",
-        "6. In Entry_Lines row 1: select GL_Account = <account 1>",
-        "7. In Entry_Lines row 1: set Type = Debit",
-        "8. In Entry_Lines row 1: set Amount = <some amount>",
-        "9. Click \"Add Row\"",
-        "10. In Entry_Lines row 2: select GL_Account = <account 2>",
-        "11. In Entry_Lines row 2: set Type = Credit",
-        "12. In Entry_Lines row 2: set Amount = <same amount as row 1>",
-        "13. Click \"Create Journal Entry\""
+        "1. Click + Add Journal Entry",
+        "2. In Office field, select the Office with <latest_closing_date>",
+        "3. In Currency field, select a valid Currency",
+        "4. In Transaction_Date, enter <latest_closing_date>",
+        "5. In the first Entry_Lines row, select a GL_Account",
+        "6. In the first Entry_Lines row, enter an Amount",
+        "7. Ensure totals are balanced (total_debits = total_credits) or set up lines to be balanced",
+        "8. Click Submit"
       ],
-      "expected_result": "Submission is blocked / error shown. An inline validation error is displayed near Transaction Date (or as a form-level error) stating: \"Transaction_Date must be after the latest closure date for the selected Office\" (submission is blocked). No new journal entry row is created.",
+      "expected_result": "Submission is blocked / error shown; the Transaction_Date field displays an inline error indicating the date must be after the latest closing date for the selected Office, and the journal entry is not created.",
       "priority": "medium"
     },
     {
       "tc_id": "E-003",
-      "subcategory": "boundary",
-      "test_case": "Form accepts entry when Debit total equals Credit total exactly",
+      "wf_ref": "WF-002",
+      "subcategory": "state_edge",
+      "test_case": "Create closure then attempt journal entry on same closing date (closure prevents posting on or before closing date)",
       "preconditions": [
-        "No closure exists that blocks Transaction_Date used in the test"
+        "An Office exists without a closure on <new_closing_date>",
+        "User has permission to create closures and journal entries"
       ],
       "steps": [
-        "1. Navigate to Journal Entries page",
-        "2. Click \"+ Add Journal Entry\"",
-        "3. Select Office = <Office C>",
-        "4. Select Currency = <valid currency>",
-        "5. Set Transaction_Date = <valid date after latest closure>",
-        "6. In Entry_Lines row 1: select GL_Account = <account 1>",
-        "7. In Entry_Lines row 1: set Type = Debit",
-        "8. In Entry_Lines row 1: set Amount = <amount A>",
-        "9. Click \"Add Row\"",
-        "10. In Entry_Lines row 2: select GL_Account = <account 2>",
-        "11. In Entry_Lines row 2: set Type = Credit",
-        "12. In Entry_Lines row 2: set Amount = <same amount A as row 1>",
-        "13. Click \"Create Journal Entry\""
+        "1. Click + Create Closure",
+        "2. In Office field, select the target Office",
+        "3. In Closing_Date, enter <new_closing_date>",
+        "4. Click Submit to create the closure",
+        "5. Click + Add Journal Entry",
+        "6. In Office field, select the same Office",
+        "7. In Currency field, select a valid Currency",
+        "8. In Transaction_Date, enter <new_closing_date>",
+        "9. In the first Entry_Lines row, select a GL_Account",
+        "10. In the first Entry_Lines row, enter an Amount",
+        "11. Ensure totals are balanced (total_debits = total_credits)",
+        "12. Click Submit"
       ],
-      "expected_result": "Form submits successfully; journal entry is created (succeeds). The UI running totals show Debit total == Credit total and Difference = 0; the created entry appears in the Journal Entries table.",
+      "expected_result": "Closure creation succeeds (confirmation shown). The subsequent journal entry submission is blocked / error shown; the Transaction_Date field or a global form banner indicates journal entries cannot be posted for dates on or before the closing date, and the journal entry is not created.",
       "priority": "medium"
     },
     {
       "tc_id": "E-004",
+      "wf_ref": "WF-001",
       "subcategory": "boundary",
-      "test_case": "Submission blocked when Debit and Credit totals differ by one smallest currency unit",
+      "test_case": "Entry lines totals exactly equal (total_debits == total_credits) \u2014 balanced submission succeeds",
       "preconditions": [
-        "No closure exists that blocks Transaction_Date used in the test"
+        "User has permission to create journal entries",
+        "Selected Office has a latest closing date earlier than the Transaction_Date to be used"
       ],
       "steps": [
-        "1. Navigate to Journal Entries page",
-        "2. Click \"+ Add Journal Entry\"",
-        "3. Select Office = <Office D>",
-        "4. Select Currency = <valid currency>",
-        "5. Set Transaction_Date = <valid date after latest closure>",
-        "6. In Entry_Lines row 1: select GL_Account = <account 1>",
-        "7. In Entry_Lines row 1: set Type = Debit",
-        "8. In Entry_Lines row 1: set Amount = <amount A>",
-        "9. Click \"Add Row\"",
-        "10. In Entry_Lines row 2: select GL_Account = <account 2>",
-        "11. In Entry_Lines row 2: set Type = Credit",
-        "12. In Entry_Lines row 2: set Amount = <amount A minus one smallest currency unit>",
-        "13. Click \"Create Journal Entry\""
+        "1. Click + Add Journal Entry",
+        "2. In Office field, select an Office with no conflicting closing date",
+        "3. In Currency field, select a valid Currency",
+        "4. In Transaction_Date, enter a date after the Office's latest closing date",
+        "5. In the first Entry_Lines row, select a GL_Account and enter Amount = <A>",
+        "6. Click Add Row",
+        "7. In the second Entry_Lines row, select a GL_Account and enter Amount = <A>",
+        "8. Verify running totals show total_debits = total_credits",
+        "9. Click Submit"
       ],
-      "expected_result": "Submission is blocked / error shown. An inline validation error is displayed near the Entry Lines or running totals indicating the debit and credit totals do not match (e.g. \"Total debits must equal total credits\"); no journal entry is created.",
+      "expected_result": "Form submits successfully; journal entry is created (confirmation shown) and the running totals display zero difference. The new entry appears in the Journal Entries table. Creation succeeds.",
       "priority": "medium"
     },
     {
       "tc_id": "E-005",
-      "subcategory": "input_edge",
-      "test_case": "Very long Comments (>200 characters) saved without truncation",
+      "wf_ref": "WF-001",
+      "subcategory": "boundary",
+      "test_case": "Entry lines totals differ by one smallest unit (off-by-one) \u2014 submission blocked",
       "preconditions": [
-        "No closure exists that blocks Transaction_Date used in the test"
+        "User has permission to create journal entries",
+        "Selected Office has a latest closing date earlier than the Transaction_Date to be used"
       ],
       "steps": [
-        "1. Navigate to Journal Entries page",
-        "2. Click \"+ Add Journal Entry\"",
-        "3. Select Office = <Office E>",
-        "4. Select Currency = <valid currency>",
-        "5. Set Transaction_Date = <valid date after latest closure>",
-        "6. In Entry_Lines row 1: select GL_Account = <account 1>",
-        "7. In Entry_Lines row 1: set Type = Debit",
-        "8. In Entry_Lines row 1: set Amount = <amount A>",
-        "9. Click \"Add Row\"",
-        "10. In Entry_Lines row 2: select GL_Account = <account 2>",
-        "11. In Entry_Lines row 2: set Type = Credit",
-        "12. In Entry_Lines row 2: set Amount = <same amount A as row 1>",
-        "13. Enter Comments = <very long string >200 characters>",
-        "14. Click \"Create Journal Entry\""
+        "1. Click + Add Journal Entry",
+        "2. In Office field, select an Office with no conflicting closing date",
+        "3. In Currency field, select a valid Currency",
+        "4. In Transaction_Date, enter a date after the Office's latest closing date",
+        "5. In the first Entry_Lines row, select a GL_Account and enter Amount = <X>",
+        "6. Click Add Row",
+        "7. In the second Entry_Lines row, select a GL_Account and enter Amount = <X plus one unit>",
+        "8. Verify running totals show a non-zero difference of one unit",
+        "9. Click Submit"
       ],
-      "expected_result": "Form submits successfully; journal entry is created (succeeds). Saved journal entry detail displays the full Comments field containing the entire entered string (verifies no truncation in UI).",
-      "priority": "low"
+      "expected_result": "Submission is blocked / error shown; a running totals difference indicator and an inline validation message indicate total_debits must equal total_credits. The journal entry is not created.",
+      "priority": "medium"
     },
     {
       "tc_id": "E-006",
-      "subcategory": "input_edge",
-      "test_case": "Reference Number and Payment Details accept special characters and emoji",
+      "wf_ref": "WF-001",
+      "subcategory": "boundary",
+      "test_case": "Remove the only entry line (repeating_group min = 1) \u2014 submission blocked",
       "preconditions": [
-        "No closure exists that blocks Transaction_Date used in the test"
+        "User has permission to create journal entries"
       ],
       "steps": [
-        "1. Navigate to Journal Entries page",
-        "2. Click \"+ Add Journal Entry\"",
-        "3. Select Office = <Office F>",
-        "4. Select Currency = <valid currency>",
-        "5. Set Transaction_Date = <valid date after latest closure>",
-        "6. Enter Reference_Number = <string containing special characters and emoji>",
-        "7. Enter Payment_Details = <string containing special characters and emoji>",
-        "8. In Entry_Lines row 1: select GL_Account = <account 1>",
-        "9. In Entry_Lines row 1: set Type = Debit",
-        "10. In Entry_Lines row 1: set Amount = <amount A>",
-        "11. Click \"Add Row\"",
-        "12. In Entry_Lines row 2: select GL_Account = <account 2>",
-        "13. In Entry_Lines row 2: set Type = Credit",
-        "14. In Entry_Lines row 2: set Amount = <same amount A as row 1>",
-        "15. Click \"Create Journal Entry\""
+        "1. Click + Add Journal Entry",
+        "2. In Office field, select an Office",
+        "3. In Currency field, select a valid Currency",
+        "4. In Transaction_Date, enter a date after the Office's latest closing date",
+        "5. If only one Entry_Lines row is present, click the action to remove that row",
+        "6. Click Submit"
       ],
-      "expected_result": "Form submits successfully; journal entry is created (succeeds). Saved journal entry detail displays Reference Number and Payment Details with the same special characters and emoji (no loss or sanitization that removes characters).",
-      "priority": "low"
+      "expected_result": "Submission is blocked / error shown; the Entry_Lines area displays an inline error indicating at least 1 entry line is required (or prevents removal of the last row), and the journal entry is not created.",
+      "priority": "medium"
     },
     {
       "tc_id": "E-007",
-      "subcategory": "interaction_edge",
-      "test_case": "Rapid double-click on Create Journal Entry creates only one journal entry",
+      "wf_ref": null,
+      "subcategory": "input_edge",
+      "test_case": "Leading and trailing whitespace in Office field is trimmed in saved record",
       "preconditions": [
-        "No closure exists that blocks Transaction_Date used in the test",
-        "Add Journal Entry form is filled completely and balanced up to the final click"
+        "An Office exists and the user can select it from the Office dropdown",
+        "User has permission to create journal entries"
       ],
       "steps": [
-        "1. Navigate to Journal Entries page",
-        "2. Click \"+ Add Journal Entry\"",
-        "3. Select Office = <Office G>",
-        "4. Select Currency = <valid currency>",
-        "5. Set Transaction_Date = <valid date after latest closure>",
-        "6. In Entry_Lines row 1: select GL_Account = <account 1>",
-        "7. In Entry_Lines row 1: set Type = Debit",
-        "8. In Entry_Lines row 1: set Amount = <amount A>",
-        "9. Click \"Add Row\"",
-        "10. In Entry_Lines row 2: select GL_Account = <account 2>",
-        "11. In Entry_Lines row 2: set Type = Credit",
-        "12. In Entry_Lines row 2: set Amount = <same amount A as row 1>",
-        "13. Double-click \"Create Journal Entry\" rapidly (two clicks within ~200ms)"
+        "1. Click + Add Journal Entry",
+        "2. In Office field, type the Office name with leading and trailing whitespace surrounding the exact Office label (e.g., ' <OfficeName> ')",
+        "3. In Currency field, select a valid Currency",
+        "4. In Transaction_Date, enter a date after the Office's latest closing date",
+        "5. In the first Entry_Lines row, select a GL_Account and enter an Amount",
+        "6. Click Add Row",
+        "7. In the second Entry_Lines row, select a GL_Account and enter an Amount to balance totals",
+        "8. Click Submit",
+        "9. Open the created journal entry's detail view or find it in the Journal Entries table"
       ],
-      "expected_result": "Only one journal entry is created (succeeds); the system prevents a duplicate creation from the rapid second click. The Journal Entries table shows a single new row for the created entry and no duplicate row appears.",
-      "priority": "medium"
-    },
-    {
-      "tc_id": "E-008",
-      "subcategory": "state_edge",
-      "test_case": "Journal entry blocked for a Transaction Date one day before the closure date (closing prevents on or before)",
-      "preconditions": [
-        "No closure exists for <Office H> later than <closing date being created>"
-      ],
-      "steps": [
-        "1. Click \"+ Create Closure\"",
-        "2. Select Office = <Office H>",
-        "3. Set Closing_Date = <closing date>",
-        "4. Click \"Create Closure\"",
-        "5. Navigate to Journal Entries page",
-        "6. Click \"+ Add Journal Entry\"",
-        "7. Select Office = <Office H>",
-        "8. Select Currency = <valid currency>",
-        "9. Set Transaction_Date = <one day before closing date>",
-        "10. In Entry_Lines row 1: select GL_Account = <account 1>",
-        "11. In Entry_Lines row 1: set Type = Debit",
-        "12. In Entry_Lines row 1: set Amount = <amount A>",
-        "13. Click \"Add Row\"",
-        "14. In Entry_Lines row 2: select GL_Account = <account 2>",
-        "15. In Entry_Lines row 2: set Type = Credit",
-        "16. In Entry_Lines row 2: set Amount = <same amount A as row 1>",
-        "17. Click \"Create Journal Entry\""
-      ],
-      "expected_result": "Submission is blocked / error shown. An inline or form-level error is displayed stating that journal entries cannot be posted for dates on or before the closing date (submission is blocked). No new journal entry is created.",
-      "priority": "medium"
+      "expected_result": "Form submits successfully; journal entry is created. In the Journal Entries table and the entry detail view, the Office value is displayed without leading or trailing whitespace (whitespace is trimmed) and creation succeeds.",
+      "priority": "low"
     }
   ],
   "summary": {
-    "total": 8,
-    "boundary": 4,
-    "input_edge": 2,
-    "interaction_edge": 1,
+    "total": 7,
+    "boundary": 5,
+    "input_edge": 1,
+    "interaction_edge": 0,
     "state_edge": 1,
     "data_edge": 0,
     "medium_priority": 6,
-    "low_priority": 2
+    "low_priority": 1
   }
 }

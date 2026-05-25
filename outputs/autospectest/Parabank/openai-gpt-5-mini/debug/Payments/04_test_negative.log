@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-22T21:31:44.625763
+DEBUG SESSION STARTED: 2026-05-25T15:41:24.132810
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[21:31:44] Test-Negative - SYSTEM PROMPT
+[15:41:24] Test-Negative - SYSTEM PROMPT
 ------------------------------------------------------------
 You are a Negative Test Case Generator. You receive (1) a UI-AST JSON for one module and (2) the original functional description. Your job is to produce ONLY negative test cases — tests where invalid input is provided or business rules are violated, and the system correctly rejects or blocks the action.
 
@@ -22,6 +22,10 @@ You are a Negative Test Case Generator. You receive (1) a UI-AST JSON for one mo
 <description>
 {Original functional description text for this module}
 </description>
+
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
 
 ---
 
@@ -111,6 +115,9 @@ Group required fields by type: `text/unspecified`, `email`, `password`, `number`
 
 Do NOT generate a separate blank-field test for every required field. If 5 text fields are all required, one representative covers them all.
 
+**Action dialog required fields — NOT subject to cross-form deduplication:**
+If a `state_bound_action_bar` action opens a dialog with its own required `fields{}` (e.g., Activate requires Activation Date, Reject requires a Reason, Withdraw requires a Reason, Close requires a Closure Reason), each such dialog is its own testing scope. Generate ONE "leave the required dialog field blank and submit" test per distinct action dialog. These are HIGH priority — they block state transitions and are common defect sites. Do not suppress them because the main wizard already has a blank-field test.
+
 **2. Format violations:**
 
 For fields with type-specific format rules (from AST type or description):
@@ -143,6 +150,10 @@ For each unique `constraints[]` entry in the AST, and for cross-field rules desc
 
 One test per unique constraint. Do not duplicate the same mechanism.
 
+**Constraint timing tests:** If the spec states an action is blocked by a pre-existing system state (e.g., "cannot close with active accounts", "cannot transfer to the same office"), generate TWO tests:
+1. The standard constraint violation test (user opens the dialog, fills required fields, submits → blocked).
+2. A constraint-timing test: user opens the dialog WITHOUT filling required fields → assert whether the block is shown immediately on dialog open (before the user fills anything) OR only on submit. This distinguishes whether the UI enforces the constraint eagerly or lazily. Steps: open the dialog, observe the state → assert what is visible before any interaction. If the spec is silent on timing, generate only the first test.
+
 **5. Precondition violations (auth, role, and state):**
 
 For each `preconditions[]` entry on any action — and for auth/role rules described in the spec:
@@ -154,18 +165,18 @@ For each `preconditions[]` entry on any action — and for auth/role rules descr
 **6. State-machine violations:**
 
 From `state_bound_action_bar` nodes:
-- For each state where an action is NOT listed in `available_actions`, generate one test attempting that action from that state. Example: attempting "Approve" on an entity already in "Active" state.
+- **Every defined state must have at least one wrong-state test.** For each state, identify at least one action that is NOT in its `available_actions` list and generate a test attempting that action from that state.
 - If a state has an empty `available_actions` array, generate one test verifying no action buttons are visible in that state.
-
-One test per unique wrong-state scenario — do not enumerate every action × every invalid state.
+- **Do not stop after 1–2 representative examples** when the module defines 4+ distinct states. The states Active, Pending, Closed, Rejected, and Withdrawn each have different action sets — each must be independently verified.
+- One test per state is sufficient — pick the most distinct unavailable action for that state. Do not enumerate every action × every state (that would be exponential).
 
 ---
 
 **DEDUPLICATION GATE (run before outputting):**
 
-1. **Required field dedup:** Multiple required text fields → ONE representative test, not one per field.
+1. **Required field dedup:** Multiple required text fields in the **same form or dialog** → ONE representative test, not one per field.
 2. **Sub-rule dedup:** A field with multiple validation sub-rules (e.g., password: length + uppercase + lowercase + number + special char) → ONE representative violation test, not one per sub-rule.
-3. **Cross-form dedup:** If two forms in the same module share the same validation mechanism (e.g., both have a required text field) → test it on the primary form only.
+3. **Cross-form dedup:** If two **main forms** in the same module share the same validation mechanism → test it on the primary form only. **Exception: action dialogs are never suppressed by cross-form dedup** — each action dialog with a required field gets its own blank-field test regardless.
 4. **Uniqueness check:** Before outputting, ask for each TC: "Does this test catch a bug that NO other test in this module would catch?" If no → remove it.
 
 ---
@@ -174,9 +185,11 @@ One test per unique wrong-state scenario — do not enumerate every action × ev
 
 - Simple module (login, single form, display page): **2–4 tests**
 - Medium module (standard CRUD form, form with constraints): **4–8 tests**
-- Complex module (state machine, multi-form, wizard with many constraints): **8–12 tests**
+- Complex module (state machine, multi-form, wizard with many constraints): **10–16 tests**
 
-If you exceed these ranges, you are generating redundant tests. Apply the deduplication gate again before outputting.
+For modules with a `state_bound_action_bar` defining 4+ states, the state-machine violation tests alone will produce 4–5 tests. This is expected and correct — do not suppress them to hit a lower target.
+
+If you exceed the upper range, apply the deduplication gate again before outputting.
 
 ---
 
@@ -184,6 +197,17 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
 
 - **High:** State precondition violations, constraint violations that could corrupt data, unauthenticated access, required field representatives
 - **Medium:** Format violations, cross-field validation, numeric bounds, wrong-role access, wrong-state action attempts
+
+---
+
+**WORKFLOW-AWARE FAILURE INJECTION (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- For each workflow that contains a form interaction (terminal action is a submit/save/create/approve button):
+  - Identify the most **critical blocking failure** for that workflow's `conditional_branch`.
+  - If that failure mode is NOT already covered by another workflow's negative test, generate one negative TC for it.
+- **Do NOT generate one negative TC per workflow mechanically.** Apply the existing deduplication gate first — only add a TC if it catches a bug that no other test would catch.
+- Add `"wf_ref": "WF-NNN"` to each TC that maps to a workflow. Set `"wf_ref": null` for generic validation tests.
 
 ---
 
@@ -195,6 +219,7 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
   "test_cases": [
     {
       "tc_id": "N-001",
+      "wf_ref": null,
       "test_case": "Short descriptive name",
       "preconditions": ["precondition 1"],
       "steps": ["1. Step one", "2. Step two"],
@@ -212,7 +237,7 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
 
 
 ------------------------------------------------------------
-[21:31:44] Test-Negative - USER PROMPT
+[15:41:24] Test-Negative - USER PROMPT
 ------------------------------------------------------------
 <module_name>Payments</module_name>
 
@@ -224,62 +249,51 @@ If you exceed these ranges, you are generating redundant tests. Apply the dedupl
       "type": "form",
       "fields": {
         "Payee_Name": {
-          "type": "unspecified",
-          "required": true
+          "type": "unspecified"
         },
         "Street_Address": {
-          "type": "unspecified",
-          "required": true
+          "type": "unspecified"
         },
         "City": {
-          "type": "unspecified",
-          "required": true
+          "type": "unspecified"
         },
         "State": {
-          "type": "unspecified",
-          "required": true
+          "type": "unspecified"
         },
         "ZIP_Code": {
-          "type": "unspecified",
-          "required": true
+          "type": "unspecified"
         },
         "Phone_Number": {
-          "type": "unspecified",
-          "required": true
+          "type": "unspecified"
         },
         "Payee_Account_Number": {
-          "type": "unspecified",
-          "required": true
+          "type": "unspecified"
         },
         "Confirm_Account_Number": {
-          "type": "unspecified",
-          "required": true
+          "type": "unspecified"
         },
         "Payment_Amount": {
-          "type": "number",
-          "required": true,
-          "constraints": [
-            "must be greater than 0"
-          ]
+          "type": "number"
         },
         "Source_Account": {
-          "type": "dropdown",
-          "required": true
+          "type": "dropdown"
         }
       },
       "constraints": [
-        "All fields must pass validation before submission",
-        "Payee_Account_Number must match Confirm_Account_Number (error: \"Account numbers do not match\")"
+        "all fields must pass field-level validation",
+        "Payee_Account_Number must equal Confirm_Account_Number (error message: 'Account numbers do not match')"
       ],
       "submit_actions": [
         {
           "element_name": "Pay",
-          "type": "button",
-          "constraints": [
-            "available funds in Source_Account must be >= Payment_Amount (error: \"Insufficient funds\")"
+          "preconditions": [
+            "sufficient funds must exist in selected Source_Account"
           ],
-          "on_success": "Payment submitted successfully with reference code and updates balances",
-          "on_failure": "Displays inline validation errors; form remains editable"
+          "constraints": [
+            "form-level validations (including account number match) must pass"
+          ],
+          "on_success": "Payment submitted successfully. Returns a reference code and updates account balances.",
+          "on_failure": "Displays inline errors (e.g., 'Account numbers do not match', 'Insufficient funds') and keeps the form editable"
         }
       ]
     }
@@ -293,10 +307,14 @@ The bill-payment page houses a payment form with fields for Payee Name, Street A
 
 </description>
 
+<workflows>
+WF-001 | Submit bill payment | actor: <role> | branch: none | terminal: Pay | on_success: Payment submitted successfully. Returns a reference code and updates account balances.
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[21:32:47] Test-Negative - LLM RESPONSE
+[15:42:43] Test-Negative - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Payments",
@@ -304,115 +322,77 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "N-001",
-      "test_case": "Representative required text field left blank (Payee Name)",
+      "wf_ref": null,
+      "test_case": "Payment Amount non-numeric input is rejected",
       "preconditions": [
-        "User is on the Bill Payment form",
-        "All other required fields are filled with <valid values>"
+        "Bill payment page is open"
       ],
       "steps": [
-        "1. Leave the Payee_Name field blank",
+        "1. Enter <non-numeric amount> in the Payment Amount field",
         "2. Click the Pay button"
       ],
-      "expected_result": "Inline validation error appears on the Payee_Name field indicating it is required (e.g., 'This field is required'); the form does not submit; no payment is created; form remains editable",
-      "priority": "high"
+      "expected_result": "Payment Amount field displays an inline validation error indicating it must be a numeric value; the form does not submit; no reference code is returned; the form remains editable.",
+      "priority": "medium"
     },
     {
       "tc_id": "N-002",
-      "test_case": "Representative required dropdown left blank (Source Account)",
+      "wf_ref": null,
+      "test_case": "Mismatched Payee Account Number and Confirm Account Number is rejected with exact message",
       "preconditions": [
-        "User is on the Bill Payment form",
-        "All other required fields are filled with <valid values> except Source_Account"
+        "Bill payment page is open"
       ],
       "steps": [
-        "1. Leave the Source_Account dropdown unselected",
-        "2. Click the Pay button"
+        "1. Enter <value A> in the Payee Account Number field",
+        "2. Enter <different value B> in the Confirm Account Number field (value B != value A)",
+        "3. Click the Pay button"
       ],
-      "expected_result": "Inline validation error appears on the Source_Account field indicating it is required (e.g., 'Please select a source account'); the form does not submit; no payment is created; form remains editable",
+      "expected_result": "Form does not submit; an inline validation error appears stating 'Account numbers do not match' (displayed on the account confirmation area); the form remains editable.",
       "priority": "high"
     },
     {
       "tc_id": "N-003",
-      "test_case": "Submit with ALL required fields empty",
+      "wf_ref": "WF-001",
+      "test_case": "Payment blocked when selected Source Account lacks sufficient funds",
       "preconditions": [
-        "User is on the Bill Payment form"
+        "Bill payment page is open",
+        "A Source Account exists whose available balance is less than the intended payment amount"
       ],
       "steps": [
-        "1. Ensure every required field (Payee_Name, Street_Address, City, State, ZIP_Code, Phone_Number, Payee_Account_Number, Confirm_Account_Number, Payment_Amount, Source_Account) is blank/unset",
-        "2. Click the Pay button"
+        "1. Select <Source_Account_with_insufficient_funds> in the Source Account dropdown",
+        "2. Enter <valid numeric amount greater than available balance> in the Payment Amount field",
+        "3. Enter matching values in Payee Account Number and Confirm Account Number fields",
+        "4. Click the Pay button"
       ],
-      "expected_result": "All required fields display inline validation errors indicating they are required (e.g., 'This field is required'); the form does not submit; no payment is created; the form remains editable",
+      "expected_result": "Form does not submit; an inline error 'Insufficient funds' is displayed on or near the Source Account / Payment Amount fields; no reference code is returned; account balances are not updated; the form remains editable.",
       "priority": "high"
     },
     {
       "tc_id": "N-004",
-      "test_case": "Payment_Amount non-numeric input",
+      "wf_ref": null,
+      "test_case": "Submitting without selecting a Source Account triggers field-level validation error",
       "preconditions": [
-        "User is on the Bill Payment form",
-        "All other required fields are filled with <valid values>"
+        "Bill payment page is open"
       ],
       "steps": [
-        "1. Enter <non-numeric value> into the Payment_Amount field",
-        "2. Click the Pay button"
+        "1. Ensure no selection is made in the Source Account dropdown (leave it unselected)",
+        "2. Enter <valid numeric amount> in the Payment Amount field",
+        "3. Enter matching values in Payee Account Number and Confirm Account Number fields",
+        "4. Click the Pay button"
       ],
-      "expected_result": "Payment_Amount field displays an inline validation error indicating a numeric value is required (e.g., 'Must be a number'); the form does not submit; no payment is created; the field is highlighted and form remains editable",
+      "expected_result": "Form does not submit; Source Account field displays an inline validation error indicating a selection is required (field-level validation per 'all fields must pass field-level validation'); no reference code is returned; the form remains editable.",
       "priority": "medium"
-    },
-    {
-      "tc_id": "N-005",
-      "test_case": "Payment_Amount violates numeric bound (<= 0)",
-      "preconditions": [
-        "User is on the Bill Payment form",
-        "All other required fields are filled with <valid values>"
-      ],
-      "steps": [
-        "1. Enter <amount less than or equal to 0> into the Payment_Amount field",
-        "2. Click the Pay button"
-      ],
-      "expected_result": "Payment_Amount field displays an inline validation error: 'Must be greater than 0' (or equivalent); the form does not submit; no payment is created; form remains editable",
-      "priority": "medium"
-    },
-    {
-      "tc_id": "N-006",
-      "test_case": "Payee_Account_Number and Confirm_Account_Number mismatch",
-      "preconditions": [
-        "User is on the Bill Payment form",
-        "All other required fields are filled with <valid values>"
-      ],
-      "steps": [
-        "1. Enter <valid account number A> into Payee_Account_Number",
-        "2. Enter <different valid account number B> into Confirm_Account_Number",
-        "3. Click the Pay button"
-      ],
-      "expected_result": "Confirm_Account_Number (or Payee_Account_Number) field displays the inline error: 'Account numbers do not match'; the form does not submit; no payment is created; the form remains editable",
-      "priority": "high"
-    },
-    {
-      "tc_id": "N-007",
-      "test_case": "Insufficient funds in selected Source Account",
-      "preconditions": [
-        "User is on the Bill Payment form",
-        "Selected Source_Account has <available balance less than Payment_Amount>",
-        "All other required fields are filled with <valid values>"
-      ],
-      "steps": [
-        "1. Select the Source_Account that has <available balance less than Payment_Amount>",
-        "2. Enter <payment amount greater than available balance> into Payment_Amount",
-        "3. Click the Pay button"
-      ],
-      "expected_result": "An inline error is displayed on the form reading 'Insufficient funds'; the form does not submit; no payment is created; the form remains editable",
-      "priority": "high"
     }
   ],
   "summary": {
-    "total": 7,
-    "high_priority": 5,
+    "total": 4,
+    "high_priority": 2,
     "medium_priority": 2,
     "low_priority": 0
   }
 }
 
 ------------------------------------------------------------
-[21:32:47] Test-Negative - PARSED JSON
+[15:42:43] Test-Negative - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Payments",
@@ -420,108 +400,70 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "N-001",
-      "test_case": "Representative required text field left blank (Payee Name)",
+      "wf_ref": null,
+      "test_case": "Payment Amount non-numeric input is rejected",
       "preconditions": [
-        "User is on the Bill Payment form",
-        "All other required fields are filled with <valid values>"
+        "Bill payment page is open"
       ],
       "steps": [
-        "1. Leave the Payee_Name field blank",
+        "1. Enter <non-numeric amount> in the Payment Amount field",
         "2. Click the Pay button"
       ],
-      "expected_result": "Inline validation error appears on the Payee_Name field indicating it is required (e.g., 'This field is required'); the form does not submit; no payment is created; form remains editable",
-      "priority": "high"
+      "expected_result": "Payment Amount field displays an inline validation error indicating it must be a numeric value; the form does not submit; no reference code is returned; the form remains editable.",
+      "priority": "medium"
     },
     {
       "tc_id": "N-002",
-      "test_case": "Representative required dropdown left blank (Source Account)",
+      "wf_ref": null,
+      "test_case": "Mismatched Payee Account Number and Confirm Account Number is rejected with exact message",
       "preconditions": [
-        "User is on the Bill Payment form",
-        "All other required fields are filled with <valid values> except Source_Account"
+        "Bill payment page is open"
       ],
       "steps": [
-        "1. Leave the Source_Account dropdown unselected",
-        "2. Click the Pay button"
+        "1. Enter <value A> in the Payee Account Number field",
+        "2. Enter <different value B> in the Confirm Account Number field (value B != value A)",
+        "3. Click the Pay button"
       ],
-      "expected_result": "Inline validation error appears on the Source_Account field indicating it is required (e.g., 'Please select a source account'); the form does not submit; no payment is created; form remains editable",
+      "expected_result": "Form does not submit; an inline validation error appears stating 'Account numbers do not match' (displayed on the account confirmation area); the form remains editable.",
       "priority": "high"
     },
     {
       "tc_id": "N-003",
-      "test_case": "Submit with ALL required fields empty",
+      "wf_ref": "WF-001",
+      "test_case": "Payment blocked when selected Source Account lacks sufficient funds",
       "preconditions": [
-        "User is on the Bill Payment form"
+        "Bill payment page is open",
+        "A Source Account exists whose available balance is less than the intended payment amount"
       ],
       "steps": [
-        "1. Ensure every required field (Payee_Name, Street_Address, City, State, ZIP_Code, Phone_Number, Payee_Account_Number, Confirm_Account_Number, Payment_Amount, Source_Account) is blank/unset",
-        "2. Click the Pay button"
+        "1. Select <Source_Account_with_insufficient_funds> in the Source Account dropdown",
+        "2. Enter <valid numeric amount greater than available balance> in the Payment Amount field",
+        "3. Enter matching values in Payee Account Number and Confirm Account Number fields",
+        "4. Click the Pay button"
       ],
-      "expected_result": "All required fields display inline validation errors indicating they are required (e.g., 'This field is required'); the form does not submit; no payment is created; the form remains editable",
+      "expected_result": "Form does not submit; an inline error 'Insufficient funds' is displayed on or near the Source Account / Payment Amount fields; no reference code is returned; account balances are not updated; the form remains editable.",
       "priority": "high"
     },
     {
       "tc_id": "N-004",
-      "test_case": "Payment_Amount non-numeric input",
+      "wf_ref": null,
+      "test_case": "Submitting without selecting a Source Account triggers field-level validation error",
       "preconditions": [
-        "User is on the Bill Payment form",
-        "All other required fields are filled with <valid values>"
+        "Bill payment page is open"
       ],
       "steps": [
-        "1. Enter <non-numeric value> into the Payment_Amount field",
-        "2. Click the Pay button"
+        "1. Ensure no selection is made in the Source Account dropdown (leave it unselected)",
+        "2. Enter <valid numeric amount> in the Payment Amount field",
+        "3. Enter matching values in Payee Account Number and Confirm Account Number fields",
+        "4. Click the Pay button"
       ],
-      "expected_result": "Payment_Amount field displays an inline validation error indicating a numeric value is required (e.g., 'Must be a number'); the form does not submit; no payment is created; the field is highlighted and form remains editable",
+      "expected_result": "Form does not submit; Source Account field displays an inline validation error indicating a selection is required (field-level validation per 'all fields must pass field-level validation'); no reference code is returned; the form remains editable.",
       "priority": "medium"
-    },
-    {
-      "tc_id": "N-005",
-      "test_case": "Payment_Amount violates numeric bound (<= 0)",
-      "preconditions": [
-        "User is on the Bill Payment form",
-        "All other required fields are filled with <valid values>"
-      ],
-      "steps": [
-        "1. Enter <amount less than or equal to 0> into the Payment_Amount field",
-        "2. Click the Pay button"
-      ],
-      "expected_result": "Payment_Amount field displays an inline validation error: 'Must be greater than 0' (or equivalent); the form does not submit; no payment is created; form remains editable",
-      "priority": "medium"
-    },
-    {
-      "tc_id": "N-006",
-      "test_case": "Payee_Account_Number and Confirm_Account_Number mismatch",
-      "preconditions": [
-        "User is on the Bill Payment form",
-        "All other required fields are filled with <valid values>"
-      ],
-      "steps": [
-        "1. Enter <valid account number A> into Payee_Account_Number",
-        "2. Enter <different valid account number B> into Confirm_Account_Number",
-        "3. Click the Pay button"
-      ],
-      "expected_result": "Confirm_Account_Number (or Payee_Account_Number) field displays the inline error: 'Account numbers do not match'; the form does not submit; no payment is created; the form remains editable",
-      "priority": "high"
-    },
-    {
-      "tc_id": "N-007",
-      "test_case": "Insufficient funds in selected Source Account",
-      "preconditions": [
-        "User is on the Bill Payment form",
-        "Selected Source_Account has <available balance less than Payment_Amount>",
-        "All other required fields are filled with <valid values>"
-      ],
-      "steps": [
-        "1. Select the Source_Account that has <available balance less than Payment_Amount>",
-        "2. Enter <payment amount greater than available balance> into Payment_Amount",
-        "3. Click the Pay button"
-      ],
-      "expected_result": "An inline error is displayed on the form reading 'Insufficient funds'; the form does not submit; no payment is created; the form remains editable",
-      "priority": "high"
     }
   ],
   "summary": {
-    "total": 7,
-    "high_priority": 5,
+    "total": 4,
+    "high_priority": 2,
     "medium_priority": 2,
     "low_priority": 0
   }

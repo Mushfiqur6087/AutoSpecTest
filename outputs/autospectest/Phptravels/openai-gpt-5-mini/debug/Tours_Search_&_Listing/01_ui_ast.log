@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-21T22:50:10.010678
+DEBUG SESSION STARTED: 2026-05-25T14:45:09.070565
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[22:50:10] UI-AST Agent - SYSTEM PROMPT
+[14:45:09] UI-AST Agent - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Expert UI/UX Architect and Systems Analyst. Parse natural language functional specifications into a strict, deterministic UI Abstract Syntax Tree (UI-AST) formatted as a JSON Component Schema.
 
@@ -204,7 +204,7 @@ Mentally enumerate every interactive element in the source. Every field, button,
 }
 
 ------------------------------------------------------------
-[22:50:10] UI-AST Agent - USER PROMPT
+[14:45:09] UI-AST Agent - USER PROMPT
 ------------------------------------------------------------
 Module: Tours Search & Listing
 
@@ -218,114 +218,7 @@ The tours search form collects destination, travel dates, tour type (Adventure, 
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[22:50:37] UI-AST Agent - LLM RESPONSE
-------------------------------------------------------------
-{
-  "module_name": "Tours Search & Listing",
-  "components": {
-    "Tours_Search_Form": {
-      "type": "form",
-      "fields": {
-        "Destination": {
-          "type": "search",
-          "required": false
-        },
-        "Travel_Start_Date": {
-          "type": "date",
-          "required": false
-        },
-        "Travel_End_Date": {
-          "type": "date",
-          "required": false
-        },
-        "Tour_Type": {
-          "type": "dropdown",
-          "required": false,
-          "options": ["Adventure", "Cultural", "Cruise", "Wildlife"]
-        },
-        "Duration_Min_Days": {
-          "type": "number",
-          "required": false
-        },
-        "Duration_Max_Days": {
-          "type": "number",
-          "required": false
-        },
-        "Budget_Min": {
-          "type": "number",
-          "required": false
-        },
-        "Budget_Max": {
-          "type": "number",
-          "required": false
-        }
-      },
-      "submit_actions": [
-        {
-          "element_name": "Search",
-          "type": "button",
-          "on_success": "redirects to Tours Listing page"
-        }
-      ]
-    },
-    "Tours_Listing_Page": {
-      "type": "page",
-      "components": {
-        "Filters_Sidebar": {
-          "type": "form",
-          "fields": {
-            "Destination": {
-              "type": "search",
-              "required": false
-            },
-            "Tour_Type": {
-              "type": "dropdown",
-              "required": false,
-              "options": ["Adventure", "Cultural", "Cruise", "Wildlife"]
-            },
-            "Price_Min": {
-              "type": "number",
-              "required": false
-            },
-            "Price_Max": {
-              "type": "number",
-              "required": false
-            },
-            "Duration_Min_Days": {
-              "type": "number",
-              "required": false
-            },
-            "Duration_Max_Days": {
-              "type": "number",
-              "required": false
-            },
-            "Departure_Start_Date": {
-              "type": "date",
-              "required": false
-            },
-            "Departure_End_Date": {
-              "type": "date",
-              "required": false
-            }
-          }
-        },
-        "Sort_Control": {
-          "type": "dropdown",
-          "element_name": "Sort By",
-          "options": ["Popularity", "Price", "Duration", "Rating"]
-        },
-        "Results_List": {
-          "type": "list",
-          "description": "Card-based results (cards are passive displays per spec)",
-          "sortable_options": ["Popularity", "Price", "Duration", "Rating"]
-        }
-      }
-    }
-  }
-}
-
-------------------------------------------------------------
-[22:50:37] UI-AST Agent - PARSED JSON
+[14:45:35] UI-AST Agent - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module_name": "Tours Search & Listing",
@@ -355,13 +248,12 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
             "Wildlife"
           ]
         },
-        "Duration_Min_Days": {
+        "Duration": {
           "type": "number",
-          "required": false
-        },
-        "Duration_Max_Days": {
-          "type": "number",
-          "required": false
+          "required": false,
+          "constraints": [
+            "must be a positive integer if provided"
+          ]
         },
         "Budget_Min": {
           "type": "number",
@@ -372,10 +264,13 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
           "required": false
         }
       },
+      "constraints": [
+        "Travel_End_Date >= Travel_Start_Date",
+        "Budget_Max >= Budget_Min"
+      ],
       "submit_actions": [
         {
           "element_name": "Search",
-          "type": "button",
           "on_success": "redirects to Tours Listing page"
         }
       ]
@@ -383,7 +278,7 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
     "Tours_Listing_Page": {
       "type": "page",
       "components": {
-        "Filters_Sidebar": {
+        "Sidebar_Filters": {
           "type": "form",
           "fields": {
             "Destination": {
@@ -408,12 +303,286 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
               "type": "number",
               "required": false
             },
-            "Duration_Min_Days": {
+            "Duration": {
+              "type": "number",
+              "required": false,
+              "constraints": [
+                "must be a positive integer if provided"
+              ]
+            },
+            "Departure_Start_Date": {
+              "type": "date",
+              "required": false
+            },
+            "Departure_End_Date": {
+              "type": "date",
+              "required": false
+            }
+          },
+          "constraints": [
+            "Departure_End_Date >= Departure_Start_Date",
+            "Price_Max >= Price_Min"
+          ]
+        },
+        "Sort_Control": {
+          "type": "dropdown",
+          "element_name": "Sort By",
+          "options": [
+            "Popularity",
+            "Price",
+            "Duration",
+            "Rating"
+          ]
+        },
+        "Tours_Card_List": {
+          "type": "card_list",
+          "card_click_action": {
+            "action_name": "View Details",
+            "type": "link",
+            "on_success": "navigates to Tour Detail page"
+          },
+          "sortable_by": [
+            "Popularity",
+            "Price",
+            "Duration",
+            "Rating"
+          ]
+        }
+      }
+    }
+  }
+}
+
+------------------------------------------------------------
+[14:45:35] UI-AST Agent - PARSED JSON
+------------------------------------------------------------
+{
+  "module_name": "Tours Search & Listing",
+  "components": {
+    "Tours_Search_Form": {
+      "type": "form",
+      "fields": {
+        "Destination": {
+          "type": "search",
+          "required": false
+        },
+        "Travel_Start_Date": {
+          "type": "date",
+          "required": false
+        },
+        "Travel_End_Date": {
+          "type": "date",
+          "required": false
+        },
+        "Tour_Type": {
+          "type": "dropdown",
+          "required": false,
+          "options": [
+            "Adventure",
+            "Cultural",
+            "Cruise",
+            "Wildlife"
+          ]
+        },
+        "Duration": {
+          "type": "number",
+          "required": false,
+          "constraints": [
+            "must be a positive integer if provided"
+          ]
+        },
+        "Budget_Min": {
+          "type": "number",
+          "required": false
+        },
+        "Budget_Max": {
+          "type": "number",
+          "required": false
+        }
+      },
+      "constraints": [
+        "Travel_End_Date >= Travel_Start_Date",
+        "Budget_Max >= Budget_Min"
+      ],
+      "submit_actions": [
+        {
+          "element_name": "Search",
+          "on_success": "redirects to Tours Listing page"
+        }
+      ]
+    },
+    "Tours_Listing_Page": {
+      "type": "page",
+      "components": {
+        "Sidebar_Filters": {
+          "type": "form",
+          "fields": {
+            "Destination": {
+              "type": "search",
+              "required": false
+            },
+            "Tour_Type": {
+              "type": "dropdown",
+              "required": false,
+              "options": [
+                "Adventure",
+                "Cultural",
+                "Cruise",
+                "Wildlife"
+              ]
+            },
+            "Price_Min": {
               "type": "number",
               "required": false
             },
-            "Duration_Max_Days": {
+            "Price_Max": {
               "type": "number",
+              "required": false
+            },
+            "Duration": {
+              "type": "number",
+              "required": false,
+              "constraints": [
+                "must be a positive integer if provided"
+              ]
+            },
+            "Departure_Start_Date": {
+              "type": "date",
+              "required": false
+            },
+            "Departure_End_Date": {
+              "type": "date",
+              "required": false
+            }
+          },
+          "constraints": [
+            "Departure_End_Date >= Departure_Start_Date",
+            "Price_Max >= Price_Min"
+          ]
+        },
+        "Sort_Control": {
+          "type": "dropdown",
+          "element_name": "Sort By",
+          "options": [
+            "Popularity",
+            "Price",
+            "Duration",
+            "Rating"
+          ]
+        },
+        "Tours_Card_List": {
+          "type": "card_list",
+          "card_click_action": {
+            "action_name": "View Details",
+            "type": "link",
+            "on_success": "navigates to Tour Detail page"
+          },
+          "sortable_by": [
+            "Popularity",
+            "Price",
+            "Duration",
+            "Rating"
+          ]
+        }
+      }
+    }
+  }
+}
+
+------------------------------------------------------------
+[14:46:18] UI-AST Agent - USER PROMPT
+------------------------------------------------------------
+Module: Tours Search & Listing
+
+
+The tours search form collects destination, travel dates, tour type (Adventure, Cultural, Cruise, Wildlife, etc.), duration, and budget range. On success, users are redirected to the listing page, where each card shows tour image, name, destination, duration, starting price per person, a brief description, availability status, and traveler rating. Sidebar filters include destination, tour type, price range, duration, and departure dates. Results can be sorted by popularity, price, duration, or rating.
+
+---
+
+
+
+**CRITIC FEEDBACK FROM PREVIOUS ATTEMPT — address every point:**
+1. Add explicit card field definitions under Tours_Listing_Page.components.Tours_Card_List.card_fields: include Image, Name, Destination, Duration, Starting_Price_Per_Person, Brief_Description, Availability_Status, Traveler_Rating (each as display fields; no additional interactive constraints unless described).
+2. Remove the inferred constraints from Tours_Search_Form.constraints array; do not add Travel_End_Date >= Travel_Start_Date or Budget_Max >= Budget_Min unless the description explicitly requires validation rules.
+3. Remove the inferred 'must be a positive integer' constraint from Tours_Search_Form.fields.Duration.constraints and from Tours_Listing_Page.components.Sidebar_Filters.fields.Duration.constraints unless the description explicitly states this validation.
+4. Remove the inferred constraints array from Tours_Listing_Page.components.Sidebar_Filters (Departure_End_Date >= Departure_Start_Date and Price_Max >= Price_Min) unless those validation rules are explicitly specified.
+5. Remove Tours_Listing_Page.components.Tours_Card_List.card_click_action unless the description explicitly states that cards are clickable or have a 'View Details' action; if cards should navigate, add only if described.
+6. Remove Tours_Listing_Page.components.Tours_Card_List.sortable_by (duplicative/inferred). Keep only the Sort_Control component to represent sorting options as described.
+
+
+IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
+
+------------------------------------------------------------
+[14:46:50] UI-AST Agent - LLM RESPONSE
+------------------------------------------------------------
+{
+  "module_name": "Tours Search & Listing",
+  "components": {
+    "Tours_Search_Form": {
+      "type": "form",
+      "fields": {
+        "Destination": {
+          "type": "unspecified",
+          "required": false
+        },
+        "Travel_Start_Date": {
+          "type": "date",
+          "required": false
+        },
+        "Travel_End_Date": {
+          "type": "date",
+          "required": false
+        },
+        "Tour_Type": {
+          "type": "dropdown",
+          "required": false,
+          "options": ["Adventure", "Cultural", "Cruise", "Wildlife"]
+        },
+        "Duration": {
+          "type": "unspecified",
+          "required": false
+        },
+        "Budget_Min": {
+          "type": "number",
+          "required": false
+        },
+        "Budget_Max": {
+          "type": "number",
+          "required": false
+        }
+      },
+      "submit_actions": [
+        {
+          "element_name": "Search",
+          "on_success": "redirects to Tours_Listing_Page"
+        }
+      ]
+    },
+    "Tours_Listing_Page": {
+      "type": "page",
+      "components": {
+        "Sidebar_Filters": {
+          "type": "form",
+          "fields": {
+            "Destination": {
+              "type": "unspecified",
+              "required": false
+            },
+            "Tour_Type": {
+              "type": "dropdown",
+              "required": false,
+              "options": ["Adventure", "Cultural", "Cruise", "Wildlife"]
+            },
+            "Price_Min": {
+              "type": "number",
+              "required": false
+            },
+            "Price_Max": {
+              "type": "number",
+              "required": false
+            },
+            "Duration": {
+              "type": "unspecified",
               "required": false
             },
             "Departure_Start_Date": {
@@ -428,7 +597,139 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
         },
         "Sort_Control": {
           "type": "dropdown",
-          "element_name": "Sort By",
+          "element_name": "Sort_By",
+          "options": ["Popularity", "Price", "Duration", "Rating"]
+        },
+        "Tours_Card_List": {
+          "type": "card_list",
+          "card_fields": {
+            "Image": {
+              "type": "unspecified"
+            },
+            "Name": {
+              "type": "unspecified"
+            },
+            "Destination": {
+              "type": "unspecified"
+            },
+            "Duration": {
+              "type": "unspecified"
+            },
+            "Starting_Price_Per_Person": {
+              "type": "number"
+            },
+            "Brief_Description": {
+              "type": "unspecified"
+            },
+            "Availability_Status": {
+              "type": "unspecified"
+            },
+            "Traveler_Rating": {
+              "type": "unspecified"
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+------------------------------------------------------------
+[14:46:50] UI-AST Agent - PARSED JSON
+------------------------------------------------------------
+{
+  "module_name": "Tours Search & Listing",
+  "components": {
+    "Tours_Search_Form": {
+      "type": "form",
+      "fields": {
+        "Destination": {
+          "type": "unspecified",
+          "required": false
+        },
+        "Travel_Start_Date": {
+          "type": "date",
+          "required": false
+        },
+        "Travel_End_Date": {
+          "type": "date",
+          "required": false
+        },
+        "Tour_Type": {
+          "type": "dropdown",
+          "required": false,
+          "options": [
+            "Adventure",
+            "Cultural",
+            "Cruise",
+            "Wildlife"
+          ]
+        },
+        "Duration": {
+          "type": "unspecified",
+          "required": false
+        },
+        "Budget_Min": {
+          "type": "number",
+          "required": false
+        },
+        "Budget_Max": {
+          "type": "number",
+          "required": false
+        }
+      },
+      "submit_actions": [
+        {
+          "element_name": "Search",
+          "on_success": "redirects to Tours_Listing_Page"
+        }
+      ]
+    },
+    "Tours_Listing_Page": {
+      "type": "page",
+      "components": {
+        "Sidebar_Filters": {
+          "type": "form",
+          "fields": {
+            "Destination": {
+              "type": "unspecified",
+              "required": false
+            },
+            "Tour_Type": {
+              "type": "dropdown",
+              "required": false,
+              "options": [
+                "Adventure",
+                "Cultural",
+                "Cruise",
+                "Wildlife"
+              ]
+            },
+            "Price_Min": {
+              "type": "number",
+              "required": false
+            },
+            "Price_Max": {
+              "type": "number",
+              "required": false
+            },
+            "Duration": {
+              "type": "unspecified",
+              "required": false
+            },
+            "Departure_Start_Date": {
+              "type": "date",
+              "required": false
+            },
+            "Departure_End_Date": {
+              "type": "date",
+              "required": false
+            }
+          }
+        },
+        "Sort_Control": {
+          "type": "dropdown",
+          "element_name": "Sort_By",
           "options": [
             "Popularity",
             "Price",
@@ -436,15 +737,34 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
             "Rating"
           ]
         },
-        "Results_List": {
-          "type": "list",
-          "description": "Card-based results (cards are passive displays per spec)",
-          "sortable_options": [
-            "Popularity",
-            "Price",
-            "Duration",
-            "Rating"
-          ]
+        "Tours_Card_List": {
+          "type": "card_list",
+          "card_fields": {
+            "Image": {
+              "type": "unspecified"
+            },
+            "Name": {
+              "type": "unspecified"
+            },
+            "Destination": {
+              "type": "unspecified"
+            },
+            "Duration": {
+              "type": "unspecified"
+            },
+            "Starting_Price_Per_Person": {
+              "type": "number"
+            },
+            "Brief_Description": {
+              "type": "unspecified"
+            },
+            "Availability_Status": {
+              "type": "unspecified"
+            },
+            "Traveler_Rating": {
+              "type": "unspecified"
+            }
+          }
         }
       }
     }

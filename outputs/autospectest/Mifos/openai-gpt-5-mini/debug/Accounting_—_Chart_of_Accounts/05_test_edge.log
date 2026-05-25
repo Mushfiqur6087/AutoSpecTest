@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-21T22:29:06.543750
+DEBUG SESSION STARTED: 2026-05-25T14:24:50.736000
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[22:29:06] Test-Edge - SYSTEM PROMPT
+[14:24:50] Test-Edge - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Edge Case and Boundary Test Generator. You receive (1) a UI-AST JSON for one module and (2) the original functional description. Your job is to produce ONLY boundary and edge case tests — scenarios at the limits of valid/invalid input and unusual-but-plausible user behaviors.
 
@@ -25,6 +25,10 @@ You are NOT producing happy paths (positive prompt) or standard validation failu
 {Original functional description text for this module}
 </description>
 
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
+
 ---
 
 **UI-AST REFERENCE — How to Read the AST for Edge Testing:**
@@ -35,7 +39,7 @@ You are NOT producing happy paths (positive prompt) or standard validation failu
 | `repeating_group` with `max` | Test adding exactly `max` entries (should succeed) then one more (should block) |
 | `visible_when` / `required_when` | Edge: trigger condition, fill revealed field with boundary value |
 | `state_bound_action_bar` | State edges: rapid consecutive state transitions, transition from a boundary state |
-| `submit_actions[]` with multiple buttons | Interaction edge: double-click a submit button rapidly |
+
 | `type: "date"` fields | Data edges: today, yesterday, far future, Feb 29 leap year |
 | `type: "file_upload"` | Edge: file exactly at size limit, file at 1 byte over limit |
 
@@ -132,7 +136,6 @@ Pick only the ones that apply to field types present in this module's AST:
 
 Pick only the ones that match component types in this module's AST:
 
-- **Double-click submit** (any form/wizard with a submit button): rapidly double-click the submit button → assert only one record is created; no duplicate row appears in the listing table
 - **Rapid re-submission after redirect** (any form that redirects to a detail page on success): after a successful submit, press the browser back button → assert the creation form is shown blank (not pre-filled) OR the user is redirected to the detail page without a second entity being created
 - **Wizard step skip — enforced navigation** (wizard where steps must be completed sequentially): attempt to click a later step tab directly without completing earlier steps → assert navigation is blocked and the earlier step remains active
 - **Wizard step skip — free navigation** (wizard that allows free tab navigation): navigate to a later step without filling earlier steps → assert the later step displays and returning to the earlier step shows fields blank (no data was lost from the later step)
@@ -173,7 +176,16 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 
 - **High:** None — edge tests are secondary to core functionality
 - **Medium:** Boundary tests at thresholds (financial amounts, date ordering, count limits, file size limits)
-- **Low:** Input edge cases (long text, special chars, whitespace, decimal precision), interaction edge cases (double-click, browser back, wizard skip)
+- **Low:** Input edge cases (long text, special chars, whitespace, decimal precision), interaction edge cases (browser back, wizard skip)
+
+---
+
+**WORKFLOW-AWARE BOUNDARY SCOPING (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- For each workflow where `conditional_branch` activates a numeric or date field, check if that field has a boundary (a numeric/date threshold in the AST `constraints` or description).
+- If yes, that workflow's branch is a **candidate for a boundary edge test** — add or confirm a boundary TC exists for it.
+- Add `"wf_ref": "WF-NNN"` to each TC that maps to a specific workflow's boundary. Set `"wf_ref": null` for generic input/interaction edge tests.
 
 ---
 
@@ -185,6 +197,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": null,
       "subcategory": "boundary | input_edge | interaction_edge | state_edge | data_edge",
       "test_case": "Short descriptive name",
       "preconditions": ["precondition 1"],
@@ -207,7 +220,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 
 
 ------------------------------------------------------------
-[22:29:06] Test-Edge - USER PROMPT
+[14:24:50] Test-Edge - USER PROMPT
 ------------------------------------------------------------
 <module_name>Accounting — Chart of Accounts</module_name>
 
@@ -215,36 +228,30 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 {
   "module_name": "Accounting \u2014 Chart of Accounts",
   "components": {
-    "Chart_of_Accounts_Page": {
-      "type": "page",
-      "components": {
-        "Chart_of_Accounts_Tree": {
-          "type": "tree",
-          "description": "Hierarchical tree of all General Ledger accounts organized by account type",
-          "group_by_types": [
-            "Assets",
-            "Liabilities",
-            "Equity",
-            "Income",
-            "Expenses"
-          ],
-          "row_actions": [
-            {
-              "action_name": "Open Account Detail",
-              "trigger": "click Account Name",
-              "opens": "Account_Detail_View"
-            }
-          ]
-        },
-        "Create_GL_Account_Button": {
-          "type": "button",
+    "Chart_of_Accounts_Tree": {
+      "type": "data_table",
+      "hierarchy": true,
+      "description": "Hierarchical tree of GL accounts grouped by Account Type",
+      "top_actions": [
+        {
           "element_name": "+ Create GL Account",
-          "opens": "Create_GL_Account_Form"
+          "type": "button",
+          "on_click": "opens Create_GL_Account_Form"
         }
-      }
+      ],
+      "row_click_navigates_to": "Account_Detail_View",
+      "row_actions": [
+        {
+          "action_name": "Open",
+          "trigger": "click Account Name",
+          "opens": "Account_Detail_View"
+        }
+      ],
+      "bulk_actions": []
     },
     "Create_GL_Account_Form": {
       "type": "form",
+      "triggered_by": "+ Create GL Account",
       "fields": {
         "Account_Type": {
           "type": "dropdown",
@@ -260,13 +267,16 @@ If the module has any numeric/date/count threshold in the AST or description, pr
         "Parent_Account": {
           "type": "dropdown",
           "required": false,
-          "options_filter": "Usage == Header AND Account_Type == Account_Type"
+          "constraints": [
+            "options limited to header accounts of the selected Account_Type",
+            "Parent account (if chosen) must have Account_Usage == Header and Account_Type == selected Account_Type"
+          ]
         },
         "GL_Code": {
           "type": "unspecified",
           "required": true,
           "constraints": [
-            "must be unique across all GL Codes; duplicates produce a validation error"
+            "must be unique across all GL Codes (duplicates produce a validation error)"
           ]
         },
         "Account_Name": {
@@ -296,19 +306,96 @@ If the module has any numeric/date/count threshold in the AST or description, pr
       },
       "submit_actions": [
         {
-          "element_name": "submit"
+          "element_name": "Create",
+          "on_success": "creates GL account"
+        },
+        {
+          "element_name": "Cancel",
+          "on_success": "closes form without creating account"
         }
       ]
     },
     "Account_Detail_View": {
       "type": "detail_view",
-      "opens_from": "Chart_of_Accounts_Tree",
+      "opened_from": "Chart_of_Accounts_Tree (click Account Name)",
+      "fields": {},
       "actions": [
         {
-          "action_name": "Edit"
+          "action_name": "Edit",
+          "type": "button",
+          "on_click": "opens Edit_GL_Account_Form"
         },
         {
-          "action_name": "Delete"
+          "action_name": "Delete",
+          "type": "button",
+          "on_click": "deletes account",
+          "on_success": "deletes account"
+        }
+      ]
+    },
+    "Edit_GL_Account_Form": {
+      "type": "form",
+      "triggered_by": "Account_Detail_View -> Edit",
+      "fields": {
+        "Account_Type": {
+          "type": "dropdown",
+          "required": true,
+          "options": [
+            "Assets",
+            "Liabilities",
+            "Equity",
+            "Income",
+            "Expenses"
+          ]
+        },
+        "Parent_Account": {
+          "type": "dropdown",
+          "required": false,
+          "constraints": [
+            "options limited to header accounts of the selected Account_Type",
+            "Parent account (if chosen) must have Account_Usage == Header and Account_Type == selected Account_Type"
+          ]
+        },
+        "GL_Code": {
+          "type": "unspecified",
+          "required": true,
+          "constraints": [
+            "must be unique across all GL Codes (duplicates produce a validation error)"
+          ]
+        },
+        "Account_Name": {
+          "type": "unspecified",
+          "required": true
+        },
+        "Account_Usage": {
+          "type": "dropdown",
+          "required": false,
+          "options": [
+            "Header",
+            "Detail"
+          ]
+        },
+        "Manual_Entries_Allowed": {
+          "type": "checkbox",
+          "required": false
+        },
+        "Description": {
+          "type": "unspecified",
+          "required": false
+        },
+        "Tag": {
+          "type": "dropdown",
+          "required": false
+        }
+      },
+      "submit_actions": [
+        {
+          "element_name": "Save",
+          "on_success": "updates account"
+        },
+        {
+          "element_name": "Cancel",
+          "on_success": "closes edit form without saving"
         }
       ]
     }
@@ -325,10 +412,21 @@ The Chart of Accounts page displays a hierarchical tree of all General Ledger ac
 
 </description>
 
+<workflows>
+WF-001 | Open Create GL Account form | actor: <role> | branch: none | terminal: + Create GL Account | on_success: opens Create_GL_Account_Form
+WF-002 | Create GL account (Create) | actor: <role> | branch: none | terminal: Create | on_success: creates GL account
+WF-003 | Create GL account (Cancel) | actor: <role> | branch: none | terminal: Cancel | on_success: closes form without creating account
+WF-004 | Open account detail (row action 'Open') | actor: <role> | branch: none | terminal: Open | on_success: opens Account_Detail_View
+WF-005 | Open Edit GL Account from detail view (Edit) | actor: <role> | branch: none | terminal: Edit | on_success: opens Edit_GL_Account_Form
+WF-006 | Delete account from detail view | actor: <role> | branch: none | terminal: Delete | on_success: deletes account
+WF-007 | Edit GL account (Save) | actor: <role> | branch: none | terminal: Save | on_success: updates account
+WF-008 | Edit GL account (Cancel) | actor: <role> | branch: none | terminal: Cancel | on_success: closes edit form without saving
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[22:33:43] Test-Edge - LLM RESPONSE
+[14:29:50] Test-Edge - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Accounting — Chart of Accounts",
@@ -336,95 +434,94 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "E-001",
-      "subcategory": "input_edge",
-      "test_case": "Very long Account_Name (200+ chars) submission",
+      "wf_ref": "WF-001",
+      "subcategory": "boundary",
+      "test_case": "Parent_Account dropdown shows only header accounts of the selected Account_Type",
       "preconditions": [
-        "User is on Chart_of_Accounts_Page"
+        "Create GL Account form is accessible",
+        "There exist header accounts across multiple Account_Type values (Assets, Liabilities, Equity, Income, Expenses)"
       ],
       "steps": [
-        "1. Click '+ Create GL Account' to open Create_GL_Account_Form",
-        "2. Select <Account_Type> in the Account_Type dropdown",
-        "3. Enter <long string of 200+ characters> in the Account_Name field",
-        "4. Enter <unique GL code> in the GL_Code field",
-        "5. Fill any other required fields",
-        "6. Click the submit button"
+        "1. Click the \"+ Create GL Account\" button to open Create_GL_Account_Form",
+        "2. Click the Account_Type dropdown and select \"Assets\"",
+        "3. Click the Parent_Account dropdown to open the list of possible parents"
       ],
-      "expected_result": "Either: form submission succeeds and the Account Detail view shows the full entered Account_Name exactly as typed (succeeds), OR submission is blocked and an inline validation error is shown indicating the Account_Name exceeds the maximum allowed length (is blocked / error shown). The UI must visibly show which of these occurred (detail page with full text OR an inline error next to Account_Name).",
-      "priority": "low"
+      "expected_result": "Parent_Account dropdown displays only accounts whose Account_Usage == Header and whose Account_Type == the selected Account_Type (Assets). Header accounts of other Account_Type values are not listed. This filtering behavior succeeds and is visible in the Parent_Account dropdown list.",
+      "priority": "medium"
     },
     {
       "tc_id": "E-002",
-      "subcategory": "input_edge",
-      "test_case": "Special characters and emoji in Account_Name and Description",
+      "wf_ref": "WF-001",
+      "subcategory": "interaction_edge",
+      "test_case": "Previously-selected Parent_Account becomes invalid when Account_Type is changed after selection",
       "preconditions": [
-        "User is on Chart_of_Accounts_Page"
+        "Create GL Account form is open",
+        "A header Parent_Account exists for Account_Type A and a header Parent_Account exists for Account_Type B"
       ],
       "steps": [
-        "1. Click '+ Create GL Account' to open Create_GL_Account_Form",
-        "2. Select <Account_Type> in the Account_Type dropdown",
-        "3. Enter <string with emoji and special characters> in the Account_Name field",
-        "4. Enter <string with emoji and special characters> in the Description field",
-        "5. Enter <unique GL code> in the GL_Code field",
-        "6. Fill any other required fields",
-        "7. Click the submit button"
+        "1. Click the \"+ Create GL Account\" button to open Create_GL_Account_Form",
+        "2. Select Account_Type = <Account_Type A>",
+        "3. Open Parent_Account dropdown and select <header account belonging to Account_Type A>",
+        "4. Change Account_Type to <Account_Type B> by selecting it from the Account_Type dropdown",
+        "5. Observe the Parent_Account field and any inline validation messages"
       ],
-      "expected_result": "Either: form submission succeeds and the Account Detail view displays the Account_Name and Description including the special characters/emoji exactly (succeeds), OR submission is blocked and an inline validation error is shown indicating prohibited characters (is blocked / error shown). The UI must display either the detail text or the inline error.",
-      "priority": "low"
+      "expected_result": "The previously-selected Parent_Account is cleared (selection removed) because it no longer matches the selected Account_Type. An inline validation message is shown next to the Parent_Account field indicating the selection is invalid (Parent must be a header account of the selected Account_Type). Creation is blocked until the Parent_Account is either cleared or replaced with a valid header of the new Account_Type; this blocking behavior is visible. (is blocked / error shown)",
+      "priority": "medium"
     },
     {
       "tc_id": "E-003",
-      "subcategory": "data_edge",
-      "test_case": "Create Detail account when no Header parent exists for selected Account_Type (Parent_Account dropdown empty)",
+      "wf_ref": "WF-002",
+      "subcategory": "boundary",
+      "test_case": "GL_Code uniqueness triggered by input with leading/trailing whitespace matching an existing GL_Code",
       "preconditions": [
-        "User is on Chart_of_Accounts_Page",
-        "There are currently no Header accounts for the selected <Account_Type> (i.e., no eligible Parent_Account options)"
+        "An existing GL account exists with GL_Code = <existing GL_Code>",
+        "Create GL Account form is open"
       ],
       "steps": [
-        "1. Click '+ Create GL Account' to open Create_GL_Account_Form",
-        "2. Select the <Account_Type> that has no Header accounts",
-        "3. Open the Parent_Account dropdown and observe options",
-        "4. Set Account_Usage to 'Detail' (or leave default if selecting 'Detail' is required)",
-        "5. Enter <unique GL code> in the GL_Code field",
-        "6. Enter <Account name> in the Account_Name field",
-        "7. Click the submit button"
+        "1. Click the \"+ Create GL Account\" button to open Create_GL_Account_Form",
+        "2. Enter GL_Code = <existing GL_Code> with additional leading and/or trailing whitespace",
+        "3. Enter Account_Name with a unique value",
+        "4. Select a valid Account_Type",
+        "5. Click the Create button"
       ],
-      "expected_result": "Parent_Account dropdown shows no selectable options for the chosen Account_Type. Submitting the form with Account_Usage = 'Detail' and no Parent_Account selected succeeds; a new Detail account appears in the Chart_of_Accounts_Tree under the chosen Account_Type with no parent shown (succeeds). The UI must show the new account row in the appropriate group.",
+      "expected_result": "Creation is blocked; the GL_Code field displays a visible validation error indicating the GL Code duplicates an existing GL Code (the system treats the whitespace-normalized value as a duplicate). No new GL account is created and the Create action does not succeed. (is blocked / error shown)",
       "priority": "medium"
     },
     {
       "tc_id": "E-004",
-      "subcategory": "interaction_edge",
-      "test_case": "Rapid double-click of submit creates only one GL account",
+      "wf_ref": "WF-002",
+      "subcategory": "input_edge",
+      "test_case": "Leading and trailing whitespace in Account_Name is trimmed on save",
       "preconditions": [
-        "User is on Chart_of_Accounts_Page",
-        "No existing account uses <unique GL code> to be entered"
+        "Create GL Account form is open",
+        "No conflicting GL_Code exists for the GL_Code to be used"
       ],
       "steps": [
-        "1. Click '+ Create GL Account' to open Create_GL_Account_Form",
-        "2. Select <Account_Type> in the Account_Type dropdown",
-        "3. Enter <unique GL code> in the GL_Code field",
-        "4. Enter <Account name> in the Account_Name field",
-        "5. Fill any other required fields",
-        "6. Rapidly double-click the submit button (two clicks within ~200ms)"
+        "1. Click the \"+ Create GL Account\" button to open Create_GL_Account_Form",
+        "2. Enter Account_Name with leading and trailing whitespace (e.g., starts and ends with space characters)",
+        "3. Enter a unique GL_Code",
+        "4. Select a valid Account_Type and fill any other required fields",
+        "5. Click the Create button",
+        "6. Open the created account's Account_Detail_View by clicking the account name in the Chart of Accounts tree"
       ],
-      "expected_result": "Only one account record is created in the Chart_of_Accounts_Tree for the submitted GL_Code; no duplicate row appears (succeeds). The UI should either disable the submit button after the first click or otherwise prevent a second create action; visually only a single new row is visible.",
-      "priority": "medium"
+      "expected_result": "Form submission succeeds; the account is created. The Account_Detail_View displays the Account_Name with leading and trailing whitespace removed (trimmed). The trim is visible on the detail page. (succeeds)",
+      "priority": "low"
     }
   ],
   "summary": {
     "total": 4,
-    "boundary": 0,
-    "input_edge": 2,
+    "boundary": 2,
+    "input_edge": 1,
     "interaction_edge": 1,
     "state_edge": 0,
-    "data_edge": 1,
-    "medium_priority": 2,
-    "low_priority": 2
+    "data_edge": 0,
+    "medium_priority": 3,
+    "low_priority": 1
   }
 }
 
 ------------------------------------------------------------
-[22:33:43] Test-Edge - PARSED JSON
+[14:29:50] Test-Edge - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Accounting \u2014 Chart of Accounts",
@@ -432,89 +529,88 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "E-001",
-      "subcategory": "input_edge",
-      "test_case": "Very long Account_Name (200+ chars) submission",
+      "wf_ref": "WF-001",
+      "subcategory": "boundary",
+      "test_case": "Parent_Account dropdown shows only header accounts of the selected Account_Type",
       "preconditions": [
-        "User is on Chart_of_Accounts_Page"
+        "Create GL Account form is accessible",
+        "There exist header accounts across multiple Account_Type values (Assets, Liabilities, Equity, Income, Expenses)"
       ],
       "steps": [
-        "1. Click '+ Create GL Account' to open Create_GL_Account_Form",
-        "2. Select <Account_Type> in the Account_Type dropdown",
-        "3. Enter <long string of 200+ characters> in the Account_Name field",
-        "4. Enter <unique GL code> in the GL_Code field",
-        "5. Fill any other required fields",
-        "6. Click the submit button"
+        "1. Click the \"+ Create GL Account\" button to open Create_GL_Account_Form",
+        "2. Click the Account_Type dropdown and select \"Assets\"",
+        "3. Click the Parent_Account dropdown to open the list of possible parents"
       ],
-      "expected_result": "Either: form submission succeeds and the Account Detail view shows the full entered Account_Name exactly as typed (succeeds), OR submission is blocked and an inline validation error is shown indicating the Account_Name exceeds the maximum allowed length (is blocked / error shown). The UI must visibly show which of these occurred (detail page with full text OR an inline error next to Account_Name).",
-      "priority": "low"
+      "expected_result": "Parent_Account dropdown displays only accounts whose Account_Usage == Header and whose Account_Type == the selected Account_Type (Assets). Header accounts of other Account_Type values are not listed. This filtering behavior succeeds and is visible in the Parent_Account dropdown list.",
+      "priority": "medium"
     },
     {
       "tc_id": "E-002",
-      "subcategory": "input_edge",
-      "test_case": "Special characters and emoji in Account_Name and Description",
+      "wf_ref": "WF-001",
+      "subcategory": "interaction_edge",
+      "test_case": "Previously-selected Parent_Account becomes invalid when Account_Type is changed after selection",
       "preconditions": [
-        "User is on Chart_of_Accounts_Page"
+        "Create GL Account form is open",
+        "A header Parent_Account exists for Account_Type A and a header Parent_Account exists for Account_Type B"
       ],
       "steps": [
-        "1. Click '+ Create GL Account' to open Create_GL_Account_Form",
-        "2. Select <Account_Type> in the Account_Type dropdown",
-        "3. Enter <string with emoji and special characters> in the Account_Name field",
-        "4. Enter <string with emoji and special characters> in the Description field",
-        "5. Enter <unique GL code> in the GL_Code field",
-        "6. Fill any other required fields",
-        "7. Click the submit button"
+        "1. Click the \"+ Create GL Account\" button to open Create_GL_Account_Form",
+        "2. Select Account_Type = <Account_Type A>",
+        "3. Open Parent_Account dropdown and select <header account belonging to Account_Type A>",
+        "4. Change Account_Type to <Account_Type B> by selecting it from the Account_Type dropdown",
+        "5. Observe the Parent_Account field and any inline validation messages"
       ],
-      "expected_result": "Either: form submission succeeds and the Account Detail view displays the Account_Name and Description including the special characters/emoji exactly (succeeds), OR submission is blocked and an inline validation error is shown indicating prohibited characters (is blocked / error shown). The UI must display either the detail text or the inline error.",
-      "priority": "low"
+      "expected_result": "The previously-selected Parent_Account is cleared (selection removed) because it no longer matches the selected Account_Type. An inline validation message is shown next to the Parent_Account field indicating the selection is invalid (Parent must be a header account of the selected Account_Type). Creation is blocked until the Parent_Account is either cleared or replaced with a valid header of the new Account_Type; this blocking behavior is visible. (is blocked / error shown)",
+      "priority": "medium"
     },
     {
       "tc_id": "E-003",
-      "subcategory": "data_edge",
-      "test_case": "Create Detail account when no Header parent exists for selected Account_Type (Parent_Account dropdown empty)",
+      "wf_ref": "WF-002",
+      "subcategory": "boundary",
+      "test_case": "GL_Code uniqueness triggered by input with leading/trailing whitespace matching an existing GL_Code",
       "preconditions": [
-        "User is on Chart_of_Accounts_Page",
-        "There are currently no Header accounts for the selected <Account_Type> (i.e., no eligible Parent_Account options)"
+        "An existing GL account exists with GL_Code = <existing GL_Code>",
+        "Create GL Account form is open"
       ],
       "steps": [
-        "1. Click '+ Create GL Account' to open Create_GL_Account_Form",
-        "2. Select the <Account_Type> that has no Header accounts",
-        "3. Open the Parent_Account dropdown and observe options",
-        "4. Set Account_Usage to 'Detail' (or leave default if selecting 'Detail' is required)",
-        "5. Enter <unique GL code> in the GL_Code field",
-        "6. Enter <Account name> in the Account_Name field",
-        "7. Click the submit button"
+        "1. Click the \"+ Create GL Account\" button to open Create_GL_Account_Form",
+        "2. Enter GL_Code = <existing GL_Code> with additional leading and/or trailing whitespace",
+        "3. Enter Account_Name with a unique value",
+        "4. Select a valid Account_Type",
+        "5. Click the Create button"
       ],
-      "expected_result": "Parent_Account dropdown shows no selectable options for the chosen Account_Type. Submitting the form with Account_Usage = 'Detail' and no Parent_Account selected succeeds; a new Detail account appears in the Chart_of_Accounts_Tree under the chosen Account_Type with no parent shown (succeeds). The UI must show the new account row in the appropriate group.",
+      "expected_result": "Creation is blocked; the GL_Code field displays a visible validation error indicating the GL Code duplicates an existing GL Code (the system treats the whitespace-normalized value as a duplicate). No new GL account is created and the Create action does not succeed. (is blocked / error shown)",
       "priority": "medium"
     },
     {
       "tc_id": "E-004",
-      "subcategory": "interaction_edge",
-      "test_case": "Rapid double-click of submit creates only one GL account",
+      "wf_ref": "WF-002",
+      "subcategory": "input_edge",
+      "test_case": "Leading and trailing whitespace in Account_Name is trimmed on save",
       "preconditions": [
-        "User is on Chart_of_Accounts_Page",
-        "No existing account uses <unique GL code> to be entered"
+        "Create GL Account form is open",
+        "No conflicting GL_Code exists for the GL_Code to be used"
       ],
       "steps": [
-        "1. Click '+ Create GL Account' to open Create_GL_Account_Form",
-        "2. Select <Account_Type> in the Account_Type dropdown",
-        "3. Enter <unique GL code> in the GL_Code field",
-        "4. Enter <Account name> in the Account_Name field",
-        "5. Fill any other required fields",
-        "6. Rapidly double-click the submit button (two clicks within ~200ms)"
+        "1. Click the \"+ Create GL Account\" button to open Create_GL_Account_Form",
+        "2. Enter Account_Name with leading and trailing whitespace (e.g., starts and ends with space characters)",
+        "3. Enter a unique GL_Code",
+        "4. Select a valid Account_Type and fill any other required fields",
+        "5. Click the Create button",
+        "6. Open the created account's Account_Detail_View by clicking the account name in the Chart of Accounts tree"
       ],
-      "expected_result": "Only one account record is created in the Chart_of_Accounts_Tree for the submitted GL_Code; no duplicate row appears (succeeds). The UI should either disable the submit button after the first click or otherwise prevent a second create action; visually only a single new row is visible.",
-      "priority": "medium"
+      "expected_result": "Form submission succeeds; the account is created. The Account_Detail_View displays the Account_Name with leading and trailing whitespace removed (trimmed). The trim is visible on the detail page. (succeeds)",
+      "priority": "low"
     }
   ],
   "summary": {
     "total": 4,
-    "boundary": 0,
-    "input_edge": 2,
+    "boundary": 2,
+    "input_edge": 1,
     "interaction_edge": 1,
     "state_edge": 0,
-    "data_edge": 1,
-    "medium_priority": 2,
-    "low_priority": 2
+    "data_edge": 0,
+    "medium_priority": 3,
+    "low_priority": 1
   }
 }

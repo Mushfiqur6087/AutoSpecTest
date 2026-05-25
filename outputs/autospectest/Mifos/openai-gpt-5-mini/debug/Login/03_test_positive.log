@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-21T22:29:06.493173
+DEBUG SESSION STARTED: 2026-05-25T14:24:50.697749
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[22:29:06] Test-Positive - SYSTEM PROMPT
+[14:24:50] Test-Positive - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Expert UI Test Case Generator. You receive (1) a UI-AST JSON for one specific module and (2) the original functional description for that module.
 
@@ -24,6 +24,10 @@ Your job is to produce ONLY positive/functional UI test cases — tests where va
 <description>
 {Original functional description text for this module}
 </description>
+
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
 
 ---
 
@@ -146,6 +150,13 @@ Because you are testing a module in isolation, establish the required entry stat
 **1. Forms & Wizards (`form`, `wizard`):**
 - Generate ONE happy path per distinct success outcome.
 - *Conditional UI Check:* If a toggle/dropdown reveals new mandatory fields (`visible_when`), generate a separate test for that conditional branch.
+- **Wizard step coverage (CRITICAL):** If a wizard has multiple steps and any step beyond Step 1 contains its own named field group (e.g., "Address Details", "Family Members", "Identifiers"), generate ONE dedicated positive TC per such step. The TC must:
+  - Navigate to that specific step (include the preceding steps as preconditions or brief navigation steps)
+  - Fill the fields described for that step (not just pass through)
+  - Assert the step's content is visible/saved on the detail page after final submission
+  - **Do NOT collapse all wizard steps into one happy-path TC** — if Steps 2, 3, and 4 each have their own named section in the spec, they each need their own TC.
+- **Wizard in-step identifiers/duplicates:** If a wizard step allows adding identifiers, documents, or similar entries that have a uniqueness constraint, include a TC for that wizard step that also verifies the constraint (e.g., attempting to add a duplicate Document Type+Key pair inside the wizard). This is a different code path from adding the same post-creation on the detail page.
+- **Action dialogs:** If a `state_bound_action_bar` action opens a dialog with its own `fields{}` (e.g., Activate requires Activation Date, Reject requires Reason), generate ONE positive TC per such action-dialog — distinct from the state-transition TC. The TC fills the dialog field and completes the action.
 
 **2. State Machines (`state_bound_action_bar`):**
 - For each unique action available in a specific state, generate ONE test performing that action.
@@ -200,6 +211,19 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 
 ---
 
+**WORKFLOW COVERAGE OBLIGATION (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- Your test cases must **collectively cover every workflow** listed.
+- For each `wf_id`, at least one TC must:
+  - Activate the `conditional_branch` (if not null) — i.e. the test must set up the condition described.
+  - Assert the `on_success` as its `expected_result` (verbatim or as the primary basis for the expected result).
+- Add `"wf_ref": "WF-NNN"` to each TC to identify which workflow it covers.
+- If one TC naturally covers multiple workflows (e.g., the base path overlaps), pick the most specific `wf_ref`.
+- If a TC does not map to any workflow (e.g., a navigation-only test), set `"wf_ref": null`.
+
+---
+
 **OUTPUT — JSON only, no prose, no markdown fencing:**
 
 {
@@ -208,6 +232,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
   "test_cases": [
     {
       "tc_id": "P-001",
+      "wf_ref": "WF-001",
       "test_case": "Short descriptive name",
       "preconditions": ["User logged in as <Role>", "<Prerequisite state>"],
       "steps": ["1. Step one", "2. Step two"],
@@ -224,7 +249,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 }
 
 ------------------------------------------------------------
-[22:29:06] Test-Positive - USER PROMPT
+[14:24:50] Test-Positive - USER PROMPT
 ------------------------------------------------------------
 <module_name>Login</module_name>
 
@@ -232,48 +257,53 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 {
   "module_name": "Login",
   "components": {
-    "Language_Selector": {
-      "type": "dropdown",
-      "element_name": "Language_Selector"
-    },
-    "Login_Form": {
+    "Authentication_Interface": {
       "type": "form",
       "fields": {
+        "Language_Selector": {
+          "type": "dropdown",
+          "required": false
+        },
         "Tenant": {
           "type": "dropdown",
-          "default_value": "default",
-          "constraints": []
+          "required": false,
+          "default_value": "default"
         },
         "Username": {
           "type": "unspecified",
+          "required": true,
           "constraints": [
             "required",
-            "inline_validation_on_empty"
+            "show_inline_validation_message_on_empty"
           ]
         },
         "Password": {
           "type": "password",
+          "required": true,
           "constraints": [
             "required",
-            "inline_validation_on_empty"
+            "show_inline_validation_message_on_empty"
           ]
         },
         "Remember_Me": {
           "type": "checkbox",
-          "constraints": []
-        },
-        "Forgot_Password": {
-          "type": "link",
-          "on_click": "navigates to Forgot Password flow"
+          "required": false
         }
       },
       "submit_actions": [
         {
           "element_name": "Login",
           "type": "button",
-          "enabled_when": "Username != '' and Password != ''",
+          "enabled_when": "Username != '' && Password != ''",
           "on_success": "redirects to Dashboard",
-          "on_failure": "shows error message 'Invalid credentials'"
+          "on_failure": "shows invalid credentials error message"
+        }
+      ],
+      "links": [
+        {
+          "element_name": "Forgot Password?",
+          "type": "link",
+          "on_click": "navigates to Forgot Password page"
         }
       ]
     }
@@ -290,10 +320,15 @@ The login page has two panels. The left panel displays a background image with t
 
 </description>
 
+<workflows>
+WF-001 | Login with required fields filled | actor: <role> | branch: Username != '' AND Password != '' | terminal: Login | on_success: redirects to Dashboard
+WF-002 | Navigate to Forgot Password page | actor: <role> | branch: none | terminal: Forgot Password? | on_success: navigates to Forgot Password page
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[22:29:49] Test-Positive - LLM RESPONSE
+[14:25:13] Test-Positive - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Login",
@@ -301,71 +336,46 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Successful login with required fields filled and 'Remember Me' checked redirects to Dashboard",
+      "wf_ref": "WF-001",
+      "test_case": "Successful login with required fields filled (Remember Me optional)",
       "preconditions": [
-        "Unauthenticated user on Login page"
+        "User not authenticated, acting as <role>",
+        "Login page is open"
       ],
       "steps": [
-        "1. Verify the Login button is disabled",
-        "2. Enter <valid username> in the Username field",
-        "3. Enter <valid password> in the Password field",
-        "4. Check the Remember Me checkbox",
-        "5. Click the Login button"
+        "1. Enter <valid username> in the Username field",
+        "2. Enter <valid password> in the Password field",
+        "3. Check the Remember Me checkbox",
+        "4. Click the Login button"
       ],
       "expected_result": "redirects to Dashboard",
       "priority": "high"
     },
     {
       "tc_id": "P-002",
-      "test_case": "Clicking 'Forgot Password?' navigates to Forgot Password flow",
+      "wf_ref": "WF-002",
+      "test_case": "Navigate to Forgot Password page via link",
       "preconditions": [
-        "Unauthenticated user on Login page"
+        "User not authenticated, acting as <role>",
+        "Login page is open"
       ],
       "steps": [
-        "1. Click the 'Forgot Password?' link below the Login button"
+        "1. Click the 'Forgot Password?' link located below the Login button"
       ],
-      "expected_result": "navigates to Forgot Password flow",
+      "expected_result": "navigates to Forgot Password page",
       "priority": "medium"
-    },
-    {
-      "tc_id": "P-003",
-      "test_case": "Tenant dropdown shows default and allows selecting a different tenant",
-      "preconditions": [
-        "Unauthenticated user on Login page"
-      ],
-      "steps": [
-        "1. Observe the Tenant dropdown displays 'default' by default",
-        "2. Open the Tenant dropdown",
-        "3. Select <tenant> from the Tenant dropdown"
-      ],
-      "expected_result": "Tenant dropdown displays the selected <tenant>",
-      "priority": "medium"
-    },
-    {
-      "tc_id": "P-004",
-      "test_case": "Language selector is visible and can change the selected language",
-      "preconditions": [
-        "Unauthenticated user on Login page"
-      ],
-      "steps": [
-        "1. Verify the Language selector is visible in the authentication panel",
-        "2. Open the Language selector",
-        "3. Select <language> from the Language selector"
-      ],
-      "expected_result": "Language selector displays the selected <language>",
-      "priority": "low"
     }
   ],
   "summary": {
-    "total": 4,
+    "total": 2,
     "high_priority": 1,
-    "medium_priority": 2,
-    "low_priority": 1
+    "medium_priority": 1,
+    "low_priority": 0
   }
 }
 
 ------------------------------------------------------------
-[22:29:49] Test-Positive - PARSED JSON
+[14:25:13] Test-Positive - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Login",
@@ -373,65 +383,40 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Successful login with required fields filled and 'Remember Me' checked redirects to Dashboard",
+      "wf_ref": "WF-001",
+      "test_case": "Successful login with required fields filled (Remember Me optional)",
       "preconditions": [
-        "Unauthenticated user on Login page"
+        "User not authenticated, acting as <role>",
+        "Login page is open"
       ],
       "steps": [
-        "1. Verify the Login button is disabled",
-        "2. Enter <valid username> in the Username field",
-        "3. Enter <valid password> in the Password field",
-        "4. Check the Remember Me checkbox",
-        "5. Click the Login button"
+        "1. Enter <valid username> in the Username field",
+        "2. Enter <valid password> in the Password field",
+        "3. Check the Remember Me checkbox",
+        "4. Click the Login button"
       ],
       "expected_result": "redirects to Dashboard",
       "priority": "high"
     },
     {
       "tc_id": "P-002",
-      "test_case": "Clicking 'Forgot Password?' navigates to Forgot Password flow",
+      "wf_ref": "WF-002",
+      "test_case": "Navigate to Forgot Password page via link",
       "preconditions": [
-        "Unauthenticated user on Login page"
+        "User not authenticated, acting as <role>",
+        "Login page is open"
       ],
       "steps": [
-        "1. Click the 'Forgot Password?' link below the Login button"
+        "1. Click the 'Forgot Password?' link located below the Login button"
       ],
-      "expected_result": "navigates to Forgot Password flow",
+      "expected_result": "navigates to Forgot Password page",
       "priority": "medium"
-    },
-    {
-      "tc_id": "P-003",
-      "test_case": "Tenant dropdown shows default and allows selecting a different tenant",
-      "preconditions": [
-        "Unauthenticated user on Login page"
-      ],
-      "steps": [
-        "1. Observe the Tenant dropdown displays 'default' by default",
-        "2. Open the Tenant dropdown",
-        "3. Select <tenant> from the Tenant dropdown"
-      ],
-      "expected_result": "Tenant dropdown displays the selected <tenant>",
-      "priority": "medium"
-    },
-    {
-      "tc_id": "P-004",
-      "test_case": "Language selector is visible and can change the selected language",
-      "preconditions": [
-        "Unauthenticated user on Login page"
-      ],
-      "steps": [
-        "1. Verify the Language selector is visible in the authentication panel",
-        "2. Open the Language selector",
-        "3. Select <language> from the Language selector"
-      ],
-      "expected_result": "Language selector displays the selected <language>",
-      "priority": "low"
     }
   ],
   "summary": {
-    "total": 4,
+    "total": 2,
     "high_priority": 1,
-    "medium_priority": 2,
-    "low_priority": 1
+    "medium_priority": 1,
+    "low_priority": 0
   }
 }

@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-22T21:47:19.059738
+DEBUG SESSION STARTED: 2026-05-25T15:28:46.019524
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[21:47:19] Test-Edge - SYSTEM PROMPT
+[15:28:46] Test-Edge - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Edge Case and Boundary Test Generator. You receive (1) a UI-AST JSON for one module and (2) the original functional description. Your job is to produce ONLY boundary and edge case tests — scenarios at the limits of valid/invalid input and unusual-but-plausible user behaviors.
 
@@ -24,6 +24,10 @@ You are NOT producing happy paths (positive prompt) or standard validation failu
 <description>
 {Original functional description text for this module}
 </description>
+
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
 
 ---
 
@@ -176,6 +180,15 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 
 ---
 
+**WORKFLOW-AWARE BOUNDARY SCOPING (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- For each workflow where `conditional_branch` activates a numeric or date field, check if that field has a boundary (a numeric/date threshold in the AST `constraints` or description).
+- If yes, that workflow's branch is a **candidate for a boundary edge test** — add or confirm a boundary TC exists for it.
+- Add `"wf_ref": "WF-NNN"` to each TC that maps to a specific workflow's boundary. Set `"wf_ref": null` for generic input/interaction edge tests.
+
+---
+
 **OUTPUT — JSON only, no prose, no markdown fencing:**
 
 {
@@ -184,6 +197,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": null,
       "subcategory": "boundary | input_edge | interaction_edge | state_edge | data_edge",
       "test_case": "Short descriptive name",
       "preconditions": ["precondition 1"],
@@ -206,7 +220,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 
 
 ------------------------------------------------------------
-[21:47:19] Test-Edge - USER PROMPT
+[15:28:46] Test-Edge - USER PROMPT
 ------------------------------------------------------------
 <module_name>Gradebook — Grader Report</module_name>
 
@@ -223,7 +237,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
         "Overview report"
       ]
     },
-    "User_Search_and_Filters": {
+    "User_Filters": {
       "type": "form",
       "fields": {
         "User_Search": {
@@ -236,67 +250,63 @@ If the module has any numeric/date/count threshold in the AST or description, pr
         }
       }
     },
-    "Grade_Table": {
+    "Edit_Mode_Toggle": {
+      "type": "checkbox",
+      "required": false,
+      "element_name": "Edit Mode"
+    },
+    "Grades_Table": {
       "type": "data_table",
-      "description": "Spreadsheet-style grid of activities (columns) \u00d7 enrolled students (rows)",
-      "controls": {
-        "Edit_Mode_Toggle": {
-          "element_name": "Toggle Edit Mode",
-          "type": "button",
-          "on_success": "enables inline editing of grade cells",
-          "toggles": "inline_editing"
-        },
-        "Save_Changes": {
-          "element_name": "Save changes",
-          "type": "button",
-          "preconditions": [
-            "Edit mode must be enabled"
-          ],
-          "constraints": [
-            "no grade entries outside configured grade range"
-          ],
-          "on_success": "applies edits to gradebook"
-        }
-      },
-      "cell_template": {
-        "Grade_Cell": {
-          "type": "number",
-          "editable_when": "Edit_Mode == enabled",
-          "required": false,
-          "constraints": [
-            "must be within configured grade range for the activity"
-          ]
-        }
-      },
-      "column_template": {
-        "type": "unspecified",
-        "notes": "Represents an activity column; each column header exposes column_actions"
-      },
+      "description": "Spreadsheet-style table with activities as columns and enrolled students as rows",
+      "columns_dynamic": true,
       "column_actions": [
         {
           "action_name": "Edit activity grade settings",
-          "type": "button",
-          "on_success": "updates activity grade settings",
-          "constraints": [],
-          "preconditions": []
+          "fields": {},
+          "on_success": "updates activity grade settings"
         }
       ],
       "cell_actions": [
         {
           "action_name": "Edit grade entry",
-          "type": "button",
           "fields": {
-            "Grade_Value": {
-              "type": "number",
+            "Grade": {
+              "type": "unspecified",
               "required": true,
               "constraints": [
-                "must be within configured grade range for the activity"
+                "must be within activity's configured grade range"
               ]
+            },
+            "Comment": {
+              "type": "unspecified",
+              "required": false
             }
           },
-          "on_success": "updates single grade entry"
+          "on_success": "updates single grade entry",
+          "on_failure": "flags invalid value inline"
         }
-      ]
+      ],
+      "cell_field_spec": {
+        "Grade_Value": {
+          "type": "unspecified",
+          "enabled_when": "Edit_Mode == true",
+          "constraints": [
+            "must be within activity's configured grade range (violations flagged inline and block Save changes)"
+          ]
+        }
+      }
+    },
+    "Save_Changes_Action": {
+      "type": "button",
+      "element_name": "Save changes",
+      "preconditions": [
+        "Edit_Mode == true"
+      ],
+      "constraints": [
+        "no grade cell may violate its activity's configured grade range (violations block Save changes)"
+      ],
+      "on_success": "applies edits to gradebook",
+      "on_failure": "blocks save and leaves inline validation flags on invalid cells"
     }
   }
 }
@@ -311,10 +321,16 @@ The Gradebook Grader report provides a spreadsheet-style view of grades. A repor
 
 </description>
 
+<workflows>
+WF-001 | Edit activity grade settings (column) | actor: <role> | branch: none | terminal: Edit activity grade settings | on_success: updates activity grade settings
+WF-002 | Edit individual grade entry (cell action) | actor: <role> | branch: none | terminal: Edit grade entry | on_success: updates single grade entry
+WF-003 | Save changes after inline edits (Edit Mode enabled) | actor: <role> | branch: Edit_Mode_Toggle == true | terminal: Save changes | on_success: applies edits to gradebook
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[21:49:33] Test-Edge - LLM RESPONSE
+[15:31:54] Test-Edge - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Gradebook — Grader Report",
@@ -322,157 +338,150 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": "WF-003",
       "subcategory": "boundary",
-      "test_case": "Save succeeds when a grade cell equals the activity minimum",
+      "test_case": "Save succeeds when a grade equals the activity's minimum configured grade",
       "preconditions": [
-        "Instructor is logged in and viewing the Grader report",
-        "The activity has a configured grade range with a defined minimum",
-        "Edit mode is disabled"
+        "User is on the Gradebook — Grader report page",
+        "The target activity has a configured grade range with a minimum of <minimum configured grade> and a maximum of <maximum configured grade>",
+        "There is at least one enrolled student row visible"
       ],
       "steps": [
-        "1. Click the Toggle Edit Mode button to enable Edit mode",
-        "2. Click the target grade cell for a student in the activity column",
-        "3. Enter <minimum allowed value> into the Grade cell",
+        "1. Turn ON the Edit Mode toggle",
+        "2. Click the grade cell for the target student under the target activity column",
+        "3. Enter <minimum configured grade> into the Grade input for that cell",
         "4. Click the Save changes button"
       ],
-      "expected_result": "Save changes succeeds; the gradecell displays the saved value equal to <minimum allowed value>, no inline validation error is shown, and the activity/row average updates accordingly",
+      "expected_result": "Save changes succeeds; edits are applied to the gradebook and the grade cell displays the saved value equal to <minimum configured grade>; no inline validation flags appear on any cells",
       "priority": "medium"
     },
     {
       "tc_id": "E-002",
+      "wf_ref": "WF-003",
       "subcategory": "boundary",
-      "test_case": "Save blocked when a grade cell is one unit below the activity minimum",
+      "test_case": "Save is blocked when a grade is one unit below the activity's minimum",
       "preconditions": [
-        "Instructor is logged in and viewing the Grader report",
-        "The activity has a configured grade range with a defined minimum",
-        "Edit mode is enabled"
+        "User is on the Gradebook — Grader report page",
+        "The target activity has a configured grade range with a minimum of <minimum configured grade> and a maximum of <maximum configured grade>",
+        "There is at least one enrolled student row visible"
       ],
       "steps": [
-        "1. Click the target grade cell for a student in the activity column",
-        "2. Enter <one unit below minimum> into the Grade cell",
-        "3. Click the Save changes button"
+        "1. Turn ON the Edit Mode toggle",
+        "2. Click the grade cell for the target student under the target activity column",
+        "3. Enter <one unit below minimum configured grade> into the Grade input for that cell",
+        "4. Click the Save changes button"
       ],
-      "expected_result": "Save changes is blocked / error shown; the Grade cell shows an inline validation error indicating the value is below the minimum allowed and the Save changes action does not apply edits",
+      "expected_result": "Save changes is blocked; the edited cell displays an inline validation flag indicating the value is outside the activity's configured grade range; no edits are applied to the gradebook",
       "priority": "medium"
     },
     {
       "tc_id": "E-003",
+      "wf_ref": "WF-003",
       "subcategory": "boundary",
-      "test_case": "Save succeeds when a grade cell equals the activity maximum",
+      "test_case": "Save succeeds when a grade equals the activity's maximum configured grade",
       "preconditions": [
-        "Instructor is logged in and viewing the Grader report",
-        "The activity has a configured grade range with a defined maximum",
-        "Edit mode is enabled"
+        "User is on the Gradebook — Grader report page",
+        "The target activity has a configured grade range with a minimum of <minimum configured grade> and a maximum of <maximum configured grade>",
+        "There is at least one enrolled student row visible"
       ],
       "steps": [
-        "1. Click the target grade cell for a student in the activity column",
-        "2. Enter <maximum allowed value> into the Grade cell",
-        "3. Click the Save changes button"
+        "1. Turn ON the Edit Mode toggle",
+        "2. Click the grade cell for the target student under the target activity column",
+        "3. Enter <maximum configured grade> into the Grade input for that cell",
+        "4. Click the Save changes button"
       ],
-      "expected_result": "Save changes succeeds; the grade cell displays the saved value equal to <maximum allowed value>, no inline validation error is shown, and the activity/row average updates accordingly",
+      "expected_result": "Save changes succeeds; edits are applied to the gradebook and the grade cell displays the saved value equal to <maximum configured grade>; no inline validation flags appear on any cells",
       "priority": "medium"
     },
     {
       "tc_id": "E-004",
+      "wf_ref": "WF-003",
       "subcategory": "boundary",
-      "test_case": "Save blocked when a grade cell is one unit above the activity maximum",
+      "test_case": "Save is blocked when a grade is one unit above the activity's maximum",
       "preconditions": [
-        "Instructor is logged in and viewing the Grader report",
-        "The activity has a configured grade range with a defined maximum",
-        "Edit mode is enabled"
+        "User is on the Gradebook — Grader report page",
+        "The target activity has a configured grade range with a minimum of <minimum configured grade> and a maximum of <maximum configured grade>",
+        "There is at least one enrolled student row visible"
       ],
       "steps": [
-        "1. Click the target grade cell for a student in the activity column",
-        "2. Enter <one unit above maximum> into the Grade cell",
-        "3. Click the Save changes button"
+        "1. Turn ON the Edit Mode toggle",
+        "2. Click the grade cell for the target student under the target activity column",
+        "3. Enter <one unit above maximum configured grade> into the Grade input for that cell",
+        "4. Click the Save changes button"
       ],
-      "expected_result": "Save changes is blocked / error shown; the Grade cell displays an inline validation error indicating the value is above the maximum allowed and the edits are not applied",
+      "expected_result": "Save changes is blocked; the edited cell displays an inline validation flag indicating the value is outside the activity's configured grade range; no edits are applied to the gradebook",
       "priority": "medium"
     },
     {
       "tc_id": "E-005",
-      "subcategory": "input_edge",
-      "test_case": "Entering a grade with more decimal places than the UI supports is rounded on save",
+      "wf_ref": "WF-002",
+      "subcategory": "boundary",
+      "test_case": "Cell-level Edit grade entry action fails when entering one unit below activity minimum",
       "preconditions": [
-        "Instructor is logged in and viewing the Grader report",
-        "Edit mode is enabled",
-        "The activity accepts numeric grades (field type: number)"
+        "User is on the Gradebook — Grader report page",
+        "The target activity has a configured grade range with a minimum of <minimum configured grade> and a maximum of <maximum configured grade>",
+        "There is at least one enrolled student row visible"
       ],
       "steps": [
-        "1. Click the target grade cell for a student in the activity column",
-        "2. Enter <a value with more decimal places than the field supports> into the Grade cell",
-        "3. Click the Save changes button"
+        "1. Click the three-dot menu on the target grade cell",
+        "2. Select the 'Edit grade entry' action",
+        "3. Enter <one unit below minimum configured grade> into the Grade field inside the Edit grade entry editor",
+        "4. Click the Save (or Confirm) action inside the Edit grade entry editor"
       ],
-      "expected_result": "Save changes succeeds; the saved grade shown in the cell is rounded to the UI's supported decimal precision and the displayed value reflects the rounded value (no inline validation error for precision)",
+      "expected_result": "The cell-level edit is blocked / fails; the grade field (inside the editor and/or the cell) shows an inline validation flag indicating the value is outside the activity's configured grade range; the cell's original grade remains unchanged",
       "priority": "medium"
     },
     {
       "tc_id": "E-006",
+      "wf_ref": null,
       "subcategory": "input_edge",
-      "test_case": "User search accepts a very long search string (200+ chars) without UI crash",
+      "test_case": "Very long comment entered in a grade cell's Comment field is saved and visible in comment detail",
       "preconditions": [
-        "Instructor is logged in and viewing the Grader report",
-        "The User Search field is visible"
+        "User is on the Gradebook — Grader report page",
+        "Edit Mode is turned ON",
+        "There is at least one enrolled student row visible"
       ],
       "steps": [
-        "1. Focus the User_Search input",
-        "2. Enter <a very long string (200+ characters)> into the User_Search field",
-        "3. Press Enter or trigger the search action"
+        "1. Click the grade cell for the target student under the target activity column",
+        "2. Open the Comment input for that cell (inline or via the cell action editor)",
+        "3. Enter a <very long (200+ chars) string> into the Comment field",
+        "4. Click Save changes"
       ],
-      "expected_result": "Search executes; the User_Search input retains the entered long string (trimmed to any visible field max length if the UI enforces a maximum), results update (likely showing no matches if string is unmatched), and there is no UI crash or loss of responsiveness",
+      "expected_result": "Save changes succeeds; the long comment is saved and attached to the grade cell; the grade cell comment preview or comment detail view displays the saved comment (no inline error shown)",
       "priority": "low"
     },
     {
       "tc_id": "E-007",
-      "subcategory": "state_edge",
-      "test_case": "Toggling Edit mode off after making inline edits blocks Save",
-      "preconditions": [
-        "Instructor is logged in and viewing the Grader report",
-        "Edit mode is enabled",
-        "At least one grade cell is editable"
-      ],
-      "steps": [
-        "1. Click the target grade cell for a student in the activity column",
-        "2. Enter <a valid in-range edit> into the Grade cell (do not save yet)",
-        "3. Click the Toggle Edit Mode button to disable Edit mode",
-        "4. Click the Save changes button"
-      ],
-      "expected_result": "Save changes is blocked / error shown; because Edit mode is not enabled the UI prevents applying edits (Save is disabled or a visible message indicates Edit mode must be enabled) and the previously-entered inline edit is not applied",
-      "priority": "medium"
-    },
-    {
-      "tc_id": "E-008",
+      "wf_ref": null,
       "subcategory": "interaction_edge",
-      "test_case": "Unsaved inline edits are discarded when Edit mode is toggled off and back on quickly",
+      "test_case": "Editing a grade cell is blocked when Edit Mode is disabled (enabled_when enforcement)",
       "preconditions": [
-        "Instructor is logged in and viewing the Grader report",
-        "Edit mode is enabled"
+        "User is on the Gradebook — Grader report page",
+        "Edit Mode is turned OFF",
+        "There is at least one enrolled student row visible"
       ],
       "steps": [
-        "1. Click the target grade cell for a student in the activity column",
-        "2. Enter <a new in-range value> into the Grade cell (do not save yet)",
-        "3. Click the Toggle Edit Mode button to disable Edit mode",
-        "4. Click the Toggle Edit Mode button to re-enable Edit mode",
-        "5. Inspect the same grade cell"
+        "1. Confirm Edit Mode toggle is OFF",
+        "2. Click the grade cell for the target student under the target activity column"
       ],
-      "expected_result": "The previously-entered unsaved inline edit is discarded; the grade cell displays the original saved value (not the unsaved entry). No edits were applied and no duplicate or partial saves occurred",
+      "expected_result": "Editing is blocked; the cell remains read-only and no inline editor, input field, or Save affordance appears when clicked (no edit can be made while Edit Mode is off)",
       "priority": "low"
     }
   ],
   "summary": {
-    "total": 8,
-    "boundary": 4,
-    "input_edge": 2,
+    "total": 7,
+    "boundary": 5,
+    "input_edge": 1,
     "interaction_edge": 1,
-    "state_edge": 1,
+    "state_edge": 0,
     "data_edge": 0,
-    "medium_priority": 6,
+    "medium_priority": 5,
     "low_priority": 2
   }
 }
 
 ------------------------------------------------------------
-[21:49:33] Test-Edge - PARSED JSON
+[15:31:54] Test-Edge - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Gradebook \u2014 Grader Report",
@@ -480,151 +489,144 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": "WF-003",
       "subcategory": "boundary",
-      "test_case": "Save succeeds when a grade cell equals the activity minimum",
+      "test_case": "Save succeeds when a grade equals the activity's minimum configured grade",
       "preconditions": [
-        "Instructor is logged in and viewing the Grader report",
-        "The activity has a configured grade range with a defined minimum",
-        "Edit mode is disabled"
+        "User is on the Gradebook \u2014 Grader report page",
+        "The target activity has a configured grade range with a minimum of <minimum configured grade> and a maximum of <maximum configured grade>",
+        "There is at least one enrolled student row visible"
       ],
       "steps": [
-        "1. Click the Toggle Edit Mode button to enable Edit mode",
-        "2. Click the target grade cell for a student in the activity column",
-        "3. Enter <minimum allowed value> into the Grade cell",
+        "1. Turn ON the Edit Mode toggle",
+        "2. Click the grade cell for the target student under the target activity column",
+        "3. Enter <minimum configured grade> into the Grade input for that cell",
         "4. Click the Save changes button"
       ],
-      "expected_result": "Save changes succeeds; the gradecell displays the saved value equal to <minimum allowed value>, no inline validation error is shown, and the activity/row average updates accordingly",
+      "expected_result": "Save changes succeeds; edits are applied to the gradebook and the grade cell displays the saved value equal to <minimum configured grade>; no inline validation flags appear on any cells",
       "priority": "medium"
     },
     {
       "tc_id": "E-002",
+      "wf_ref": "WF-003",
       "subcategory": "boundary",
-      "test_case": "Save blocked when a grade cell is one unit below the activity minimum",
+      "test_case": "Save is blocked when a grade is one unit below the activity's minimum",
       "preconditions": [
-        "Instructor is logged in and viewing the Grader report",
-        "The activity has a configured grade range with a defined minimum",
-        "Edit mode is enabled"
+        "User is on the Gradebook \u2014 Grader report page",
+        "The target activity has a configured grade range with a minimum of <minimum configured grade> and a maximum of <maximum configured grade>",
+        "There is at least one enrolled student row visible"
       ],
       "steps": [
-        "1. Click the target grade cell for a student in the activity column",
-        "2. Enter <one unit below minimum> into the Grade cell",
-        "3. Click the Save changes button"
+        "1. Turn ON the Edit Mode toggle",
+        "2. Click the grade cell for the target student under the target activity column",
+        "3. Enter <one unit below minimum configured grade> into the Grade input for that cell",
+        "4. Click the Save changes button"
       ],
-      "expected_result": "Save changes is blocked / error shown; the Grade cell shows an inline validation error indicating the value is below the minimum allowed and the Save changes action does not apply edits",
+      "expected_result": "Save changes is blocked; the edited cell displays an inline validation flag indicating the value is outside the activity's configured grade range; no edits are applied to the gradebook",
       "priority": "medium"
     },
     {
       "tc_id": "E-003",
+      "wf_ref": "WF-003",
       "subcategory": "boundary",
-      "test_case": "Save succeeds when a grade cell equals the activity maximum",
+      "test_case": "Save succeeds when a grade equals the activity's maximum configured grade",
       "preconditions": [
-        "Instructor is logged in and viewing the Grader report",
-        "The activity has a configured grade range with a defined maximum",
-        "Edit mode is enabled"
+        "User is on the Gradebook \u2014 Grader report page",
+        "The target activity has a configured grade range with a minimum of <minimum configured grade> and a maximum of <maximum configured grade>",
+        "There is at least one enrolled student row visible"
       ],
       "steps": [
-        "1. Click the target grade cell for a student in the activity column",
-        "2. Enter <maximum allowed value> into the Grade cell",
-        "3. Click the Save changes button"
+        "1. Turn ON the Edit Mode toggle",
+        "2. Click the grade cell for the target student under the target activity column",
+        "3. Enter <maximum configured grade> into the Grade input for that cell",
+        "4. Click the Save changes button"
       ],
-      "expected_result": "Save changes succeeds; the grade cell displays the saved value equal to <maximum allowed value>, no inline validation error is shown, and the activity/row average updates accordingly",
+      "expected_result": "Save changes succeeds; edits are applied to the gradebook and the grade cell displays the saved value equal to <maximum configured grade>; no inline validation flags appear on any cells",
       "priority": "medium"
     },
     {
       "tc_id": "E-004",
+      "wf_ref": "WF-003",
       "subcategory": "boundary",
-      "test_case": "Save blocked when a grade cell is one unit above the activity maximum",
+      "test_case": "Save is blocked when a grade is one unit above the activity's maximum",
       "preconditions": [
-        "Instructor is logged in and viewing the Grader report",
-        "The activity has a configured grade range with a defined maximum",
-        "Edit mode is enabled"
+        "User is on the Gradebook \u2014 Grader report page",
+        "The target activity has a configured grade range with a minimum of <minimum configured grade> and a maximum of <maximum configured grade>",
+        "There is at least one enrolled student row visible"
       ],
       "steps": [
-        "1. Click the target grade cell for a student in the activity column",
-        "2. Enter <one unit above maximum> into the Grade cell",
-        "3. Click the Save changes button"
+        "1. Turn ON the Edit Mode toggle",
+        "2. Click the grade cell for the target student under the target activity column",
+        "3. Enter <one unit above maximum configured grade> into the Grade input for that cell",
+        "4. Click the Save changes button"
       ],
-      "expected_result": "Save changes is blocked / error shown; the Grade cell displays an inline validation error indicating the value is above the maximum allowed and the edits are not applied",
+      "expected_result": "Save changes is blocked; the edited cell displays an inline validation flag indicating the value is outside the activity's configured grade range; no edits are applied to the gradebook",
       "priority": "medium"
     },
     {
       "tc_id": "E-005",
-      "subcategory": "input_edge",
-      "test_case": "Entering a grade with more decimal places than the UI supports is rounded on save",
+      "wf_ref": "WF-002",
+      "subcategory": "boundary",
+      "test_case": "Cell-level Edit grade entry action fails when entering one unit below activity minimum",
       "preconditions": [
-        "Instructor is logged in and viewing the Grader report",
-        "Edit mode is enabled",
-        "The activity accepts numeric grades (field type: number)"
+        "User is on the Gradebook \u2014 Grader report page",
+        "The target activity has a configured grade range with a minimum of <minimum configured grade> and a maximum of <maximum configured grade>",
+        "There is at least one enrolled student row visible"
       ],
       "steps": [
-        "1. Click the target grade cell for a student in the activity column",
-        "2. Enter <a value with more decimal places than the field supports> into the Grade cell",
-        "3. Click the Save changes button"
+        "1. Click the three-dot menu on the target grade cell",
+        "2. Select the 'Edit grade entry' action",
+        "3. Enter <one unit below minimum configured grade> into the Grade field inside the Edit grade entry editor",
+        "4. Click the Save (or Confirm) action inside the Edit grade entry editor"
       ],
-      "expected_result": "Save changes succeeds; the saved grade shown in the cell is rounded to the UI's supported decimal precision and the displayed value reflects the rounded value (no inline validation error for precision)",
+      "expected_result": "The cell-level edit is blocked / fails; the grade field (inside the editor and/or the cell) shows an inline validation flag indicating the value is outside the activity's configured grade range; the cell's original grade remains unchanged",
       "priority": "medium"
     },
     {
       "tc_id": "E-006",
+      "wf_ref": null,
       "subcategory": "input_edge",
-      "test_case": "User search accepts a very long search string (200+ chars) without UI crash",
+      "test_case": "Very long comment entered in a grade cell's Comment field is saved and visible in comment detail",
       "preconditions": [
-        "Instructor is logged in and viewing the Grader report",
-        "The User Search field is visible"
+        "User is on the Gradebook \u2014 Grader report page",
+        "Edit Mode is turned ON",
+        "There is at least one enrolled student row visible"
       ],
       "steps": [
-        "1. Focus the User_Search input",
-        "2. Enter <a very long string (200+ characters)> into the User_Search field",
-        "3. Press Enter or trigger the search action"
+        "1. Click the grade cell for the target student under the target activity column",
+        "2. Open the Comment input for that cell (inline or via the cell action editor)",
+        "3. Enter a <very long (200+ chars) string> into the Comment field",
+        "4. Click Save changes"
       ],
-      "expected_result": "Search executes; the User_Search input retains the entered long string (trimmed to any visible field max length if the UI enforces a maximum), results update (likely showing no matches if string is unmatched), and there is no UI crash or loss of responsiveness",
+      "expected_result": "Save changes succeeds; the long comment is saved and attached to the grade cell; the grade cell comment preview or comment detail view displays the saved comment (no inline error shown)",
       "priority": "low"
     },
     {
       "tc_id": "E-007",
-      "subcategory": "state_edge",
-      "test_case": "Toggling Edit mode off after making inline edits blocks Save",
-      "preconditions": [
-        "Instructor is logged in and viewing the Grader report",
-        "Edit mode is enabled",
-        "At least one grade cell is editable"
-      ],
-      "steps": [
-        "1. Click the target grade cell for a student in the activity column",
-        "2. Enter <a valid in-range edit> into the Grade cell (do not save yet)",
-        "3. Click the Toggle Edit Mode button to disable Edit mode",
-        "4. Click the Save changes button"
-      ],
-      "expected_result": "Save changes is blocked / error shown; because Edit mode is not enabled the UI prevents applying edits (Save is disabled or a visible message indicates Edit mode must be enabled) and the previously-entered inline edit is not applied",
-      "priority": "medium"
-    },
-    {
-      "tc_id": "E-008",
+      "wf_ref": null,
       "subcategory": "interaction_edge",
-      "test_case": "Unsaved inline edits are discarded when Edit mode is toggled off and back on quickly",
+      "test_case": "Editing a grade cell is blocked when Edit Mode is disabled (enabled_when enforcement)",
       "preconditions": [
-        "Instructor is logged in and viewing the Grader report",
-        "Edit mode is enabled"
+        "User is on the Gradebook \u2014 Grader report page",
+        "Edit Mode is turned OFF",
+        "There is at least one enrolled student row visible"
       ],
       "steps": [
-        "1. Click the target grade cell for a student in the activity column",
-        "2. Enter <a new in-range value> into the Grade cell (do not save yet)",
-        "3. Click the Toggle Edit Mode button to disable Edit mode",
-        "4. Click the Toggle Edit Mode button to re-enable Edit mode",
-        "5. Inspect the same grade cell"
+        "1. Confirm Edit Mode toggle is OFF",
+        "2. Click the grade cell for the target student under the target activity column"
       ],
-      "expected_result": "The previously-entered unsaved inline edit is discarded; the grade cell displays the original saved value (not the unsaved entry). No edits were applied and no duplicate or partial saves occurred",
+      "expected_result": "Editing is blocked; the cell remains read-only and no inline editor, input field, or Save affordance appears when clicked (no edit can be made while Edit Mode is off)",
       "priority": "low"
     }
   ],
   "summary": {
-    "total": 8,
-    "boundary": 4,
-    "input_edge": 2,
+    "total": 7,
+    "boundary": 5,
+    "input_edge": 1,
     "interaction_edge": 1,
-    "state_edge": 1,
+    "state_edge": 0,
     "data_edge": 0,
-    "medium_priority": 6,
+    "medium_priority": 5,
     "low_priority": 2
   }
 }

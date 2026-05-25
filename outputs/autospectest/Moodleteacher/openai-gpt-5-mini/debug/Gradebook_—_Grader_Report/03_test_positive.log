@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-22T21:47:19.059143
+DEBUG SESSION STARTED: 2026-05-25T15:28:46.019143
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[21:47:19] Test-Positive - SYSTEM PROMPT
+[15:28:46] Test-Positive - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Expert UI Test Case Generator. You receive (1) a UI-AST JSON for one specific module and (2) the original functional description for that module.
 
@@ -24,6 +24,10 @@ Your job is to produce ONLY positive/functional UI test cases — tests where va
 <description>
 {Original functional description text for this module}
 </description>
+
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
 
 ---
 
@@ -146,6 +150,13 @@ Because you are testing a module in isolation, establish the required entry stat
 **1. Forms & Wizards (`form`, `wizard`):**
 - Generate ONE happy path per distinct success outcome.
 - *Conditional UI Check:* If a toggle/dropdown reveals new mandatory fields (`visible_when`), generate a separate test for that conditional branch.
+- **Wizard step coverage (CRITICAL):** If a wizard has multiple steps and any step beyond Step 1 contains its own named field group (e.g., "Address Details", "Family Members", "Identifiers"), generate ONE dedicated positive TC per such step. The TC must:
+  - Navigate to that specific step (include the preceding steps as preconditions or brief navigation steps)
+  - Fill the fields described for that step (not just pass through)
+  - Assert the step's content is visible/saved on the detail page after final submission
+  - **Do NOT collapse all wizard steps into one happy-path TC** — if Steps 2, 3, and 4 each have their own named section in the spec, they each need their own TC.
+- **Wizard in-step identifiers/duplicates:** If a wizard step allows adding identifiers, documents, or similar entries that have a uniqueness constraint, include a TC for that wizard step that also verifies the constraint (e.g., attempting to add a duplicate Document Type+Key pair inside the wizard). This is a different code path from adding the same post-creation on the detail page.
+- **Action dialogs:** If a `state_bound_action_bar` action opens a dialog with its own `fields{}` (e.g., Activate requires Activation Date, Reject requires Reason), generate ONE positive TC per such action-dialog — distinct from the state-transition TC. The TC fills the dialog field and completes the action.
 
 **2. State Machines (`state_bound_action_bar`):**
 - For each unique action available in a specific state, generate ONE test performing that action.
@@ -200,6 +211,19 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 
 ---
 
+**WORKFLOW COVERAGE OBLIGATION (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- Your test cases must **collectively cover every workflow** listed.
+- For each `wf_id`, at least one TC must:
+  - Activate the `conditional_branch` (if not null) — i.e. the test must set up the condition described.
+  - Assert the `on_success` as its `expected_result` (verbatim or as the primary basis for the expected result).
+- Add `"wf_ref": "WF-NNN"` to each TC to identify which workflow it covers.
+- If one TC naturally covers multiple workflows (e.g., the base path overlaps), pick the most specific `wf_ref`.
+- If a TC does not map to any workflow (e.g., a navigation-only test), set `"wf_ref": null`.
+
+---
+
 **OUTPUT — JSON only, no prose, no markdown fencing:**
 
 {
@@ -208,6 +232,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
   "test_cases": [
     {
       "tc_id": "P-001",
+      "wf_ref": "WF-001",
       "test_case": "Short descriptive name",
       "preconditions": ["User logged in as <Role>", "<Prerequisite state>"],
       "steps": ["1. Step one", "2. Step two"],
@@ -224,7 +249,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 }
 
 ------------------------------------------------------------
-[21:47:19] Test-Positive - USER PROMPT
+[15:28:46] Test-Positive - USER PROMPT
 ------------------------------------------------------------
 <module_name>Gradebook — Grader Report</module_name>
 
@@ -241,7 +266,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
         "Overview report"
       ]
     },
-    "User_Search_and_Filters": {
+    "User_Filters": {
       "type": "form",
       "fields": {
         "User_Search": {
@@ -254,67 +279,63 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
         }
       }
     },
-    "Grade_Table": {
+    "Edit_Mode_Toggle": {
+      "type": "checkbox",
+      "required": false,
+      "element_name": "Edit Mode"
+    },
+    "Grades_Table": {
       "type": "data_table",
-      "description": "Spreadsheet-style grid of activities (columns) \u00d7 enrolled students (rows)",
-      "controls": {
-        "Edit_Mode_Toggle": {
-          "element_name": "Toggle Edit Mode",
-          "type": "button",
-          "on_success": "enables inline editing of grade cells",
-          "toggles": "inline_editing"
-        },
-        "Save_Changes": {
-          "element_name": "Save changes",
-          "type": "button",
-          "preconditions": [
-            "Edit mode must be enabled"
-          ],
-          "constraints": [
-            "no grade entries outside configured grade range"
-          ],
-          "on_success": "applies edits to gradebook"
-        }
-      },
-      "cell_template": {
-        "Grade_Cell": {
-          "type": "number",
-          "editable_when": "Edit_Mode == enabled",
-          "required": false,
-          "constraints": [
-            "must be within configured grade range for the activity"
-          ]
-        }
-      },
-      "column_template": {
-        "type": "unspecified",
-        "notes": "Represents an activity column; each column header exposes column_actions"
-      },
+      "description": "Spreadsheet-style table with activities as columns and enrolled students as rows",
+      "columns_dynamic": true,
       "column_actions": [
         {
           "action_name": "Edit activity grade settings",
-          "type": "button",
-          "on_success": "updates activity grade settings",
-          "constraints": [],
-          "preconditions": []
+          "fields": {},
+          "on_success": "updates activity grade settings"
         }
       ],
       "cell_actions": [
         {
           "action_name": "Edit grade entry",
-          "type": "button",
           "fields": {
-            "Grade_Value": {
-              "type": "number",
+            "Grade": {
+              "type": "unspecified",
               "required": true,
               "constraints": [
-                "must be within configured grade range for the activity"
+                "must be within activity's configured grade range"
               ]
+            },
+            "Comment": {
+              "type": "unspecified",
+              "required": false
             }
           },
-          "on_success": "updates single grade entry"
+          "on_success": "updates single grade entry",
+          "on_failure": "flags invalid value inline"
         }
-      ]
+      ],
+      "cell_field_spec": {
+        "Grade_Value": {
+          "type": "unspecified",
+          "enabled_when": "Edit_Mode == true",
+          "constraints": [
+            "must be within activity's configured grade range (violations flagged inline and block Save changes)"
+          ]
+        }
+      }
+    },
+    "Save_Changes_Action": {
+      "type": "button",
+      "element_name": "Save changes",
+      "preconditions": [
+        "Edit_Mode == true"
+      ],
+      "constraints": [
+        "no grade cell may violate its activity's configured grade range (violations block Save changes)"
+      ],
+      "on_success": "applies edits to gradebook",
+      "on_failure": "blocks save and leaves inline validation flags on invalid cells"
     }
   }
 }
@@ -329,10 +350,16 @@ The Gradebook Grader report provides a spreadsheet-style view of grades. A repor
 
 </description>
 
+<workflows>
+WF-001 | Edit activity grade settings (column) | actor: <role> | branch: none | terminal: Edit activity grade settings | on_success: updates activity grade settings
+WF-002 | Edit individual grade entry (cell action) | actor: <role> | branch: none | terminal: Edit grade entry | on_success: updates single grade entry
+WF-003 | Save changes after inline edits (Edit Mode enabled) | actor: <role> | branch: Edit_Mode_Toggle == true | terminal: Save changes | on_success: applies edits to gradebook
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[21:49:47] Test-Positive - LLM RESPONSE
+[15:31:21] Test-Positive - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Gradebook — Grader Report",
@@ -340,107 +367,100 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Switch report type to User report",
-      "preconditions": [
-        "User logged in as <Teacher>",
-        "Grader Report page is open"
-      ],
-      "steps": [
-        "1. Click the Report_Type_Selector dropdown",
-        "2. Select 'User report' from the dropdown"
-      ],
-      "expected_result": "Report type selector displays 'User report' and the Grade Table updates to show the User report layout (only the User report view is visible)",
-      "priority": "medium"
-    },
-    {
-      "tc_id": "P-002",
-      "test_case": "Filter rows by user search",
-      "preconditions": [
-        "User logged in as <Teacher>",
-        "Grader Report page is open"
-      ],
-      "steps": [
-        "1. Enter <student name> in the User_Search field",
-        "2. Submit the search (press Enter or click Search)"
-      ],
-      "expected_result": "Grade Table displays only rows matching <student name>; unrelated student rows are no longer visible",
-      "priority": "medium"
-    },
-    {
-      "tc_id": "P-003",
-      "test_case": "Filter rows by group",
-      "preconditions": [
-        "User logged in as <Teacher>",
-        "Grader Report page is open"
-      ],
-      "steps": [
-        "1. Click the Group_Filter dropdown",
-        "2. Select <group> from the dropdown"
-      ],
-      "expected_result": "Grade Table displays only students belonging to <group>; unrelated student rows are no longer visible",
-      "priority": "medium"
-    },
-    {
-      "tc_id": "P-004",
+      "wf_ref": "WF-001",
       "test_case": "Edit activity grade settings from column header",
       "preconditions": [
         "User logged in as <Teacher>",
-        "Grader Report page is open"
+        "<Gradebook with at least one activity and enrolled students exists>"
       ],
       "steps": [
-        "1. Click the column header menu for <activity>",
-        "2. Click 'Edit activity grade settings' in the column actions menu",
-        "3. In the activity settings dialog change <grade range> or other settings",
-        "4. Click Save in the activity settings dialog"
+        "1. Navigate to the Gradebook — Grader report page",
+        "2. Locate the column header for an activity in the Grades table",
+        "3. Click the column header action menu and select 'Edit activity grade settings'",
+        "4. In the Edit Activity Grade Settings dialog, enter <valid grade range or settings> into the appropriate fields",
+        "5. Click Save on the Edit Activity Grade Settings dialog"
       ],
-      "expected_result": "Activity settings dialog closes and a success notification is displayed; the activity column header shows the updated grade settings (e.g., updated grade range) visibly on the column",
+      "expected_result": "The Edit Activity Grade Settings dialog closes; the activity's column header visibly shows the updated grade range/settings (e.g., updated min/max or grading scale) and the operation result text 'updates activity grade settings' is reflected in the UI (e.g., as a transient confirmation or updated header display).",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-002",
+      "wf_ref": "WF-002",
+      "test_case": "Edit a single student's grade via cell action menu",
+      "preconditions": [
+        "User logged in as <Teacher>",
+        "<Gradebook with at least one activity and enrolled students exists>"
+      ],
+      "steps": [
+        "1. Navigate to the Gradebook — Grader report page",
+        "2. Identify a student's grade cell for an activity",
+        "3. Click the cell's three-dot menu and choose 'Edit grade entry'",
+        "4. In the Edit Grade Entry dialog, enter <valid grade within activity range> in the Grade field and optionally enter <comment> in the Comment field",
+        "5. Click Save on the Edit Grade Entry dialog"
+      ],
+      "expected_result": "The Edit Grade Entry dialog closes and the grade cell displays the newly entered grade value; the UI reflects the action result 'updates single grade entry' (e.g., via a transient confirmation message or the updated cell value visible immediately).",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-003",
+      "wf_ref": "WF-003",
+      "test_case": "Make inline edits in Edit Mode and save changes; class averages update",
+      "preconditions": [
+        "User logged in as <Teacher>",
+        "<Gradebook with at least one activity and multiple enrolled students exists>"
+      ],
+      "steps": [
+        "1. Navigate to the Gradebook — Grader report page",
+        "2. Enable Edit Mode by checking the Edit Mode toggle",
+        "3. Click into one or more grade cells that became editable and enter <valid grades within each activity's configured grade range>",
+        "4. Click the 'Save changes' button"
+      ],
+      "expected_result": "A transient confirmation or visible indicator reflecting the on_success text 'applies edits to gradebook' is shown; the edited grade cells display the new values and the overall average row at the bottom updates for the affected activity columns to reflect the new class averages.",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-004",
+      "wf_ref": null,
+      "test_case": "Filter students via User Search and Group Filter to narrow displayed rows",
+      "preconditions": [
+        "User logged in as <Teacher>",
+        "<Gradebook with multiple enrolled students and groups exists>"
+      ],
+      "steps": [
+        "1. Navigate to the Gradebook — Grader report page",
+        "2. Enter <student name fragment> into the User Search field and apply the search",
+        "3. Select <group name> from the Group Filter dropdown"
+      ],
+      "expected_result": "The Grades table displays only the student rows that match <student name fragment> and belong to <group name>; unrelated student rows are no longer visible in the table.",
       "priority": "medium"
     },
     {
       "tc_id": "P-005",
-      "test_case": "Edit a single grade entry via cell action",
+      "wf_ref": null,
+      "test_case": "Toggling Edit Mode enables inline editing and reveals Save changes action",
       "preconditions": [
         "User logged in as <Teacher>",
-        "Grader Report page is open"
+        "<Gradebook with at least one activity and enrolled students exists>"
       ],
       "steps": [
-        "1. Open the cell actions menu (three-dot menu) for the cell at <student> × <activity>",
-        "2. Click 'Edit grade entry'",
-        "3. Enter <valid grade> in the Grade_Value field (within the configured grade range)",
-        "4. Click Save in the edit grade entry dialog"
+        "1. Navigate to the Gradebook — Grader report page",
+        "2. Observe current state with Edit Mode off (grade cells are not editable)",
+        "3. Enable Edit Mode by checking the Edit Mode toggle"
       ],
-      "expected_result": "The grade cell for <student> × <activity> displays the entered <valid grade>; the Overall average row updates to reflect the changed grade for that activity",
-      "priority": "high"
-    },
-    {
-      "tc_id": "P-006",
-      "test_case": "Enable Edit Mode, inline edit multiple cells and Save changes",
-      "preconditions": [
-        "User logged in as <Teacher>",
-        "Grader Report page is open",
-        "Edit mode is currently disabled"
-      ],
-      "steps": [
-        "1. Click the 'Toggle Edit Mode' button to enable edit mode",
-        "2. Confirm that inline edit controls are visible in grade cells",
-        "3. Inline edit the grade cell for <student A> × <activity 1> to <valid grade>",
-        "4. Inline edit the grade cell for <student B> × <activity 1> to <valid grade>",
-        "5. Click the 'Save changes' button"
-      ],
-      "expected_result": "Inline grade cells display the newly entered <valid grade> values; a success notification is displayed and the Overall average row updates to reflect the saved changes for the activity columns edited",
-      "priority": "high"
+      "expected_result": "Grade cells become editable inline (input controls are visible within cells) and the 'Save changes' button becomes available; any grade cell now shows an editable field where the value can be changed (enabled_when condition Edit_Mode == true is satisfied).",
+      "priority": "medium"
     }
   ],
   "summary": {
-    "total": 6,
-    "high_priority": 2,
-    "medium_priority": 4,
+    "total": 5,
+    "high_priority": 3,
+    "medium_priority": 2,
     "low_priority": 0
   }
 }
 
 ------------------------------------------------------------
-[21:49:47] Test-Positive - PARSED JSON
+[15:31:21] Test-Positive - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Gradebook \u2014 Grader Report",
@@ -448,101 +468,94 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Switch report type to User report",
-      "preconditions": [
-        "User logged in as <Teacher>",
-        "Grader Report page is open"
-      ],
-      "steps": [
-        "1. Click the Report_Type_Selector dropdown",
-        "2. Select 'User report' from the dropdown"
-      ],
-      "expected_result": "Report type selector displays 'User report' and the Grade Table updates to show the User report layout (only the User report view is visible)",
-      "priority": "medium"
-    },
-    {
-      "tc_id": "P-002",
-      "test_case": "Filter rows by user search",
-      "preconditions": [
-        "User logged in as <Teacher>",
-        "Grader Report page is open"
-      ],
-      "steps": [
-        "1. Enter <student name> in the User_Search field",
-        "2. Submit the search (press Enter or click Search)"
-      ],
-      "expected_result": "Grade Table displays only rows matching <student name>; unrelated student rows are no longer visible",
-      "priority": "medium"
-    },
-    {
-      "tc_id": "P-003",
-      "test_case": "Filter rows by group",
-      "preconditions": [
-        "User logged in as <Teacher>",
-        "Grader Report page is open"
-      ],
-      "steps": [
-        "1. Click the Group_Filter dropdown",
-        "2. Select <group> from the dropdown"
-      ],
-      "expected_result": "Grade Table displays only students belonging to <group>; unrelated student rows are no longer visible",
-      "priority": "medium"
-    },
-    {
-      "tc_id": "P-004",
+      "wf_ref": "WF-001",
       "test_case": "Edit activity grade settings from column header",
       "preconditions": [
         "User logged in as <Teacher>",
-        "Grader Report page is open"
+        "<Gradebook with at least one activity and enrolled students exists>"
       ],
       "steps": [
-        "1. Click the column header menu for <activity>",
-        "2. Click 'Edit activity grade settings' in the column actions menu",
-        "3. In the activity settings dialog change <grade range> or other settings",
-        "4. Click Save in the activity settings dialog"
+        "1. Navigate to the Gradebook \u2014 Grader report page",
+        "2. Locate the column header for an activity in the Grades table",
+        "3. Click the column header action menu and select 'Edit activity grade settings'",
+        "4. In the Edit Activity Grade Settings dialog, enter <valid grade range or settings> into the appropriate fields",
+        "5. Click Save on the Edit Activity Grade Settings dialog"
       ],
-      "expected_result": "Activity settings dialog closes and a success notification is displayed; the activity column header shows the updated grade settings (e.g., updated grade range) visibly on the column",
+      "expected_result": "The Edit Activity Grade Settings dialog closes; the activity's column header visibly shows the updated grade range/settings (e.g., updated min/max or grading scale) and the operation result text 'updates activity grade settings' is reflected in the UI (e.g., as a transient confirmation or updated header display).",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-002",
+      "wf_ref": "WF-002",
+      "test_case": "Edit a single student's grade via cell action menu",
+      "preconditions": [
+        "User logged in as <Teacher>",
+        "<Gradebook with at least one activity and enrolled students exists>"
+      ],
+      "steps": [
+        "1. Navigate to the Gradebook \u2014 Grader report page",
+        "2. Identify a student's grade cell for an activity",
+        "3. Click the cell's three-dot menu and choose 'Edit grade entry'",
+        "4. In the Edit Grade Entry dialog, enter <valid grade within activity range> in the Grade field and optionally enter <comment> in the Comment field",
+        "5. Click Save on the Edit Grade Entry dialog"
+      ],
+      "expected_result": "The Edit Grade Entry dialog closes and the grade cell displays the newly entered grade value; the UI reflects the action result 'updates single grade entry' (e.g., via a transient confirmation message or the updated cell value visible immediately).",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-003",
+      "wf_ref": "WF-003",
+      "test_case": "Make inline edits in Edit Mode and save changes; class averages update",
+      "preconditions": [
+        "User logged in as <Teacher>",
+        "<Gradebook with at least one activity and multiple enrolled students exists>"
+      ],
+      "steps": [
+        "1. Navigate to the Gradebook \u2014 Grader report page",
+        "2. Enable Edit Mode by checking the Edit Mode toggle",
+        "3. Click into one or more grade cells that became editable and enter <valid grades within each activity's configured grade range>",
+        "4. Click the 'Save changes' button"
+      ],
+      "expected_result": "A transient confirmation or visible indicator reflecting the on_success text 'applies edits to gradebook' is shown; the edited grade cells display the new values and the overall average row at the bottom updates for the affected activity columns to reflect the new class averages.",
+      "priority": "high"
+    },
+    {
+      "tc_id": "P-004",
+      "wf_ref": null,
+      "test_case": "Filter students via User Search and Group Filter to narrow displayed rows",
+      "preconditions": [
+        "User logged in as <Teacher>",
+        "<Gradebook with multiple enrolled students and groups exists>"
+      ],
+      "steps": [
+        "1. Navigate to the Gradebook \u2014 Grader report page",
+        "2. Enter <student name fragment> into the User Search field and apply the search",
+        "3. Select <group name> from the Group Filter dropdown"
+      ],
+      "expected_result": "The Grades table displays only the student rows that match <student name fragment> and belong to <group name>; unrelated student rows are no longer visible in the table.",
       "priority": "medium"
     },
     {
       "tc_id": "P-005",
-      "test_case": "Edit a single grade entry via cell action",
+      "wf_ref": null,
+      "test_case": "Toggling Edit Mode enables inline editing and reveals Save changes action",
       "preconditions": [
         "User logged in as <Teacher>",
-        "Grader Report page is open"
+        "<Gradebook with at least one activity and enrolled students exists>"
       ],
       "steps": [
-        "1. Open the cell actions menu (three-dot menu) for the cell at <student> \u00d7 <activity>",
-        "2. Click 'Edit grade entry'",
-        "3. Enter <valid grade> in the Grade_Value field (within the configured grade range)",
-        "4. Click Save in the edit grade entry dialog"
+        "1. Navigate to the Gradebook \u2014 Grader report page",
+        "2. Observe current state with Edit Mode off (grade cells are not editable)",
+        "3. Enable Edit Mode by checking the Edit Mode toggle"
       ],
-      "expected_result": "The grade cell for <student> \u00d7 <activity> displays the entered <valid grade>; the Overall average row updates to reflect the changed grade for that activity",
-      "priority": "high"
-    },
-    {
-      "tc_id": "P-006",
-      "test_case": "Enable Edit Mode, inline edit multiple cells and Save changes",
-      "preconditions": [
-        "User logged in as <Teacher>",
-        "Grader Report page is open",
-        "Edit mode is currently disabled"
-      ],
-      "steps": [
-        "1. Click the 'Toggle Edit Mode' button to enable edit mode",
-        "2. Confirm that inline edit controls are visible in grade cells",
-        "3. Inline edit the grade cell for <student A> \u00d7 <activity 1> to <valid grade>",
-        "4. Inline edit the grade cell for <student B> \u00d7 <activity 1> to <valid grade>",
-        "5. Click the 'Save changes' button"
-      ],
-      "expected_result": "Inline grade cells display the newly entered <valid grade> values; a success notification is displayed and the Overall average row updates to reflect the saved changes for the activity columns edited",
-      "priority": "high"
+      "expected_result": "Grade cells become editable inline (input controls are visible within cells) and the 'Save changes' button becomes available; any grade cell now shows an editable field where the value can be changed (enabled_when condition Edit_Mode == true is satisfied).",
+      "priority": "medium"
     }
   ],
   "summary": {
-    "total": 6,
-    "high_priority": 2,
-    "medium_priority": 4,
+    "total": 5,
+    "high_priority": 3,
+    "medium_priority": 2,
     "low_priority": 0
   }
 }

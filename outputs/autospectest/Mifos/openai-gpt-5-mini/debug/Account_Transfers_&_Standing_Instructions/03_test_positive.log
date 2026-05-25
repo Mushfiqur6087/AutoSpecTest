@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-21T22:29:06.554709
+DEBUG SESSION STARTED: 2026-05-25T14:24:50.743562
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[22:29:06] Test-Positive - SYSTEM PROMPT
+[14:24:50] Test-Positive - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Expert UI Test Case Generator. You receive (1) a UI-AST JSON for one specific module and (2) the original functional description for that module.
 
@@ -24,6 +24,10 @@ Your job is to produce ONLY positive/functional UI test cases — tests where va
 <description>
 {Original functional description text for this module}
 </description>
+
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
 
 ---
 
@@ -146,6 +150,13 @@ Because you are testing a module in isolation, establish the required entry stat
 **1. Forms & Wizards (`form`, `wizard`):**
 - Generate ONE happy path per distinct success outcome.
 - *Conditional UI Check:* If a toggle/dropdown reveals new mandatory fields (`visible_when`), generate a separate test for that conditional branch.
+- **Wizard step coverage (CRITICAL):** If a wizard has multiple steps and any step beyond Step 1 contains its own named field group (e.g., "Address Details", "Family Members", "Identifiers"), generate ONE dedicated positive TC per such step. The TC must:
+  - Navigate to that specific step (include the preceding steps as preconditions or brief navigation steps)
+  - Fill the fields described for that step (not just pass through)
+  - Assert the step's content is visible/saved on the detail page after final submission
+  - **Do NOT collapse all wizard steps into one happy-path TC** — if Steps 2, 3, and 4 each have their own named section in the spec, they each need their own TC.
+- **Wizard in-step identifiers/duplicates:** If a wizard step allows adding identifiers, documents, or similar entries that have a uniqueness constraint, include a TC for that wizard step that also verifies the constraint (e.g., attempting to add a duplicate Document Type+Key pair inside the wizard). This is a different code path from adding the same post-creation on the detail page.
+- **Action dialogs:** If a `state_bound_action_bar` action opens a dialog with its own `fields{}` (e.g., Activate requires Activation Date, Reject requires Reason), generate ONE positive TC per such action-dialog — distinct from the state-transition TC. The TC fills the dialog field and completes the action.
 
 **2. State Machines (`state_bound_action_bar`):**
 - For each unique action available in a specific state, generate ONE test performing that action.
@@ -200,6 +211,19 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 
 ---
 
+**WORKFLOW COVERAGE OBLIGATION (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- Your test cases must **collectively cover every workflow** listed.
+- For each `wf_id`, at least one TC must:
+  - Activate the `conditional_branch` (if not null) — i.e. the test must set up the condition described.
+  - Assert the `on_success` as its `expected_result` (verbatim or as the primary basis for the expected result).
+- Add `"wf_ref": "WF-NNN"` to each TC to identify which workflow it covers.
+- If one TC naturally covers multiple workflows (e.g., the base path overlaps), pick the most specific `wf_ref`.
+- If a TC does not map to any workflow (e.g., a navigation-only test), set `"wf_ref": null`.
+
+---
+
 **OUTPUT — JSON only, no prose, no markdown fencing:**
 
 {
@@ -208,6 +232,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
   "test_cases": [
     {
       "tc_id": "P-001",
+      "wf_ref": "WF-001",
       "test_case": "Short descriptive name",
       "preconditions": ["User logged in as <Role>", "<Prerequisite state>"],
       "steps": ["1. Step one", "2. Step two"],
@@ -224,7 +249,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 }
 
 ------------------------------------------------------------
-[22:29:06] Test-Positive - USER PROMPT
+[14:24:50] Test-Positive - USER PROMPT
 ------------------------------------------------------------
 <module_name>Account Transfers & Standing Instructions</module_name>
 
@@ -279,7 +304,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
           "type": "number",
           "required": true,
           "constraints": [
-            "error shown if amount exceeds available balance"
+            "must be <= available balance (error shown if exceeded)"
           ]
         },
         "Transfer_Date": {
@@ -294,11 +319,11 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
       "submit_actions": [
         {
           "element_name": "Submit",
-          "on_success": "processes transfer; debits the source account and credits the destination account"
+          "on_success": "processes transfer; debits source account and credits destination account"
         }
       ]
     },
-    "Standing_Instructions_Page": {
+    "Standing_Instructions_Table": {
       "type": "data_table",
       "columns": [
         "Name",
@@ -311,30 +336,32 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
         "Validity Till",
         "Status"
       ],
-      "status_values": [
-        "Active",
-        "Disabled"
+      "top_actions": [
+        {
+          "element_name": "+ Create Standing Instruction",
+          "opens_form": "Create_Standing_Instruction_Form"
+        }
       ],
-      "create_button": {
-        "element_name": "+ Create Standing Instruction",
-        "action": "opens_form",
-        "opens_form": "Create_Standing_Instruction_Form"
-      },
       "row_actions": [
         {
           "action_name": "Enable",
-          "on_success": "sets status to Active"
+          "preconditions": [
+            "status must be Disabled"
+          ],
+          "on_success": "changes status to Active"
         },
         {
           "action_name": "Disable",
-          "on_success": "sets status to Disabled"
+          "preconditions": [
+            "status must be Active"
+          ],
+          "on_success": "changes status to Disabled"
         },
         {
           "action_name": "Delete",
           "on_success": "removes standing instruction from listing"
         }
-      ],
-      "bulk_actions": []
+      ]
     },
     "Create_Standing_Instruction_Form": {
       "type": "form",
@@ -418,10 +445,18 @@ The Standing Instructions page displays a data table with columns for Name, From
 
 </description>
 
+<workflows>
+WF-001 | Process Account Transfer (Submit) | actor: <role> | branch: none | terminal: Submit | on_success: processes transfer; debits source account and credits destination account
+WF-002 | Create Standing Instruction (Create) | actor: <role> | branch: none | terminal: Create | on_success: creates standing instruction
+WF-003 | Enable Standing Instruction (row action) | actor: <role> | branch: none | terminal: Enable | on_success: changes status to Active
+WF-004 | Disable Standing Instruction (row action) | actor: <role> | branch: none | terminal: Disable | on_success: changes status to Disabled
+WF-005 | Delete Standing Instruction (row action) | actor: <role> | branch: none | terminal: Delete | on_success: removes standing instruction from listing
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[22:35:25] Test-Positive - LLM RESPONSE
+[14:31:47] Test-Positive - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Account Transfers & Standing Instructions",
@@ -429,97 +464,99 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Submit an account transfer with amount within available balance",
+      "wf_ref": "WF-001",
+      "test_case": "Process Account Transfer with sufficient balance",
       "preconditions": [
-        "User logged in as <Bank Staff>"
+        "User logged in as <role>",
+        "Source account <From_Account> has available balance >= <transfer amount>"
       ],
       "steps": [
         "1. Navigate to the Account Transfers page",
-        "2. Select <From Office> in the From Office field",
-        "3. Select <From Client> in the From Client field",
-        "4. Select 'Savings Account' from the From Account Type dropdown",
-        "5. Select <From Account> in the From Account field",
-        "6. Select <To Office> in the To Office field",
-        "7. Select <To Client> in the To Client field",
-        "8. Select 'Savings Account' from the To Account Type dropdown",
-        "9. Select <To Account> in the To Account field",
-        "10. Enter <valid amount within available balance> in the Transfer Amount field",
-        "11. Select <transfer date> in the Transfer Date field",
-        "12. Enter <optional description> in the Description field",
+        "2. Select <From_Office> in From Office",
+        "3. Select <From_Client> in From Client",
+        "4. Select <From_Account_Type> in From Account Type",
+        "5. Select <From_Account> in From Account",
+        "6. Select <To_Office> in To Office",
+        "7. Select <To_Client> in To Client",
+        "8. Select <To_Account_Type> in To Account Type",
+        "9. Select <To_Account> in To Account",
+        "10. Enter <transfer amount> in Transfer Amount (<= available balance)",
+        "11. Enter <transfer date> in Transfer Date",
+        "12. Enter <description> in Description (optional)",
         "13. Click Submit"
       ],
-      "expected_result": "A success notification is displayed confirming the transfer was processed and the Account Transfers form is reset/cleared",
+      "expected_result": "A success notification is shown with text: processes transfer; debits source account and credits destination account",
       "priority": "high"
     },
     {
       "tc_id": "P-002",
-      "test_case": "Create a new standing instruction via the Create form",
+      "wf_ref": "WF-002",
+      "test_case": "Create a new Standing Instruction via top action",
       "preconditions": [
-        "User logged in as <Bank Staff>"
+        "User logged in as <role>"
       ],
       "steps": [
         "1. Navigate to the Standing Instructions page",
-        "2. Click the '+ Create Standing Instruction' button to open the Create Standing Instruction form",
-        "3. Enter <Name> in the Name field",
-        "4. Select <From Account> in the From Account field",
-        "5. Select <To Account> in the To Account field",
-        "6. Select <Transfer Type> in the Transfer Type field",
-        "7. Select <Priority> in the Priority field",
-        "8. Select 'Fixed' from the Instruction Type dropdown",
-        "9. Enter <Amount> in the Amount field",
-        "10. Select <Validity From date> in the Validity From field",
-        "11. Select <Validity Till date> in the Validity Till field",
-        "12. Select 'Periodic' from the Recurrence Type dropdown",
-        "13. Enter <Recurrence Frequency> in the Recurrence Frequency field",
-        "14. Enter <Recurrence Interval> in the Recurrence Interval field",
-        "15. Click Create"
+        "2. Click + Create Standing Instruction",
+        "3. In the Create Standing Instruction form, enter <Name> in Name (required)",
+        "4. Select <From_Account> in From Account (optional)",
+        "5. Select <To_Account> in To Account (optional)",
+        "6. Select <Instruction_Type> in Instruction Type",
+        "7. If Instruction Type is Fixed, enter <Amount> in Amount (optional)",
+        "8. Enter <validity from date> in Validity From (optional) and <validity till date> in Validity Till (optional)",
+        "9. Select <Recurrence_Type> in Recurrence Type (optional) and fill Recurrence Frequency/Interval as <values> if Periodic",
+        "10. Click Create"
       ],
-      "expected_result": "New row appears in the Standing Instructions table with the entered Name, From Account, To Account, Amount and the specified Validity From/Till dates",
+      "expected_result": "A success notification is shown with text: creates standing instruction; a new row appears in the Standing Instructions table with Name = <Name>",
       "priority": "high"
     },
     {
       "tc_id": "P-003",
-      "test_case": "Enable a standing instruction that is currently Disabled",
+      "wf_ref": "WF-003",
+      "test_case": "Enable a Disabled Standing Instruction from the listing",
       "preconditions": [
-        "User logged in as <Bank Staff>",
-        "<existing standing instruction> is present in the Standing Instructions table with Status 'Disabled'"
+        "User logged in as <role>",
+        "A standing instruction exists with Name = <Name> and Status = Disabled"
       ],
       "steps": [
         "1. Navigate to the Standing Instructions page",
-        "2. Locate the row for <existing standing instruction>",
-        "3. Click the 'Enable' action for that row"
+        "2. Locate the row with Name = <Name>",
+        "3. Click the Enable action for the row"
       ],
-      "expected_result": "Status column for <existing standing instruction> updates to 'Active' in the Standing Instructions table",
+      "expected_result": "The row for <Name> shows Status = 'Active' in the Status column (changes status to Active)",
       "priority": "medium"
     },
     {
       "tc_id": "P-004",
-      "test_case": "Disable a standing instruction that is currently Active",
+      "wf_ref": "WF-004",
+      "test_case": "Disable an Active Standing Instruction from the listing",
       "preconditions": [
-        "User logged in as <Bank Staff>",
-        "<existing standing instruction> is present in the Standing Instructions table with Status 'Active'"
+        "User logged in as <role>",
+        "A standing instruction exists with Name = <Name> and Status = Active"
       ],
       "steps": [
         "1. Navigate to the Standing Instructions page",
-        "2. Locate the row for <existing standing instruction>",
-        "3. Click the 'Disable' action for that row"
+        "2. Locate the row with Name = <Name>",
+        "3. Click the Disable action for the row"
       ],
-      "expected_result": "Status column for <existing standing instruction> updates to 'Disabled' in the Standing Instructions table",
+      "expected_result": "The row for <Name> shows Status = 'Disabled' in the Status column (changes status to Disabled)",
       "priority": "medium"
     },
     {
       "tc_id": "P-005",
-      "test_case": "Delete a standing instruction from the listing",
+      "wf_ref": "WF-005",
+      "test_case": "Delete a Standing Instruction from the listing",
       "preconditions": [
-        "User logged in as <Bank Staff>",
-        "<existing standing instruction> is present in the Standing Instructions table"
+        "User logged in as <role>",
+        "A standing instruction exists with Name = <Name>"
       ],
       "steps": [
         "1. Navigate to the Standing Instructions page",
-        "2. Locate the row for <existing standing instruction>",
-        "3. Click the 'Delete' action for that row"
+        "2. Locate the row with Name = <Name>",
+        "3. Click the Delete action for the row",
+        "4. If a confirmation appears, click Confirm"
       ],
-      "expected_result": "The row for <existing standing instruction> is no longer present in the Standing Instructions table",
+      "expected_result": "The row with Name = <Name> is no longer present in the Standing Instructions table; a success notification is shown with text: removes standing instruction from listing",
       "priority": "medium"
     }
   ],
@@ -532,7 +569,7 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
 }
 
 ------------------------------------------------------------
-[22:35:25] Test-Positive - PARSED JSON
+[14:31:47] Test-Positive - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Account Transfers & Standing Instructions",
@@ -540,97 +577,99 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Submit an account transfer with amount within available balance",
+      "wf_ref": "WF-001",
+      "test_case": "Process Account Transfer with sufficient balance",
       "preconditions": [
-        "User logged in as <Bank Staff>"
+        "User logged in as <role>",
+        "Source account <From_Account> has available balance >= <transfer amount>"
       ],
       "steps": [
         "1. Navigate to the Account Transfers page",
-        "2. Select <From Office> in the From Office field",
-        "3. Select <From Client> in the From Client field",
-        "4. Select 'Savings Account' from the From Account Type dropdown",
-        "5. Select <From Account> in the From Account field",
-        "6. Select <To Office> in the To Office field",
-        "7. Select <To Client> in the To Client field",
-        "8. Select 'Savings Account' from the To Account Type dropdown",
-        "9. Select <To Account> in the To Account field",
-        "10. Enter <valid amount within available balance> in the Transfer Amount field",
-        "11. Select <transfer date> in the Transfer Date field",
-        "12. Enter <optional description> in the Description field",
+        "2. Select <From_Office> in From Office",
+        "3. Select <From_Client> in From Client",
+        "4. Select <From_Account_Type> in From Account Type",
+        "5. Select <From_Account> in From Account",
+        "6. Select <To_Office> in To Office",
+        "7. Select <To_Client> in To Client",
+        "8. Select <To_Account_Type> in To Account Type",
+        "9. Select <To_Account> in To Account",
+        "10. Enter <transfer amount> in Transfer Amount (<= available balance)",
+        "11. Enter <transfer date> in Transfer Date",
+        "12. Enter <description> in Description (optional)",
         "13. Click Submit"
       ],
-      "expected_result": "A success notification is displayed confirming the transfer was processed and the Account Transfers form is reset/cleared",
+      "expected_result": "A success notification is shown with text: processes transfer; debits source account and credits destination account",
       "priority": "high"
     },
     {
       "tc_id": "P-002",
-      "test_case": "Create a new standing instruction via the Create form",
+      "wf_ref": "WF-002",
+      "test_case": "Create a new Standing Instruction via top action",
       "preconditions": [
-        "User logged in as <Bank Staff>"
+        "User logged in as <role>"
       ],
       "steps": [
         "1. Navigate to the Standing Instructions page",
-        "2. Click the '+ Create Standing Instruction' button to open the Create Standing Instruction form",
-        "3. Enter <Name> in the Name field",
-        "4. Select <From Account> in the From Account field",
-        "5. Select <To Account> in the To Account field",
-        "6. Select <Transfer Type> in the Transfer Type field",
-        "7. Select <Priority> in the Priority field",
-        "8. Select 'Fixed' from the Instruction Type dropdown",
-        "9. Enter <Amount> in the Amount field",
-        "10. Select <Validity From date> in the Validity From field",
-        "11. Select <Validity Till date> in the Validity Till field",
-        "12. Select 'Periodic' from the Recurrence Type dropdown",
-        "13. Enter <Recurrence Frequency> in the Recurrence Frequency field",
-        "14. Enter <Recurrence Interval> in the Recurrence Interval field",
-        "15. Click Create"
+        "2. Click + Create Standing Instruction",
+        "3. In the Create Standing Instruction form, enter <Name> in Name (required)",
+        "4. Select <From_Account> in From Account (optional)",
+        "5. Select <To_Account> in To Account (optional)",
+        "6. Select <Instruction_Type> in Instruction Type",
+        "7. If Instruction Type is Fixed, enter <Amount> in Amount (optional)",
+        "8. Enter <validity from date> in Validity From (optional) and <validity till date> in Validity Till (optional)",
+        "9. Select <Recurrence_Type> in Recurrence Type (optional) and fill Recurrence Frequency/Interval as <values> if Periodic",
+        "10. Click Create"
       ],
-      "expected_result": "New row appears in the Standing Instructions table with the entered Name, From Account, To Account, Amount and the specified Validity From/Till dates",
+      "expected_result": "A success notification is shown with text: creates standing instruction; a new row appears in the Standing Instructions table with Name = <Name>",
       "priority": "high"
     },
     {
       "tc_id": "P-003",
-      "test_case": "Enable a standing instruction that is currently Disabled",
+      "wf_ref": "WF-003",
+      "test_case": "Enable a Disabled Standing Instruction from the listing",
       "preconditions": [
-        "User logged in as <Bank Staff>",
-        "<existing standing instruction> is present in the Standing Instructions table with Status 'Disabled'"
+        "User logged in as <role>",
+        "A standing instruction exists with Name = <Name> and Status = Disabled"
       ],
       "steps": [
         "1. Navigate to the Standing Instructions page",
-        "2. Locate the row for <existing standing instruction>",
-        "3. Click the 'Enable' action for that row"
+        "2. Locate the row with Name = <Name>",
+        "3. Click the Enable action for the row"
       ],
-      "expected_result": "Status column for <existing standing instruction> updates to 'Active' in the Standing Instructions table",
+      "expected_result": "The row for <Name> shows Status = 'Active' in the Status column (changes status to Active)",
       "priority": "medium"
     },
     {
       "tc_id": "P-004",
-      "test_case": "Disable a standing instruction that is currently Active",
+      "wf_ref": "WF-004",
+      "test_case": "Disable an Active Standing Instruction from the listing",
       "preconditions": [
-        "User logged in as <Bank Staff>",
-        "<existing standing instruction> is present in the Standing Instructions table with Status 'Active'"
+        "User logged in as <role>",
+        "A standing instruction exists with Name = <Name> and Status = Active"
       ],
       "steps": [
         "1. Navigate to the Standing Instructions page",
-        "2. Locate the row for <existing standing instruction>",
-        "3. Click the 'Disable' action for that row"
+        "2. Locate the row with Name = <Name>",
+        "3. Click the Disable action for the row"
       ],
-      "expected_result": "Status column for <existing standing instruction> updates to 'Disabled' in the Standing Instructions table",
+      "expected_result": "The row for <Name> shows Status = 'Disabled' in the Status column (changes status to Disabled)",
       "priority": "medium"
     },
     {
       "tc_id": "P-005",
-      "test_case": "Delete a standing instruction from the listing",
+      "wf_ref": "WF-005",
+      "test_case": "Delete a Standing Instruction from the listing",
       "preconditions": [
-        "User logged in as <Bank Staff>",
-        "<existing standing instruction> is present in the Standing Instructions table"
+        "User logged in as <role>",
+        "A standing instruction exists with Name = <Name>"
       ],
       "steps": [
         "1. Navigate to the Standing Instructions page",
-        "2. Locate the row for <existing standing instruction>",
-        "3. Click the 'Delete' action for that row"
+        "2. Locate the row with Name = <Name>",
+        "3. Click the Delete action for the row",
+        "4. If a confirmation appears, click Confirm"
       ],
-      "expected_result": "The row for <existing standing instruction> is no longer present in the Standing Instructions table",
+      "expected_result": "The row with Name = <Name> is no longer present in the Standing Instructions table; a success notification is shown with text: removes standing instruction from listing",
       "priority": "medium"
     }
   ],

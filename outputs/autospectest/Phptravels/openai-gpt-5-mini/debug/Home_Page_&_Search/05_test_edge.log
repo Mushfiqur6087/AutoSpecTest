@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-21T22:54:00.227060
+DEBUG SESSION STARTED: 2026-05-25T14:51:20.228991
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[22:54:00] Test-Edge - SYSTEM PROMPT
+[14:51:20] Test-Edge - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Edge Case and Boundary Test Generator. You receive (1) a UI-AST JSON for one module and (2) the original functional description. Your job is to produce ONLY boundary and edge case tests — scenarios at the limits of valid/invalid input and unusual-but-plausible user behaviors.
 
@@ -25,6 +25,10 @@ You are NOT producing happy paths (positive prompt) or standard validation failu
 {Original functional description text for this module}
 </description>
 
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
+
 ---
 
 **UI-AST REFERENCE — How to Read the AST for Edge Testing:**
@@ -35,7 +39,7 @@ You are NOT producing happy paths (positive prompt) or standard validation failu
 | `repeating_group` with `max` | Test adding exactly `max` entries (should succeed) then one more (should block) |
 | `visible_when` / `required_when` | Edge: trigger condition, fill revealed field with boundary value |
 | `state_bound_action_bar` | State edges: rapid consecutive state transitions, transition from a boundary state |
-| `submit_actions[]` with multiple buttons | Interaction edge: double-click a submit button rapidly |
+
 | `type: "date"` fields | Data edges: today, yesterday, far future, Feb 29 leap year |
 | `type: "file_upload"` | Edge: file exactly at size limit, file at 1 byte over limit |
 
@@ -132,7 +136,6 @@ Pick only the ones that apply to field types present in this module's AST:
 
 Pick only the ones that match component types in this module's AST:
 
-- **Double-click submit** (any form/wizard with a submit button): rapidly double-click the submit button → assert only one record is created; no duplicate row appears in the listing table
 - **Rapid re-submission after redirect** (any form that redirects to a detail page on success): after a successful submit, press the browser back button → assert the creation form is shown blank (not pre-filled) OR the user is redirected to the detail page without a second entity being created
 - **Wizard step skip — enforced navigation** (wizard where steps must be completed sequentially): attempt to click a later step tab directly without completing earlier steps → assert navigation is blocked and the earlier step remains active
 - **Wizard step skip — free navigation** (wizard that allows free tab navigation): navigate to a later step without filling earlier steps → assert the later step displays and returning to the earlier step shows fields blank (no data was lost from the later step)
@@ -173,7 +176,16 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 
 - **High:** None — edge tests are secondary to core functionality
 - **Medium:** Boundary tests at thresholds (financial amounts, date ordering, count limits, file size limits)
-- **Low:** Input edge cases (long text, special chars, whitespace, decimal precision), interaction edge cases (double-click, browser back, wizard skip)
+- **Low:** Input edge cases (long text, special chars, whitespace, decimal precision), interaction edge cases (browser back, wizard skip)
+
+---
+
+**WORKFLOW-AWARE BOUNDARY SCOPING (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- For each workflow where `conditional_branch` activates a numeric or date field, check if that field has a boundary (a numeric/date threshold in the AST `constraints` or description).
+- If yes, that workflow's branch is a **candidate for a boundary edge test** — add or confirm a boundary TC exists for it.
+- Add `"wf_ref": "WF-NNN"` to each TC that maps to a specific workflow's boundary. Set `"wf_ref": null` for generic input/interaction edge tests.
 
 ---
 
@@ -185,6 +197,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": null,
       "subcategory": "boundary | input_edge | interaction_edge | state_edge | data_edge",
       "test_case": "Short descriptive name",
       "preconditions": ["precondition 1"],
@@ -207,7 +220,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 
 
 ------------------------------------------------------------
-[22:54:00] Test-Edge - USER PROMPT
+[14:51:20] Test-Edge - USER PROMPT
 ------------------------------------------------------------
 <module_name>Home Page & Search</module_name>
 
@@ -222,22 +235,28 @@ If the module has any numeric/date/count threshold in the AST or description, pr
           "tab_name": "Hotels",
           "fields": {
             "Destination": {
-              "type": "search"
+              "type": "unspecified",
+              "required": null
             },
-            "Check_In_Date": {
-              "type": "date"
+            "Check_in_Date": {
+              "type": "date",
+              "required": null
             },
-            "Check_Out_Date": {
-              "type": "date"
+            "Check_out_Date": {
+              "type": "date",
+              "required": null
             },
             "Number_of_Rooms": {
-              "type": "number"
+              "type": "number",
+              "required": null
             },
             "Adults": {
-              "type": "number"
+              "type": "number",
+              "required": null
             },
             "Children": {
-              "type": "number"
+              "type": "number",
+              "required": null
             }
           }
         },
@@ -246,6 +265,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
           "fields": {
             "Trip_Type": {
               "type": "dropdown",
+              "required": null,
               "options": [
                 "One-way",
                 "Round-trip",
@@ -253,28 +273,36 @@ If the module has any numeric/date/count threshold in the AST or description, pr
               ]
             },
             "Departure_City": {
-              "type": "search"
+              "type": "unspecified",
+              "required": null
             },
             "Arrival_City": {
-              "type": "search"
+              "type": "unspecified",
+              "required": null
             },
             "Departure_Date": {
-              "type": "date"
+              "type": "date",
+              "required": null
             },
             "Return_Date": {
-              "type": "date"
+              "type": "date",
+              "required": null
             },
             "Adults": {
-              "type": "number"
+              "type": "number",
+              "required": null
             },
             "Children": {
-              "type": "number"
+              "type": "number",
+              "required": null
             },
             "Infants": {
-              "type": "number"
+              "type": "number",
+              "required": null
             },
             "Cabin_Class": {
               "type": "dropdown",
+              "required": null,
               "options": [
                 "Economy",
                 "Premium Economy",
@@ -288,36 +316,45 @@ If the module has any numeric/date/count threshold in the AST or description, pr
           "tab_name": "Tours",
           "fields": {
             "Destination": {
-              "type": "search"
+              "type": "unspecified",
+              "required": null
             },
             "Travel_Start_Date": {
-              "type": "date"
+              "type": "date",
+              "required": null
             },
             "Travel_End_Date": {
-              "type": "date"
+              "type": "date",
+              "required": null
             }
           }
         },
         {
           "tab_name": "Cars",
           "fields": {
-            "Pick_Up_Location": {
-              "type": "search"
+            "Pick_up_Location": {
+              "type": "unspecified",
+              "required": null
             },
-            "Drop_Off_Location": {
-              "type": "search"
+            "Drop_off_Location": {
+              "type": "unspecified",
+              "required": null
             },
-            "Pick_Up_Date": {
-              "type": "date"
+            "Pick_up_Date": {
+              "type": "date",
+              "required": null
             },
-            "Pick_Up_Time": {
-              "type": "unspecified"
+            "Pick_up_Time": {
+              "type": "time",
+              "required": null
             },
-            "Drop_Off_Date": {
-              "type": "date"
+            "Drop_off_Date": {
+              "type": "date",
+              "required": null
             },
-            "Drop_Off_Time": {
-              "type": "unspecified"
+            "Drop_off_Time": {
+              "type": "time",
+              "required": null
             }
           }
         }
@@ -325,15 +362,18 @@ If the module has any numeric/date/count threshold in the AST or description, pr
       "submit_actions": [
         {
           "element_name": "Search",
+          "type": "button",
           "constraints": [
-            "validates that all required fields for the active tab are filled"
+            "validates required fields for active tab"
           ],
-          "on_success": "redirects to corresponding results listing page",
-          "on_failure": "shows inline field errors on invalid fields"
+          "on_validation_error": "shows inline errors on invalid fields",
+          "on_success_by_tab": {
+            "Hotels": "redirects to Hotels results listing page",
+            "Flights": "redirects to Flights results listing page",
+            "Tours": "redirects to Tours results listing page",
+            "Cars": "redirects to Cars results listing page"
+          }
         }
-      ],
-      "interaction_notes": [
-        "clicking a tab switches the visible search fields to that service type"
       ]
     }
   }
@@ -349,10 +389,17 @@ The home page features a prominent search widget with four tabs: Hotels, Flights
 
 </description>
 
+<workflows>
+WF-001 | Search from Hotels tab | actor: <role> | branch: components.Search_Widget.active_tab == 'Hotels' | terminal: Search | on_success: redirects to Hotels results listing page
+WF-002 | Search from Flights tab | actor: <role> | branch: components.Search_Widget.active_tab == 'Flights' | terminal: Search | on_success: redirects to Flights results listing page
+WF-003 | Search from Tours tab | actor: <role> | branch: components.Search_Widget.active_tab == 'Tours' | terminal: Search | on_success: redirects to Tours results listing page
+WF-004 | Search from Cars tab | actor: <role> | branch: components.Search_Widget.active_tab == 'Cars' | terminal: Search | on_success: redirects to Cars results listing page
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[22:54:41] Test-Edge - LLM RESPONSE
+[14:51:49] Test-Edge - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Home Page & Search",
@@ -360,163 +407,107 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "E-001",
-      "subcategory": "boundary",
-      "test_case": "Hotels: Check-out date equal to check-in date (same-day) is blocked",
+      "wf_ref": null,
+      "subcategory": "input_edge",
+      "test_case": "Very long text in Hotels 'Destination' field",
       "preconditions": [
-        "Home page is loaded",
-        "Hotels tab is active"
+        "User is on the Home Page",
+        "Hotels tab is visible in the Search widget"
       ],
       "steps": [
-        "1. Enter a valid value in Destination",
-        "2. Enter a date in Check_In_Date",
-        "3. Enter <the same day as Check_In_Date> in Check_Out_Date",
-        "4. Enter values in Number_of_Rooms, Adults (and Children if required)",
-        "5. Click the Search button"
+        "1. Click the Hotels tab in the Search widget",
+        "2. Enter <very long string> in the Destination field",
+        "3. Enter <valid Check_in_Date> in the Check_in_Date field",
+        "4. Enter <valid Check_out_Date after or equal to Check_in_Date> in the Check_out_Date field",
+        "5. Enter <minimum valid value> in the Adults field",
+        "6. Click the Search button"
       ],
-      "expected_result": "Search is blocked; the Check_Out_Date field displays an inline error indicating the check-out date must be after the check-in date (visible inline error on the Check_Out_Date field).",
+      "expected_result": "Form submits successfully; user is redirected to the Hotels results listing page and the search summary on the results page displays the Destination value (UI either shows the full value or a truncated preview). Search succeeds (redirect occurs) and the Destination shown in the results UI is visibly limited to the widget's display capacity (e.g., truncated with ellipsis) if applicable.",
       "priority": "medium"
     },
     {
       "tc_id": "E-002",
-      "subcategory": "boundary",
-      "test_case": "Hotels: Check-out date one day after check-in succeeds",
+      "wf_ref": null,
+      "subcategory": "input_edge",
+      "test_case": "Special characters and emoji in Flights 'Departure_City' and 'Arrival_City' fields",
       "preconditions": [
-        "Home page is loaded",
-        "Hotels tab is active"
+        "User is on the Home Page",
+        "Flights tab is visible in the Search widget"
       ],
       "steps": [
-        "1. Enter a valid value in Destination",
-        "2. Enter a date in Check_In_Date",
-        "3. Enter <one day after Check_In_Date> in Check_Out_Date",
-        "4. Enter values in Number_of_Rooms, Adults (and Children if required)",
-        "5. Click the Search button"
+        "1. Click the Flights tab in the Search widget",
+        "2. Select Round-trip in the Trip_Type dropdown",
+        "3. Enter <string containing special characters and emoji> in the Departure_City field",
+        "4. Enter <string containing special characters and emoji> in the Arrival_City field",
+        "5. Enter <valid Departure_Date> in the Departure_Date field",
+        "6. Enter <valid Return_Date after or equal to Departure_Date> in the Return_Date field",
+        "7. Enter <minimum valid value> in the Adults field",
+        "8. Select Economy in the Cabin_Class dropdown",
+        "9. Click the Search button"
       ],
-      "expected_result": "Search succeeds; user is redirected to the Hotels results listing page (results page loads for the Hotels search).",
+      "expected_result": "Form submits successfully; user is redirected to the Flights results listing page. The Flights search completes (redirect occurs) and the Departure_City and Arrival_City values are preserved in the search summary; any characters not displayable are shown as replacement glyphs or are displayed as entered. Search succeeds and no inline error about character content is shown.",
       "priority": "medium"
     },
     {
       "tc_id": "E-003",
-      "subcategory": "boundary",
-      "test_case": "Flights (Round-trip): Return date equal to departure date (same-day return) succeeds",
+      "wf_ref": null,
+      "subcategory": "input_edge",
+      "test_case": "Leading and trailing whitespace in Cars 'Pick_up_Location' is trimmed on submit",
       "preconditions": [
-        "Home page is loaded",
-        "Flights tab is active",
-        "Trip_Type is set to Round-trip"
+        "User is on the Home Page",
+        "Cars tab is visible in the Search widget"
       ],
       "steps": [
-        "1. Select Trip_Type = Round-trip",
-        "2. Enter a valid value in Departure_City",
-        "3. Enter a valid value in Arrival_City",
-        "4. Enter a date in Departure_Date",
-        "5. Enter <the same day as Departure_Date> in Return_Date",
-        "6. Enter values for Adults (and Children/Infants if required) and select Cabin_Class",
-        "7. Click the Search button"
+        "1. Click the Cars tab in the Search widget",
+        "2. Enter <value with leading and trailing spaces> in the Pick_up_Location field",
+        "3. Enter <valid Drop_off_Location> in the Drop_off_Location field",
+        "4. Enter <valid Pick_up_Date> in the Pick_up_Date field",
+        "5. Enter <valid Pick_up_Time> in the Pick_up_Time field",
+        "6. Enter <valid Drop_off_Date after or equal to Pick_up_Date> in the Drop_off_Date field",
+        "7. Enter <valid Drop_off_Time> in the Drop_off_Time field",
+        "8. Click the Search button"
       ],
-      "expected_result": "Search succeeds; user is redirected to the Flights results listing page for the specified round-trip (results page loads showing flights for the same-day return).",
-      "priority": "medium"
+      "expected_result": "Form submits successfully; user is redirected to the Cars results listing page. The Pick_up_Location value shown in the search summary is trimmed (leading/trailing whitespace removed) and Search succeeds (redirect occurs). If trimming is applied, the displayed value contains no leading or trailing spaces.",
+      "priority": "low"
     },
     {
       "tc_id": "E-004",
-      "subcategory": "boundary",
-      "test_case": "Flights (Round-trip): Return date one day before departure is blocked",
-      "preconditions": [
-        "Home page is loaded",
-        "Flights tab is active",
-        "Trip_Type is set to Round-trip"
-      ],
-      "steps": [
-        "1. Select Trip_Type = Round-trip",
-        "2. Enter a valid value in Departure_City",
-        "3. Enter a valid value in Arrival_City",
-        "4. Enter a date in Departure_Date",
-        "5. Enter <one day before Departure_Date> in Return_Date",
-        "6. Enter values for Adults (and Children/Infants if required) and select Cabin_Class",
-        "7. Click the Search button"
-      ],
-      "expected_result": "Search is blocked; the Return_Date field displays an inline error indicating the return date cannot be before the departure date (visible inline error on the Return_Date field).",
-      "priority": "medium"
-    },
-    {
-      "tc_id": "E-005",
-      "subcategory": "boundary",
-      "test_case": "Tours: Travel end date equal to start date (same-day tour) succeeds",
-      "preconditions": [
-        "Home page is loaded",
-        "Tours tab is active"
-      ],
-      "steps": [
-        "1. Enter a valid value in Destination",
-        "2. Enter a date in Travel_Start_Date",
-        "3. Enter <the same day as Travel_Start_Date> in Travel_End_Date",
-        "4. Click the Search button"
-      ],
-      "expected_result": "Search succeeds; user is redirected to the Tours results listing page (results page loads showing tours that match the same-day range).",
-      "priority": "medium"
-    },
-    {
-      "tc_id": "E-006",
-      "subcategory": "boundary",
-      "test_case": "Tours: Travel end date one day before start date is blocked",
-      "preconditions": [
-        "Home page is loaded",
-        "Tours tab is active"
-      ],
-      "steps": [
-        "1. Enter a valid value in Destination",
-        "2. Enter a date in Travel_Start_Date",
-        "3. Enter <one day before Travel_Start_Date> in Travel_End_Date",
-        "4. Click the Search button"
-      ],
-      "expected_result": "Search is blocked; the Travel_End_Date field displays an inline error indicating the travel end date must be the same as or after the travel start date (visible inline error on Travel_End_Date).",
-      "priority": "medium"
-    },
-    {
-      "tc_id": "E-007",
-      "subcategory": "input_edge",
-      "test_case": "Hotels Destination with leading and trailing whitespace is trimmed in search",
-      "preconditions": [
-        "Home page is loaded",
-        "Hotels tab is active"
-      ],
-      "steps": [
-        "1. Enter <value with leading and trailing whitespace> into Destination (Hotels)",
-        "2. Enter valid dates in Check_In_Date and Check_Out_Date",
-        "3. Enter values in Number_of_Rooms and Adults",
-        "4. Click the Search button"
-      ],
-      "expected_result": "Search succeeds; user is redirected to the Hotels results listing page and the search summary at the top shows the Destination value trimmed of leading/trailing whitespace (visible trimmed value in the search summary).",
-      "priority": "low"
-    },
-    {
-      "tc_id": "E-008",
+      "wf_ref": "WF-001",
       "subcategory": "interaction_edge",
-      "test_case": "Rapid double-click on Search triggers a single search (no duplicate results pages)",
+      "test_case": "Rapid back-navigation after Hotels search — preserve or clearly reset search state (no duplicate actions)",
       "preconditions": [
-        "Home page is loaded",
-        "Any tab is active with all required fields filled"
+        "User is on the Home Page",
+        "Hotels tab is visible in the Search widget"
       ],
       "steps": [
-        "1. Fill all required fields for the active tab",
-        "2. Rapidly double-click the Search button (two clicks in quick succession)"
+        "1. Click the Hotels tab in the Search widget",
+        "2. Enter <valid Destination> in the Destination field",
+        "3. Enter <valid Check_in_Date> in the Check_in_Date field",
+        "4. Enter <valid Check_out_Date after or equal to Check_in_Date> in the Check_out_Date field",
+        "5. Enter <minimum valid value> in the Adults field",
+        "6. Click the Search button",
+        "7. Wait for redirect to the Hotels results listing page",
+        "8. Use the browser Back button once to return to the Home Page Search widget",
+        "9. Immediately (within a short interval) click the Search button again"
       ],
-      "expected_result": "Search succeeds once; user is redirected a single time to the corresponding results listing page and the results listing displays only one set of results (no duplicate results pages or duplicate result sets visible).",
-      "priority": "low"
+      "expected_result": "After the first successful search and redirect (Search succeeds), pressing Back returns the user to the Hotels search form. Immediately clicking Search again succeeds (redirects) or the UI prevents accidental duplicate network actions by debouncing the click and still results in a single search request; no duplicated result pages or duplicate-created entities are shown. The user sees either the search re-run (redirect to results) or a single visible network action with no duplicate side-effects.",
+      "priority": "medium"
     }
   ],
   "summary": {
-    "total": 8,
-    "boundary": 6,
-    "input_edge": 1,
+    "total": 4,
+    "boundary": 0,
+    "input_edge": 3,
     "interaction_edge": 1,
     "state_edge": 0,
     "data_edge": 0,
-    "medium_priority": 6,
-    "low_priority": 2
+    "medium_priority": 3,
+    "low_priority": 1
   }
 }
 
 ------------------------------------------------------------
-[22:54:41] Test-Edge - PARSED JSON
+[14:51:49] Test-Edge - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Home Page & Search",
@@ -524,157 +515,101 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "E-001",
-      "subcategory": "boundary",
-      "test_case": "Hotels: Check-out date equal to check-in date (same-day) is blocked",
+      "wf_ref": null,
+      "subcategory": "input_edge",
+      "test_case": "Very long text in Hotels 'Destination' field",
       "preconditions": [
-        "Home page is loaded",
-        "Hotels tab is active"
+        "User is on the Home Page",
+        "Hotels tab is visible in the Search widget"
       ],
       "steps": [
-        "1. Enter a valid value in Destination",
-        "2. Enter a date in Check_In_Date",
-        "3. Enter <the same day as Check_In_Date> in Check_Out_Date",
-        "4. Enter values in Number_of_Rooms, Adults (and Children if required)",
-        "5. Click the Search button"
+        "1. Click the Hotels tab in the Search widget",
+        "2. Enter <very long string> in the Destination field",
+        "3. Enter <valid Check_in_Date> in the Check_in_Date field",
+        "4. Enter <valid Check_out_Date after or equal to Check_in_Date> in the Check_out_Date field",
+        "5. Enter <minimum valid value> in the Adults field",
+        "6. Click the Search button"
       ],
-      "expected_result": "Search is blocked; the Check_Out_Date field displays an inline error indicating the check-out date must be after the check-in date (visible inline error on the Check_Out_Date field).",
+      "expected_result": "Form submits successfully; user is redirected to the Hotels results listing page and the search summary on the results page displays the Destination value (UI either shows the full value or a truncated preview). Search succeeds (redirect occurs) and the Destination shown in the results UI is visibly limited to the widget's display capacity (e.g., truncated with ellipsis) if applicable.",
       "priority": "medium"
     },
     {
       "tc_id": "E-002",
-      "subcategory": "boundary",
-      "test_case": "Hotels: Check-out date one day after check-in succeeds",
+      "wf_ref": null,
+      "subcategory": "input_edge",
+      "test_case": "Special characters and emoji in Flights 'Departure_City' and 'Arrival_City' fields",
       "preconditions": [
-        "Home page is loaded",
-        "Hotels tab is active"
+        "User is on the Home Page",
+        "Flights tab is visible in the Search widget"
       ],
       "steps": [
-        "1. Enter a valid value in Destination",
-        "2. Enter a date in Check_In_Date",
-        "3. Enter <one day after Check_In_Date> in Check_Out_Date",
-        "4. Enter values in Number_of_Rooms, Adults (and Children if required)",
-        "5. Click the Search button"
+        "1. Click the Flights tab in the Search widget",
+        "2. Select Round-trip in the Trip_Type dropdown",
+        "3. Enter <string containing special characters and emoji> in the Departure_City field",
+        "4. Enter <string containing special characters and emoji> in the Arrival_City field",
+        "5. Enter <valid Departure_Date> in the Departure_Date field",
+        "6. Enter <valid Return_Date after or equal to Departure_Date> in the Return_Date field",
+        "7. Enter <minimum valid value> in the Adults field",
+        "8. Select Economy in the Cabin_Class dropdown",
+        "9. Click the Search button"
       ],
-      "expected_result": "Search succeeds; user is redirected to the Hotels results listing page (results page loads for the Hotels search).",
+      "expected_result": "Form submits successfully; user is redirected to the Flights results listing page. The Flights search completes (redirect occurs) and the Departure_City and Arrival_City values are preserved in the search summary; any characters not displayable are shown as replacement glyphs or are displayed as entered. Search succeeds and no inline error about character content is shown.",
       "priority": "medium"
     },
     {
       "tc_id": "E-003",
-      "subcategory": "boundary",
-      "test_case": "Flights (Round-trip): Return date equal to departure date (same-day return) succeeds",
+      "wf_ref": null,
+      "subcategory": "input_edge",
+      "test_case": "Leading and trailing whitespace in Cars 'Pick_up_Location' is trimmed on submit",
       "preconditions": [
-        "Home page is loaded",
-        "Flights tab is active",
-        "Trip_Type is set to Round-trip"
+        "User is on the Home Page",
+        "Cars tab is visible in the Search widget"
       ],
       "steps": [
-        "1. Select Trip_Type = Round-trip",
-        "2. Enter a valid value in Departure_City",
-        "3. Enter a valid value in Arrival_City",
-        "4. Enter a date in Departure_Date",
-        "5. Enter <the same day as Departure_Date> in Return_Date",
-        "6. Enter values for Adults (and Children/Infants if required) and select Cabin_Class",
-        "7. Click the Search button"
+        "1. Click the Cars tab in the Search widget",
+        "2. Enter <value with leading and trailing spaces> in the Pick_up_Location field",
+        "3. Enter <valid Drop_off_Location> in the Drop_off_Location field",
+        "4. Enter <valid Pick_up_Date> in the Pick_up_Date field",
+        "5. Enter <valid Pick_up_Time> in the Pick_up_Time field",
+        "6. Enter <valid Drop_off_Date after or equal to Pick_up_Date> in the Drop_off_Date field",
+        "7. Enter <valid Drop_off_Time> in the Drop_off_Time field",
+        "8. Click the Search button"
       ],
-      "expected_result": "Search succeeds; user is redirected to the Flights results listing page for the specified round-trip (results page loads showing flights for the same-day return).",
-      "priority": "medium"
+      "expected_result": "Form submits successfully; user is redirected to the Cars results listing page. The Pick_up_Location value shown in the search summary is trimmed (leading/trailing whitespace removed) and Search succeeds (redirect occurs). If trimming is applied, the displayed value contains no leading or trailing spaces.",
+      "priority": "low"
     },
     {
       "tc_id": "E-004",
-      "subcategory": "boundary",
-      "test_case": "Flights (Round-trip): Return date one day before departure is blocked",
-      "preconditions": [
-        "Home page is loaded",
-        "Flights tab is active",
-        "Trip_Type is set to Round-trip"
-      ],
-      "steps": [
-        "1. Select Trip_Type = Round-trip",
-        "2. Enter a valid value in Departure_City",
-        "3. Enter a valid value in Arrival_City",
-        "4. Enter a date in Departure_Date",
-        "5. Enter <one day before Departure_Date> in Return_Date",
-        "6. Enter values for Adults (and Children/Infants if required) and select Cabin_Class",
-        "7. Click the Search button"
-      ],
-      "expected_result": "Search is blocked; the Return_Date field displays an inline error indicating the return date cannot be before the departure date (visible inline error on the Return_Date field).",
-      "priority": "medium"
-    },
-    {
-      "tc_id": "E-005",
-      "subcategory": "boundary",
-      "test_case": "Tours: Travel end date equal to start date (same-day tour) succeeds",
-      "preconditions": [
-        "Home page is loaded",
-        "Tours tab is active"
-      ],
-      "steps": [
-        "1. Enter a valid value in Destination",
-        "2. Enter a date in Travel_Start_Date",
-        "3. Enter <the same day as Travel_Start_Date> in Travel_End_Date",
-        "4. Click the Search button"
-      ],
-      "expected_result": "Search succeeds; user is redirected to the Tours results listing page (results page loads showing tours that match the same-day range).",
-      "priority": "medium"
-    },
-    {
-      "tc_id": "E-006",
-      "subcategory": "boundary",
-      "test_case": "Tours: Travel end date one day before start date is blocked",
-      "preconditions": [
-        "Home page is loaded",
-        "Tours tab is active"
-      ],
-      "steps": [
-        "1. Enter a valid value in Destination",
-        "2. Enter a date in Travel_Start_Date",
-        "3. Enter <one day before Travel_Start_Date> in Travel_End_Date",
-        "4. Click the Search button"
-      ],
-      "expected_result": "Search is blocked; the Travel_End_Date field displays an inline error indicating the travel end date must be the same as or after the travel start date (visible inline error on Travel_End_Date).",
-      "priority": "medium"
-    },
-    {
-      "tc_id": "E-007",
-      "subcategory": "input_edge",
-      "test_case": "Hotels Destination with leading and trailing whitespace is trimmed in search",
-      "preconditions": [
-        "Home page is loaded",
-        "Hotels tab is active"
-      ],
-      "steps": [
-        "1. Enter <value with leading and trailing whitespace> into Destination (Hotels)",
-        "2. Enter valid dates in Check_In_Date and Check_Out_Date",
-        "3. Enter values in Number_of_Rooms and Adults",
-        "4. Click the Search button"
-      ],
-      "expected_result": "Search succeeds; user is redirected to the Hotels results listing page and the search summary at the top shows the Destination value trimmed of leading/trailing whitespace (visible trimmed value in the search summary).",
-      "priority": "low"
-    },
-    {
-      "tc_id": "E-008",
+      "wf_ref": "WF-001",
       "subcategory": "interaction_edge",
-      "test_case": "Rapid double-click on Search triggers a single search (no duplicate results pages)",
+      "test_case": "Rapid back-navigation after Hotels search \u2014 preserve or clearly reset search state (no duplicate actions)",
       "preconditions": [
-        "Home page is loaded",
-        "Any tab is active with all required fields filled"
+        "User is on the Home Page",
+        "Hotels tab is visible in the Search widget"
       ],
       "steps": [
-        "1. Fill all required fields for the active tab",
-        "2. Rapidly double-click the Search button (two clicks in quick succession)"
+        "1. Click the Hotels tab in the Search widget",
+        "2. Enter <valid Destination> in the Destination field",
+        "3. Enter <valid Check_in_Date> in the Check_in_Date field",
+        "4. Enter <valid Check_out_Date after or equal to Check_in_Date> in the Check_out_Date field",
+        "5. Enter <minimum valid value> in the Adults field",
+        "6. Click the Search button",
+        "7. Wait for redirect to the Hotels results listing page",
+        "8. Use the browser Back button once to return to the Home Page Search widget",
+        "9. Immediately (within a short interval) click the Search button again"
       ],
-      "expected_result": "Search succeeds once; user is redirected a single time to the corresponding results listing page and the results listing displays only one set of results (no duplicate results pages or duplicate result sets visible).",
-      "priority": "low"
+      "expected_result": "After the first successful search and redirect (Search succeeds), pressing Back returns the user to the Hotels search form. Immediately clicking Search again succeeds (redirects) or the UI prevents accidental duplicate network actions by debouncing the click and still results in a single search request; no duplicated result pages or duplicate-created entities are shown. The user sees either the search re-run (redirect to results) or a single visible network action with no duplicate side-effects.",
+      "priority": "medium"
     }
   ],
   "summary": {
-    "total": 8,
-    "boundary": 6,
-    "input_edge": 1,
+    "total": 4,
+    "boundary": 0,
+    "input_edge": 3,
     "interaction_edge": 1,
     "state_edge": 0,
     "data_edge": 0,
-    "medium_priority": 6,
-    "low_priority": 2
+    "medium_priority": 3,
+    "low_priority": 1
   }
 }

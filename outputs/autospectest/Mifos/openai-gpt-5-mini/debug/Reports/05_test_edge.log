@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-21T22:29:06.554167
+DEBUG SESSION STARTED: 2026-05-25T14:24:50.742955
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[22:29:06] Test-Edge - SYSTEM PROMPT
+[14:24:50] Test-Edge - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Edge Case and Boundary Test Generator. You receive (1) a UI-AST JSON for one module and (2) the original functional description. Your job is to produce ONLY boundary and edge case tests — scenarios at the limits of valid/invalid input and unusual-but-plausible user behaviors.
 
@@ -25,6 +25,10 @@ You are NOT producing happy paths (positive prompt) or standard validation failu
 {Original functional description text for this module}
 </description>
 
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
+
 ---
 
 **UI-AST REFERENCE — How to Read the AST for Edge Testing:**
@@ -35,7 +39,7 @@ You are NOT producing happy paths (positive prompt) or standard validation failu
 | `repeating_group` with `max` | Test adding exactly `max` entries (should succeed) then one more (should block) |
 | `visible_when` / `required_when` | Edge: trigger condition, fill revealed field with boundary value |
 | `state_bound_action_bar` | State edges: rapid consecutive state transitions, transition from a boundary state |
-| `submit_actions[]` with multiple buttons | Interaction edge: double-click a submit button rapidly |
+
 | `type: "date"` fields | Data edges: today, yesterday, far future, Feb 29 leap year |
 | `type: "file_upload"` | Edge: file exactly at size limit, file at 1 byte over limit |
 
@@ -132,7 +136,6 @@ Pick only the ones that apply to field types present in this module's AST:
 
 Pick only the ones that match component types in this module's AST:
 
-- **Double-click submit** (any form/wizard with a submit button): rapidly double-click the submit button → assert only one record is created; no duplicate row appears in the listing table
 - **Rapid re-submission after redirect** (any form that redirects to a detail page on success): after a successful submit, press the browser back button → assert the creation form is shown blank (not pre-filled) OR the user is redirected to the detail page without a second entity being created
 - **Wizard step skip — enforced navigation** (wizard where steps must be completed sequentially): attempt to click a later step tab directly without completing earlier steps → assert navigation is blocked and the earlier step remains active
 - **Wizard step skip — free navigation** (wizard that allows free tab navigation): navigate to a later step without filling earlier steps → assert the later step displays and returning to the earlier step shows fields blank (no data was lost from the later step)
@@ -173,7 +176,16 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 
 - **High:** None — edge tests are secondary to core functionality
 - **Medium:** Boundary tests at thresholds (financial amounts, date ordering, count limits, file size limits)
-- **Low:** Input edge cases (long text, special chars, whitespace, decimal precision), interaction edge cases (double-click, browser back, wizard skip)
+- **Low:** Input edge cases (long text, special chars, whitespace, decimal precision), interaction edge cases (browser back, wizard skip)
+
+---
+
+**WORKFLOW-AWARE BOUNDARY SCOPING (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- For each workflow where `conditional_branch` activates a numeric or date field, check if that field has a boundary (a numeric/date threshold in the AST `constraints` or description).
+- If yes, that workflow's branch is a **candidate for a boundary edge test** — add or confirm a boundary TC exists for it.
+- Add `"wf_ref": "WF-NNN"` to each TC that maps to a specific workflow's boundary. Set `"wf_ref": null` for generic input/interaction edge tests.
 
 ---
 
@@ -185,6 +197,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": null,
       "subcategory": "boundary | input_edge | interaction_edge | state_edge | data_edge",
       "test_case": "Short descriptive name",
       "preconditions": ["precondition 1"],
@@ -207,7 +220,7 @@ If the module has any numeric/date/count threshold in the AST or description, pr
 
 
 ------------------------------------------------------------
-[22:29:06] Test-Edge - USER PROMPT
+[14:24:50] Test-Edge - USER PROMPT
 ------------------------------------------------------------
 <module_name>Reports</module_name>
 
@@ -221,82 +234,56 @@ If the module has any numeric/date/count threshold in the AST or description, pr
         {
           "tab_name": "All",
           "fields": {
-            "Reports_Table": {
+            "Reports_Table_All": {
               "type": "data_table",
-              "columns": [
-                "Name",
-                "Type",
-                "Category"
-              ],
-              "rows": [
+              "columns": {
+                "Name": {
+                  "type": "link",
+                  "target": "Report_Parameters_Form"
+                },
+                "Type": {
+                  "type": "unspecified"
+                },
+                "Category": {
+                  "type": "unspecified"
+                }
+              },
+              "on_row_click": "opens Report_Parameters_Form",
+              "sample_rows": [
                 {
                   "Name": "Loans Awaiting Disbursal",
-                  "row_actions": [
-                    {
-                      "action_name": "Open Parameters",
-                      "on_trigger": "opens Parameters_Form"
-                    }
-                  ]
+                  "Type": "Table",
+                  "Category": "Loans"
                 },
                 {
                   "Name": "Loans Pending Approval",
-                  "row_actions": [
-                    {
-                      "action_name": "Open Parameters",
-                      "on_trigger": "opens Parameters_Form"
-                    }
-                  ]
+                  "Type": "Table",
+                  "Category": "Loans"
                 },
                 {
                   "Name": "Active Loans Summary",
-                  "row_actions": [
-                    {
-                      "action_name": "Open Parameters",
-                      "on_trigger": "opens Parameters_Form"
-                    }
-                  ]
+                  "Type": "Table",
+                  "Category": "Loans"
                 },
                 {
                   "Name": "Active Loans Details",
-                  "row_actions": [
-                    {
-                      "action_name": "Open Parameters",
-                      "on_trigger": "opens Parameters_Form"
-                    }
-                  ]
+                  "Type": "Table",
+                  "Category": "Loans"
                 },
                 {
                   "Name": "Obligation Met Loans Details",
-                  "row_actions": [
-                    {
-                      "action_name": "Open Parameters",
-                      "on_trigger": "opens Parameters_Form"
-                    }
-                  ]
+                  "Type": "Table",
+                  "Category": "Loans"
                 },
                 {
                   "Name": "Portfolio at Risk",
-                  "row_actions": [
-                    {
-                      "action_name": "Open Parameters",
-                      "on_trigger": "opens Parameters_Form"
-                    }
-                  ]
+                  "Type": "Table",
+                  "Category": "Accounting"
                 },
                 {
                   "Name": "Portfolio at Risk by Branch",
-                  "row_actions": [
-                    {
-                      "action_name": "Open Parameters",
-                      "on_trigger": "opens Parameters_Form"
-                    }
-                  ]
-                }
-              ],
-              "row_actions": [
-                {
-                  "action_name": "Open Parameters",
-                  "on_trigger": "opens Parameters_Form"
+                  "Type": "Table",
+                  "Category": "Accounting"
                 }
               ]
             }
@@ -305,126 +292,132 @@ If the module has any numeric/date/count threshold in the AST or description, pr
         {
           "tab_name": "Clients",
           "fields": {
-            "Reports_Table": {
+            "Reports_Table_Clients": {
               "type": "data_table",
-              "columns": [
-                "Name",
-                "Type",
-                "Category"
-              ],
-              "rows": [],
-              "row_actions": [
-                {
-                  "action_name": "Open Parameters",
-                  "on_trigger": "opens Parameters_Form"
+              "columns": {
+                "Name": {
+                  "type": "link",
+                  "target": "Report_Parameters_Form"
+                },
+                "Type": {
+                  "type": "unspecified"
+                },
+                "Category": {
+                  "type": "unspecified"
                 }
-              ]
+              },
+              "on_row_click": "opens Report_Parameters_Form"
             }
           }
         },
         {
           "tab_name": "Loans",
           "fields": {
-            "Reports_Table": {
+            "Reports_Table_Loans": {
               "type": "data_table",
-              "columns": [
-                "Name",
-                "Type",
-                "Category"
-              ],
-              "rows": [],
-              "row_actions": [
-                {
-                  "action_name": "Open Parameters",
-                  "on_trigger": "opens Parameters_Form"
+              "columns": {
+                "Name": {
+                  "type": "link",
+                  "target": "Report_Parameters_Form"
+                },
+                "Type": {
+                  "type": "unspecified"
+                },
+                "Category": {
+                  "type": "unspecified"
                 }
-              ]
+              },
+              "on_row_click": "opens Report_Parameters_Form"
             }
           }
         },
         {
           "tab_name": "Savings",
           "fields": {
-            "Reports_Table": {
+            "Reports_Table_Savings": {
               "type": "data_table",
-              "columns": [
-                "Name",
-                "Type",
-                "Category"
-              ],
-              "rows": [],
-              "row_actions": [
-                {
-                  "action_name": "Open Parameters",
-                  "on_trigger": "opens Parameters_Form"
+              "columns": {
+                "Name": {
+                  "type": "link",
+                  "target": "Report_Parameters_Form"
+                },
+                "Type": {
+                  "type": "unspecified"
+                },
+                "Category": {
+                  "type": "unspecified"
                 }
-              ]
+              },
+              "on_row_click": "opens Report_Parameters_Form"
             }
           }
         },
         {
           "tab_name": "Funds",
           "fields": {
-            "Reports_Table": {
+            "Reports_Table_Funds": {
               "type": "data_table",
-              "columns": [
-                "Name",
-                "Type",
-                "Category"
-              ],
-              "rows": [],
-              "row_actions": [
-                {
-                  "action_name": "Open Parameters",
-                  "on_trigger": "opens Parameters_Form"
+              "columns": {
+                "Name": {
+                  "type": "link",
+                  "target": "Report_Parameters_Form"
+                },
+                "Type": {
+                  "type": "unspecified"
+                },
+                "Category": {
+                  "type": "unspecified"
                 }
-              ]
+              },
+              "on_row_click": "opens Report_Parameters_Form"
             }
           }
         },
         {
           "tab_name": "Accounting",
           "fields": {
-            "Reports_Table": {
+            "Reports_Table_Accounting": {
               "type": "data_table",
-              "columns": [
-                "Name",
-                "Type",
-                "Category"
-              ],
-              "rows": [],
-              "row_actions": [
-                {
-                  "action_name": "Open Parameters",
-                  "on_trigger": "opens Parameters_Form"
+              "columns": {
+                "Name": {
+                  "type": "link",
+                  "target": "Report_Parameters_Form"
+                },
+                "Type": {
+                  "type": "unspecified"
+                },
+                "Category": {
+                  "type": "unspecified"
                 }
-              ]
+              },
+              "on_row_click": "opens Report_Parameters_Form"
             }
           }
         },
         {
           "tab_name": "XBRL",
           "fields": {
-            "Reports_Table": {
+            "Reports_Table_XBRL": {
               "type": "data_table",
-              "columns": [
-                "Name",
-                "Type",
-                "Category"
-              ],
-              "rows": [],
-              "row_actions": [
-                {
-                  "action_name": "Open Parameters",
-                  "on_trigger": "opens Parameters_Form"
+              "columns": {
+                "Name": {
+                  "type": "link",
+                  "target": "Report_Parameters_Form"
+                },
+                "Type": {
+                  "type": "unspecified"
+                },
+                "Category": {
+                  "type": "unspecified"
                 }
-              ]
+              },
+              "on_row_click": "opens Report_Parameters_Form"
             }
           }
         }
       ]
     },
-    "Parameters_Form": {
+    "Report_Parameters_Form": {
       "type": "form",
       "fields": {
         "Office": {
@@ -443,12 +436,8 @@ If the module has any numeric/date/count threshold in the AST or description, pr
           "type": "dropdown",
           "required": false
         },
-        "Date_From": {
-          "type": "date",
-          "required": false
-        },
-        "Date_To": {
-          "type": "date",
+        "Date_Range": {
+          "type": "date_range",
           "required": false
         },
         "Loan_Officer": {
@@ -463,40 +452,32 @@ If the module has any numeric/date/count threshold in the AST or description, pr
       "submit_actions": [
         {
           "element_name": "Run Report",
-          "on_success": "displays Generated_Report_Table (data table) with sorting and pagination"
-        },
-        {
-          "element_name": "Export to Excel",
-          "on_success": "downloads Excel file for selected report and parameters"
-        },
-        {
-          "element_name": "Export to CSV",
-          "on_success": "downloads CSV file for selected report and parameters"
-        },
-        {
-          "element_name": "Export to PDF",
-          "on_success": "downloads PDF file for selected report and parameters"
+          "on_success": "renders Report_Results_Table with results"
         }
       ]
     },
-    "Generated_Report_Table": {
+    "Report_Results_Table": {
       "type": "data_table",
-      "sortable": true,
+      "sortable_columns": [
+        "enabled"
+      ],
       "pagination": true,
-      "columns": [],
-      "row_actions": [],
-      "available_actions": [
+      "output_options": [
         {
-          "action_name": "Export to Excel",
-          "on_trigger": "downloads Excel file for current report view"
+          "element_name": "View On Screen",
+          "on_success": "displays report on screen"
         },
         {
-          "action_name": "Export to CSV",
-          "on_trigger": "downloads CSV file for current report view"
+          "element_name": "Export to Excel",
+          "on_success": "exports report to Excel"
         },
         {
-          "action_name": "Export to PDF",
-          "on_trigger": "downloads PDF file for current report view"
+          "element_name": "Export to CSV",
+          "on_success": "exports report to CSV"
+        },
+        {
+          "element_name": "Export to PDF",
+          "on_success": "exports report to PDF"
         }
       ]
     }
@@ -513,10 +494,83 @@ The Reports page lists available reports grouped by category: All, Clients, Loan
 
 </description>
 
+<workflows>
+WF-001 | All tab: Click Name link → Run Report | actor: <role> | branch: none | terminal: Run Report | on_success: renders Report_Results_Table with results
+WF-002 | All tab: Click Name link → View On Screen | actor: <role> | branch: none | terminal: View On Screen | on_success: displays report on screen
+WF-003 | All tab: Click Name link → Export to Excel | actor: <role> | branch: none | terminal: Export to Excel | on_success: exports report to Excel
+WF-004 | All tab: Click Name link → Export to CSV | actor: <role> | branch: none | terminal: Export to CSV | on_success: exports report to CSV
+WF-005 | All tab: Click Name link → Export to PDF | actor: <role> | branch: none | terminal: Export to PDF | on_success: exports report to PDF
+WF-006 | All tab: Click row → Run Report | actor: <role> | branch: none | terminal: Run Report | on_success: renders Report_Results_Table with results
+WF-007 | All tab: Click row → View On Screen | actor: <role> | branch: none | terminal: View On Screen | on_success: displays report on screen
+WF-008 | All tab: Click row → Export to Excel | actor: <role> | branch: none | terminal: Export to Excel | on_success: exports report to Excel
+WF-009 | All tab: Click row → Export to CSV | actor: <role> | branch: none | terminal: Export to CSV | on_success: exports report to CSV
+WF-010 | All tab: Click row → Export to PDF | actor: <role> | branch: none | terminal: Export to PDF | on_success: exports report to PDF
+WF-011 | Clients tab: Click Name link → Run Report | actor: <role> | branch: none | terminal: Run Report | on_success: renders Report_Results_Table with results
+WF-012 | Clients tab: Click Name link → View On Screen | actor: <role> | branch: none | terminal: View On Screen | on_success: displays report on screen
+WF-013 | Clients tab: Click Name link → Export to Excel | actor: <role> | branch: none | terminal: Export to Excel | on_success: exports report to Excel
+WF-014 | Clients tab: Click Name link → Export to CSV | actor: <role> | branch: none | terminal: Export to CSV | on_success: exports report to CSV
+WF-015 | Clients tab: Click Name link → Export to PDF | actor: <role> | branch: none | terminal: Export to PDF | on_success: exports report to PDF
+WF-016 | Clients tab: Click row → Run Report | actor: <role> | branch: none | terminal: Run Report | on_success: renders Report_Results_Table with results
+WF-017 | Clients tab: Click row → View On Screen | actor: <role> | branch: none | terminal: View On Screen | on_success: displays report on screen
+WF-018 | Clients tab: Click row → Export to Excel | actor: <role> | branch: none | terminal: Export to Excel | on_success: exports report to Excel
+WF-019 | Clients tab: Click row → Export to CSV | actor: <role> | branch: none | terminal: Export to CSV | on_success: exports report to CSV
+WF-020 | Clients tab: Click row → Export to PDF | actor: <role> | branch: none | terminal: Export to PDF | on_success: exports report to PDF
+WF-021 | Loans tab: Click Name link → Run Report | actor: <role> | branch: none | terminal: Run Report | on_success: renders Report_Results_Table with results
+WF-022 | Loans tab: Click Name link → View On Screen | actor: <role> | branch: none | terminal: View On Screen | on_success: displays report on screen
+WF-023 | Loans tab: Click Name link → Export to Excel | actor: <role> | branch: none | terminal: Export to Excel | on_success: exports report to Excel
+WF-024 | Loans tab: Click Name link → Export to CSV | actor: <role> | branch: none | terminal: Export to CSV | on_success: exports report to CSV
+WF-025 | Loans tab: Click Name link → Export to PDF | actor: <role> | branch: none | terminal: Export to PDF | on_success: exports report to PDF
+WF-026 | Loans tab: Click row → Run Report | actor: <role> | branch: none | terminal: Run Report | on_success: renders Report_Results_Table with results
+WF-027 | Loans tab: Click row → View On Screen | actor: <role> | branch: none | terminal: View On Screen | on_success: displays report on screen
+WF-028 | Loans tab: Click row → Export to Excel | actor: <role> | branch: none | terminal: Export to Excel | on_success: exports report to Excel
+WF-029 | Loans tab: Click row → Export to CSV | actor: <role> | branch: none | terminal: Export to CSV | on_success: exports report to CSV
+WF-030 | Loans tab: Click row → Export to PDF | actor: <role> | branch: none | terminal: Export to PDF | on_success: exports report to PDF
+WF-031 | Savings tab: Click Name link → Run Report | actor: <role> | branch: none | terminal: Run Report | on_success: renders Report_Results_Table with results
+WF-032 | Savings tab: Click Name link → View On Screen | actor: <role> | branch: none | terminal: View On Screen | on_success: displays report on screen
+WF-033 | Savings tab: Click Name link → Export to Excel | actor: <role> | branch: none | terminal: Export to Excel | on_success: exports report to Excel
+WF-034 | Savings tab: Click Name link → Export to CSV | actor: <role> | branch: none | terminal: Export to CSV | on_success: exports report to CSV
+WF-035 | Savings tab: Click Name link → Export to PDF | actor: <role> | branch: none | terminal: Export to PDF | on_success: exports report to PDF
+WF-036 | Savings tab: Click row → Run Report | actor: <role> | branch: none | terminal: Run Report | on_success: renders Report_Results_Table with results
+WF-037 | Savings tab: Click row → View On Screen | actor: <role> | branch: none | terminal: View On Screen | on_success: displays report on screen
+WF-038 | Savings tab: Click row → Export to Excel | actor: <role> | branch: none | terminal: Export to Excel | on_success: exports report to Excel
+WF-039 | Savings tab: Click row → Export to CSV | actor: <role> | branch: none | terminal: Export to CSV | on_success: exports report to CSV
+WF-040 | Savings tab: Click row → Export to PDF | actor: <role> | branch: none | terminal: Export to PDF | on_success: exports report to PDF
+WF-041 | Funds tab: Click Name link → Run Report | actor: <role> | branch: none | terminal: Run Report | on_success: renders Report_Results_Table with results
+WF-042 | Funds tab: Click Name link → View On Screen | actor: <role> | branch: none | terminal: View On Screen | on_success: displays report on screen
+WF-043 | Funds tab: Click Name link → Export to Excel | actor: <role> | branch: none | terminal: Export to Excel | on_success: exports report to Excel
+WF-044 | Funds tab: Click Name link → Export to CSV | actor: <role> | branch: none | terminal: Export to CSV | on_success: exports report to CSV
+WF-045 | Funds tab: Click Name link → Export to PDF | actor: <role> | branch: none | terminal: Export to PDF | on_success: exports report to PDF
+WF-046 | Funds tab: Click row → Run Report | actor: <role> | branch: none | terminal: Run Report | on_success: renders Report_Results_Table with results
+WF-047 | Funds tab: Click row → View On Screen | actor: <role> | branch: none | terminal: View On Screen | on_success: displays report on screen
+WF-048 | Funds tab: Click row → Export to Excel | actor: <role> | branch: none | terminal: Export to Excel | on_success: exports report to Excel
+WF-049 | Funds tab: Click row → Export to CSV | actor: <role> | branch: none | terminal: Export to CSV | on_success: exports report to CSV
+WF-050 | Funds tab: Click row → Export to PDF | actor: <role> | branch: none | terminal: Export to PDF | on_success: exports report to PDF
+WF-051 | Accounting tab: Click Name link → Run Report | actor: <role> | branch: none | terminal: Run Report | on_success: renders Report_Results_Table with results
+WF-052 | Accounting tab: Click Name link → View On Screen | actor: <role> | branch: none | terminal: View On Screen | on_success: displays report on screen
+WF-053 | Accounting tab: Click Name link → Export to Excel | actor: <role> | branch: none | terminal: Export to Excel | on_success: exports report to Excel
+WF-054 | Accounting tab: Click Name link → Export to CSV | actor: <role> | branch: none | terminal: Export to CSV | on_success: exports report to CSV
+WF-055 | Accounting tab: Click Name link → Export to PDF | actor: <role> | branch: none | terminal: Export to PDF | on_success: exports report to PDF
+WF-056 | Accounting tab: Click row → Run Report | actor: <role> | branch: none | terminal: Run Report | on_success: renders Report_Results_Table with results
+WF-057 | Accounting tab: Click row → View On Screen | actor: <role> | branch: none | terminal: View On Screen | on_success: displays report on screen
+WF-058 | Accounting tab: Click row → Export to Excel | actor: <role> | branch: none | terminal: Export to Excel | on_success: exports report to Excel
+WF-059 | Accounting tab: Click row → Export to CSV | actor: <role> | branch: none | terminal: Export to CSV | on_success: exports report to CSV
+WF-060 | Accounting tab: Click row → Export to PDF | actor: <role> | branch: none | terminal: Export to PDF | on_success: exports report to PDF
+WF-061 | XBRL tab: Click Name link → Run Report | actor: <role> | branch: none | terminal: Run Report | on_success: renders Report_Results_Table with results
+WF-062 | XBRL tab: Click Name link → View On Screen | actor: <role> | branch: none | terminal: View On Screen | on_success: displays report on screen
+WF-063 | XBRL tab: Click Name link → Export to Excel | actor: <role> | branch: none | terminal: Export to Excel | on_success: exports report to Excel
+WF-064 | XBRL tab: Click Name link → Export to CSV | actor: <role> | branch: none | terminal: Export to CSV | on_success: exports report to CSV
+WF-065 | XBRL tab: Click Name link → Export to PDF | actor: <role> | branch: none | terminal: Export to PDF | on_success: exports report to PDF
+WF-066 | XBRL tab: Click row → Run Report | actor: <role> | branch: none | terminal: Run Report | on_success: renders Report_Results_Table with results
+WF-067 | XBRL tab: Click row → View On Screen | actor: <role> | branch: none | terminal: View On Screen | on_success: displays report on screen
+WF-068 | XBRL tab: Click row → Export to Excel | actor: <role> | branch: none | terminal: Export to Excel | on_success: exports report to Excel
+WF-069 | XBRL tab: Click row → Export to CSV | actor: <role> | branch: none | terminal: Export to CSV | on_success: exports report to CSV
+WF-070 | XBRL tab: Click row → Export to PDF | actor: <role> | branch: none | terminal: Export to PDF | on_success: exports report to PDF
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[22:35:24] Test-Edge - LLM RESPONSE
+[14:31:54] Test-Edge - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Reports",
@@ -524,130 +578,127 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": "WF-001",
       "subcategory": "boundary",
-      "test_case": "Date_From equals Date_To (same-day) is accepted",
+      "test_case": "Single-day Date Range (start = end = <today>) when running a report",
       "preconditions": [
-        "User is on the Reports page",
-        "A report row is available (e.g., 'Loans Awaiting Disbursal')"
+        "User is logged in and on the Reports page",
+        "All tab is visible"
       ],
       "steps": [
-        "1. Click the report row's 'Open Parameters' action to open Parameters_Form",
-        "2. Enter <same date> in Date_From",
-        "3. Enter <same date> in Date_To",
-        "4. Click the 'Run Report' button"
+        "1. Click the Name link for any report in the All tab",
+        "2. In the opened Report Parameters Form, set Date Range start to <today>",
+        "3. Set Date Range end to <today>",
+        "4. Click Run Report"
       ],
-      "expected_result": "Run Report succeeds; Generated_Report_Table is displayed with sorting and pagination controls and no field-level date validation error is shown for Date_From/Date_To",
+      "expected_result": "Form submission succeeds; Report_Results_Table renders successfully and displays results for the single-day range; pagination and output option controls are visible.",
       "priority": "medium"
     },
     {
       "tc_id": "E-002",
+      "wf_ref": "WF-001",
       "subcategory": "boundary",
-      "test_case": "Date_From one day after Date_To is blocked",
+      "test_case": "Single-day Date Range in the past (start = end = <yesterday>)",
       "preconditions": [
-        "User is on the Reports page",
-        "A report row is available"
+        "User is logged in and on the Reports page",
+        "All tab is visible"
       ],
       "steps": [
-        "1. Click the report row's 'Open Parameters' action to open Parameters_Form",
-        "2. Enter <one day after <Date_To>> in Date_From",
-        "3. Enter <selected date> in Date_To",
-        "4. Click the 'Run Report' button"
+        "1. Click the Name link for any report in the All tab",
+        "2. In the opened Report Parameters Form, set Date Range start to <yesterday>",
+        "3. Set Date Range end to <yesterday>",
+        "4. Click Run Report"
       ],
-      "expected_result": "Run Report is blocked; an inline validation error is shown on Date_From or Date_To indicating the start date cannot be after the end date (visible next to the date field) and no Generated_Report_Table is shown",
+      "expected_result": "Form submission succeeds; Report_Results_Table renders successfully and displays results (if any) for the specified past single-day range; pagination and output option controls are visible.",
       "priority": "medium"
     },
     {
       "tc_id": "E-003",
+      "wf_ref": "WF-001",
       "subcategory": "data_edge",
-      "test_case": "Far-future Date_From is accepted or handled without validation error",
+      "test_case": "Far-future Date Range yields zero rows in results table",
       "preconditions": [
-        "User is on the Reports page",
-        "A report row is available"
+        "User is logged in and on the Reports page",
+        "All tab is visible"
       ],
       "steps": [
-        "1. Click the report row's 'Open Parameters' action to open Parameters_Form",
-        "2. Enter <far future date> in Date_From",
-        "3. Optionally enter <far future date> or leave Date_To blank",
-        "4. Click the 'Run Report' button"
+        "1. Click the Name link for any report in the All tab",
+        "2. In the opened Report Parameters Form, set Date Range start to a <far future date>",
+        "3. Set Date Range end to a <far future date> (>= start)",
+        "4. Click Run Report"
       ],
-      "expected_result": "Run Report succeeds; Generated_Report_Table is displayed (may be empty) and no date validation error is shown for the far-future date",
+      "expected_result": "Form submission succeeds; Report_Results_Table renders and displays zero data rows (empty state) for the selected date range; pagination shows no data pages and output option controls remain available but indicate no data to display.",
       "priority": "medium"
     },
     {
       "tc_id": "E-004",
-      "subcategory": "input_edge",
-      "test_case": "Run Report with both Date_From and Date_To left blank",
+      "wf_ref": "WF-001",
+      "subcategory": "interaction_edge",
+      "test_case": "Rapid double-click of Run Report button (prevent duplicate runs)",
       "preconditions": [
-        "User is on the Reports page",
-        "A report row is available"
+        "User is logged in and on the Reports page",
+        "All tab is visible",
+        "Report Parameters Form is open for a chosen report"
       ],
       "steps": [
-        "1. Click the report row's 'Open Parameters' action to open Parameters_Form",
-        "2. Leave Date_From blank",
-        "3. Leave Date_To blank",
-        "4. Click the 'Run Report' button"
+        "1. Set Date Range start to <today> in the Report Parameters Form",
+        "2. Set Date Range end to <today>",
+        "3. Click Run Report",
+        "4. Immediately click Run Report again (within a rapid double-click)",
+        "5. Observe the UI until the report results render or an error appears"
       ],
-      "expected_result": "Run Report succeeds; Generated_Report_Table is displayed (may contain full result set or be empty) and no date-related validation error is shown",
-      "priority": "low"
+      "expected_result": "Second submission attempt is blocked/ignored; only one Report_Results_Table render occurs for the request; the Run Report control shows a transient loading state and does not cause duplicate result tables or duplicate export jobs.",
+      "priority": "medium"
     },
     {
       "tc_id": "E-005",
-      "subcategory": "interaction_edge",
-      "test_case": "Rapid double-click on 'Run Report' should not produce duplicate tables or duplicate processing",
+      "wf_ref": "WF-003",
+      "subcategory": "data_edge",
+      "test_case": "Export to Excel when results table contains zero data rows (far-future date range)",
       "preconditions": [
-        "User is on the Reports page",
-        "Parameters_Form is open for a selected report"
+        "User is logged in and on the Reports page",
+        "All tab is visible",
+        "A report has been run and Report_Results_Table is displayed with zero data rows"
       ],
       "steps": [
-        "1. Ensure Date_From/Date_To (or other parameters) are set or left blank per test intent",
-        "2. Double-click the 'Run Report' button quickly (two clicks within a short interval)"
+        "1. In Report_Results_Table, click the Export to Excel output option",
+        "2. Wait for the file download to be initiated/completed"
       ],
-      "expected_result": "Only one Run Report action is processed; a single Generated_Report_Table appears with sorting and pagination controls (no duplicate tables or duplicate result blocks are shown) and any second click is ignored or the button becomes disabled while processing",
+      "expected_result": "Export to Excel succeeds; a file download is initiated and the downloaded Excel file contains the report header row(s) and zero data rows (no data records).",
       "priority": "medium"
     },
     {
       "tc_id": "E-006",
-      "subcategory": "interaction_edge",
-      "test_case": "Rapid double-click on 'Export to Excel' should initiate only one download",
+      "wf_ref": "WF-001",
+      "subcategory": "input_edge",
+      "test_case": "Run report with all parameter fields left blank (no filters)",
       "preconditions": [
-        "User has successfully run a report and Generated_Report_Table is visible"
+        "User is logged in and on the Reports page",
+        "All tab is visible"
       ],
       "steps": [
-        "1. Click or focus the Generated_Report_Table's 'Export to Excel' action",
-        "2. Double-click the 'Export to Excel' action quickly (two clicks within a short interval)"
+        "1. Click the Name link for any report in the All tab",
+        "2. Do not change any dropdowns or the Date Range (leave all parameters blank)",
+        "3. Click Run Report"
       ],
-      "expected_result": "Only one Excel download is initiated; the UI shows a single download action (the second click is ignored or the export button is disabled) and no duplicate download prompts appear",
-      "priority": "medium"
-    },
-    {
-      "tc_id": "E-007",
-      "subcategory": "interaction_edge",
-      "test_case": "Pressing browser Back immediately after running report returns to blank Parameters_Form and does not auto-create duplicates",
-      "preconditions": [
-        "User is on the Reports page",
-        "Parameters_Form is open and Run Report has been clicked successfully resulting in Generated_Report_Table"
-      ],
-      "steps": [
-        "1. After Generated_Report_Table is displayed, press the browser Back button once"
-      ],
-      "expected_result": "Browser Back returns the user to the Parameters_Form and the form fields are blank (no residual selections); no additional Generated_Report_Table is automatically created by navigating back and there is no duplicate report processing triggered",
-      "priority": "medium"
+      "expected_result": "Form submission succeeds; Report_Results_Table renders with results for the unfiltered report; pagination controls are present (if result count exceeds page size) and output option controls are visible.",
+      "priority": "low"
     }
   ],
   "summary": {
-    "total": 7,
+    "total": 6,
     "boundary": 2,
     "input_edge": 1,
-    "interaction_edge": 3,
+    "interaction_edge": 1,
     "state_edge": 0,
-    "data_edge": 1,
-    "medium_priority": 6,
+    "data_edge": 2,
+    "medium_priority": 5,
     "low_priority": 1
   }
 }
 
 ------------------------------------------------------------
-[22:35:24] Test-Edge - PARSED JSON
+[14:31:54] Test-Edge - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Reports",
@@ -655,124 +706,121 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "E-001",
+      "wf_ref": "WF-001",
       "subcategory": "boundary",
-      "test_case": "Date_From equals Date_To (same-day) is accepted",
+      "test_case": "Single-day Date Range (start = end = <today>) when running a report",
       "preconditions": [
-        "User is on the Reports page",
-        "A report row is available (e.g., 'Loans Awaiting Disbursal')"
+        "User is logged in and on the Reports page",
+        "All tab is visible"
       ],
       "steps": [
-        "1. Click the report row's 'Open Parameters' action to open Parameters_Form",
-        "2. Enter <same date> in Date_From",
-        "3. Enter <same date> in Date_To",
-        "4. Click the 'Run Report' button"
+        "1. Click the Name link for any report in the All tab",
+        "2. In the opened Report Parameters Form, set Date Range start to <today>",
+        "3. Set Date Range end to <today>",
+        "4. Click Run Report"
       ],
-      "expected_result": "Run Report succeeds; Generated_Report_Table is displayed with sorting and pagination controls and no field-level date validation error is shown for Date_From/Date_To",
+      "expected_result": "Form submission succeeds; Report_Results_Table renders successfully and displays results for the single-day range; pagination and output option controls are visible.",
       "priority": "medium"
     },
     {
       "tc_id": "E-002",
+      "wf_ref": "WF-001",
       "subcategory": "boundary",
-      "test_case": "Date_From one day after Date_To is blocked",
+      "test_case": "Single-day Date Range in the past (start = end = <yesterday>)",
       "preconditions": [
-        "User is on the Reports page",
-        "A report row is available"
+        "User is logged in and on the Reports page",
+        "All tab is visible"
       ],
       "steps": [
-        "1. Click the report row's 'Open Parameters' action to open Parameters_Form",
-        "2. Enter <one day after <Date_To>> in Date_From",
-        "3. Enter <selected date> in Date_To",
-        "4. Click the 'Run Report' button"
+        "1. Click the Name link for any report in the All tab",
+        "2. In the opened Report Parameters Form, set Date Range start to <yesterday>",
+        "3. Set Date Range end to <yesterday>",
+        "4. Click Run Report"
       ],
-      "expected_result": "Run Report is blocked; an inline validation error is shown on Date_From or Date_To indicating the start date cannot be after the end date (visible next to the date field) and no Generated_Report_Table is shown",
+      "expected_result": "Form submission succeeds; Report_Results_Table renders successfully and displays results (if any) for the specified past single-day range; pagination and output option controls are visible.",
       "priority": "medium"
     },
     {
       "tc_id": "E-003",
+      "wf_ref": "WF-001",
       "subcategory": "data_edge",
-      "test_case": "Far-future Date_From is accepted or handled without validation error",
+      "test_case": "Far-future Date Range yields zero rows in results table",
       "preconditions": [
-        "User is on the Reports page",
-        "A report row is available"
+        "User is logged in and on the Reports page",
+        "All tab is visible"
       ],
       "steps": [
-        "1. Click the report row's 'Open Parameters' action to open Parameters_Form",
-        "2. Enter <far future date> in Date_From",
-        "3. Optionally enter <far future date> or leave Date_To blank",
-        "4. Click the 'Run Report' button"
+        "1. Click the Name link for any report in the All tab",
+        "2. In the opened Report Parameters Form, set Date Range start to a <far future date>",
+        "3. Set Date Range end to a <far future date> (>= start)",
+        "4. Click Run Report"
       ],
-      "expected_result": "Run Report succeeds; Generated_Report_Table is displayed (may be empty) and no date validation error is shown for the far-future date",
+      "expected_result": "Form submission succeeds; Report_Results_Table renders and displays zero data rows (empty state) for the selected date range; pagination shows no data pages and output option controls remain available but indicate no data to display.",
       "priority": "medium"
     },
     {
       "tc_id": "E-004",
-      "subcategory": "input_edge",
-      "test_case": "Run Report with both Date_From and Date_To left blank",
+      "wf_ref": "WF-001",
+      "subcategory": "interaction_edge",
+      "test_case": "Rapid double-click of Run Report button (prevent duplicate runs)",
       "preconditions": [
-        "User is on the Reports page",
-        "A report row is available"
+        "User is logged in and on the Reports page",
+        "All tab is visible",
+        "Report Parameters Form is open for a chosen report"
       ],
       "steps": [
-        "1. Click the report row's 'Open Parameters' action to open Parameters_Form",
-        "2. Leave Date_From blank",
-        "3. Leave Date_To blank",
-        "4. Click the 'Run Report' button"
+        "1. Set Date Range start to <today> in the Report Parameters Form",
+        "2. Set Date Range end to <today>",
+        "3. Click Run Report",
+        "4. Immediately click Run Report again (within a rapid double-click)",
+        "5. Observe the UI until the report results render or an error appears"
       ],
-      "expected_result": "Run Report succeeds; Generated_Report_Table is displayed (may contain full result set or be empty) and no date-related validation error is shown",
-      "priority": "low"
+      "expected_result": "Second submission attempt is blocked/ignored; only one Report_Results_Table render occurs for the request; the Run Report control shows a transient loading state and does not cause duplicate result tables or duplicate export jobs.",
+      "priority": "medium"
     },
     {
       "tc_id": "E-005",
-      "subcategory": "interaction_edge",
-      "test_case": "Rapid double-click on 'Run Report' should not produce duplicate tables or duplicate processing",
+      "wf_ref": "WF-003",
+      "subcategory": "data_edge",
+      "test_case": "Export to Excel when results table contains zero data rows (far-future date range)",
       "preconditions": [
-        "User is on the Reports page",
-        "Parameters_Form is open for a selected report"
+        "User is logged in and on the Reports page",
+        "All tab is visible",
+        "A report has been run and Report_Results_Table is displayed with zero data rows"
       ],
       "steps": [
-        "1. Ensure Date_From/Date_To (or other parameters) are set or left blank per test intent",
-        "2. Double-click the 'Run Report' button quickly (two clicks within a short interval)"
+        "1. In Report_Results_Table, click the Export to Excel output option",
+        "2. Wait for the file download to be initiated/completed"
       ],
-      "expected_result": "Only one Run Report action is processed; a single Generated_Report_Table appears with sorting and pagination controls (no duplicate tables or duplicate result blocks are shown) and any second click is ignored or the button becomes disabled while processing",
+      "expected_result": "Export to Excel succeeds; a file download is initiated and the downloaded Excel file contains the report header row(s) and zero data rows (no data records).",
       "priority": "medium"
     },
     {
       "tc_id": "E-006",
-      "subcategory": "interaction_edge",
-      "test_case": "Rapid double-click on 'Export to Excel' should initiate only one download",
+      "wf_ref": "WF-001",
+      "subcategory": "input_edge",
+      "test_case": "Run report with all parameter fields left blank (no filters)",
       "preconditions": [
-        "User has successfully run a report and Generated_Report_Table is visible"
+        "User is logged in and on the Reports page",
+        "All tab is visible"
       ],
       "steps": [
-        "1. Click or focus the Generated_Report_Table's 'Export to Excel' action",
-        "2. Double-click the 'Export to Excel' action quickly (two clicks within a short interval)"
+        "1. Click the Name link for any report in the All tab",
+        "2. Do not change any dropdowns or the Date Range (leave all parameters blank)",
+        "3. Click Run Report"
       ],
-      "expected_result": "Only one Excel download is initiated; the UI shows a single download action (the second click is ignored or the export button is disabled) and no duplicate download prompts appear",
-      "priority": "medium"
-    },
-    {
-      "tc_id": "E-007",
-      "subcategory": "interaction_edge",
-      "test_case": "Pressing browser Back immediately after running report returns to blank Parameters_Form and does not auto-create duplicates",
-      "preconditions": [
-        "User is on the Reports page",
-        "Parameters_Form is open and Run Report has been clicked successfully resulting in Generated_Report_Table"
-      ],
-      "steps": [
-        "1. After Generated_Report_Table is displayed, press the browser Back button once"
-      ],
-      "expected_result": "Browser Back returns the user to the Parameters_Form and the form fields are blank (no residual selections); no additional Generated_Report_Table is automatically created by navigating back and there is no duplicate report processing triggered",
-      "priority": "medium"
+      "expected_result": "Form submission succeeds; Report_Results_Table renders with results for the unfiltered report; pagination controls are present (if result count exceeds page size) and output option controls are visible.",
+      "priority": "low"
     }
   ],
   "summary": {
-    "total": 7,
+    "total": 6,
     "boundary": 2,
     "input_edge": 1,
-    "interaction_edge": 3,
+    "interaction_edge": 1,
     "state_edge": 0,
-    "data_edge": 1,
-    "medium_priority": 6,
+    "data_edge": 2,
+    "medium_priority": 5,
     "low_priority": 1
   }
 }

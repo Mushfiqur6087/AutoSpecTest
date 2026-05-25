@@ -1,11 +1,11 @@
 ================================================================================
-DEBUG SESSION STARTED: 2026-05-22T21:31:44.630438
+DEBUG SESSION STARTED: 2026-05-25T15:41:24.136040
 Model: openai/gpt-5-mini
 ================================================================================
 
 
 ------------------------------------------------------------
-[21:31:44] Test-Positive - SYSTEM PROMPT
+[15:41:24] Test-Positive - SYSTEM PROMPT
 ------------------------------------------------------------
 You are an Expert UI Test Case Generator. You receive (1) a UI-AST JSON for one specific module and (2) the original functional description for that module.
 
@@ -24,6 +24,10 @@ Your job is to produce ONLY positive/functional UI test cases — tests where va
 <description>
 {Original functional description text for this module}
 </description>
+
+<workflows>
+{Compact workflow list — one line per workflow, or absent if no workflows were extracted}
+</workflows>
 
 ---
 
@@ -146,6 +150,13 @@ Because you are testing a module in isolation, establish the required entry stat
 **1. Forms & Wizards (`form`, `wizard`):**
 - Generate ONE happy path per distinct success outcome.
 - *Conditional UI Check:* If a toggle/dropdown reveals new mandatory fields (`visible_when`), generate a separate test for that conditional branch.
+- **Wizard step coverage (CRITICAL):** If a wizard has multiple steps and any step beyond Step 1 contains its own named field group (e.g., "Address Details", "Family Members", "Identifiers"), generate ONE dedicated positive TC per such step. The TC must:
+  - Navigate to that specific step (include the preceding steps as preconditions or brief navigation steps)
+  - Fill the fields described for that step (not just pass through)
+  - Assert the step's content is visible/saved on the detail page after final submission
+  - **Do NOT collapse all wizard steps into one happy-path TC** — if Steps 2, 3, and 4 each have their own named section in the spec, they each need their own TC.
+- **Wizard in-step identifiers/duplicates:** If a wizard step allows adding identifiers, documents, or similar entries that have a uniqueness constraint, include a TC for that wizard step that also verifies the constraint (e.g., attempting to add a duplicate Document Type+Key pair inside the wizard). This is a different code path from adding the same post-creation on the detail page.
+- **Action dialogs:** If a `state_bound_action_bar` action opens a dialog with its own `fields{}` (e.g., Activate requires Activation Date, Reject requires Reason), generate ONE positive TC per such action-dialog — distinct from the state-transition TC. The TC fills the dialog field and completes the action.
 
 **2. State Machines (`state_bound_action_bar`):**
 - For each unique action available in a specific state, generate ONE test performing that action.
@@ -200,6 +211,19 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 
 ---
 
+**WORKFLOW COVERAGE OBLIGATION (run before outputting):**
+
+If a `<workflows>` block is present in the input:
+- Your test cases must **collectively cover every workflow** listed.
+- For each `wf_id`, at least one TC must:
+  - Activate the `conditional_branch` (if not null) — i.e. the test must set up the condition described.
+  - Assert the `on_success` as its `expected_result` (verbatim or as the primary basis for the expected result).
+- Add `"wf_ref": "WF-NNN"` to each TC to identify which workflow it covers.
+- If one TC naturally covers multiple workflows (e.g., the base path overlaps), pick the most specific `wf_ref`.
+- If a TC does not map to any workflow (e.g., a navigation-only test), set `"wf_ref": null`.
+
+---
+
 **OUTPUT — JSON only, no prose, no markdown fencing:**
 
 {
@@ -208,6 +232,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
   "test_cases": [
     {
       "tc_id": "P-001",
+      "wf_ref": "WF-001",
       "test_case": "Short descriptive name",
       "preconditions": ["User logged in as <Role>", "<Prerequisite state>"],
       "steps": ["1. Step one", "2. Step two"],
@@ -224,7 +249,7 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
 }
 
 ------------------------------------------------------------
-[21:31:44] Test-Positive - USER PROMPT
+[15:41:24] Test-Positive - USER PROMPT
 ------------------------------------------------------------
 <module_name>Account Statements</module_name>
 
@@ -234,62 +259,64 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
   "components": {
     "Generate_Statement_Form": {
       "type": "form",
-      "constraints": [
-        "If Statement_Period == Custom date range then Start_Date <= End_Date"
-      ],
       "fields": {
         "Statement_Period": {
           "type": "dropdown",
-          "required": false,
+          "required": true,
           "options": [
-            "Month-and-year",
-            "Custom date range"
+            "Month-and-Year",
+            "Custom Date Range"
           ]
         },
-        "Month_Year": {
-          "type": "date",
-          "required": false,
-          "visible_when": "Statement_Period == Month-and-year",
-          "constraints": []
+        "Month_and_Year": {
+          "type": "unspecified",
+          "visible_when": "Statement_Period == Month-and-Year",
+          "required_when": "Statement_Period == Month-and-Year"
         },
         "Start_Date": {
           "type": "date",
-          "required": false,
-          "visible_when": "Statement_Period == Custom date range"
+          "visible_when": "Statement_Period == Custom Date Range",
+          "required_when": "Statement_Period == Custom Date Range"
         },
         "End_Date": {
           "type": "date",
-          "required": false,
-          "visible_when": "Statement_Period == Custom date range"
+          "visible_when": "Statement_Period == Custom Date Range",
+          "required_when": "Statement_Period == Custom Date Range"
         },
         "Account": {
           "type": "dropdown",
-          "required": false
+          "required": true
         }
       },
+      "constraints": [
+        "if Statement_Period == Custom Date Range then Start_Date and End_Date must be present",
+        "Start_Date must be on or before End_Date",
+        "dates must be valid"
+      ],
       "submit_actions": [
         {
           "element_name": "Generate Statement",
           "type": "button",
+          "on_success": "Statement generated successfully.",
+          "on_success_additional": "retrieves relevant transactions",
+          "on_failure": "Unable to generate statement \u2014 please try again later.",
           "constraints": [
-            "validates date fields per form constraints"
-          ],
-          "on_success": "retrieves relevant transactions; displays 'Statement generated successfully.'",
-          "on_failure": "displays 'Unable to generate statement \u2014 please try again later.'"
+            "Account must be selected",
+            "date validation must pass before retrieval"
+          ]
         }
       ]
     },
     "EStatement_Preference_Form": {
       "type": "form",
       "fields": {
-        "Paperless": {
+        "Paperless_OptIn": {
           "type": "checkbox",
           "required": false
         },
         "Email_Address": {
           "type": "email",
-          "required": false,
-          "required_when": "Paperless == true",
+          "required_when": "Paperless_OptIn == true",
           "constraints": [
             "must be a valid email address"
           ]
@@ -299,11 +326,11 @@ If a TC exceeds **15 steps**, split it at the first sub-feature boundary (e.g., 
         {
           "element_name": "Save Preference",
           "type": "button",
-          "constraints": [
-            "if Paperless == true then Email_Address must be valid"
-          ],
           "on_success": "e-Statement preference updated.",
-          "on_failure": "highlights Email_Address field with guidance"
+          "on_failure": "highlights Email_Address with guidance",
+          "constraints": [
+            "if Paperless_OptIn == true then Email_Address must be present and valid"
+          ]
         }
       ]
     }
@@ -317,10 +344,17 @@ The Statements page provides two coordinated forms displayed side by side.The ge
 
 </description>
 
+<workflows>
+WF-001 | Generate Statement — Month-and-Year period | actor: <role> | branch: Statement_Period == Month-and-Year | terminal: Generate Statement | on_success: Statement generated successfully.
+WF-002 | Generate Statement — Custom Date Range period | actor: <role> | branch: Statement_Period == Custom Date Range | terminal: Generate Statement | on_success: Statement generated successfully.
+WF-003 | Save e-Statement Preference — Paperless opt-in (email required) | actor: <role> | branch: Paperless_OptIn == true | terminal: Save Preference | on_success: e-Statement preference updated.
+WF-004 | Save e-Statement Preference — Paperless opt-out (no email required) | actor: <role> | branch: Paperless_OptIn == false | terminal: Save Preference | on_success: e-Statement preference updated.
+</workflows>
+
 IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks, just pure JSON.
 
 ------------------------------------------------------------
-[21:33:45] Test-Positive - LLM RESPONSE
+[15:43:35] Test-Positive - LLM RESPONSE
 ------------------------------------------------------------
 {
   "module": "Account Statements",
@@ -328,77 +362,83 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Generate statement for a selected Month-and-year",
+      "wf_ref": "WF-001",
+      "test_case": "Generate statement for a selected Month-and-Year",
       "preconditions": [
-        "User logged in as <Account holder>",
-        "Account Statements page is open"
+        "User logged in as <role>",
+        "Account Statements page is open",
+        "<Account> has transactions in the selected <Month and Year>"
       ],
       "steps": [
-        "1. In the Generate Statement form, select 'Month-and-year' from the Statement Period dropdown",
-        "2. Enter <month and year> in the Month_Year field",
+        "1. In the Generate Statement form, select 'Month-and-Year' from the Statement Period dropdown",
+        "2. Select <Month and Year> in the Month_and_Year field",
         "3. Select <Account> from the Account dropdown",
         "4. Click the Generate Statement button"
       ],
-      "expected_result": "Transactions table displays only transactions for the selected month; 'Statement generated successfully.' is shown",
+      "expected_result": "Statement generated successfully. The statement view displays a list of transactions for <Account> covering <Month and Year>.",
       "priority": "high"
     },
     {
       "tc_id": "P-002",
-      "test_case": "Generate statement for a Custom date range",
+      "wf_ref": "WF-002",
+      "test_case": "Generate statement for a Custom Date Range",
       "preconditions": [
-        "User logged in as <Account holder>",
-        "Account Statements page is open"
+        "User logged in as <role>",
+        "Account Statements page is open",
+        "<Account> has transactions between the selected <Start Date> and <End Date>"
       ],
       "steps": [
-        "1. In the Generate Statement form, select 'Custom date range' from the Statement Period dropdown",
-        "2. Enter <start date> and <end date> where <start date> <= <end date> in the Start_Date and End_Date fields",
-        "3. Select <Account> from the Account dropdown",
-        "4. Click the Generate Statement button"
+        "1. In the Generate Statement form, select 'Custom Date Range' from the Statement Period dropdown",
+        "2. Enter <Start Date> in the Start_Date field",
+        "3. Enter <End Date> in the End_Date field (on or after <Start Date>)",
+        "4. Select <Account> from the Account dropdown",
+        "5. Click the Generate Statement button"
       ],
-      "expected_result": "Transactions table displays only transactions between the entered <start date> and <end date>; 'Statement generated successfully.' is shown",
+      "expected_result": "Statement generated successfully. The statement view displays a list of transactions for <Account> between <Start Date> and <End Date>.",
       "priority": "high"
     },
     {
       "tc_id": "P-003",
-      "test_case": "Enable paperless statements and save a valid email preference",
+      "wf_ref": "WF-003",
+      "test_case": "Enable paperless e-Statement and save a valid email",
       "preconditions": [
-        "User logged in as <Account holder>",
+        "User logged in as <role>",
         "Account Statements page is open"
       ],
       "steps": [
-        "1. In the E-Statement Preference form, check the Paperless checkbox",
+        "1. In the e-Statement Preference form, check the Paperless_OptIn checkbox",
         "2. Enter <valid email> in the Email_Address field",
         "3. Click the Save Preference button"
       ],
-      "expected_result": "'e-Statement preference updated.' is shown; Paperless checkbox remains checked and the Email Address field shows the entered <valid email>",
-      "priority": "high"
+      "expected_result": "e-Statement preference updated. Paperless opt-in checkbox is checked and Email Address displays <valid email>.",
+      "priority": "medium"
     },
     {
       "tc_id": "P-004",
-      "test_case": "Save preference with Paperless disabled (no email provided)",
+      "wf_ref": "WF-004",
+      "test_case": "Disable paperless e-Statement (opt-out) and save preference",
       "preconditions": [
-        "User logged in as <Account holder>",
+        "User logged in as <role>",
         "Account Statements page is open"
       ],
       "steps": [
-        "1. If the Paperless checkbox is checked, click it to uncheck Paperless",
-        "2. Ensure the Email_Address field is empty",
-        "3. Click the Save Preference button"
+        "1. In the e-Statement Preference form, ensure the Paperless_OptIn checkbox is unchecked",
+        "2. Click the Save Preference button"
       ],
-      "expected_result": "'e-Statement preference updated.' is shown; Paperless checkbox is unchecked and the Email Address field is empty",
+      "expected_result": "e-Statement preference updated. Paperless opt-in checkbox is unchecked.",
       "priority": "medium"
     }
   ],
   "summary": {
     "total": 4,
-    "high_priority": 3,
-    "medium_priority": 1,
+    "high_priority": 2,
+    "medium_priority": 2,
     "low_priority": 0
   }
 }
 
 ------------------------------------------------------------
-[21:33:45] Test-Positive - PARSED JSON
+[15:43:35] Test-Positive - PARSED JSON
 ------------------------------------------------------------
 {
   "module": "Account Statements",
@@ -406,71 +446,77 @@ IMPORTANT: Return your response as valid JSON only. No markdown, no code blocks,
   "test_cases": [
     {
       "tc_id": "P-001",
-      "test_case": "Generate statement for a selected Month-and-year",
+      "wf_ref": "WF-001",
+      "test_case": "Generate statement for a selected Month-and-Year",
       "preconditions": [
-        "User logged in as <Account holder>",
-        "Account Statements page is open"
+        "User logged in as <role>",
+        "Account Statements page is open",
+        "<Account> has transactions in the selected <Month and Year>"
       ],
       "steps": [
-        "1. In the Generate Statement form, select 'Month-and-year' from the Statement Period dropdown",
-        "2. Enter <month and year> in the Month_Year field",
+        "1. In the Generate Statement form, select 'Month-and-Year' from the Statement Period dropdown",
+        "2. Select <Month and Year> in the Month_and_Year field",
         "3. Select <Account> from the Account dropdown",
         "4. Click the Generate Statement button"
       ],
-      "expected_result": "Transactions table displays only transactions for the selected month; 'Statement generated successfully.' is shown",
+      "expected_result": "Statement generated successfully. The statement view displays a list of transactions for <Account> covering <Month and Year>.",
       "priority": "high"
     },
     {
       "tc_id": "P-002",
-      "test_case": "Generate statement for a Custom date range",
+      "wf_ref": "WF-002",
+      "test_case": "Generate statement for a Custom Date Range",
       "preconditions": [
-        "User logged in as <Account holder>",
-        "Account Statements page is open"
+        "User logged in as <role>",
+        "Account Statements page is open",
+        "<Account> has transactions between the selected <Start Date> and <End Date>"
       ],
       "steps": [
-        "1. In the Generate Statement form, select 'Custom date range' from the Statement Period dropdown",
-        "2. Enter <start date> and <end date> where <start date> <= <end date> in the Start_Date and End_Date fields",
-        "3. Select <Account> from the Account dropdown",
-        "4. Click the Generate Statement button"
+        "1. In the Generate Statement form, select 'Custom Date Range' from the Statement Period dropdown",
+        "2. Enter <Start Date> in the Start_Date field",
+        "3. Enter <End Date> in the End_Date field (on or after <Start Date>)",
+        "4. Select <Account> from the Account dropdown",
+        "5. Click the Generate Statement button"
       ],
-      "expected_result": "Transactions table displays only transactions between the entered <start date> and <end date>; 'Statement generated successfully.' is shown",
+      "expected_result": "Statement generated successfully. The statement view displays a list of transactions for <Account> between <Start Date> and <End Date>.",
       "priority": "high"
     },
     {
       "tc_id": "P-003",
-      "test_case": "Enable paperless statements and save a valid email preference",
+      "wf_ref": "WF-003",
+      "test_case": "Enable paperless e-Statement and save a valid email",
       "preconditions": [
-        "User logged in as <Account holder>",
+        "User logged in as <role>",
         "Account Statements page is open"
       ],
       "steps": [
-        "1. In the E-Statement Preference form, check the Paperless checkbox",
+        "1. In the e-Statement Preference form, check the Paperless_OptIn checkbox",
         "2. Enter <valid email> in the Email_Address field",
         "3. Click the Save Preference button"
       ],
-      "expected_result": "'e-Statement preference updated.' is shown; Paperless checkbox remains checked and the Email Address field shows the entered <valid email>",
-      "priority": "high"
+      "expected_result": "e-Statement preference updated. Paperless opt-in checkbox is checked and Email Address displays <valid email>.",
+      "priority": "medium"
     },
     {
       "tc_id": "P-004",
-      "test_case": "Save preference with Paperless disabled (no email provided)",
+      "wf_ref": "WF-004",
+      "test_case": "Disable paperless e-Statement (opt-out) and save preference",
       "preconditions": [
-        "User logged in as <Account holder>",
+        "User logged in as <role>",
         "Account Statements page is open"
       ],
       "steps": [
-        "1. If the Paperless checkbox is checked, click it to uncheck Paperless",
-        "2. Ensure the Email_Address field is empty",
-        "3. Click the Save Preference button"
+        "1. In the e-Statement Preference form, ensure the Paperless_OptIn checkbox is unchecked",
+        "2. Click the Save Preference button"
       ],
-      "expected_result": "'e-Statement preference updated.' is shown; Paperless checkbox is unchecked and the Email Address field is empty",
+      "expected_result": "e-Statement preference updated. Paperless opt-in checkbox is unchecked.",
       "priority": "medium"
     }
   ],
   "summary": {
     "total": 4,
-    "high_priority": 3,
-    "medium_priority": 1,
+    "high_priority": 2,
+    "medium_priority": 2,
     "low_priority": 0
   }
 }
